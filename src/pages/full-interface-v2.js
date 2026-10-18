@@ -56,7 +56,7 @@ ${CHAT_RICH_RENDERER_CSS}
 ${MEL_PAGE_NAME_SHIM}
 ${CHAT_RICH_RENDERER_SOURCE}
 const qs=s=>document.querySelector(s),qsa=s=>[...document.querySelectorAll(s)];
-const titles={overview:['Vue d’ensemble','État réel des briques principales.'],chat:['Conversation','Chat et capacités automatiques.'],skills:['Compétences','CapabilityBus et santé.'],roadmap:['Feuille de route','Toutes les étapes du projet MEL.'],multi:['IA & Développement','Réunion multi-IA et travaux persistants dans une seule surface.'],memory:['Mémoire','Persistance, RAG, import et sauvegarde.'],computer:['Ordinateur','Écran, souris, clavier et applications autorisées.'],terminal:['Terminal MEL','Waveshare, appairage, firmware et état matériel.'],lora:['LoRA UNCENSORED','Kaggle gratuit, checkpoints continus, impact et passage AGENTIC.'],connections:['Connexions','Gmail, Yahoo/Ymail et Pipedream Connect. Microsoft passe par Pipedream.'],diagnostics:['Diagnostic','Contrôles réels avant évolution ou release.']};
+const titles={overview:['Vue d’ensemble','État réel des briques principales.'],chat:['Conversation','Chat et capacités automatiques.'],skills:['Compétences','CapabilityBus et santé.'],roadmap:['Feuille de route','Toutes les étapes du projet MEL.'],multi:['IA & Développement','Réunion multi-IA et travaux persistants dans une seule surface.'],memory:['Mémoire','Persistance, RAG, import et sauvegarde.'],computer:['Ordinateur','Écran, souris, clavier et applications autorisées.'],terminal:['MINI & téléphone','Appairage, mise à jour et état de la MINI et du téléphone.'],lora:['LoRA UNCENSORED','Kaggle gratuit, checkpoints continus, impact et passage AGENTIC.'],connections:['Connexions','Gmail, Yahoo/Ymail et Pipedream Connect. Microsoft passe par Pipedream.'],diagnostics:['Diagnostic','Contrôles réels avant évolution ou release.']};
 const legacyPanelAliases={work:{panel:'multi',mode:'development'}};
 let roadmapCache=null,roadmapCacheAt=0,capabilityCache=null,capabilityCacheAt=0;
 const PANEL_TTL_MS=30000,panelLoadedAt=new Map(),getInflight=new Map();
@@ -492,7 +492,7 @@ qs('#diagAug').onclick=()=>withDiagnosticButton('#diagAug',async()=>{
     qs('#diagAugOut').textContent=!a?'NON ENREGISTRÉ':capabilityFunctional(a)?'OPÉRATIONNEL · '+String(a.health||'HEALTHY'):'NON OPÉRATIONNEL · '+String(a.health||'UNKNOWN')+(a.health_detail?' · '+a.health_detail:'');
   }catch(e){qs('#diagAugOut').textContent='ÉCHEC · '+e.message}
 });
-qs('#multiRun').onclick=async()=>{const input=qs('#multiInput').value.trim();if(!input)return;qs('#multiRun').disabled=true;qs('#multiOut').textContent='Consultation des IA…';try{const d=await jfetch('/api/gen2/augmentio/fanout',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({input,maxCandidates:Number(qs('#multiN').value),teacherReview:qs('#multiTeacher').value==='true'})});qs('#multiOut').textContent=JSON.stringify(d,null,2)}catch(e){qs('#multiOut').textContent='Erreur : '+e.message}finally{qs('#multiRun').disabled=false}};
+qs('#multiRun').onclick=async()=>{const input=qs('#multiInput').value.trim();if(!input){qs('#multiOut').textContent='Écris d’abord la question à soumettre aux IA.';qs('#multiInput').focus();return}qs('#multiRun').disabled=true;qs('#multiOut').textContent='Consultation des IA…';try{const d=await jfetch('/api/gen2/augmentio/fanout',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({input,maxCandidates:Number(qs('#multiN').value),teacherReview:qs('#multiTeacher').value==='true'})});qs('#multiOut').textContent=JSON.stringify(d,null,2)}catch(e){qs('#multiOut').textContent='Erreur : '+e.message}finally{qs('#multiRun').disabled=false}};
 async function loadChatGPTImportStatus(){
   try{
     const d=await jfetch('/api/gen2/import/chatgpt-status');
@@ -1139,7 +1139,7 @@ async function loadFreeLoraStatus(){
 qs('#freeLoraRefresh').onclick=()=>{panelLoadedAt.delete('lora');loadFreeLoraStatus().then(()=>panelLoadedAt.set('lora',Date.now())).catch(()=>{})};
 
 let computerCache={devices:[],selected_id:null,commands:[]};
-function selectedComputer(){const id=qs('#computerSelect')?.value||computerCache.selected_id;return computerCache.devices.find(x=>x.id===id)||computerCache.devices[0]||null}
+function selectedComputer(){const id=qs('#computerSelect')?.value||computerCache?.selected_id;const list=Array.isArray(computerCache?.devices)?computerCache.devices:[];return list.find(x=>x.id===id)||list[0]||null}
 function fmtSeen(ts){if(!ts)return'—';const d=Math.max(0,Date.now()-Number(ts));if(d<15000)return'à l’instant';if(d<60000)return Math.round(d/1000)+' s';if(d<3600000)return Math.round(d/60000)+' min';return new Date(Number(ts)).toLocaleString('fr-FR')}
 function invalidateComputerScreen(img=qs('#computerScreen')){
  if(!img)return;
@@ -1283,8 +1283,8 @@ async function computerCommand(steps,approveSensitive=false){
 }
 qs('#computerRefresh').onclick=()=>loadComputer();
 qs('#computerSelect').onchange=()=>loadComputer();
-qs('#computerHalt').onclick=async()=>{const pc=selectedComputer();if(!pc)return;await jfetch('/api/computer/v1/halt',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({computer_id:pc.id})});await loadComputer()};
-qs('#computerResume').onclick=async()=>{const pc=selectedComputer();if(!pc)return;await jfetch('/api/computer/v1/resume',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({computer_id:pc.id})});await loadComputer()};
+qs('#computerHalt').onclick=async()=>{const out=qs('#computerOut');const pc=selectedComputer();if(!pc){if(out)out.textContent='Aucun ordinateur appairé.';return}try{await jfetch('/api/computer/v1/halt',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({computer_id:pc.id})});if(out)out.textContent='Contrôle arrêté sur '+(pc.name||pc.id)+'.';await loadComputer()}catch(e){if(out)out.textContent='Erreur : '+e.message}};
+qs('#computerResume').onclick=async()=>{const out=qs('#computerOut');const pc=selectedComputer();if(!pc){if(out)out.textContent='Aucun ordinateur appairé.';return}try{await jfetch('/api/computer/v1/resume',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({computer_id:pc.id})});if(out)out.textContent='Contrôle réactivé sur '+(pc.name||pc.id)+'.';await loadComputer()}catch(e){if(out)out.textContent='Erreur : '+e.message}};
 qs('#computerShot').onclick=()=>computerCommand([{action:'screen.capture'}]).catch(e=>qs('#computerOut').textContent='Erreur : '+e.message);
 qsa('[data-pc-app]').forEach(b=>b.onclick=()=>computerCommand([{action:'app.open',app:b.dataset.pcApp}],true).catch(e=>qs('#computerOut').textContent='Erreur : '+e.message));
 qs('#computerType').onclick=()=>{const t=qs('#computerText').value;if(!t)return;computerCommand([{action:'keyboard.type',text:t}],true).catch(e=>qs('#computerOut').textContent='Erreur : '+e.message)};
@@ -1521,7 +1521,7 @@ async function testConnection(provider,connector,button){
 }
 async function saveOAuthApp(provider,button){
   const id=qs('#'+provider+'ClientId'),secret=qs('#'+provider+'ClientSecret');
-  if(!id?.value.trim()||!secret?.value.trim())return;
+  if(!id?.value.trim()||!secret?.value.trim()){const was=button.textContent;button.textContent='Client ID et secret requis';setTimeout(()=>{button.textContent=was},2500);(id?.value.trim()?secret:id)?.focus();return}
   const original=button.textContent;button.disabled=true;button.textContent='Enregistrement…';
   try{
     await jfetch(connectionApi(provider,'save'),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({client_id:id.value.trim(),client_secret:secret.value})});
