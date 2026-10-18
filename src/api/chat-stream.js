@@ -71,8 +71,9 @@ function sseFinishReason(payload) {
 }
 
 // Parcourt un flux SSE (octets) et appelle onText pour chaque morceau de texte.
-export async function readWorkersAiSse(stream, { onText, onFinish, idleTimeoutMs = 0 } = {}) {
+export async function readWorkersAiSse(stream, { onText, onFinish, idleTimeoutMs = 0, firstTextTimeoutMs = 0, hasVisibleText = () => false } = {}) {
   const reader = stream.getReader();
+  const firstTextDeadline = firstTextTimeoutMs > 0 ? Date.now() + firstTextTimeoutMs : 0;
   const decoder = new TextDecoder();
   let buffer = '';
   let finishReason = null;
@@ -94,11 +95,15 @@ export async function readWorkersAiSse(stream, { onText, onFinish, idleTimeoutMs
   try {
     for (;;) {
       let timer;
-      const { value, done } = await (idleTimeoutMs > 0
+      const awaitingVisibleText = firstTextDeadline > 0 && !hasVisibleText();
+      const remainingFirstTextMs = awaitingVisibleText ? firstTextDeadline - Date.now() : Infinity;
+      if (remainingFirstTextMs <= 0) throw Object.assign(new Error('MODEL_NO_VISIBLE_TEXT'), { code:'MODEL_NO_VISIBLE_TEXT' });
+      const waitMs = Math.min(idleTimeoutMs > 0 ? idleTimeoutMs : Infinity, remainingFirstTextMs);
+      const { value, done } = await (Number.isFinite(waitMs)
         ? Promise.race([
             reader.read(),
             new Promise((_, reject) => {
-              timer = setTimeout(() => reject(Object.assign(new Error('MODEL_STREAM_IDLE_TIMEOUT'), { code:'MODEL_STREAM_IDLE_TIMEOUT' })), idleTimeoutMs);
+              timer = setTimeout(() => reject(Object.assign(new Error(awaitingVisibleText && remainingFirstTextMs <= (idleTimeoutMs || Infinity) ? 'MODEL_NO_VISIBLE_TEXT' : 'MODEL_STREAM_IDLE_TIMEOUT'), { code:awaitingVisibleText && remainingFirstTextMs <= (idleTimeoutMs || Infinity) ? 'MODEL_NO_VISIBLE_TEXT' : 'MODEL_STREAM_IDLE_TIMEOUT' })), Math.max(1, waitMs));
             }),
           ]).finally(() => clearTimeout(timer))
         : reader.read());
@@ -252,12 +257,9 @@ export function streamChatResponse({ env, messages, archive = async () => false,
             } else {
               await readWorkersAiSse(source, {
                 idleTimeoutMs: 28000,
-                onText: text => {
-                  if (!fullText && Date.now() - modelAttemptStarted > 28000) {
-                    throw Object.assign(new Error('MODEL_NO_VISIBLE_TEXT'), { code:'MODEL_NO_VISIBLE_TEXT' });
-                  }
-                  emit(filter.push(text));
-                },
+                firstTextTimeoutMs: Math.max(1, 28000 - (Date.now() - modelAttemptStarted)),
+                hasVisibleText: () => Boolean(fullText.trim()),
+                onText: text => emit(filter.push(text)),
                 onFinish: reason => { finishReason = reason; },
               });
             }
