@@ -14,6 +14,9 @@ d1/
 *.swp
 *.sqlite-wal
 *.sqlite-shm
+
+# Cloud Dev Bridge runtime evidence is an artifact, never source.
+/bridge-apply-result.json
 .mel-dev-candidates/
 
 # Historical snapshots belong in Git history/archive refs, not the active tree
