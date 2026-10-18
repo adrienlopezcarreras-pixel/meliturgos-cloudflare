@@ -335,17 +335,21 @@ export async function enqueueSupervisedDevelopmentRequest({
   // existing Worker waitUntil hook to begin the same preflight immediately,
   // while the normal autonomy tick remains the retry path after interruption.
   // Never schedule another Council run for a replayed message.
-  if (typeof waitUntil === 'function' && createdResult.created) {
+  if (typeof waitUntil === 'function') {
     let scheduled = false;
-    try {
-      waitUntil(advance().catch(error => {
-        console.error('[MEL development] queued preflight failed', String(error?.code || error?.message || 'DEVELOPMENT_PREFLIGHT_FAILED'));
-      }));
-      scheduled = true;
-    } catch {
-      // The job is still QUEUED in D1 and remains eligible for the runtime tick.
+    if (createdResult.created) {
+      try {
+        waitUntil(advance().catch(error => {
+          console.error('[MEL development] queued preflight failed', String(error?.code || error?.message || 'DEVELOPMENT_PREFLIGHT_FAILED'));
+        }));
+        scheduled = true;
+      } catch {
+        // The job is still QUEUED in D1 and eligible for the runtime tick.
+      }
     }
-    return { ...publicJob(job, { created:true, teacher:null }), preflight_scheduled: scheduled };
+    // A replay observes the same durable job without launching a second
+    // Council in the request handler or duplicating the scheduled preflight.
+    return { ...publicJob(job, { created:createdResult.created, teacher:null }), preflight_scheduled: scheduled };
   }
 
   job = await advance();
