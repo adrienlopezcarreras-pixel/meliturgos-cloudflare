@@ -480,10 +480,13 @@ export function inferNativeComputerCapability(text) {
   return null;
 }
 
-export async function buildRuntimeCapabilityManifest(runtime) {
+export async function buildRuntimeCapabilityManifest(runtime, { refreshHealth = true } = {}) {
   if (!runtime?.bus) return [];
   let rows = [];
-  try { rows = await runtime.bus.refreshHealthAll(); }
+  // The registry is canonical for discovery; do not health-probe every unrelated
+  // connector before one tool call. CapabilityBus.execute refreshes and validates
+  // the selected capability itself. Full refresh stays available for diagnostics.
+  try { rows = refreshHealth ? await runtime.bus.refreshHealthAll() : runtime.bus.list(); }
   catch { try { rows = runtime.bus.list(); } catch { rows = []; } }
   return rows.map(row => ({
     id: String(row.id),
@@ -1514,10 +1517,12 @@ export async function handleNativeChat(request, env, options = {}) {
     }, { headers:{'cache-control':'no-store'} });
   }
 
-  let capabilityManifest = releaseSmoke || plainChatTurn ? [] : await buildRuntimeCapabilityManifest(runtime);
   const capability = releaseSmoke
     ? inferredCapability
     : (body.capability?.id ? body.capability : inferredCapability);
+  let capabilityManifest = releaseSmoke || plainChatTurn ? [] : await buildRuntimeCapabilityManifest(runtime, {
+    refreshHealth: !capability?.id,
+  });
   const toolResults = [];
   const capabilitiesUsed = [];
   let approvalRequired = null;
