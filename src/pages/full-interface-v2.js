@@ -707,9 +707,12 @@ function activityMarkup(a){
     +(c.launch_approved_sha?'<div class="act-kv">Version autorisée : '+esc(String(c.launch_approved_sha).slice(0,12))+'</div>':''));
   const by=a.counts?.by_status||{};
   const jobsKnown=Array.isArray(a.jobs),fmtN=v=>{const n=finiteMetric(v);return n===null?'—':String(n)};
-  h+=activitySection('Travaux ('+fmtN(a.counts?.active)+' actifs sur '+fmtN(a.counts?.supervised_total)+')',
-    '<div class="act-kv">'+Object.entries(by).map(([k,v])=>esc(k)+' : '+esc(v)).join(' · ')+'</div>'
-    +(!jobsKnown?'<div class="muted">Historique d’activité non chargé.</div>':!a.jobs.length?'<div class="muted">Aucune activité récente observée.</div>':'')+(a.jobs||[]).slice(0,12).map(j=>{
+  const terminalJobs=new Set(['COMPLETED','COMMITTED','CANCELLED','FAILED']);
+  const activeJobs=(a.jobs||[]).filter(j=>!terminalJobs.has(String(j.status||'').toUpperCase()));
+  const historicalJobs=(a.jobs||[]).filter(j=>terminalJobs.has(String(j.status||'').toUpperCase()));
+  const historicalTotal=Object.entries(by).filter(([status])=>terminalJobs.has(status)).reduce((total,[,count])=>total+Number(count||0),0);
+  const visibleCounts=Object.entries(by).filter(([status])=>!terminalJobs.has(status)).map(([status,count])=>esc(status)+' : '+esc(count)).join(' · ');
+  const renderJob=j=>{
       const steps=(j.pipeline||[]).map(s=>'<span class="act-step act-'+esc(s.state)+'" title="'+esc(s.label)+'">'+(s.state==='done'?'✓':s.state==='current'?'▶':s.state==='blocked'?'✕':'·')+' '+esc(s.label)+'</span>').join('');
       return '<details class="act-job"'+(['TEACHER_APPROVED','CLAIMED','APPLIED','TESTING','WAITING_TEACHER','PLANNING'].includes(j.status)?' open':'')+'><summary><b>'+esc(j.roadmap_id||j.id)+'</b> · '+esc(j.status)+' · <span class="muted">'+esc(j.origin)+' · màj '+esc(activityTime(j.updated_at))+'</span></summary>'
         +'<div class="act-kv">'+esc(j.status_text)+'</div>'
@@ -722,7 +725,13 @@ function activityMarkup(a){
         +(j.completion?'<div class="act-kv">Résultat : '+esc(j.completion.status)+(j.completion.sha?' @ '+esc(String(j.completion.sha).slice(0,12)):'')+(j.completion.ci_run_id?' · CI '+esc(j.completion.ci_run_id):'')+'</div>':'')
         +(j.diagnostics||[]).map(d=>'<div class="act-kv act-warn">Diagnostic : '+esc(d)+'</div>').join('')
         +(j.error?'<div class="act-kv act-bad">Erreur : '+esc(j.error)+'</div>':'')
-        +'<div class="act-kv muted">'+esc(j.id)+' · créé '+esc(activityTime(j.created_at))+(j.idle_minutes!=null?' · sans changement depuis '+esc(j.idle_minutes)+' min':'')+'</div></details>'}).join(''));
+        +'<div class="act-kv muted">'+esc(j.id)+' · créé '+esc(activityTime(j.created_at))+(j.idle_minutes!=null?' · sans changement depuis '+esc(j.idle_minutes)+' min':'')+'</div></details>';
+  };
+  h+=activitySection('Travaux en cours ('+fmtN(a.counts?.active)+')',
+    (visibleCounts?'<div class="act-kv">'+visibleCounts+'</div>':'')
+    +(!jobsKnown?'<div class="muted">Liste des travaux indisponible.</div>':!activeJobs.length?'<div class="muted">Aucun travail en cours.</div>':'')
+    +activeJobs.slice(0,20).map(renderJob).join('')
+    +(historicalTotal?'<details class="act-job"><summary>Historique terminé ou en échec ('+esc(historicalTotal)+') — conservé dans D1</summary><div class="act-kv">'+Object.entries(by).filter(([status])=>terminalJobs.has(status)).map(([status,count])=>esc(status)+' : '+esc(count)).join(' · ')+'</div>'+historicalJobs.slice(0,8).map(renderJob).join('')+'</details>':''));
   h+=activitySection('Journal (ledger d’évolution)',(a.timeline||[]).slice(0,30).map(e=>'<div class="act-ev"><span class="muted">'+esc(activityTime(e.at))+'</span> <b>'+esc(e.stage_text)+'</b> · '+esc(e.status||'')+' · '+esc(e.evolution_id||'')+(e.repeat>1?' <span class="muted">×'+esc(e.repeat)+'</span>':'')+(e.detail?'<div class="muted">'+esc(e.detail)+'</div>':'')+'</div>').join('')||'<div class="muted">Aucun événement.</div>');
   h+=activitySection('Pont cloud et workflows lancés',
     (a.cloud_bridge_dispatches||[]).map(d=>'<div class="act-ev"><span class="muted">'+esc(activityTime(d.at))+'</span> Pont cloud demandé pour <b>'+esc(d.job_id)+'</b> · '+esc(d.status)+'</div>').join('')
