@@ -493,7 +493,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     owner_max_applied: true,
     owner_max_sweep: ownerMaxSweep,
     owner_max_bypassed_stage: 'WAITING_TEACHER',
-    production_release_allowed: control.max_autonomy === true,
+    production_release_allowed: false, // MAX approves candidate development, never production release.
   };
 }
 
