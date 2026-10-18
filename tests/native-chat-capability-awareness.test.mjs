@@ -211,3 +211,15 @@ test('without AI a failed tool remains failed, and ordinary chat still requires 
   assert.equal(plain.payload.code,'AI_BINDING_MISSING');
   assert.equal(plain.payload.tool_results,undefined);
 });
+
+
+test('direct tool discovery never scans health of all unrelated connectors', async () => {
+  const calls=[];
+  const manifest=await buildRuntimeCapabilityManifest({bus:{
+    list(){calls.push('list');return [{id:'echo',enabled:true,health:'HEALTHY',risk:'LOW',permissions:[]}];},
+    refreshHealthAll(){calls.push('refresh-all');throw new Error('unrelated external health call');},
+  }},{refreshHealth:false});
+  assert.deepEqual(calls,['list']);
+  assert.equal(manifest[0].id,'echo');
+  assert.equal(manifest[0].tested_now,false);
+});
