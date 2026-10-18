@@ -409,6 +409,21 @@ export function inferNativeExecutionCapability(text, recent = []) {
   const globalStress = /\b(?:stress\s*test|stresstest|stress-test|audit(?:e|er)?\s+(?:global|complet|toutes?\s+(?:tes|les)\s+capacites)|test(?:e|er)?\s+toutes?\s+(?:tes|les)\s+capacites|verifi(?:e|er)\s+que\s+tout\s+fonctionne|verifi(?:e|er)\s+toutes?\s+(?:tes|les)\s+capacites)\b/.test(normalized);
   if (!globalStress) return null;
 
+  // A full audit with Council/repair is supervised work, not just the
+  // read-only capability inventory. Reuse the existing WEEKLY supervisor:
+  // it starts or resumes the durable stress job, evaluates failures via
+  // Council, and keeps repair gated by the current production/MAX controls.
+  // A standalone stress request continues through capability.audit.
+  const supervisedAudit = /\\baudit(?:e|er)?\\s+(?:complet|global)\\b/.test(normalized)
+    && /\\b(?:council|correction(?:s)?|corrig(?:e|er)|repar(?:e|er)|stress\\s*test|stress-test|stresstest)\\b/.test(normalized);
+  if (supervisedAudit) {
+    return {
+      id: 'self.audit.run',
+      input: { level: 'WEEKLY' },
+      execution_intent: 'SUPERVISED_FULL_AUDIT',
+    };
+  }
+
   return {
     id: 'capability.audit',
     input: { deep: true },
