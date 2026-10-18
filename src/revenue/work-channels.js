@@ -88,14 +88,14 @@ export async function serveWorkImage(request, env) {
 
 // ---- dev.to ----------------------------------------------------------------
 
-export async function publishDevto(env, { title, markdown, tags = [], imageUrl = null, english = true }, { vaults, fetchImpl = fetch } = {}) {
+export async function publishDevto(env, { title, markdown, tags = [], imageUrl = null, english = true, missionDisclosure = null }, { vaults, fetchImpl = fetch } = {}) {
   const cred = await credential(env, 'devto', vaults);
   if (!cred?.access_token) throw new Error('DEVTO_NOT_CONFIGURED');
   const disclosure = english ? WORK_DISCLOSURE_EN : WORK_DISCLOSURE_FR;
   const body = {
     article: {
       title: String(title || 'MEL').slice(0, 120),
-      body_markdown: String(markdown || '').trim() + '\n\n---\n*' + disclosure + '*\n',
+      body_markdown: String(markdown || '').trim() + '\n\n---\n' + (missionDisclosure && !String(markdown || '').includes(missionDisclosure) ? '*' + missionDisclosure + '*\n\n' : '') + '*' + disclosure + '*\n',
       published: true,
       tags: tags.map(t => String(t).toLowerCase().replace(/[^a-z0-9]/g, '')).filter(Boolean).slice(0, 4),
       ...(imageUrl ? { main_image: imageUrl } : {}),
@@ -115,22 +115,23 @@ function utf8Index(text, index) {
   return new TextEncoder().encode(text.slice(0, index)).length;
 }
 
-export function blueskyPostText(summary, link, english = true) {
-  const tag = english ? ' (AI-written, paid task)' : ' (rédigé par une IA, mission rémunérée)';
+export function blueskyPostText(summary, link, english = true, missionDisclosure = null) {
+  // A mission's own required disclosure replaces MEL's default AI tag (both say it is AI work).
+  const tag = missionDisclosure ? ' ' + String(missionDisclosure).slice(0, 120) : (english ? ' (AI-written, paid task)' : ' (rédigé par une IA, mission rémunérée)');
   const room = 300 - link.length - tag.length - 2;
   const chars = Array.from(String(summary || '').replace(/\s+/g, ' ').trim());
   const head = chars.length > room ? chars.slice(0, room - 1).join('') + '…' : chars.join('');
   return head + tag + '\n' + link;
 }
 
-export async function publishBluesky(env, { summary, link, imageBytes = null, imageAlt = '', english = true }, { vaults, fetchImpl = fetch } = {}) {
+export async function publishBluesky(env, { summary, link, imageBytes = null, imageAlt = '', english = true, missionDisclosure = null }, { vaults, fetchImpl = fetch } = {}) {
   const cred = await credential(env, 'bluesky', vaults);
   if (!cred?.access_token || !cred?.handle) throw new Error('BLUESKY_NOT_CONFIGURED');
   const sessionRes = await fetchImpl(PDS + 'com.atproto.server.createSession', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ identifier: cred.handle, password: cred.access_token }) });
   const session = await sessionRes.json().catch(() => ({}));
   if (!sessionRes.ok || !session?.accessJwt || !session?.did) throw new Error('BLUESKY_LOGIN_FAILED_' + sessionRes.status);
   const auth = { authorization: 'Bearer ' + session.accessJwt };
-  const text = blueskyPostText(summary, link, english);
+  const text = blueskyPostText(summary, link, english, missionDisclosure);
   const start = text.lastIndexOf(link);
   const record = {
     $type: 'app.bsky.feed.post',
