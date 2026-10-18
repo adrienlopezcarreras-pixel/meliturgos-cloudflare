@@ -37,6 +37,17 @@ const STALE_TEACHER_APPROVAL_CODES = new Set([
   'TEACHER_APPROVAL_CANDIDATE_BRANCH_REQUIRED',
 ]);
 
+// A diagnostic that has not changed is not rewritten every minute: each
+// rewrite is a D1 write and an evolution-ledger event. Refresh at most hourly.
+const DIAGNOSTIC_REFRESH_MS = 60 * 60 * 1000;
+function sameDiagnostic(previous, next) {
+  if (!previous || typeof previous !== 'object') return false;
+  const age = Date.now() - Date.parse(String(previous.observed_at || ''));
+  if (!(age >= 0 && age < DIAGNOSTIC_REFRESH_MS)) return false;
+  const strip = value => JSON.stringify({ ...value, observed_at: null });
+  return strip(previous) === strip(next);
+}
+
 function safeDiagnosticCode(error, fallback = 'IMPLEMENTATION_PLANNING_FAILED') {
   const raw = String(error?.code || fallback).toUpperCase();
   return /^[A-Z0-9_:-]{1,120}$/.test(raw) ? raw : fallback;
@@ -46,11 +57,13 @@ async function persistImplementationDiagnostic(repository, jobId, diagnostic) {
   const latest = await repository.get(jobId);
   if (!latest) return null;
   const result = latest.result_json && typeof latest.result_json === 'object' ? { ...latest.result_json } : {};
-  result.implementation_planning_diagnostic = {
+  const next = {
     status: diagnostic.status === 'READY' ? 'READY' : 'NOT_READY',
     code: diagnostic.status === 'READY' ? null : safeDiagnosticCode({ code: diagnostic.code }),
     observed_at: new Date().toISOString(),
   };
+  if (sameDiagnostic(result.implementation_planning_diagnostic, next)) return latest;
+  result.implementation_planning_diagnostic = next;
   return repository.update(jobId, { result_json: result });
 }
 
@@ -112,12 +125,14 @@ async function persistBridgePreparationDiagnostic(repository, jobId, diagnostic)
         code: safeDiagnosticCode({ code: row?.error || row?.code }, 'MENTOR_PROPOSAL_REJECTED'),
       }))
     : [];
-  result.bridge_preparation_diagnostic = {
+  const next = {
     status: diagnostic.status === 'READY' ? 'READY' : 'NOT_READY',
     code: diagnostic.status === 'READY' ? null : safeDiagnosticCode({ code: diagnostic.code }, 'BRIDGE_PREPARATION_FAILED'),
     mentor_failure_codes: failures,
     observed_at: new Date().toISOString(),
   };
+  if (sameDiagnostic(result.bridge_preparation_diagnostic, next)) return latest;
+  result.bridge_preparation_diagnostic = next;
   return repository.update(jobId, { result_json: result });
 }
 
