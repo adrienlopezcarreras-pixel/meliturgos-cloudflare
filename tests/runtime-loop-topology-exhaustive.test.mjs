@@ -32,7 +32,11 @@ test('runtime has one canonical scheduler topology with maintenance separated fr
   assert.match(index, /const dailySelfAuditCron = cron === '43 2 \* \* \*'/);
   assert.match(index, /const tasks = dailySelfAuditCron\s*\? \[/);
   assert.match(index, /:\s*maintenanceCron\s*\? \[/);
-  assert.match(index, /:\s*\[\s*runAutonomyRuntimeTick/);
+  // The canonical minute cron resumes existing D1 stress chunks before the
+  // independent autonomy tick. Neither introduces another scheduler.
+  assert.match(index, /:\\s*\\[\\s*runPersistentCapabilityStressResumeTick\\(env, \\{ waitUntil: auditWaitUntil \\}\\)/);
+  assert.match(index, /runPersistentCapabilityStressResumeTick\\(env, \\{ waitUntil: auditWaitUntil \\}\\)\\.catch[\\s\\S]*?runAutonomyRuntimeTick\\(env\\)/);
+  assert.equal((index.match(/runPersistentCapabilityStressResumeTick\\(env, \\{ waitUntil: auditWaitUntil \\}\\)/g) || []).length, 1);
 
   for (const [name,source] of Object.entries({visual,preview,ui,learning})) {
     assert.equal((source.match(/app\.scheduled\(/g) || []).length, 1, name + ' must delegate scheduled exactly once');
