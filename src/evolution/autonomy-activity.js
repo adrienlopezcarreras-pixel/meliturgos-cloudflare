@@ -175,6 +175,8 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
     control: control ? {
       paused: control.paused === true,
       max_autonomy: control.max_autonomy === true,
+      max_remembered: control.max_remembered === true,
+      source: control.source || null,
       status: control.status || null,
       reason: control.reason || null,
       updated_at: control.updated_at || null,

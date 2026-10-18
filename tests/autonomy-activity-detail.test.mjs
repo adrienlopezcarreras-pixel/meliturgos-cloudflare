@@ -56,3 +56,12 @@ test('the Activité panel reads the detailed feed and the top buttons report the
   const api = await readFile(new URL('../src/evolution/autonomy-api.js', import.meta.url), 'utf8');
   assert.match(api, /'\/api\/gen2\/autonomy\/activity'/);
 });
+
+test('header buttons follow the real control state and never act during a release pause', async () => {
+  const page = await readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8');
+  assert.match(page, /'MAX en attente \(pause\)'/);
+  assert.match(page, /max\.disabled=releasePause/);
+  assert.match(page, /pause\.disabled=releasePause/);
+  assert.match(page, /b\.disabled=autonomyControl\.paused===true/);
+  assert.match(page, /setInterval\(\(\)=>\{if\(!document\.hidden\)loadAutonomy\(\)/);
+});

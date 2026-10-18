@@ -625,7 +625,9 @@ function renderAutonomy(state){
   const tripped=watchdog?.tripped===true;
   const badge=qs('#autonomyBadge');
   let badgeText='SUPERVISÉE',badgeKind='warn',modeText='Autonomie supervisée';
-  if(autonomyControl.paused===true){badgeText='PAUSE';modeText='En pause'}
+  const releasePause=autonomyControl.paused===true&&(autonomyControl.reason==='predeploy-release-safety'||/^release-/.test(String(autonomyControl.source||'')));
+  if(releasePause){badgeText='MISE EN PROD';modeText='Pause de mise en production'+(autonomyControl.max_remembered?' · MAX reprend ensuite tout seul':'')}
+  else if(autonomyControl.paused===true){badgeText='PAUSE';modeText='En pause'+(autonomyControl.reason?' · '+autonomyControl.reason:'')}
   else if(maxEnabled&&tripped){badgeText='MAX BLOQUÉ';badgeKind='bad';modeText='MAX 100 % bloqué'}
   else if(maxEnabled&&wdStatus==='ADVANCING'){badgeText='MAX AVANCE';badgeKind='good';modeText='MAX 100 % · progression mesurée'}
   else if(maxEnabled&&wdStatus==='WAITING_EXTERNAL'){badgeText='MAX ATTENTE';modeText='MAX 100 % · attente externe'}
@@ -651,10 +653,12 @@ function renderAutonomy(state){
     :'—';
   const next=state?.next;
   qs('#autonomyNext').textContent=next?.id?(next.id+' · '+next.title):'Aucune nouvelle étape sélectionnée';
-  const max=qs('#melFullMax');if(max){max.classList.toggle('max-active',maxEnabled);max.textContent=maxEnabled?'MAX actif · Arrêter':'Activer MAX 100%';max.title=maxEnabled?'MAX est actif. Cliquer l’arrête.':'MAX est arrêté. Cliquer l’active.';}
-  if(qs('#mobileMaxAutonomy'))qs('#mobileMaxAutonomy').textContent=maxEnabled?'MAX actif · Arrêter':'Activer MAX 100%';
-  const pause=qs('#melFullStop');if(pause)pause.textContent=autonomyControl.paused===true?'Reprendre MEL':'Mettre MEL en pause';
-  const mobilePause=qs('#mobilePauseAutonomy');if(mobilePause)mobilePause.textContent=autonomyControl.paused===true?'Reprendre MEL':'Mettre MEL en pause';
+  const maxWaiting=autonomyControl.paused===true&&autonomyControl.max_remembered===true;const maxLabel=maxEnabled?'MAX actif · Arrêter':maxWaiting?'MAX en attente (pause)':'Activer MAX 100%';const max=qs('#melFullMax');if(max){max.disabled=releasePause;max.classList.toggle('max-active',maxEnabled||maxWaiting);max.textContent=maxLabel;max.title=maxEnabled?'MAX est actif : MEL se développe seule. Cliquer l’arrête.':maxWaiting?'MAX est choisi mais MEL est en pause'+(releasePause?' le temps de la mise en production ; il reprend tout seul.':' ; « Reprendre MEL » le relance.'):'MAX est arrêté. Cliquer l’active.';}
+  if(qs('#mobileMaxAutonomy')){qs('#mobileMaxAutonomy').textContent=maxLabel;qs('#mobileMaxAutonomy').disabled=releasePause}
+  const pause=qs('#melFullStop');if(pause){pause.textContent=releasePause?'Pause de mise en prod…':autonomyControl.paused===true?'Reprendre MEL':'Mettre MEL en pause';pause.disabled=releasePause;pause.title=releasePause?'La mise en production en cours lève cette pause automatiquement.':autonomyControl.paused===true?'Relancer l’autonomie (avec MAX si choisi).':'Arrêter tout développement autonome jusqu’à reprise.';}
+  for(const id of ['#melFullCycle','#mobileStartCycle']){const b=qs(id);if(b){b.disabled=autonomyControl.paused===true;b.title=autonomyControl.paused===true?'MEL est en pause : aucun cycle ne peut s’exécuter.':'Lance tout de suite un cycle (sinon il tourne seul chaque minute).'}}
+  const act=qs('#melFullActivity');if(act)act.title='Tout ce que MEL fait : travaux, étapes, journal, pont cloud, MEL WORK.';const watch=document.querySelector('.canonical-watch-link');if(watch)watch.title='Ce que la veille a trouvé et ce qu’elle propose de développer.';
+  const mobilePause=qs('#mobilePauseAutonomy');if(mobilePause){mobilePause.textContent=releasePause?'Pause de mise en prod…':autonomyControl.paused===true?'Reprendre MEL':'Mettre MEL en pause';mobilePause.disabled=releasePause}
 }
 async function loadAutonomy(){
   try{
@@ -692,7 +696,7 @@ function activitySection(title,body){return '<div class="act-sec"><div class="ac
 function activityMarkup(a){
   if(!a||a.ok!==true)return 'Activité indisponible.';
   const c=a.control||{},wd=a.watchdog||{},wc=wd.counters||{},pc=a.pc_executor,fmtW=v=>{const n=finiteMetric(v);return n===null?'—':String(n)};
-  const mode=c.paused?'⏸ En pause':c.max_autonomy?'⚡ MAX 100 % (auto-développement sans validation humaine)':'Autonomie supervisée (chaque plan attend ta validation)';
+  const mode=c.paused&&(c.reason==='predeploy-release-safety'||/^release-/.test(String(c.source||'')))?'⏸ Pause de mise en production : levée automatiquement après les vérifications'+(c.max_remembered?', puis MAX reprend':''):c.paused?'⏸ En pause'+(c.reason?' ('+c.reason+')':''):c.max_autonomy?'⚡ MAX 100 % (auto-développement sans validation humaine)':'Autonomie supervisée (chaque plan attend ta validation)';
   let h=activitySection('Mode',
     '<div><b>'+esc(mode)+'</b></div>'
     +'<div class="act-kv">Garde-fou de progression : <b>'+esc(wd.status||'—')+'</b>'+(wd.tripped?' · <span class="act-bad">bloqué après '+esc(wd.consecutive_stalls??'?')+' cycles sans progrès</span>':'')+'</div>'
@@ -1582,6 +1586,7 @@ qs('#pipedreamTest').onclick=testPipedream;
 qs('#yahooPipedream').onclick=()=>connectViaPipedream('imap',qs('#yahooPipedream'));
 qsa('[data-pd-connect]').forEach(button=>{if(button.id==='yahooPipedream')return;button.onclick=()=>connectViaPipedream(button.dataset.pdConnect,button)});
 
+setInterval(()=>{if(!document.hidden)loadAutonomy().catch(()=>{})},30000);
 async function boot(){qs('#codeMetric').textContent='MANUEL';qs('#codeSummary').textContent='Test à la demande pour accélérer l’ouverture.';const tasks=await Promise.allSettled([loadDashboardSummary(false),loadAutonomy()]);const dashboard=tasks[0];if(dashboard.status!=='fulfilled'){renderCapabilityOverview(null);renderRoadmapSummary(null);qs('#globalState').textContent='Diagnostic requis';qs('#globalDot').className='dot bad';qs('#healthRows').textContent='Résumé système indisponible.';return}qs('#globalState').textContent='Vérification des capacités…';qs('#globalDot').className='dot warn';loadDashboardSummary(true).catch(()=>{qs('#globalState').textContent='Santé à actualiser';qs('#globalDot').className='dot warn';});}
 
 function toggleLearningDetails(){
