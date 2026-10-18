@@ -32,7 +32,8 @@ function requireVisible(name) {
 }
 
 function cleanScalar(value) {
-  if (value === null || typeof value === 'boolean') return value;
+  if (value === null) return value;
+  if (typeof value === 'boolean') return value ? 1 : 0;
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string' && value.length <= 4096) return value;
   throw d1Error('D1_INVALID_VALUE');
