@@ -71,3 +71,15 @@ test('MINI recovery keeps hardware diagnostics, camera bring-up and Wi-Fi fallba
   assert.match(workflow, /set_cfg_y CONFIG_SCCB_HARDWARE_I2C_PORT0/);
   assert.match(workflow, /set_cfg_n CONFIG_SCCB_HARDWARE_I2C_PORT1/);
 });
+
+test('MINI BLE TTS playback requires a bounded queue with explicit allocation diagnostics', async () => {
+  const runtime = await readFile(
+    new URL('../firmware/waveshare-terminal/main/mel_terminal.cpp', import.meta.url), 'utf8'
+  );
+  assert.match(runtime, /MOBILE_TTS_QUEUE_DEPTH = 6/);
+  assert.match(runtime, /xQueueCreate\(MOBILE_TTS_QUEUE_DEPTH, sizeof\(MobileTtsPacket\)\)/);
+  assert.match(runtime, /xQueueSend\(ctx->queue, &packet, pdMS_TO_TICKS\(1000\)\)/);
+  assert.match(runtime, /TTS playback init: queue=/);
+  assert.match(runtime, /TTS playback task create failed/);
+  assert.doesNotMatch(runtime, /xQueueCreate\(24, sizeof\(MobileTtsPacket\)\)/);
+});
