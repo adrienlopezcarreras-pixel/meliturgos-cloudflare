@@ -149,27 +149,27 @@ async function uploadEncryptedBackupMultipart(sidecar, { objectKey, uploadPath, 
         const partNumber = nextPartNumber++;
         if (partNumber > partCount) return;
         try {
-      const position = (partNumber - 1) * MULTIPART_PART_BYTES;
-      const length = Math.min(MULTIPART_PART_BYTES, info.size - position);
-      const bytes = Buffer.allocUnsafe(length);
-      const { bytesRead } = await fileHandle.read(bytes, 0, length, position);
-      if (bytesRead !== length) throw new Error('BACKUP_MULTIPART_LOCAL_READ_INCOMPLETE');
-      const qs = new URLSearchParams({
-        key: objectKey,
-        upload_id: uploadId,
-        part_number: String(partNumber),
-      });
-      const result = await sidecarJson(sidecar, '/upload/part?' + qs.toString(), {
-        method: 'PUT',
-        headers: { 'content-type': 'application/octet-stream' },
-        body: bytes,
-      }, { attempts: 6 });
-      if (result?.status !== 'BACKUP_MULTIPART_PART_UPLOADED' ||
-          Number(result?.part?.partNumber) !== partNumber || !String(result?.part?.etag || '')) {
-        throw new Error('BACKUP_MULTIPART_PART_NOT_CONFIRMED:' + partNumber);
-      }
-      parts[partNumber - 1] = { partNumber, etag: String(result.part.etag) };
-      reportProgress('encrypted-r2-upload:part', `${partNumber}/${partCount} bytes=${length}`);
+          const position = (partNumber - 1) * MULTIPART_PART_BYTES;
+          const length = Math.min(MULTIPART_PART_BYTES, info.size - position);
+          const bytes = Buffer.allocUnsafe(length);
+          const { bytesRead } = await fileHandle.read(bytes, 0, length, position);
+          if (bytesRead !== length) throw new Error('BACKUP_MULTIPART_LOCAL_READ_INCOMPLETE');
+          const qs = new URLSearchParams({
+            key: objectKey,
+            upload_id: uploadId,
+            part_number: String(partNumber),
+          });
+          const result = await sidecarJson(sidecar, '/upload/part?' + qs.toString(), {
+            method: 'PUT',
+            headers: { 'content-type': 'application/octet-stream' },
+            body: bytes,
+          }, { attempts: 6 });
+          if (result?.status !== 'BACKUP_MULTIPART_PART_UPLOADED' ||
+              Number(result?.part?.partNumber) !== partNumber || !String(result?.part?.etag || '')) {
+            throw new Error('BACKUP_MULTIPART_PART_NOT_CONFIRMED:' + partNumber);
+          }
+          parts[partNumber - 1] = { partNumber, etag: String(result.part.etag) };
+          reportProgress('encrypted-r2-upload:part', `${partNumber}/${partCount} bytes=${length}`);
         } catch (error) {
           firstFailure ??= error;
         }
