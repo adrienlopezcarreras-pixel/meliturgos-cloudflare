@@ -21,12 +21,25 @@ async function executorOnline(db, now) {
   } catch { return false; }
 }
 
+export async function readyJobFromD1(db) {
+  try {
+    return await db.prepare(`SELECT id, status FROM dev_jobs WHERE status='TEACHER_APPROVED'
+      AND json_extract(result_json,'$.bridge_preparation.status')='READY'
+      AND json_extract(result_json,'$.implementation_proposal.status')='READY'
+      ORDER BY updated_at ASC LIMIT 1`).first();
+  } catch { return null; }
+}
+
 export async function maybeDispatchCloudBridge(env, tick, { now = Date.now(), relay = null } = {}) {
   const db = env?.DB;
-  if (!db?.prepare || !tick) return { status: 'SKIPPED_NO_TICK' };
-  const job = tick.job || null;
-  const ready = tick.bridge_preparation?.status === 'READY' && job?.id && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED';
-  if (!ready) return { status: 'SKIPPED_NOT_READY' };
+  if (!db?.prepare) return { status: 'SKIPPED_NO_TICK' };
+  tick = tick || {};
+  // The tick may stop before reporting the package (e.g. no free model for its
+  // runtime proof), so the READY package is also looked up in D1 directly:
+  // applying it needs no model at all.
+  let job = tick.bridge_preparation?.status === 'READY' && String(tick.job?.status || '').toUpperCase() === 'TEACHER_APPROVED' ? tick.job : null;
+  if (!job) job = await readyJobFromD1(db);
+  if (!job?.id) return { status: 'SKIPPED_NOT_READY' };
   if (await executorOnline(db, now)) return { status: 'SKIPPED_LOCAL_EXECUTOR_ONLINE' };
   const key = 'cloud-bridge-dispatch:' + String(job.id).slice(0, 160);
   const last = await db.prepare('SELECT last_seen FROM dev_bridge_state WHERE bridge_id=?').bind(key).first().catch(() => null);

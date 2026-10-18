@@ -68,3 +68,22 @@ test('no dispatch when not ready, PC online, or dispatched recently', async () =
   assert.equal((await maybeDispatchCloudBridge({ DB: fakeDb({ primary: { last_seen: now - 5_000, status: 'ONLINE' } }) }, readyTick, { now, relay })).status, 'SKIPPED_LOCAL_EXECUTOR_ONLINE');
   assert.equal((await maybeDispatchCloudBridge({ DB: fakeDb({ 'cloud-bridge-dispatch:job-1': { last_seen: now - 60_000 } }) }, readyTick, { now, relay })).status, 'SKIPPED_RECENTLY_DISPATCHED');
 });
+
+test('a READY package is dispatched even when the tick stopped before reporting it', async () => {
+  const db = fakeDb();
+  const prepare = db.prepare.bind(db);
+  db.prepare = sql => (/FROM dev_jobs WHERE status='TEACHER_APPROVED'/.test(sql)
+    ? { bind() { return this; }, async first() { return { id: 'job-d1', status: 'TEACHER_APPROVED' }; } }
+    : prepare(sql));
+  const queued = [];
+  const out = await maybeDispatchCloudBridge({ DB: db }, { status: 'NO_PROGRESS', job: { id: 'job-d1', status: 'TEACHER_APPROVED' } }, { now: 5_000_000, relay: { async enqueue(j) { queued.push(j); return { id: 'r2' }; } } });
+  assert.equal(out.status, 'DISPATCH_QUEUED');
+  assert.equal(queued[0].inputs.job_id, 'job-d1');
+});
+
+test('a release pause is explained, and the chosen MAX is said to come back', () => {
+  const text = formatVerifiedAutonomyRuntimeResponse({ status: 'PAUSED', control: { paused: true, max_autonomy: false, max_remembered: true, reason: 'predeploy-release-safety', source: 'release-predeploy-binder' } }, { operation: 'tick' });
+  assert.match(text, /mise en production est en cours/);
+  assert.match(text, /MAX reste choisi et reprendra/);
+  assert.doesNotMatch(text, /MAX est désactivé/);
+});
