@@ -6,7 +6,8 @@ import {
   ECOSYSTEM_WATCH_TARGETS,
   getEcosystemWatchCatalog,
 } from './ecosystem-watch-catalog.js';
-import { planEcosystemDiscoveries, mergeEcosystemDiscoveryLedger, selectEcosystemDiscoveryCandidate, buildEcosystemDiscoveryCandidate, markEcosystemDiscoveryOwnerDecision, markEcosystemDiscoveryHandoff, reconcileEcosystemDiscoveryHandoffs } from './ecosystem-discovery-planner.js';
+import { planEcosystemDiscoveries, mergeEcosystemDiscoveryLedger, selectEcosystemDiscoveryCandidate, buildEcosystemDiscoveryCandidate, markEcosystemDiscoveryOwnerDecision, markEcosystemDiscoveryHandoff, reconcileEcosystemDiscoveryHandoffs, explainDiscovery } from './ecosystem-discovery-planner.js';
+import { workGapDiscoveries } from '../revenue/work-improvement.js';
 import { enqueueSupervisedDevelopmentRequest } from '../evolution/owner-development-queue.js';
 import { prepareAutonomyTeacherRequest } from '../evolution/autonomy-runtime.js';
 import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-mirror.js';
@@ -564,6 +565,9 @@ export async function runEcosystemCapabilityWatch(
       catalog: getEcosystemWatchCatalog(),
       capabilities: runtime.bus.list(),
     });
+    // Paid offers MEL had to skip join the same pipeline, justified by their USDC.
+    const workItems = await workGapDiscoveries({ db: env.DB, capabilities: runtime.bus.list(), now }).catch(() => []);
+    if (workItems.length) discoveryPlan = { ...discoveryPlan, items: [...discoveryPlan.items, ...workItems] };
     discoveryLedger = mergeEcosystemDiscoveryLedger(discoveryLedger, discoveryPlan, now);
     await discoveryStore.save(discoveryLedger);
   }
@@ -711,10 +715,14 @@ export async function getEcosystemCapabilityWatchStatus(env) {
     discoveries = reconciled.ledger;
     await discoveryStore.save(discoveries);
   }
+  // Each proposal carries its justification and its comparison with what exists.
+  const explained = discoveries && Array.isArray(discoveries.items)
+    ? { ...discoveries, items: discoveries.items.map(item => ({ ...item, rationale: explainDiscovery(item) })) }
+    : discoveries;
   return {
     ok: true,
     catalog: getEcosystemWatchCatalog(),
     state,
-    discoveries,
+    discoveries: explained,
   };
 }

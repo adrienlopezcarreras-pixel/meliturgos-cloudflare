@@ -21,6 +21,7 @@ import { queueTaskmarketSubmission } from './taskmarket-autosubmit.js';
 import { publishWork, extractHtmlDocument } from './work-publish.js';
 import { channelStatus, generateWorkImage, publishDevto, publishBluesky } from './work-channels.js';
 import { recentLessons, lessonsBlock } from './work-lessons.js';
+import { recordWorkRejection } from './work-improvement.js';
 
 // Strongest free model first (gpt-oss-120b), llama-3.3-70b as fallback.
 export const WORK_MODELS = Object.freeze(['@cf/openai/gpt-oss-120b', '@cf/meta/llama-3.3-70b-instruct-fp8-fast']);
@@ -65,11 +66,12 @@ const ASSESS_SYSTEM = [
   'CE QUE MEL NE PEUT PAS FAIRE : publier avec le compte personnel de quelqu’un sur un réseau social ou une plateforme tierce (X, Medium, Discord, GitHub d’autrui…), produire une vidéo ou un enregistrement audio, déployer sur une infrastructure qui n’est pas la sienne, signer une transaction, fournir une identité ou un KYC, agir dans le monde physique.',
   'Réponds UNIQUEMENT par un objet JSON :',
   'Les canaux de publication réellement disponibles pour MEL sont donnés dans le message (ses propres comptes). Si l’offre accepte un de ces canaux (« Medium ou dev.to », « X ou Bluesky »…), la publication n’exige PAS d’humain. Une image demandée peut être générée par MEL si « image » est disponible.',
-  '{"eligible":bool,"confidenceBps":0-10000,"category":"…","deliverable":"text|code|html","needsPublicUrl":bool,"publishTargets":["devto|bluesky|mel_page"],"needsImage":bool,"language":"en|fr","requiresHuman":bool,"requiresPhysicalWorld":bool,"requiresSecrets":bool,"requestsUnsafeAction":bool,"reason":"…"}',
+  '{"eligible":bool,"confidenceBps":0-10000,"category":"…","deliverable":"text|code|html","needsPublicUrl":bool,"publishTargets":["devto|bluesky|mel_page"],"needsImage":bool,"language":"en|fr","requiresHuman":bool,"requiresPhysicalWorld":bool,"requiresSecrets":bool,"requestsUnsafeAction":bool,"missingCapability":"…","reason":"…"}',
   'eligible = MEL peut produire et remettre un livrable qui répond vraiment à l’offre. deliverable = forme du livrable. needsPublicUrl = l’offre demande un lien public (MEL le fournit elle-même avec sa page publique).',
   'requiresHuman = UNIQUEMENT si une étape exige une personne ou un compte qui n’est pas celui de MEL (voir la liste ci-dessus). Écrire du code, créer une page ou publier sur le site de MEL ne demande PAS d’humain.',
   'requiresSecrets = clés privées, mots de passe, KYC. requestsUnsafeAction = envoyer des fonds, spam, faux avis, contenu trompeur, violer des règles.',
   'confidenceBps = ta confiance dans cette classification. reason = une phrase en français.',
+  'missingCapability = si MEL ne peut pas faire l’offre seule, la capacité précise qui lui manque, en identifiant court (ex. video.generate, audio.voice, x.post, browser.signup) ; vide si elle peut la faire ou si l’offre est dangereuse.',
   'MEL travaille sans aucune validation humaine : une offre qui demande la moindre intervention humaine est écartée (eligible=false).',
 ].join('\n');
 
@@ -112,6 +114,7 @@ export function createWorkAssessor({ env, models = WORK_MODELS, channels = null,
       language: parsed.language === 'fr' ? 'fr' : 'en',
       requiresHuman: bool('requiresHuman'), requiresPhysicalWorld: bool('requiresPhysicalWorld'),
       requiresSecrets: parsed.requiresSecrets !== false, requestsUnsafeAction: parsed.requestsUnsafeAction !== false,
+      missingCapability: String(parsed.missingCapability || '').slice(0, 60),
       reason: String(parsed.reason || '').slice(0, 300),
     };
   };
@@ -263,6 +266,9 @@ export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(
           step('Évaluation : « ' + title(mission) + ' » · ' + usdc(mission.reward) + ' · ' + Number(mission.submissionCount || 0) + ' concurrent(s)…');
           try {
             const verdict = await assessor({ mission });
+            const skipped = verdict.eligible !== true || verdict.requiresHuman || verdict.requiresPhysicalWorld || verdict.requiresSecrets;
+            // A paid offer MEL could not take tells her what to develop next.
+            if (skipped && !verdict.requestsUnsafeAction) await recordWorkRejection(env.DB, mission, verdict, { now: now() });
             step((verdict.eligible ? '→ faisable seule' : '→ écartée') + ' (confiance ' + Math.round(verdict.confidenceBps / 100) + ' %)' + (verdict.reason ? ' : ' + verdict.reason : ''));
             return verdict;
           } catch (error) { step('→ évaluation illisible, offre suivante'); throw error; }
