@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { stripLegacyNormalVisualLayers } from '../src/professor-live-learning-entry.js';
-import { enhanceThemeAvatars } from '../src/pages/theme-avatar-enhancer.js';
 import { BOOTSTRAP_CORRECTIONS } from '../src/learning/bootstrap-corrections.js';
 
 test('shared candidate workflows enforce canonical full CI on every candidate push', async () => {
@@ -21,26 +20,6 @@ test('shared candidate workflows enforce canonical full CI on every candidate pu
   assert.doesNotMatch(teacher, /candidate\/mel-ui-selfaware-integration/);
 });
 
-test('normal surface strips retired visual layers and legacy enhancer stays transparent', async () => {
-  const html = `<!doctype html><html data-theme="classic"><head>
-    <style id="mel-owner-visual-fix">.legacy-a{display:block}</style>
-    <style id="mel-new-hd-scenes">.legacy-b{display:block}</style>
-  </head><body>
-    <div id="avatar" class="avatar"><img src="/legacy.webp"></div>
-    <button data-theme-choice="classic">Classic</button>
-    <script id="mel-normal-page-cleanup">window.functionalCleanup=true;</script>
-    <script id="mel-normal-release-runtime">window.legacyVisual=true;</script>
-  </body></html>`;
-  const stripped = await stripLegacyNormalVisualLayers(new Response(html, { headers: { 'content-type': 'text/html' } }));
-  const themed = await enhanceThemeAvatars(stripped);
-  assert.equal(themed, stripped);
-  const body = await themed.text();
-  assert.doesNotMatch(body, /mel-owner-visual-fix/);
-  assert.doesNotMatch(body, /mel-new-hd-scenes/);
-  assert.doesNotMatch(body, /mel-normal-release-runtime/);
-  assert.match(body, /mel-normal-page-cleanup/);
-  assert.doesNotMatch(body, /mel-theme-avatar-runtime/);
-});
 
 test('MEL durable learning contains the canonical cleanup and handoff lesson', () => {
   const lesson = BOOTSTRAP_CORRECTIONS.find(row => row.id === 'bootstrap-canonical-cleanup-handoff-20260916');

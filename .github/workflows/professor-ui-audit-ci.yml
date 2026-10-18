@@ -7,7 +7,6 @@ on:
       - "src/pages/mvp-interface-v3.js"
       - "src/pages/mvp-runtime.js"
       - "src/pages/chat-rich-renderer.js"
-      - "src/pages/full-mode-control-enhancer.js"
       - "src/api/response-quality.js"
       - "src/api/response-grounding.js"
       - "src/identity/mel-operating-manual.js"

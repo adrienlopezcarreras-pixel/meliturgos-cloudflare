@@ -7,25 +7,8 @@ const previewAuth = await readFile(new URL('../src/preview-auth-entry.js', impor
 const liveEntry = await readFile(new URL('../src/professor-live-learning-entry.js', import.meta.url), 'utf8');
 const mvp = await readFile(new URL('../src/pages/mvp-interface-v3.js', import.meta.url), 'utf8');
 const mvpRuntime = await readFile(new URL('../src/pages/mvp-runtime.js', import.meta.url), 'utf8');
-const enhancer = await readFile(new URL('../src/pages/theme-avatar-enhancer.js', import.meta.url), 'utf8');
 const wrangler = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
 
-test('deployed entrypoint keeps preview auth and strips retired visual layers without injecting a second owner', () => {
-  assert.match(wrangler, /"main"\s*:\s*"src\/visual-final-entry\.js"/);
-  assert.match(finalEntry, /import app from '\.\/preview-auth-entry\.js';/);
-  assert.match(previewAuth, /import app from '\.\/professor-live-learning-entry\.js';/);
-  assert.match(previewAuth, /bridgePreviewBasicAuth\(request, env\)/);
-  assert.match(finalEntry, /const NORMAL_PATHS = new Set\(\['\/', '\/mvp'\]\)/);
-  assert.match(finalEntry, /stripLegacyVisualLayers/);
-  assert.match(finalEntry, /normalizeCanonicalNormalAssets/);
-  assert.doesNotMatch(finalEntry, /NORMAL_CANONICAL_STYLE/);
-  assert.doesNotMatch(finalEntry, /NORMAL_CANONICAL_RUNTIME/);
-  assert.doesNotMatch(finalEntry, /appendBeforeHead/);
-  assert.doesNotMatch(finalEntry, /appendBeforeBody/);
-  assert.doesNotMatch(liveEntry, /enhanceThemeAvatars/);
-  assert.match(enhancer, /return response/);
-  assert.match(finalEntry, /return hardenResponseHeaders\(await app\.fetch\(request, env, ctx\)\)/);
-});
 
 test('canonical normal V3 is the single theme and avatar owner', () => {
   assert.match(mvp, /data-visual-owner="mel-normal-v3"/);

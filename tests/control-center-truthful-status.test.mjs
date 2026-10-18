@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import router from '../src/router.js';
 import { onRequestGet as renderFullMode } from '../src/pages/full-interface-v2.js';
-import { FULL_MODE_CONTROL_PATCH } from '../src/pages/full-mode-control-enhancer.js';
 
 const auth='Basic '+Buffer.from('adrien:test').toString('base64');
 
@@ -66,16 +65,6 @@ test('control center never turns missing dashboard metrics into truthful-looking
   assert.doesNotMatch(runtime,/Number\(caps\.active\|\|0\)/);
 });
 
-test('activity panel distinguishes unloaded state from an observed empty state',()=>{
-  assert.match(FULL_MODE_CONTROL_PATCH,/function metricValue\(value\)/);
-  assert.match(FULL_MODE_CONTROL_PATCH,/État des travaux non chargé/);
-  assert.match(FULL_MODE_CONTROL_PATCH,/Journal non chargé\. Actualise pour vérifier les traces récentes\./);
-  assert.match(FULL_MODE_CONTROL_PATCH,/renderActivity\(state,null\)/);
-  assert.doesNotMatch(FULL_MODE_CONTROL_PATCH,/c\.active\|\|0/);
-  assert.doesNotMatch(FULL_MODE_CONTROL_PATCH,/c\.completed\|\|0/);
-  assert.doesNotMatch(FULL_MODE_CONTROL_PATCH,/c\.failed\|\|0/);
-  assert.doesNotMatch(FULL_MODE_CONTROL_PATCH,/renderActivity\(state,\{events:\[\],deployment:null\}\)/);
-});
 
 
 test('activity and learning cards keep missing evidence unknown instead of inventing zero', async()=>{

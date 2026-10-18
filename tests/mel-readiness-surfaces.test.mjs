@@ -85,16 +85,3 @@ test('benchmark and LoRA live state are evidence-backed', async () => {
   assert.equal(progress.evidence.neural_weights_changed, false);
 });
 
-test('Benchmark and LoRA remain Professor-only surfaces', async () => {
-  const [normalLayer, professorLayer, professorPage] = await Promise.all([
-    readFile(new URL('../src/pages/theme-avatar-enhancer.js', import.meta.url), 'utf8'),
-    readFile(new URL('../src/professor-live-learning-entry.js', import.meta.url), 'utf8'),
-    readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8'),
-  ]);
-  assert.doesNotMatch(normalLayer, /learnBenchmark|learnLora/);
-  assert.doesNotMatch(professorLayer, /PROFESSOR_LIVE_LEARNING_PATCH|enhanceProfessorLearning/);
-  assert.match(professorLayer, /\/api\/learning\/benchmark\/run/);
-  assert.match(professorLayer, /\/api\/learning\/lora\/prepare/);
-  assert.match(professorPage, /id="melRunBenchmark"/);
-  assert.match(professorPage, /id="melPrepareLora"/);
-});

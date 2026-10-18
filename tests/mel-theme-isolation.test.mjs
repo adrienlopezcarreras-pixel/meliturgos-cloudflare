@@ -2,8 +2,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { onRequestGet as normalMvp } from '../src/pages/mvp-interface-v3.js';
 import { onRequestGet as professorPage } from '../src/pages/full-interface-v2.js';
-import { enhanceThemeAvatars } from '../src/pages/theme-avatar-enhancer.js';
-import { applyMelThemeBackgrounds } from '../src/pages/mel-theme-backgrounds.js';
 import { NORMAL_RUNTIME_SOURCE } from '../src/pages/mvp-runtime.js';
 
 const expectedThemes = ['classic','granada','guadix','crusade','aviation','amazon','paladin','futuristic'];
@@ -51,9 +49,3 @@ test('Professor mode remains theme-free', async () => {
   assert.match(html, /Mode complet/);
 });
 
-test('retired visual injectors are transparent compatibility shims', async () => {
-  const a = new Response('<html><body>normal</body></html>', { headers: { 'content-type': 'text/html' } });
-  const b = new Response('<html><body>professor</body></html>', { headers: { 'content-type': 'text/html' } });
-  assert.equal(await enhanceThemeAvatars(a), a);
-  assert.equal(await applyMelThemeBackgrounds(b), b);
-});

@@ -1,9 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { getMelAvatarRoute } from '../src/pages/mel-avatar-assets.js';
 import { readFile } from 'node:fs/promises';
-import { enhanceThemeAvatars } from '../src/pages/theme-avatar-enhancer.js';
 import { onRequestGet as renderNormalMode } from '../src/pages/mvp-interface-v3.js';
 
 const AVATARS = [
@@ -17,15 +15,6 @@ const AVATARS = [
   ['futuristic', '/assets/avatars/mel-full.webp', 'avatarFuturistic'],
 ];
 
-test('each MEL visual mode resolves to its clean Static Asset route', async () => {
-  for (const [theme, path] of AVATARS) {
-    assert.equal(getMelAvatarRoute(theme), path);
-    const bytes = new Uint8Array(await readFile(new URL('../dist' + path, import.meta.url)));
-    assert.ok(bytes.length > 3000);
-    assert.equal(String.fromCharCode(...bytes.slice(0, 4)), 'RIFF');
-    assert.equal(String.fromCharCode(...bytes.slice(8, 12)), 'WEBP');
-  }
-});
 
 test('clean Static Asset portraits remain byte-distinct', async () => {
   const hashes = [];
@@ -36,40 +25,4 @@ test('clean Static Asset portraits remain byte-distinct', async () => {
   assert.equal(new Set(hashes).size, AVATARS.length);
 });
 
-test('legacy theme enhancer stays transparent while canonical normal page owns eight themes', async () => {
-  const source = '<!doctype html><html data-theme="classic"><body><div id="avatar" class="avatar"><img src="/legacy.webp" alt="MEL"></div></body></html>';
-  const original = new Response(source, { headers: { 'content-type': 'text/html; charset=utf-8' } });
-  const enhanced = await enhanceThemeAvatars(original);
-  assert.equal(enhanced, original);
-  assert.equal(await enhanced.text(), source);
 
-  const html = await (await renderNormalMode()).text();
-  assert.match(html, /data-visual-owner="mel-normal-v3"/);
-  assert.match(html, /id="mel-normal-v3-style"/);
-  assert.match(html, /src="\/normal-runtime\.js\?v=9"/);
-  assert.doesNotMatch(html, /mel-theme-avatar-runtime/);
-  assert.doesNotMatch(html, /mel-theme-decor-style/);
-
-  for (const id of ['classic', 'granada', 'guadix', 'crusade', 'aviation', 'amazon', 'paladin', 'futuristic']) {
-    assert.match(html, new RegExp('data-mel-theme-choice="' + id + '"'));
-  }
-  assert.equal((html.match(/data-mel-theme-choice=/g) || []).length, 8);
-
-  for (const [, path] of AVATARS) assert.ok(html.includes(path), 'missing avatar route: ' + path);
-
-  assert.match(html, /object-fit:cover/);
-  assert.match(html, /transform:none/);
-  assert.match(html, /clip-path:circle\(50%\)/);
-  assert.match(html, /maxlength="100000"/);
-});
-
-test('theme enhancer ignores unrelated HTML and non-HTML responses', async () => {
-  const unrelated = new Response('<html><body><div id="avatar"></div></body></html>', { headers: { 'content-type': 'text/html' } });
-  const unchanged = await enhanceThemeAvatars(unrelated);
-  assert.equal(unchanged, unrelated);
-  assert.doesNotMatch(await unchanged.text(), /mel-theme-avatar-runtime/);
-
-  const original = Response.json({ ok: true });
-  const enhanced = await enhanceThemeAvatars(original);
-  assert.equal(enhanced, original);
-});

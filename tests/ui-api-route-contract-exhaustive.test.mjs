@@ -5,7 +5,6 @@ import { readFile } from 'node:fs/promises';
 const CLIENT_FILES = [
   '../src/pages/mvp-runtime.js',
   '../src/pages/full-interface-v2.js',
-  '../src/pages/full-mode-control-enhancer.js',
   '../src/pages/watch-interface.js',
   '../src/pages/fides-guest-page.js',
   '../src/pages/public-wordpress-chat-page.js',

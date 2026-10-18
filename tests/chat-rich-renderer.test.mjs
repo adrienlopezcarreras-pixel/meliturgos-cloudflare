@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { CHAT_RICH_RENDERER_SOURCE, CHAT_RICH_RENDERER_CSS } from '../src/pages/chat-rich-renderer.js';
 import { NORMAL_RUNTIME_SOURCE } from '../src/pages/mvp-runtime.js';
-import { FULL_MODE_CONTROL_PATCH } from '../src/pages/full-mode-control-enhancer.js';
 import { onRequestGet as normalPage } from '../src/pages/mvp-interface-v3.js';
 
 function render(markdown) {
@@ -82,12 +81,6 @@ test('normal chat runtime renders only MEL messages as rich text', () => {
   assert.match(NORMAL_RUNTIME_SOURCE, /else melRenderRichText\(c,String\(text\?\?''\)\)/);
 });
 
-test('full mode enhancer richifies current and future MEL bubbles', () => {
-  assert.match(FULL_MODE_CONTROL_PATCH, /window\.melRenderRichText=renderRichText/);
-  assert.match(FULL_MODE_CONTROL_PATCH, /MutationObserver/);
-  assert.match(FULL_MODE_CONTROL_PATCH, /#chatlog \.msg\.mel:not\(\[data-rich-rendered="true"\]\)/);
-  assert.match(FULL_MODE_CONTROL_PATCH, /installRichChatRendering\(\)/);
-});
 
 test('normal page ships shared rich response styles', async () => {
   const response = await normalPage();

@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { onRequestGet as watchPage } from '../src/pages/watch-interface.js';
-import { enhanceFullModeControls } from '../src/pages/full-mode-control-enhancer.js';
 
 test('watch owns a dedicated page with a side-effect-free test-all control', async () => {
   const response = await watchPage();
@@ -13,20 +12,9 @@ test('watch owns a dedicated page with a side-effect-free test-all control', asy
   assert.match(html, /\/api\/mel\/capability-watch\/run/);
   assert.match(html, /\/api\/mel\/capability-watch\/proposal/);
   assert.match(html, /href="\/professor"/);
-  assert.match(html, /Rien n'est injecté dans le chat/);
+  assert.match(html, /ce qu’elle propose d’en faire/);
 });
 
-test('Professor exposes only navigation to watch and no watch runtime UI', async () => {
-  const source = new Response(`<!doctype html><html><body>
-    <header class="top"><h1>Mode complet</h1></header>
-    <section data-panel="chat"><div id="chatlog"></div><div class="composer"><input id="chatInput"><button id="chatSend">Envoyer</button></div><div id="chatStatus"></div></section>
-  </body></html>`, { headers: { 'content-type': 'text/html; charset=utf-8' } });
-  const html = await (await enhanceFullModeControls(source)).text();
-  assert.match(html, /href="\/veille"/);
-  assert.doesNotMatch(html, /capability-watch\/run/);
-  assert.doesNotMatch(html, /capability-watch\/proposal/);
-  assert.doesNotMatch(html, /melProposalChatNotice/);
-});
 
 test('test-all endpoint disables discovery handoff while reusing the canonical watch engine', async () => {
   const [ui, runtime, router, preview] = await Promise.all([

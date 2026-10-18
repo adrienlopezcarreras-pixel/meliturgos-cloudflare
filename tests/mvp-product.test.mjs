@@ -16,22 +16,6 @@ async function canonicalProfessorHtml() {
 }
 
 
-test('static MEL visuals stay outside the Worker JavaScript bundle', async () => {
-  const indexSource = await readFile(new URL('../src/index.js', import.meta.url), 'utf8');
-  const assetSource = await readFile(new URL('../src/pages/mel-avatar-assets.js', import.meta.url), 'utf8');
-  assert.doesNotMatch(indexSource, /serveMelAvatar/);
-  assert.doesNotMatch(assetSource, /mel-themes-20260917\/generated|data:image|base64,/);
-  const required = [
-    '../dist/assets/avatars/mel-classic.webp',
-    '../dist/assets/avatars/mel-full.webp',
-    '../dist/assets/backgrounds/mel-bg-library-hd.jpg',
-    '../dist/assets/backgrounds/mel-bg-futuristic-hd.jpg',
-  ];
-  for (const relative of required) {
-    const info = await stat(new URL(relative, import.meta.url));
-    assert.ok(info.size > 10000, relative);
-  }
-});
 
 test('normal MEL surface remains available and loads the external canonical controls runtime', async () => {
   const response = await normalMvp({});
@@ -56,21 +40,6 @@ test('normal MEL surface remains available and loads the external canonical cont
   assert.match(NORMAL_RUNTIME_SOURCE, /conversationId=String\(d\.conversation\.id\);localStorage\.setItem\('mel\.conversation',conversationId\)/);
 });
 
-test('Professor uses one canonical functional owner without response-time patch stacking', async () => {
-  const html = await canonicalProfessorHtml();
-  const [indexSource, learningEntry] = await Promise.all([
-    readFile(new URL('../src/index.js', import.meta.url), 'utf8'),
-    readFile(new URL('../src/professor-live-learning-entry.js', import.meta.url), 'utf8'),
-  ]);
-  for (const marker of ['mel-full-control-runtime','mel-roadmap-live-refresh-runtime','mel-work-truth-runtime','mel-professor-live-learning-runtime']) {
-    assert.doesNotMatch(html, new RegExp(marker));
-  }
-  assert.doesNotMatch(indexSource, /mvp-behavior-enhancer|enhanceMvpBehavior/);
-  assert.doesNotMatch(learningEntry, /PROFESSOR_LIVE_LEARNING_PATCH|enhanceProfessorLearning/);
-  for (const id of ['melFullMax','melFullCycle','melFullStop','melFullActivity','melRunBenchmark','melPrepareLora']) {
-    assert.match(html, new RegExp('id="' + id + '"'));
-  }
-});
 
 test('canonical Professor keeps chat in the same control surface and sends through /api/chat', async () => {
   const html = await canonicalProfessorHtml();

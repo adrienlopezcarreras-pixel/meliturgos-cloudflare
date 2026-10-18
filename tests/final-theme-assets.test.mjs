@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-import { getMelAvatarRoute } from '../src/pages/mel-avatar-assets.js';
 
 const BACKGROUNDS = [
   '/assets/backgrounds/mel-bg-library-hd.jpg',
@@ -27,11 +26,3 @@ test('clean MEL background pack is deployed as repository-owned JPEG Static Asse
   }
 });
 
-test('Futuriste resolves to the exact shared full-mode avatar Static Asset', async () => {
-  const path = getMelAvatarRoute('futuristic');
-  assert.equal(path, '/assets/avatars/mel-full.webp');
-  const bytes = new Uint8Array(await readFile(assetFile(path)));
-  assert.ok(bytes.length > 3000);
-  assert.equal(String.fromCharCode(...bytes.slice(0, 4)), 'RIFF');
-  assert.equal(String.fromCharCode(...bytes.slice(8, 12)), 'WEBP');
-});

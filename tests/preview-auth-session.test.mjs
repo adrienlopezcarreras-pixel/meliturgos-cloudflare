@@ -10,11 +10,6 @@ import {
   verifyPreviewSessionToken,
   withPreviewLocalBearer,
 } from '../src/preview-auth-session.js';
-import {
-  MEL_THEME_BACKGROUNDS,
-  MEL_THEME_BACKGROUND_LEGACY,
-  rewriteMelThemeBackgrounds,
-} from '../src/pages/mel-theme-backgrounds.js';
 
 const env = {
   MEL_RUNTIME_ENV: 'preview',
@@ -67,11 +62,4 @@ assert.match(verificationOptions.headers.authorization, /^Basic\s+/);
 const refused = await verifyBasicAgainstProduction(browserBasicRequest, env, async () => new Response('no', { status: 401 }));
 assert.equal(refused, false, 'production 401 must reject browser credentials');
 
-const legacyThemes = ['classic', 'crusade', 'religious', 'granada', 'aviation', 'paladin', 'amazon'];
-assert.deepEqual(Object.keys(MEL_THEME_BACKGROUNDS), legacyThemes, 'legacy theme metadata remains stable for compatibility');
-assert.deepEqual(Object.keys(MEL_THEME_BACKGROUND_LEGACY), legacyThemes);
-const sample = `before ${MEL_THEME_BACKGROUND_LEGACY.granada} after`;
-const rewritten = rewriteMelThemeBackgrounds(sample, { ...MEL_THEME_BACKGROUNDS, granada: 'https://example.invalid/new.webp' });
-assert.equal(rewritten, sample, 'retired background rewriter must stay transparent so V3 remains the sole visual owner');
-
-console.log('preview auth session + transparent legacy theme shim: ok');
+console.log('preview auth session: ok');
