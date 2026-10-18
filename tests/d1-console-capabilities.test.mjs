@@ -91,7 +91,7 @@ test('mutations require both permission and explicit scoped owner approval, and 
 test('identifier injection, unfiltered mass mutations and credential access fail closed', async () => {
   const { db, bus } = await fixture();
   try {
-    await assert.rejects(bus.execute('d1.read',{table:'mel_jobs; DROP TABLE mel_jobs'},OWNER), /D1_INVALID_IDENTIFIER/);
+    await assert.rejects(bus.execute('d1.read',{table:'mel_jobs; DROP TABLE mel_jobs'},OWNER), /D1_PROTECTED_IDENTIFIER/);
     await assert.rejects(bus.execute('d1.read',{table:'mel_jobs',where:{'job_id OR 1=1':'a'}},OWNER), /D1_PROTECTED_IDENTIFIER/);
     await assert.rejects(bus.execute('d1.write',{operation:'delete',table:'mel_jobs'},APPROVED), /D1_FIELDS_REQUIRED/);
     await assert.rejects(bus.execute('d1.write',{operation:'update',table:'mel_jobs',values:{status:'BAD'},where:{}},APPROVED), /D1_INVALID_FIELDS/);
