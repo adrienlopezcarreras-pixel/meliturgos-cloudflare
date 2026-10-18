@@ -5,6 +5,7 @@ import { sqliteD1 } from '../helpers/sqlite-d1.mjs';
 import {
   readPersistentCapabilityStress,
   startPersistentCapabilityStress,
+  resumeActivePersistentCapabilityStress,
 } from '../../src/diagnostics/persistent-capability-stress.js';
 import { validateStart, validateTerminal, validateProgressTransition, summarizeStressCoverage } from '../../scripts/persistent-capability-stress-live-proof.mjs';
 
@@ -438,4 +439,64 @@ test('runtime blocker breakdown rejects stale or contradictory row evidence', ()
       ] },
   };
   assert.throws(() => summarizeStressCoverage(base), /CAPABILITY_COVERAGE_EXECUTION_COUNT_MISMATCH/);
+});
+
+test('scheduled continuation does not create any audit when D1 has no active job', async () => {
+  const db = sqliteD1();
+  try {
+    const bus = {
+      list: () => [echoRecord()],
+      contract: () => ({ valid: true }),
+      execute: async () => { throw new Error('MUST_NOT_EXECUTE'); },
+    };
+    const result = await resumeActivePersistentCapabilityStress({ bus, db });
+    assert.deepEqual(result, { ok: true, skipped: true, reason: 'NO_ACTIVE_CAPABILITY_STRESS' });
+    await assert.rejects(
+      () => readPersistentCapabilityStress({ db }),
+      /CAPABILITY_STRESS_JOB_NOT_FOUND/,
+    );
+  } finally {
+    db.close();
+  }
+});
+
+test('scheduled continuation completes the existing job across bounded chunks without launching a second job', async () => {
+  const db = sqliteD1();
+  try {
+    const records = Array.from({ length: 13 }, (_, i) => ({
+      id: 'scheduled-' + i,
+      name: 'Scheduled capability ' + i,
+      category: 'test',
+      provider: 'core',
+      risk: 'LOW',
+      enabled: true,
+      health: 'HEALTHY',
+    }));
+    const bus = {
+      list: () => records,
+      contract: () => ({ valid: true }),
+      execute: async () => ({ ok: true }),
+    };
+    const first = await startPersistentCapabilityStress({ bus, db, context: { owner: 'test' } });
+    assert.equal(first.status, 'QUEUED');
+    assert.equal(first.progress.done, 6);
+
+    const second = await resumeActivePersistentCapabilityStress({ bus, db, context: { owner: 'test' } });
+    assert.equal(second.job_id, first.job_id);
+    assert.equal(second.status, 'QUEUED');
+    assert.equal(second.progress.done, 12);
+
+    const third = await resumeActivePersistentCapabilityStress({ bus, db, context: { owner: 'test' } });
+    assert.equal(third.job_id, first.job_id);
+    assert.equal(third.status, 'COMPLETE');
+    assert.equal(third.progress.done, 13);
+    assert.equal(third.report.capabilities.length, 13);
+
+    const idle = await resumeActivePersistentCapabilityStress({ bus, db, context: { owner: 'test' } });
+    assert.equal(idle.skipped, true);
+    const rows = await db.prepare('SELECT COUNT(*) AS count FROM capability_stress_runs').first();
+    assert.equal(Number(rows.count), 1, 'cron must not start a new stress job after completion');
+  } finally {
+    db.close();
+  }
 });
