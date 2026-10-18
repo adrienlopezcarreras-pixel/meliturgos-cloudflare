@@ -10,6 +10,7 @@ const crit = (provider, model) => ({
 });
 const valid = () => ({
   ok: true, capability: 'model.council', result: {
+    status: 'COMPLETE',
     critiques: [crit('workers-ai', 'm1'), crit('workers-ai', 'm2')],
     independent_response_count: 2, unique_model_count: 2, provider_failure_count: 0,
     synthesis: { status: 'COMPLETE', text: 'A real synthesis' },
@@ -61,6 +62,16 @@ test('two fabricated copies of the same provider-model cannot fake independence'
   v.result.critiques = [crit('workers-ai', 'm1'), crit('workers-ai', 'm1')];
   assert.equal(evaluateCouncilReleaseProof(v).code, 'MEL_COUNCIL_02_UNIQUENESS_FAILED');
 });
+test('Council status and provenance must be coherent across all consumers', () => {
+  const partial = valid(); partial.result.status = 'DEGRADED_SINGLE_MODEL';
+  assert.equal(evaluateCouncilReleaseProof(partial).code, 'MEL_COUNCIL_02_STATUS_NOT_COMPLETE');
+  const contradictoryIdentity = valid();
+  contradictoryIdentity.result.critiques[1].identity = 'workers-ai::other';
+  assert.equal(evaluateCouncilReleaseProof(contradictoryIdentity).code, 'MEL_COUNCIL_02_IDENTITY_PROVENANCE_MISMATCH');
+  const inflatedCount = valid(); inflatedCount.result.independent_response_count = 3;
+  assert.equal(evaluateCouncilReleaseProof(inflatedCount).code, 'MEL_COUNCIL_02_UNIQUENESS_FAILED');
+});
+
 test('synthesis, provenance and zero-euro proof each remain hard gates', () => {
   const v = valid(); v.result.synthesis.text = '';
   assert.equal(evaluateCouncilReleaseProof(v).code, 'MEL_COUNCIL_02_SYNTHESIS_FAILED');
