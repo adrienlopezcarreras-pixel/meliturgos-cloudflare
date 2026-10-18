@@ -20,6 +20,31 @@ test('autonomy status language maps to evidence-based status capability', () => 
   }
 });
 
+test('MAX owner commands are actions, never advice or a one-shot tick', () => {
+  const on = { id: 'autonomy.max', input: { enabled: true } };
+  const off = { id: 'autonomy.max', input: { enabled: false } };
+  for (const command of [
+    'réactive le max', 'réactive MAX', 'active le mode MAX',
+    'relance MAX', 'remets MAX en marche',
+  ]) assert.deepEqual(inferAutonomyControlIntent(command), on, command);
+  for (const command of [
+    'désactive MAX', 'arrête le mode MAX',
+  ]) assert.deepEqual(inferAutonomyControlIntent(command), off, command);
+  assert.equal(inferAutonomyControlIntent('réactive Firefox'), null);
+});
+
+test('reactivate MAX chat request directly executes the existing guarded capability', async () => {
+  const request = new Request('https://mel/api/chat', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'réactive le MAX' }),
+  });
+  const response = await injectEvolutionPreflightCapability(request);
+  const body = await response.json();
+  assert.deepEqual(body.capability, { id: 'autonomy.max', input: { enabled: true } });
+  assert.equal(body.intent_routing.intent, 'AUTONOMY_CONTROL');
+});
+
 test('explicit continue-development language maps to one bounded autonomy tick', () => {
   for (const text of [
     'continue ton développement MEL',
