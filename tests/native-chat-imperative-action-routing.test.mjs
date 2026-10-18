@@ -20,6 +20,20 @@ for (const prompt of stressPrompts) {
   });
 }
 
+for (const prompt of [
+  'relance un audit complet avec stress test, corrections avec Council et mise à jour',
+  'lance un audit global avec Council pour corriger les anomalies',
+  'audit complet et stress-test avec correction propre',
+]) {
+  test('routes supervised full audit to the existing supervisor: ' + prompt, () => {
+    assert.deepEqual(inferNativeExecutionCapability(prompt), {
+      id: 'self.audit.run',
+      input: { level: 'WEEKLY' },
+      execution_intent: 'SUPERVISED_FULL_AUDIT',
+    });
+  });
+}
+
 test('does not hijack unrelated imperative requests', () => {
   assert.equal(inferNativeExecutionCapability('ouvre Firefox sur mon PC'), null);
   assert.equal(inferNativeExecutionCapability('cherche ce fichier dans le dépôt'), null);
