@@ -23,6 +23,7 @@ on:
       - 'src/capabilities/platform-control-capabilities.js'
       - 'src/capabilities/platform-read-capabilities.js'
       - 'src/router.js'
+      - 'tests/gen2/github-action-relay-watch.test.mjs'
       - 'tests/gen2/github-action-relay.test.mjs'
       - 'src/security/github-actions-oidc.js'
       - 'tests/gen2/github-actions-oidc.test.mjs'
@@ -49,14 +50,17 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
-      - run: node --test tests/gen2/github-actions-oidc.test.mjs tests/gen2/github-action-relay.test.mjs tests/gen2/platform-control-capabilities.test.mjs
+      - run: node --test tests/gen2/github-actions-oidc.test.mjs tests/gen2/github-action-relay.test.mjs tests/gen2/github-action-relay-watch.test.mjs tests/gen2/platform-control-capabilities.test.mjs
 
   relay:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 60
     env:
       GITHUB_TOKEN: ${{ github.token }}
+      # Production runs keep watching the queue ~50 min, then hand over to the
+      # next run (schedule is too sparse here); free on a public repository.
+      MEL_RELAY_WATCH_SECONDS: ${{ (github.event_name != 'workflow_dispatch' || inputs.target != 'preview') && '3000' || '0' }}
       # Only these two fixed origins are possible; workflow inputs never form an arbitrary URL.
       MEL_RELAY_BASE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.target == 'preview' && 'https://meliturgos-preview.adrien-lopezcarreras.workers.dev' || 'https://meliturgos.adrien-lopezcarreras.workers.dev' }}
     steps:
