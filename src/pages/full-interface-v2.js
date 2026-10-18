@@ -729,7 +729,7 @@ function activityMarkup(a){
   };
   h+=activitySection('Travaux en cours ('+fmtN(a.counts?.active)+')',
     (visibleCounts?'<div class="act-kv">'+visibleCounts+'</div>':'')
-    +(!jobsKnown?'<div class="muted">Liste des travaux indisponible.</div>':!activeJobs.length?'<div class="muted">Aucun travail en cours.</div>':'')
+    +(!jobsKnown?'<div class="muted">Historique d’activité non chargé.</div>':!activeJobs.length?'<div class="muted">Aucun travail en cours.</div>':'')
     +activeJobs.slice(0,20).map(renderJob).join('')
     +(historicalTotal?'<details class="act-job"><summary>Historique terminé ou en échec ('+esc(historicalTotal)+') — conservé dans D1</summary><div class="act-kv">'+Object.entries(by).filter(([status])=>terminalJobs.has(status)).map(([status,count])=>esc(status)+' : '+esc(count)).join(' · ')+'</div>'+historicalJobs.slice(0,8).map(renderJob).join('')+'</details>':''));
   h+=activitySection('Journal (ledger d’évolution)',(a.timeline||[]).slice(0,30).map(e=>'<div class="act-ev"><span class="muted">'+esc(activityTime(e.at))+'</span> <b>'+esc(e.stage_text)+'</b> · '+esc(e.status||'')+' · '+esc(e.evolution_id||'')+(e.repeat>1?' <span class="muted">×'+esc(e.repeat)+'</span>':'')+(e.detail?'<div class="muted">'+esc(e.detail)+'</div>':'')+'</div>').join('')||'<div class="muted">Aucun événement.</div>');
