@@ -7,6 +7,15 @@ test('predeploy backup retries transient Cloudflare R2 failures without weakenin
   assert.match(source, /WRANGLER_TRANSIENT_RE/);
   assert.match(source, /uploadEncryptedBackupMultipart/);
   assert.match(source, /MULTIPART_PART_BYTES = 16 \* 1024 \* 1024/);
+  // Large backups upload parts with bounded concurrency; the final object
+  // is committed only after all transfers settle in numbered order.
+  assert.match(source, /MULTIPART_UPLOAD_CONCURRENCY = 4/);
+  assert.match(source, /Array\(partCount\)\.fill\(null\)/);
+  assert.match(source, /parts\[partNumber - 1\]/);
+  assert.match(source, /await Promise\.all\(Array\.from\(/);
+  assert.match(source, /Math\.min\(MULTIPART_UPLOAD_CONCURRENCY, partCount\)/);
+  assert.match(source, /if \(firstFailure\) throw firstFailure/);
+  assert.match(source, /BACKUP_MULTIPART_PARTS_INCOMPLETE/);
   assert.match(source, /UPLOAD_PART_BYTES|BACKUP_MULTIPART_PART_NOT_CONFIRMED|BACKUP_MULTIPART_COMPLETION_NOT_VERIFIED/);
   assert.match(source, /429\|500\|502\|503\|504\|520\|522\|524/);
   assert.match(source, /failed to fetch/);
