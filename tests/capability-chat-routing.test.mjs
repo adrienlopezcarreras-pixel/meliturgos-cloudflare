@@ -40,7 +40,18 @@ test('normal chat injects capability.audit instead of generic text-only self-des
   const body = await prepared.json();
   assert.equal(body.capability?.id, 'capability.audit');
   assert.equal(body.capability?.input?.deep, true);
-  assert.equal(body.intent_routing?.intent, 'CAPABILITY_STATUS');
+  assert.equal(body.intent_routing?.intent, 'GLOBAL_CAPABILITY_STRESS_TEST');
+});
+
+test('read-only capability status remains read-only and does not start a persistent audit', async () => {
+  const request = new Request('https://mel.example/api/chat', {
+    method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({text:'Quelles sont tes capacités réelles ?'}),
+  });
+  const body = await (await injectEvolutionPreflightCapability(request)).json();
+  assert.equal(body.capability?.id,'capability.audit');
+  assert.deepEqual(body.capability?.input,{deep:false});
+  assert.equal(body.intent_routing?.intent,'CAPABILITY_STATUS');
 });
 
 test('semantic router can classify an elliptical capability-status follow-up', async () => {
