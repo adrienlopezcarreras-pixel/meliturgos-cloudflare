@@ -1,4 +1,7 @@
 const SENSITIVE_KEY = /(?:secret|token|password|authorization|cookie|otp|signing[_-]?key|recovery[_-]?code)/i;
+// Digest keys are kept only when explicitly opted in for a restorable database
+// snapshot. General-purpose sanitization must continue to redact token hashes.
+const DIGEST_KEY = /(?:_hash|_sha256|_digest)$/i;
 
 export class RecoveryBundleBuilder {
   constructor({ now = () => new Date().toISOString() } = {}) {
@@ -73,12 +76,13 @@ export class RecoveryBundleBuilder {
   }
 }
 
-export function sanitize(value) {
-  if (Array.isArray(value)) return value.map(sanitize);
+export function sanitize(value, { preserveDigests = false } = {}) {
+  if (Array.isArray(value)) return value.map(item => sanitize(item, { preserveDigests }));
   if (!value || typeof value !== 'object') return value;
   const out = {};
   for (const [key, item] of Object.entries(value)) {
-    out[key] = SENSITIVE_KEY.test(key) ? '[REDACTED]' : sanitize(item);
+    out[key] = SENSITIVE_KEY.test(key) && !(preserveDigests && DIGEST_KEY.test(key))
+      ? '[REDACTED]' : sanitize(item, { preserveDigests });
   }
   return out;
 }
