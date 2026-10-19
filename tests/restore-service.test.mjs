@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createVerifiedBackupService } from '../src/backup/backup-service.js';
-import { createRestoreService, verifyRestoreCandidate } from '../src/backup/restore-service.js';
+import { createRestoreService, verifyRestoreCandidate, comparePatrimonyExports } from '../src/backup/restore-service.js';
 
 function memoryStorage() {
   const rows = new Map();
@@ -101,4 +101,28 @@ test('tampered verified snapshot is rejected before restore planning', async () 
     () => service.plan({ id: snapshot.id }),
     /SNAPSHOT_ENTRY_INTEGRITY_MISMATCH|SNAPSHOT_INTEGRITY_MISMATCH/,
   );
+});
+
+test('patrimony comparison reads two exports and writes nothing', () => {
+  const table = (name, ids) => ({
+    name,
+    schema: 'CREATE TABLE ' + name + '(id TEXT)',
+    rowCount: ids.length,
+    rows: ids.map(id => ({ id })),
+  });
+  const pack = (ledger, conversations, jobs) => ({
+    type: 'MEL_D1_LOGICAL_EXPORT_V1',
+    tableCount: 3,
+    tables: [table('evolution_ledger', ledger), table('conversations', conversations), table('dev_jobs', jobs)],
+  });
+  const before = pack(['e1'], ['c1'], ['j1']);
+  const same = comparePatrimonyExports(before, pack(['e1'], ['c1'], ['j1']));
+  assert.equal(same.ok, true);
+  assert.equal(same.identical, true);
+  assert.equal(same.production_written, false);
+  const changed = comparePatrimonyExports(before, pack(['e1', 'e2'], ['c1'], ['j1']));
+  assert.equal(changed.identical, false);
+  assert.equal(changed.tables.evolution_ledger.same, false);
+  assert.equal(changed.tables.conversations.same, true);
+  assert.equal(changed.production_written, false);
 });

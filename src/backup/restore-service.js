@@ -31,6 +31,32 @@ function validateDatabaseExport(value) {
   };
 }
 
+const PATRIMONY_TABLES = ['evolution_ledger', 'conversations', 'dev_jobs'];
+
+function patrimonyIds(rows) {
+  return rows.map(row => String(row?.id || row?.event_id || '')).join('\n');
+}
+
+/** Compare two logical exports. It never writes production. */
+export function comparePatrimonyExports(before, after) {
+  const left = validateDatabaseExport(before);
+  const right = validateDatabaseExport(after);
+  if (!left.ok) return { ok: false, side: 'before', code: left.code, production_written: false };
+  if (!right.ok) return { ok: false, side: 'after', code: right.code, production_written: false };
+  const beforeTables = new Map(before.tables.map(table => [String(table.name), table.rows]));
+  const afterTables = new Map(after.tables.map(table => [String(table.name), table.rows]));
+  const tables = {};
+  let identical = true;
+  for (const name of PATRIMONY_TABLES) {
+    const previous = beforeTables.get(name) || [];
+    const next = afterTables.get(name) || [];
+    const same = previous.length === next.length && patrimonyIds(previous) === patrimonyIds(next);
+    if (!same) identical = false;
+    tables[name] = { before: previous.length, after: next.length, same };
+  }
+  return { ok: true, identical, tables, production_written: false };
+}
+
 function validateR2Inventory(value) {
   if (!value || value.type !== 'MEL_R2_INVENTORY_V1') {
     return { ok: false, code: 'RESTORE_R2_INVENTORY_REQUIRED' };
