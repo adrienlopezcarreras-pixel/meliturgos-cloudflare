@@ -81,6 +81,45 @@ test('a heartbeat that sees an active lease exits before touching runtime work',
   assert.equal(await releaseAutonomyRuntimeLease({ owner: 'holder', memoryStore }), true);
 });
 
+test('an owner tick waits for the active lease instead of skipping the step', async () => {
+  const memoryStore = new Map();
+  const held = await tryAcquireAutonomyRuntimeLease({
+    owner: 'heartbeat',
+    leaseMs: 60_000,
+    now: Date.now(),
+    memoryStore,
+  });
+  assert.equal(held.acquired, true);
+  let calls = 0;
+  const repository = new Proxy({}, {
+    get() {
+      return () => { calls += 1; throw new Error('REACHED_WORK'); };
+    },
+  });
+
+  let result = null;
+  try {
+    result = await runAutonomyRuntimeTick({
+      MEL_GITHUB_BRANCH: 'candidate/mel-clean-autonomy',
+      MEL_TEACHER_BRANCH: 'candidate/mel-clean-autonomy',
+    }, {
+      runtimeLeaseOwner: 'owner',
+      runtimeLeaseStore: memoryStore,
+      ownerLeaseWaitMs: 5_000,
+      repository,
+      sleep: async () => {
+        await releaseAutonomyRuntimeLease({ owner: 'heartbeat', memoryStore });
+      },
+    });
+  } catch (error) {
+    assert.match(String(error?.message || error), /REACHED_WORK/);
+    assert.equal(calls > 0, true);
+    return;
+  }
+  assert.notEqual(result?.status, 'SKIPPED_LEASE_BUSY');
+  assert.equal(calls > 0, true, JSON.stringify(result));
+});
+
 test('a lease left by a killed invocation frees itself within 90 s (next minute tick)', async () => {
   const { tryAcquireAutonomyRuntimeLease } = await import('../src/evolution/autonomy-runtime-lease.js');
   const store = new Map();

@@ -711,12 +711,25 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
 
   const owner = String(options.runtimeLeaseOwner || crypto.randomUUID());
   const runtimeLeaseStore = options.runtimeLeaseStore ?? (!env?.DB ? new Map() : null);
-  const lease = await tryAcquireAutonomyRuntimeLease({
+  const leaseArgs = {
     db: env?.DB || null,
     owner,
     leaseMs: options.runtimeLeaseMs ?? env?.MEL_AUTONOMY_LEASE_MS,
     memoryStore: runtimeLeaseStore,
-  });
+  };
+  const waitMs = Math.max(0, Math.min(95_000, Number(options.ownerLeaseWaitMs) || 0));
+  const sleep = typeof options.sleep === 'function'
+    ? options.sleep
+    : (ms => new Promise(resolve => setTimeout(resolve, ms)));
+  const deadline = Date.now() + waitMs;
+  let lease = await tryAcquireAutonomyRuntimeLease(leaseArgs);
+  while (!lease.acquired && Date.now() < deadline) {
+    const remaining = Math.max(0, Number(lease.expires_at || 0) - Date.now());
+    const step = Math.min(1000, Math.max(50, remaining > 0 ? Math.min(remaining + 20, deadline - Date.now()) : 200));
+    if (step <= 0) break;
+    await sleep(step);
+    lease = await tryAcquireAutonomyRuntimeLease(leaseArgs);
+  }
 
   if (!lease.acquired) {
     const snapshot = repository ? await autonomyProgressSnapshot(repository, options.roadmap || null) : {};
