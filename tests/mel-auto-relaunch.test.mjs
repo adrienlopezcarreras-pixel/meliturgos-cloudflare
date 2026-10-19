@@ -10,7 +10,7 @@ import {
 import { onRequestGet as fullMode } from '../src/pages/full-interface-v2.js';
 
 test('transient failures are recognised, functional errors are not', () => {
-  for (const message of ['Réponse serveur trop lente', 'Failed to fetch', 'HTTP 503', 'HTTP 504', 'MEL n’a pas pu terminer dans le délai (CHAT_DEADLINE_EXCEEDED).']) {
+  for (const message of ['Réponse serveur trop lente', 'Failed to fetch', 'HTTP 503', 'HTTP 504', 'MEL n’a pas pu terminer dans le délai (CHAT_DEADLINE_EXCEEDED).', 'Réponse interrompue (aucun texte reçu)', 'Réponse interrompue (aucun texte reçu depuis 45 s)']) {
     assert.equal(melIsTransientFailure(message), true, message);
   }
   for (const message of ['HTTP 401', 'HTTP 400', 'MESSAGE_REQUIRED', 'Aucun ordinateur appairé', 'HTTP 5030']) {
