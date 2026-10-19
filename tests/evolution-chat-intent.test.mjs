@@ -12,6 +12,9 @@ test('detects skill/module development requests without catching ordinary writin
   assert.equal(isEvolutionDevelopmentIntent('Améliore la veille des capacités'), true);
   assert.equal(isEvolutionDevelopmentIntent('Sauvegarde le code avant de changer le worker'), true);
   assert.equal(isEvolutionDevelopmentIntent('Restaure la sauvegarde dans un essai isolé'), true);
+  assert.equal(isEvolutionDevelopmentIntent('Apprends-moi comment marche le companion'), false);
+  assert.equal(isEvolutionDevelopmentIntent('Corrige cette erreur dans mon texte'), false);
+  assert.equal(isEvolutionDevelopmentIntent('Corrige l’erreur du worker'), true);
 });
 
 test('a long development request is still enqueued', async () => {
@@ -27,6 +30,19 @@ test('a long development request is still enqueued', async () => {
   assert.equal(body.capability.id, 'evolution.enqueue');
   assert.equal(body.capability.input.requestKey, 'm-long');
   assert.match(body.capability.input.goal, /bug du chat/);
+});
+
+test('a long self-observation stays a read, even if it mentions code', async () => {
+  const text = "Montre-moi l'état réel de ton code et de tes travaux en cours, sans rien modifier. " + 'Détail. '.repeat(30);
+  assert.ok(text.length > 280);
+  const request = new Request('https://mel.test/api/chat', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  const body = await (await injectEvolutionPreflightCapability(request)).json();
+  assert.equal(body.capability.id, 'self.state');
+  assert.equal(body.intent_routing.intent, 'SELF_STATE');
 });
 
 test('chat development request receives persistent evolution.enqueue capability before routing', async () => {
