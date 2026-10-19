@@ -1894,6 +1894,16 @@ class MainForm : Form
             }
             string imageHash;
             using(var sha=SHA256.Create()){imageHash=BitConverter.ToString(sha.ComputeHash(image)).Replace("-","").ToLowerInvariant();}
+            // Pin the exact owner-supplied, locally inspected application image.
+            // Generic ESP32-S3 headers or a same-name replacement are insufficient.
+            const string qualifiedImageSha256="835bd51f438d5465e30955a6783cf34fb8b2d95e2a98ee6f33f04ea406b1d172";
+            if(!String.Equals(imageHash,qualifiedImageSha256,StringComparison.Ordinal))
+            {
+                MessageBox.Show(this,"Cette image ne correspond pas au mel-terminal.bin vérifié.\\nSHA-256 : "+
+                    imageHash+"\\nAucun flash n'a été effectué.",
+                    "MEL MINI — image inconnue",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                return;
+            }
             // SHA-256 is displayed for comparison with the trusted build manifest;
             // a valid header alone never authorizes writing flash.
             MessageBox.Show(this,"Image ESP32-S3 contrôlée en lecture seule. SHA-256 : "+imageHash+
