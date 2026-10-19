@@ -514,7 +514,7 @@ async function deviceTts(request, env, auth) {
       speaker,
       encoding: "linear16",
       container: "wav",
-      sample_rate: 16000
+      sample_rate: 48000
     }, { returnRawResponse: true });
 
     if (result instanceof Response) {
@@ -522,7 +522,7 @@ async function deviceTts(request, env, auth) {
       headers.set("content-type", "audio/wav");
       headers.set("cache-control", "no-store");
       headers.set("x-mel-audio-format", "wav-pcm-s16le");
-      headers.set("x-mel-audio-rate", "16000");
+      headers.set("x-mel-audio-rate", "48000");
       headers.set("x-mel-audio-channels", "1");
       return new Response(result.body, { status: result.status, headers });
     }
@@ -534,7 +534,7 @@ async function deviceTts(request, env, auth) {
           "content-type": "audio/wav",
           "cache-control": "no-store",
           "x-mel-audio-format": "wav-pcm-s16le",
-          "x-mel-audio-rate": "16000",
+          "x-mel-audio-rate": "48000",
           "x-mel-audio-channels": "1"
         }
       });

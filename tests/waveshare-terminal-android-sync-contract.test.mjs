@@ -64,6 +64,15 @@ test('MINI recovery keeps 48 kHz ES8311 playback and 16 kHz STT decimation', asy
   assert.match(transport, /MEL_LINK_V2_AUDIO_BEGIN/);
   assert.match(transport, /MEL_LINK_V2_AUDIO_DATA/);
   assert.match(transport, /MEL_LINK_V2_AUDIO_END/);
+  const [android, worker] = await Promise.all([
+    readFile(new URL('../android-companion/app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt', import.meta.url), 'utf8'),
+    readFile(new URL('../src/devices/waveshare-terminal-api.js', import.meta.url), 'utf8'),
+  ]);
+  assert.match(android, /fun relayTtsWav48k\(/);
+  assert.match(android, /"audioRate", 48000/);
+  assert.doesNotMatch(android, /relayTtsWav48kTo16k|audioRate", 16000/);
+  assert.match(worker, /sample_rate: 48000/);
+  assert.doesNotMatch(worker, /sample_rate: 16000/);
 });
 
 test('MINI recovery keeps hardware diagnostics, camera bring-up and Wi-Fi fallback', async () => {
