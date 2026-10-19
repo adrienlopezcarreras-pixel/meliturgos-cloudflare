@@ -166,23 +166,18 @@ test('release zero-cost proof authorizes the accessible Council fallback pool', 
   assert.match(workflow, /expires_at:new Date\(now\+60\*60\*1000\)\.toISOString\(\)/);
 });
 
-test('scheduled zero-cost proof refresh authenticates BOTH Cloudflare secret updates on the same environment', async () => {
+test('scheduled zero-cost proof refresh authenticates canonical D1 publication and cannot deploy a Worker', async () => {
   const workflow = await readFile(new URL('../../.github/workflows/workers-ai-zero-cost-proof-refresh.yml', import.meta.url), 'utf8');
-  const browserStep = workflow.split('      - name: Re-prove Browser Run Workers Free hard-limit status\n')[1]
+  const publication = workflow.split('      - name: Publish fresh evidence to canonical D1 without deploying a Worker\n')[1]
     ?.split('      - name: Upload sanitized refresh evidence\n')[0];
-  assert.ok(browserStep, 'Browser Run refresh step must exist');
-  assert.ok(browserStep.includes('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}'),
-    'each GitHub Actions step must explicitly receive its own Cloudflare token');
-  assert.ok(browserStep.includes('test -n "${CLOUDFLARE_API_TOKEN:-}"'),
-    'missing token must fail clearly before touching the Browser Run proof');
-  assert.ok(browserStep.includes('wrangler versions secret put MEL_BROWSER_RUN_ZERO_COST_PROOF_JSON --name meliturgos --env=""'),
-    'Browser Run proof secret must target the canonical top-level Worker environment');
-  assert.ok(workflow.includes('wrangler versions secret put MEL_WORKERS_AI_ZERO_COST_PROOF_JSON --name meliturgos --env=""'),
-    'Workers AI proof must target the same environment');
-  assert.doesNotMatch(workflow, /wrangler secret put MEL_(?:BROWSER_RUN|WORKERS_AI)_ZERO_COST_PROOF_JSON/,
-    'proof refresh must not use implicit secret put; production traffic moves only via versions deploy');
-  assert.match(workflow, /npx wrangler versions deploy "\$\{VID\}@100%" --yes --name meliturgos/,
-    'the version that received the secrets must be promoted or production keeps the expired proof');
+  assert.ok(publication, 'canonical evidence publication must exist');
+  assert.match(publication, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/);
+  assert.match(publication, /CLOUDFLARE_ACCOUNT_ID: \$\{\{ secrets\.CLOUDFLARE_ACCOUNT_ID \}\}/);
+  assert.match(publication, /test -n "\$\{CLOUDFLARE_API_TOKEN:-\}"/);
+  assert.match(publication, /node scripts\/publish-zero-cost-proof-sql\.mjs/);
+  assert.match(publication, /wrangler d1 execute DB --remote --config wrangler\.jsonc --env=""/);
+  assert.doesNotMatch(workflow, /wrangler\s+(?:versions|secret|deploy|publish)\b/,
+    'fresh evidence must reach the existing runtime without a second Worker deployment owner');
 });
 
 test('zero-cost proofs refresh immediately after an approved release or workflow update as well as on the recurring schedule', async () => {

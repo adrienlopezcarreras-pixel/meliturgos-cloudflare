@@ -174,3 +174,5 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 - `self-knowledge-of-autonomy-modes-20261018` — chaque mode d’autonomie (MAX) a une description factuelle unique dans les capacités réelles ; les questions à son sujet sont ancrées sur autonomy.status.
 
 - `mentor-complete-proposal-validation-20261019` — valider toute l’enveloppe multi-fichier, ses chemins uniques et ses limites avant de préparer le paquet Teacher ; réparation bornée et aucune persistance partielle. Preuves locales du vrai MentorEngine et de son paquet SQLite, sans certification production.
+
+- `zero-cost-evidence-renewal-without-redeploy-20261019` — renouveler les preuves zéro coût dans D1 avec le validateur et l’expiration stricts inchangés; heartbeat et relay existants demandent une preuve neuve dédupliquée; aucune promotion de version depuis le workflow secondaire.

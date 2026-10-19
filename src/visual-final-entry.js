@@ -1,5 +1,6 @@
 import app from './preview-auth-entry.js';
 import { rejectCrossSiteMutation } from './core/security.js';
+import { withStoredZeroCostProofs, requestZeroCostProofRefresh } from './augmentio/zero-cost-proof-store.js';
 
 const NORMAL_PATHS = new Set(['/', '/mvp']);
 const PROFESSOR_PATHS = new Set(['/professor']);
@@ -100,12 +101,17 @@ export default {
   async fetch(request, env, ctx) {
     const crossSiteDenied = rejectCrossSiteMutation(request);
     if (crossSiteDenied) return hardenResponseHeaders(crossSiteDenied);
+    env = await withStoredZeroCostProofs(env);
     // Canonical pages now own their visuals directly. Keep the exported
     // finalizer as a compatibility/audit helper, but do not parse and rebuild
     // every HTML response in the deployed hot path.
     return hardenResponseHeaders(await app.fetch(request, env, ctx));
   },
   async scheduled(controller, env, ctx) {
+    env = await withStoredZeroCostProofs(env);
+    // Refresh evidence while MAX is paused too; provider authorization stays
+    // fail-closed until the existing privileged workflow publishes a new proof.
+    await requestZeroCostProofRefresh(env).catch(() => null);
     return app.scheduled(controller, env, ctx);
   },
 };
