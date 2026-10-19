@@ -214,7 +214,9 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-FOUNDER-03', 'Transformer une capacité absente en objectif de développement persistant', 'PLANNED', 'Une demande autorisée sans outil ne se termine pas par un refus. Elle crée un objectif evolution reprenable, testé, puis enregistré sur le bus unique. Pas de second moteur.', 'P0'),
     item('MEL-FOUNDER-04', 'Council réel sur une décision de code', 'PLANNED', 'Au moins deux modèles distincts quand ils sont disponibles. Si un seul répond, le dire. Ne pas simuler un quorum. Avis persisté, lié au SHA, sans lever les garde-fous ni le coût zéro.', 'P1'),
     item('MEL-FOUNDER-05', 'Un travail MEL WORK sans dépense, du besoin au livrable', 'PLANNED', 'Demande, exécution, artefact persisté et consultable. Un brouillon ou un enqueue n’est pas une livraison.', 'P1'),
-    item('MEL-FOUNDER-06', 'Valider Companion, APK et MINI sur les appareils réels', 'BLOCKED_HUMAN', 'Le propriétaire doit disposer d’un PC, d’un téléphone et d’un MINI matériellement sain. L’écran cassé et l’absence de son ne se corrigent pas dans le dépôt. Ne pas les marquer vérifiés.', 'P1')
+    item('MEL-FOUNDER-06', 'Valider Companion, APK et MINI sur les appareils réels', 'BLOCKED_HUMAN', 'Le propriétaire doit disposer d’un PC, d’un téléphone et d’un MINI matériellement sain. L’écran cassé et l’absence de son ne se corrigent pas dans le dépôt. Ne pas les marquer vérifiés.', 'P1'),
+    item('MEL-FOUNDER-07', 'Prouver une restauration isolée du patrimoine', 'PLANNED', 'Manifeste, priorité 1. Restaurer evolution_ledger, conversations et dev_jobs dans un environnement isolé. La D1 de production ne change pas. Un backup existant sans cette comparaison n’est pas une restauration prouvée.', 'P1'),
+    item('MEL-FOUNDER-08', 'Promouvoir un LoRA seulement après un gain mesuré', 'PLANNED', 'Manifeste, priorité 2. Un run d’entraînement n’est pas un LoRA actif. L’activation exige le même modèle de base, un gain mesuré, aucune régression majeure et un finetune_id persisté. Sinon le statut reste non actif.', 'P1')
   ]),
 ]);
 

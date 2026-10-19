@@ -42,5 +42,7 @@ test('MEL reconciliation roadmap leaves only the founder cycle open', () => {
     { id: 'MEL-FOUNDER-04', status: 'PLANNED' },
     { id: 'MEL-FOUNDER-05', status: 'PLANNED' },
     { id: 'MEL-FOUNDER-06', status: 'BLOCKED_HUMAN' },
+    { id: 'MEL-FOUNDER-07', status: 'PLANNED' },
+    { id: 'MEL-FOUNDER-08', status: 'PLANNED' },
   ]);
 });

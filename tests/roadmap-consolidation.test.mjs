@@ -88,6 +88,8 @@ test('canonical roadmap forbids bare DONE and requires exact production proof fo
     'MEL-FOUNDER-04',
     'MEL-FOUNDER-05',
     'MEL-FOUNDER-06',
+    'MEL-FOUNDER-07',
+    'MEL-FOUNDER-08',
   ]);
 });
 
