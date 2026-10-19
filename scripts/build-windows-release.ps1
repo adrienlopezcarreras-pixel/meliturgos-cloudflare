@@ -67,6 +67,9 @@ Copy-Item -LiteralPath $miniHelper -Destination (Join-Path $stage 'MEL-MINI-USB-
 $miniBackup = Join-Path $repoRoot 'windows-companion\MEL-MINI-USB-Backup.ps1'
 if (!(Test-Path -LiteralPath $miniBackup -PathType Leaf)) { throw 'MINI_USB_BACKUP_SOURCE_MISSING' }
 Copy-Item -LiteralPath $miniBackup -Destination (Join-Path $stage 'MEL-MINI-USB-Backup.ps1')
+$miniFlash = Join-Path $repoRoot 'windows-companion\MEL-MINI-USB-Flash.ps1'
+if (!(Test-Path -LiteralPath $miniFlash -PathType Leaf)) { throw 'MINI_USB_FLASH_SOURCE_MISSING' }
+Copy-Item -LiteralPath $miniFlash -Destination (Join-Path $stage 'MEL-MINI-USB-Flash.ps1')
 $miniInstaller = Join-Path $repoRoot 'dist\MEL-Waveshare-Flash.ps1'
 if (!(Test-Path -LiteralPath $miniInstaller -PathType Leaf)) { throw 'MINI_FIRST_INSTALL_SOURCE_MISSING' }
 Copy-Item -LiteralPath $miniInstaller -Destination (Join-Path $stage 'MEL-Waveshare-Flash.ps1')
