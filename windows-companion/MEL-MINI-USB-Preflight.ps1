@@ -1,5 +1,6 @@
 ﻿param(
-  [Parameter(Mandatory=$true)][ValidatePattern('^COM[0-9]{1,3}$')][string]$Port
+  [Parameter(Mandatory=$true)][ValidatePattern('^COM[0-9]{1,3}$')][string]$Port,
+  [switch]$ConfirmedByCompanion
 )
 
 $ErrorActionPreference = 'Stop'
@@ -10,14 +11,18 @@ Set-StrictMode -Version Latest
 Write-Host 'MEL MINI — contrôle USB local en lecture seule.'
 Write-Host 'La connexion au bootloader peut redémarrer la MINI.'
 Write-Host 'Une sauvegarde et une vérification matérielle resteront nécessaires avant flash.'
-try {
-  $approval = Read-Host 'Tapez exactement AUTORISER_LECTURE_USB_MINI pour continuer'
-} catch {
-  throw 'MINI_USB_LOCAL_CONFIRMATION_REQUIRED'
+if (-not $ConfirmedByCompanion) {
+  try {
+    $approval = Read-Host 'Tapez exactement AUTORISER_LECTURE_USB_MINI pour continuer'
+  } catch {
+    throw 'MINI_USB_LOCAL_CONFIRMATION_REQUIRED'
+  }
+  if ($approval -cne 'AUTORISER_LECTURE_USB_MINI') {
+    throw 'MINI_USB_LOCAL_CONFIRMATION_REQUIRED'
+  }
 }
-if ($approval -cne 'AUTORISER_LECTURE_USB_MINI') {
-  throw 'MINI_USB_LOCAL_CONFIRMATION_REQUIRED'
-}
+# ConfirmedByCompanion is only passed by the locally clicked Companion UI.
+# It suppresses duplicated consent prompts but does not change read-only behavior.
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $required = @(
