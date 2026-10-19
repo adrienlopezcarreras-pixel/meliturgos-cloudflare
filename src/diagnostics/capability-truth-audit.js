@@ -20,6 +20,39 @@ function firstArray(value, ...paths) {
   return [];
 }
 
+function auditPcmWav() {
+  const sampleRate = 8000;
+  const frames = 64;
+  const bytes = new Uint8Array(44 + frames * 2);
+  const view = new DataView(bytes.buffer);
+  const write = (offset, text) => { for (let i = 0; i < text.length; i += 1) view.setUint8(offset + i, text.charCodeAt(i)); };
+  write(0, 'RIFF');
+  view.setUint32(4, 36 + frames * 2, true);
+  write(8, 'WAVE');
+  write(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  write(36, 'data');
+  view.setUint32(40, frames * 2, true);
+  for (let i = 0; i < frames; i += 1) view.setInt16(44 + i * 2, Math.round(Math.sin((Math.PI * 2 * 440 * i) / sampleRate) * 8000), true);
+  return bytes;
+}
+
+function auditPatrimonyExport() {
+  const tables = ['evolution_ledger', 'conversations', 'dev_jobs'].map(name => ({
+    name,
+    schema: `CREATE TABLE ${name}(id TEXT)`,
+    rowCount: 0,
+    rows: [],
+  }));
+  return { type: 'MEL_D1_LOGICAL_EXPORT_V1', tableCount: tables.length, tables };
+}
+
 const SAFE_SAMPLES = Object.freeze({
   echo: { value: 'capability-audit' },
   // Pure provider-neutral dry-run: all adapters and contracts are invented
@@ -142,6 +175,39 @@ const SAFE_SAMPLES = Object.freeze({
   },
   'resilience.recovery.drill.latest': {},
   'resilience.cold-standby.prepare.latest': {},
+  // One public column, one row. Never an unbounded table dump.
+  'd1.read': async ({ runtime, context }) => {
+    const listed = await sampleRead(runtime, context, 'd1.schema', {});
+    const table = firstArray(listed, 'tables')[0];
+    if (!table) return undefined;
+    const detail = await sampleRead(runtime, context, 'd1.schema', { table: String(table) });
+    const column = firstArray(detail, 'columns')[0]?.name;
+    return column ? { table: String(table), columns: [String(column)], limit: 1 } : undefined;
+  },
+  // Read one existing relay job. Do not enqueue a dispatch just to have an id.
+  'github.actions.workflow.dispatch.status': async ({ runtime, context }) => {
+    let listed;
+    try {
+      listed = await sampleRead(runtime, context, 'd1.read', {
+        table: 'github_action_relay_jobs',
+        columns: ['id'],
+        limit: 1,
+      });
+    } catch (error) {
+      if (error?.code === 'D1_TABLE_NOT_FOUND') return undefined;
+      throw error;
+    }
+    const id = listed?.rows?.[0]?.id;
+    return typeof id === 'string' && /^gh-relay-[A-Za-z0-9-]+$/.test(id) ? { job_id: id } : undefined;
+  },
+  'media.audio.analyze': { bytes: auditPcmWav() },
+  'media.music.analyze': { bytes: auditPcmWav() },
+  'melwork.practice': { kind: 'writing' },
+  'melwork.compute.chunk': { start: 1, count: 8 },
+  // A conversation id that is not an owner thread. The read returns no rows
+  // when that thread does not exist; it does not create one.
+  'device.sync': { deviceId: 'stress-probe-device', conversationId: 'stress-probe-conversation' },
+  'backup.patrimony.compare': { before: auditPatrimonyExport(), after: auditPatrimonyExport() },
   'event.list': { limit: 1 },
   'self.state': {},
   'presentation.layout.plan': { kind: 'chat' },
