@@ -348,19 +348,32 @@ const EXPLICIT_ONLY_AUDIT_CAPABILITIES = new Set([
   'self.audit.run',
 ]);
 
-function autoExecutionBlockReason({ deep, record, sample, declared, costSensitive, costApproved }) {
+const STRICT_MUTATION = /(?:^|\.)(?:send|delete|write|create|dispatch|deploy|enqueue|pause|resume|tick|capture|update|drop|purge|reset)$/i;
+
+function autoExecutionBlockReason({ deep, record, sample, declared, costSensitive, costApproved, strict = false }) {
   if (!deep) return null;
   if (declared === 'STUB' || declared === 'NOT_IMPLEMENTED') return 'DECLARED_NON_EXECUTABLE';
   if (record?.enabled === false) return 'DISABLED';
   if (record?.risk !== 'LOW') return 'RISK_NOT_LOW';
   if (EXPLICIT_ONLY_AUDIT_CAPABILITIES.has(record?.id)) return 'REQUIRES_EXPLICIT_INVOCATION';
   if (record?.approval?.required === true || OWNER_APPROVAL_SENSITIVE_CAPABILITIES.has(record?.id)) return 'OWNER_APPROVAL_REQUIRED';
+  if (strict && STRICT_MUTATION.test(String(record?.id || ''))) return 'STRICT_MUTATION_REFUSED';
   const health = String(record?.health || '').toUpperCase();
   if (['UNAVAILABLE','OFFLINE','DISABLED','BLOCKED','DOWN','BROKEN','ERROR','FAILED','FAIL','UNHEALTHY'].includes(health)) return 'HEALTH_UNAVAILABLE';
   if (record?.health_refresh_verified === false) return 'HEALTH_REFRESH_UNVERIFIED';
-  if (sample === undefined) return 'NO_BOUNDED_SAMPLE';
-  if (costSensitive && !costApproved) return 'UNKNOWN_OR_EXTERNAL_COST';
+  if (sample === undefined && !strict) return 'NO_BOUNDED_SAMPLE';
+  if (costSensitive && !costApproved && !strict) return 'UNKNOWN_OR_EXTERNAL_COST';
   return null;
+}
+
+function strictVerdict(rows) {
+  const failed = rows.filter(row => row.truth_status === 'EXISTANT_MAIS_ECHEC_RUNTIME').map(row => row.id);
+  const untested = rows.filter(row => row.truth_status === 'EXISTANT_NON_TESTE').map(row => row.id);
+  return {
+    passed: failed.length === 0 && untested.length === 0,
+    failed,
+    untested,
+  };
 }
 
 /**
@@ -381,6 +394,7 @@ function autoExecutionBlockReason({ deep, record, sample, declared, costSensitiv
  */
 export async function auditRuntimeCapabilities(runtime, {
   deep = false,
+  strict = false,
   context = {},
   samples = SAFE_SAMPLES,
   zeroCostCapabilityIds = [],
@@ -495,7 +509,9 @@ export async function auditRuntimeCapabilities(runtime, {
       declared,
       costSensitive,
       costApproved,
+      strict,
     });
+    if (strict && blockedReason == null && sample === undefined) sample = {};
     if (deep && blockedReason == null && typeof sample === 'function') {
       try {
         const sampleTimeoutMs = Math.max(50, Math.min(60_000, Number(executionTimeoutMs) || 15_000));
@@ -521,7 +537,7 @@ export async function auditRuntimeCapabilities(runtime, {
       && blockedReason == null
       && record.risk === 'LOW'
       && sample !== undefined
-      && costApproved;
+      && (costApproved || strict);
     if (executable) {
       const executionStartedAt = Date.now();
       try {
@@ -614,10 +630,13 @@ export async function auditRuntimeCapabilities(runtime, {
     valid: rows.filter(row => row.contract_valid === true).length,
     invalid: rows.filter(row => row.contract_valid === false).length,
   };
+  const verdict = strict ? strictVerdict(rows) : null;
   return {
-    ok: true,
+    ok: verdict ? verdict.passed : true,
     total: totalRecords,
     deep: Boolean(deep),
+    strict: Boolean(strict),
+    strict_verdict: verdict,
     counts,
     contracts,
     capabilities: rows,
