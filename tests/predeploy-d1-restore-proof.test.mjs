@@ -5,6 +5,7 @@ import { proveD1SnapshotRestore } from '../release-tools/predeploy-backup-refres
 import { exportD1SystemState } from '../src/backup/system-backup-runtime.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import { probeD1Restore } from '../release-tools/predeploy-backup-refresh/probe-d1-restore.mjs';
+import restorePreview from '../release-tools/predeploy-backup-refresh/restore-preview-entry.mjs';
 
 async function snapshotFixture() {
   const source = sqliteD1();
@@ -181,4 +182,24 @@ test('production restore probe redacts Cloudflare errors and refuses redirects o
       fetchImpl: async () => Response.json(payload),
     }), error => error.code === 'RESTORE_PROBE_QUERY_FAILED' && !JSON.stringify(error).includes('private-'));
   }
+});
+
+test('isolated binding preview requires its ephemeral token and exposes no sidecar write routes', async () => {
+  let calls = 0;
+  const env = { MEL_RESTORE_PREVIEW_TOKEN: 'p'.repeat(40), DB: { prepare(sql) {
+    assert.match(sql, /^SELECT\s/);
+    calls += 1;
+    return { async all() { return { results: [] }; } };
+  } } };
+  const invoke = (path, method = 'GET', authorized = true) => restorePreview.fetch(new Request('https://preview.test' + path, {
+    method, headers: authorized ? { authorization: 'Bearer ' + env.MEL_RESTORE_PREVIEW_TOKEN } : {},
+  }), env);
+  assert.equal((await invoke('/d1/tables', 'GET', false)).status, 401);
+  assert.equal((await invoke('/register', 'POST')).status, 405);
+  assert.equal((await invoke('/upload/create', 'GET')).status, 404);
+  assert.equal(calls, 0);
+  const response = await invoke('/d1/tables');
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).status, 'D1_TABLES');
+  assert.equal(calls, 1);
 });

@@ -52,10 +52,26 @@ export async function probeD1Restore({ accountId, apiToken, databaseId, fetchImp
   return proveD1SnapshotRestore(snapshot);
 }
 
+export async function probeD1BindingRestore({ baseUrl, token, fetchImpl = fetch }) {
+  if (!/^https:\/\/mel-restore-readonly-preview-[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev$/.test(baseUrl || '')
+      || String(token || '').length < 32) fail('RESTORE_PROBE_PREVIEW_INVALID');
+  const snapshot = await exportD1(null, async (_sidecar, path) => {
+    const response = await fetchImpl(new URL(path, baseUrl), {
+      headers: { authorization: `Bearer ${token}` }, redirect: 'error', signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) fail('RESTORE_PROBE_BINDING_HTTP_FAILED');
+    return response.json();
+  });
+  return proveD1SnapshotRestore(snapshot);
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     const config = JSON.parse(await readFile(new URL('./wrangler.jsonc', import.meta.url), 'utf8'));
-    const proof = await probeD1Restore({
+    const proof = process.env.MEL_RESTORE_READONLY_PREVIEW_URL ? await probeD1BindingRestore({
+      baseUrl: process.env.MEL_RESTORE_READONLY_PREVIEW_URL,
+      token: process.env.MEL_RESTORE_PREVIEW_TOKEN,
+    }) : await probeD1Restore({
       accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
       apiToken: process.env.CLOUDFLARE_API_TOKEN,
       databaseId: config.d1_databases.find(entry => entry.binding === 'DB')?.database_id,
