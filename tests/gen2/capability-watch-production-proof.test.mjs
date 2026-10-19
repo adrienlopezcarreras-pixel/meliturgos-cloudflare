@@ -289,6 +289,28 @@ test('GEN2-42 release proof accepts mixed Teacher-proven progress while keeping 
   } finally { DB.close(); }
 });
 
+test('GEN2-42 release proof does not let a cancelled activity job block an idle release', async () => {
+  const DB=sqliteD1();
+  try {
+    await migrate(DB);
+    const ledger={
+      schema:'mel.ecosystem-discovery-ledger.v1',
+      items:[{fingerprint:'cleared',handoff:{job_id:'job-cleared',status:'TEACHER_APPROVED',teacher_request_id:'req-old',closed:false}}],
+    };
+    await DB.prepare(`INSERT INTO capability_watch_state(id,state_json,updated_at) VALUES(?,?,?)`)
+      .bind('ecosystem-discoveries-canonical',JSON.stringify(ledger),Date.now()).run();
+    const jobs={
+      'job-cleared':{id:'job-cleared',status:'CANCELLED',error:'ACTIVITY_LIST_RESET',requested_by:'mel-autonomy',optional_context:{source:'ecosystem-watch'},result_json:{}},
+    };
+    const proof=await proveEcosystemTeacherHandoff({DB},{developmentRepository:{async get(id){return jobs[id]||null;}}});
+    assert.equal(proof.ok,true);
+    assert.equal(proof.status,'GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED');
+    assert.equal(proof.open_handoff_count,0);
+    assert.equal(proof.released_cancelled_count,1);
+    assert.equal(proof.production_activation_allowed,false);
+  } finally { DB.close(); }
+});
+
 test('GEN2-42 release proof keeps retryable failures observable but non-blocking', async () => {
   const DB=sqliteD1();
   try {
