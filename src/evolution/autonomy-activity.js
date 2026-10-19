@@ -98,8 +98,10 @@ function currentTeacherReview(job) {
 function diagnostic(value) {
   const d = obj(value);
   const code = d.code || d.status || d.reason || d.error || null;
-  if (!code && !d.message && !d.detail) return null;
-  return clip([code, d.message || d.detail].filter(Boolean).join(' — '), 260);
+  const codes = Array.isArray(d.mentor_failure_codes) ? d.mentor_failure_codes.map((row) => row?.code).filter(Boolean) : [];
+  const text = [code, ...codes.filter((item) => item !== code), d.message || d.detail].filter(Boolean).join(' — ');
+  if (!text) return null;
+  return clip(text, 260);
 }
 
 /** The pipeline of one supervised job, as ordered steps with done/current/todo. */
