@@ -512,6 +512,48 @@ test('Android accepts two unrelated consecutive questions and preserves their co
   } finally {DB.close();}
 });
 
+test('a local MINI answer is stored before the next Android question', async () => {
+  const DB = sqliteD1();
+  try {
+    const prompts = [];
+    const env = {
+      DB,
+      MELITURGOS_USER: 'adrien',
+      MELITURGOS_PASSWORD: 'test',
+      AI: { async run(_model, payload) {
+        if (Array.isArray(payload?.messages)) prompts.push(payload.messages);
+        return { response: 'La question suivante a bien le contexte local.' };
+      } },
+    };
+    const paired = await pair(env, 'android-local-memory');
+    const headers = deviceHeaders(paired.device_id, paired.token, { 'content-type': 'application/json' });
+    const conversation_id = 'android-local-memory-conversation';
+    const recorded = await worker.fetch(new Request('https://mel.test/api/android/v1/chat', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        record_context: true,
+        conversation_id,
+        context_messages: [
+          { id: 'local-user-10000001', role: 'user', content: 'Tu vois la MINI ?' },
+          { id: 'local-mel-10000001', role: 'assistant', content: 'Oui. Le canal Bluetooth réel de la MINI est actif.' },
+        ],
+      }),
+    }), env);
+    assert.equal(recorded.status, 200);
+    assert.equal((await recorded.json()).recorded, 2);
+    const next = await worker.fetch(new Request('https://mel.test/api/android/v1/chat', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ text: 'Et Internet ?', conversation_id }),
+    }), env);
+    assert.equal(next.status, 200);
+    const prompt = prompts.at(-1) || [];
+    assert.ok(prompt.some(message => String(message.content || '').includes('Tu vois la MINI')));
+    assert.ok(prompt.some(message => String(message.content || '').includes('canal Bluetooth')));
+  } finally { DB.close(); }
+});
+
 
 test('Android consecutive questions can change subject and still support an elliptical third turn',async()=>{
   const DB=sqliteD1();

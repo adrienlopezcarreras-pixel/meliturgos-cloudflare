@@ -454,18 +454,45 @@ class MelViewModel(
         }
     }
 
+    private val pendingContext = mutableListOf<JSONObject>()
+
+    private fun pendingContextArray(): JSONArray {
+        val array = JSONArray()
+        synchronized(pendingContext) {
+            pendingContext.forEach { array.put(it) }
+        }
+        return array
+    }
+
+    private fun rememberLocalExchange(userText: String, answer: String) {
+        val stamp = System.currentTimeMillis().toString()
+        synchronized(pendingContext) {
+            pendingContext.add(JSONObject().put("id", "local-user-$stamp").put("role", "user").put("content", userText.take(4000)))
+            pendingContext.add(JSONObject().put("id", "local-mel-$stamp").put("role", "assistant").put("content", answer.take(4000)))
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                client.remember(conversationId, pendingContextArray())
+                synchronized(pendingContext) { pendingContext.clear() }
+            } catch (_: Throwable) {
+                appendDiagnosticLine("Mémoire locale MINI en attente du prochain message")
+            }
+        }
+    }
     private fun chatWithRecovery(
         text: String,
         voice: Boolean,
         mode: MelMode
     ): JSONObject {
+        val context = pendingContextArray()
         return try {
             client.chat(
                 text = text,
                 conversationId = conversationId,
                 voice = voice,
                 uiMode = mode.wireValue,
-                preferCompanionCompute = _state.value.preferCompanionCompute && !voice
+                preferCompanionCompute = _state.value.preferCompanionCompute && !voice,
+                contextMessages = context
             )
         } catch (first: Throwable) {
             if (isInvalidSession(first)) throw first
@@ -491,7 +518,8 @@ class MelViewModel(
                 conversationId = conversationId,
                 voice = voice,
                 uiMode = mode.wireValue,
-                preferCompanionCompute = _state.value.preferCompanionCompute && !voice
+                preferCompanionCompute = _state.value.preferCompanionCompute && !voice,
+                contextMessages = context
             )
         }
     }
@@ -511,6 +539,7 @@ class MelViewModel(
                     MelChatMessage("user", clean, voice) +
                     MelChatMessage("mel", localAnswer)
             )
+            rememberLocalExchange(clean, localAnswer)
             if (voice) {
                 viewModelScope.launch(Dispatchers.IO) {
                     appendDiagnosticLine("MINI local fast-path: ${MelLinkV2ClientService.bridgeState.value}")
@@ -543,6 +572,7 @@ class MelViewModel(
                 appendDiagnosticLine("Chat serveur · ${serverElapsedMs} ms · voix=$voice")
                 val answer = response.optString("text", response.optString("response", "")).trim()
                 if (answer.isBlank()) throw MelApiException("EMPTY_RESPONSE", 502)
+                synchronized(pendingContext) { pendingContext.clear() }
                 _state.value = _state.value.copy(
                     busy = voice,
                     speaking = false,
@@ -599,6 +629,7 @@ class MelViewModel(
                             MelChatMessage("user", transcript, voice = true) +
                             MelChatMessage("mel", localAnswer)
                     )
+                    rememberLocalExchange(transcript, localAnswer)
                     appendDiagnosticLine("MINI voice fast-path: ${MelLinkV2ClientService.bridgeState.value}")
                     speakAnswer(localAnswer, mode)
                     appendDiagnosticLine("Voix locale complète · ${SystemClock.elapsedRealtime() - voiceRequestStartedAt} ms")
@@ -618,6 +649,7 @@ class MelViewModel(
                 appendDiagnosticLine("Voix chat serveur · ${SystemClock.elapsedRealtime() - chatStartedAt} ms")
                 val answer = response.optString("text", response.optString("response", "")).trim()
                 if (answer.isBlank()) throw MelApiException("EMPTY_RESPONSE", 502)
+                synchronized(pendingContext) { pendingContext.clear() }
                 _state.value = _state.value.copy(
                     busy = true,
                     speaking = false,
