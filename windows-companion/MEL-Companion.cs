@@ -1867,6 +1867,39 @@ class MainForm : Form
     }
     void CheckMiniUsbUpdateReadiness(object sender,EventArgs e)
     {
+        // Verify an owner-selected OTA application image before consulting
+        // backup/recovery evidence. Do not accept full first-install images.
+        using(var picker=new OpenFileDialog())
+        {
+            picker.Title="MEL MINI — sélectionner mel-terminal.bin";
+            picker.Filter="Firmware applicatif MEL (mel-terminal*.bin)|mel-terminal*.bin";
+            picker.CheckFileExists=true;
+            picker.Multiselect=false;
+            if(picker.ShowDialog(this)!=DialogResult.OK)return;
+            var filename=Path.GetFileName(picker.FileName);
+            if(!filename.StartsWith("mel-terminal",StringComparison.OrdinalIgnoreCase) ||
+                !filename.EndsWith(".bin",StringComparison.OrdinalIgnoreCase))
+            {
+                MessageBox.Show(this,"Seule une image applicative mel-terminal.bin est acceptée.",
+                    "MEL MINI",MessageBoxButtons.OK,MessageBoxIcon.Warning);return;
+            }
+            byte[] image;
+            try{image=File.ReadAllBytes(picker.FileName);}
+            catch(Exception ex){MessageBox.Show(this,ex.Message,"MEL MINI",MessageBoxButtons.OK,MessageBoxIcon.Error);return;}
+            if(image.Length<65536 || image.Length>0x600000 || image[0]!=0xE9 ||
+                image.Length<24 || BitConverter.ToUInt16(image,12)!=9)
+            {
+                MessageBox.Show(this,"Image non qualifiée : taille ou en-tête ESP32-S3 invalide. Aucun flash.",
+                    "MEL MINI",MessageBoxButtons.OK,MessageBoxIcon.Warning);return;
+            }
+            string imageHash;
+            using(var sha=SHA256.Create()){imageHash=BitConverter.ToString(sha.ComputeHash(image)).Replace("-","").ToLowerInvariant();}
+            // SHA-256 is displayed for comparison with the trusted build manifest;
+            // a valid header alone never authorizes writing flash.
+            MessageBox.Show(this,"Image ESP32-S3 contrôlée en lecture seule. SHA-256 : "+imageHash+
+                "\\nTaille : "+image.Length+" octets. Vérification de la récupération locale...",
+                "MEL MINI — firmware",MessageBoxButtons.OK,MessageBoxIcon.Information);
+        }
         // A complete flash backup is NOT a demonstrated recovery. Never
         // treat success=true as permission to write to existing hardware.
         var root=Path.Combine(MelApp.MelDir,"mini-full-backups");
