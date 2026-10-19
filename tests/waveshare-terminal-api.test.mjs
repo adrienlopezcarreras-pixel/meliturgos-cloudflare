@@ -103,7 +103,7 @@ test('device TTS uses self-describing 16 kHz mono linear16 WAV for MINI playback
   assert.equal(r.status,200);
   assert.equal(r.headers.get('content-type'),'audio/wav');
   assert.equal(r.headers.get('x-mel-audio-format'),'wav-pcm-s16le');
-  assert.equal(r.headers.get('x-mel-audio-rate'),'16000');
+  assert.equal(r.headers.get('x-mel-audio-rate'),'48000');
   assert.equal(r.headers.get('x-mel-audio-channels'),'1');
   const out = new Uint8Array(await r.arrayBuffer());
   assert.equal(new TextDecoder().decode(out.slice(0,4)),'RIFF');
@@ -114,7 +114,7 @@ test('device TTS uses self-describing 16 kHz mono linear16 WAV for MINI playback
     speaker:'luna',
     encoding:'linear16',
     container:'wav',
-    sample_rate:16000
+    sample_rate:48000
   });
   assert.deepEqual(aiCall.options,{ returnRawResponse:true });
 });

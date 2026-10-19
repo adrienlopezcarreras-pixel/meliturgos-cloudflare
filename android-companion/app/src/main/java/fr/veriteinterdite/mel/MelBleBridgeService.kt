@@ -832,63 +832,35 @@ class MelBleBridgeService : Service() {
         return null
     }
 
-    private fun relayTtsWav48kTo16k(
+    private fun relayTtsWav48k(
         device: BluetoothDevice,
         requestId: Int,
         status: Int,
         input: InputStream
     ): Boolean {
         val dataBytes = readWav48kPcmDataSize(input) ?: return false
-        val samples48k = dataBytes / 2L
-        val samples16k = (samples48k + 2L) / 3L
-        val outputBytes = samples16k * 2L
         val meta = JSONObject()
             .put("status", status)
             .put("contentType", "application/octet-stream")
-            .put("length", outputBytes)
+            .put("length", dataBytes)
             .put("audioFormat", "pcm-s16le")
-            .put("audioRate", 16000)
+            .put("audioRate", 48000)
             .put("audioChannels", 1)
         if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, requestId, meta)) return false
 
         val mtu = mtus[device.address] ?: 23
         val maxPayload = (mtu - 8).coerceIn(12, 500)
-        val inputBuffer = ByteArray(maxPayload * 3)
-        val outputBuffer = ByteArray(maxPayload)
+        val buffer = ByteArray(maxPayload)
         var remaining = dataBytes
-        var pendingLow: Byte? = null
-        var samplePhase = 0
-
         while (remaining > 0) {
-            val want = minOf(inputBuffer.size.toLong(), remaining).toInt()
-            val count = input.read(inputBuffer, 0, want)
+            val want = minOf(buffer.size.toLong(), remaining).toInt()
+            val count = input.read(buffer, 0, want)
             if (count < 0) return false
             if (count == 0) continue
             remaining -= count
-
-            var src = 0
-            var dst = 0
-            if (pendingLow != null) {
-                if (samplePhase == 0 && dst + 2 <= outputBuffer.size) {
-                    outputBuffer[dst++] = pendingLow!!
-                    outputBuffer[dst++] = inputBuffer[0]
-                }
-                samplePhase = (samplePhase + 1) % 3
-                pendingLow = null
-                src = 1
-            }
-            while (src + 1 < count) {
-                if (samplePhase == 0 && dst + 2 <= outputBuffer.size) {
-                    outputBuffer[dst++] = inputBuffer[src]
-                    outputBuffer[dst++] = inputBuffer[src + 1]
-                }
-                samplePhase = (samplePhase + 1) % 3
-                src += 2
-            }
-            if (src < count) pendingLow = inputBuffer[src]
-            if (dst > 0 && !sendFrame(device, packet(OP_RESPONSE_BODY, requestId, outputBuffer.copyOf(dst)))) return false
+            if (!sendFrame(device, packet(OP_RESPONSE_BODY, requestId, buffer.copyOf(count)))) return false
         }
-        return pendingLow == null
+        return true
     }
 
     private fun relay(device: BluetoothDevice, request: PendingRequest) {
@@ -1035,12 +1007,12 @@ class MelBleBridgeService : Service() {
             Log.i(TAG, "MEL relay HTTP ${request.method} ${request.path} -> $status")
             val contentType = connection.contentType ?: "application/octet-stream"
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val downsampleTts = status in 200..299 && request.path == "/api/device/v1/voice/tts"
+            val relayTts = status in 200..299 && request.path == "/api/device/v1/voice/tts"
 
-            if (downsampleTts && stream != null) {
-                val ok = stream.use { input -> relayTtsWav48kTo16k(device, request.id, status, input) }
+            if (relayTts && stream != null) {
+                val ok = stream.use { input -> relayTtsWav48k(device, request.id, status, input) }
                 if (!ok) {
-                    Log.e(TAG, "MEL relay TTS WAV parse/downsample failed")
+                    Log.e(TAG, "MEL relay TTS WAV parse failed")
                     sendError(device, request.id, "TTS_WAV")
                     return
                 }
