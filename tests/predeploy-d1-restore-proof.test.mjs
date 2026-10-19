@@ -97,6 +97,8 @@ test('predeploy proof reports the failing stage and SQLite result code without n
     assert.equal(caught.code, 'BACKUP_SQLITE_RESTORE_FAILED');
     assert.equal(caught.message, 'BACKUP_SQLITE_RESTORE_FAILED');
     assert.doesNotMatch(JSON.stringify(caught), /private-|SELECT|CREATE|INSERT|extra_data|constraint failed:/);
+    assert.ok(caught.diagnostic.table_count >= 1);
+    assert.ok(caught.diagnostic.table_row_count >= 1);
     return caught.diagnostic;
   };
   const duplicate = await snapshotFixture();
@@ -106,6 +108,9 @@ test('predeploy proof reports the failing stage and SQLite result code without n
   assert.deepEqual(await diagnosticOf(duplicate), {
     stage: 'insert',
     table_index: duplicate.tables.indexOf(extra),
+    table_count: duplicate.tables.length,
+    table_row_count: 2,
+    row_index: 1,
     error_code: 'ERR_SQLITE_ERROR',
     sqlite_errcode: 1555, // SQLITE_CONSTRAINT_PRIMARYKEY
     sqlite_errstr: 'constraint failed',
@@ -116,6 +121,9 @@ test('predeploy proof reports the failing stage and SQLite result code without n
   assert.deepEqual(await diagnosticOf(invalid), {
     stage: 'schema',
     table_index: invalid.tables.indexOf(broken),
+    table_count: invalid.tables.length,
+    table_row_count: 1,
+    row_index: null,
     error_code: 'ERR_SQLITE_ERROR',
     sqlite_errcode: 1, // SQLITE_ERROR
     sqlite_errstr: 'SQL logic error',
