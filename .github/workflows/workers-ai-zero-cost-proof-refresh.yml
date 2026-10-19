@@ -92,7 +92,10 @@ jobs:
               entitlement_value:markerValue,
               workers_free_reference_value:20000,
             },
+            // Must stay aligned with src/models/ModelRegistry.js Workers AI
+            // entries that share the free 10k neurons/day FAIL_NOT_BILL pool.
             models:[
+              '@cf/openai/gpt-oss-120b',
               '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
               '@cf/google/gemma-4-26b-a4b-it',
               '@cf/nvidia/nemotron-3-120b-a12b',
