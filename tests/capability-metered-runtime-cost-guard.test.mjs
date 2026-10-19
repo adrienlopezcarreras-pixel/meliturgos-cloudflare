@@ -37,7 +37,7 @@ test('deep truth audit refuses metered runtime reads until exact zero-added-cost
     const row = blocked.capabilities.find(item => item.id === record.id);
     assert.equal(row.tested_now, false);
     assert.equal(row.auto_execution_blocked, 'UNKNOWN_OR_EXTERNAL_COST');
-    assert.equal(row.truth_status, 'EXISTANT_NON_TESTE');
+    assert.equal(row.truth_status, 'REFUSEE');
   }
 
   const approved = await auditRuntimeCapabilities(fake, {

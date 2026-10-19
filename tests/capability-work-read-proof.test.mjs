@@ -54,7 +54,7 @@ test('virgin work store is not fabricated into a successful capability execution
     const row = report.capabilities.find(x => x.id === id);
     assert.equal(row.auto_execution_blocked, 'NO_RUNTIME_FIXTURE', id);
     assert.equal(row.tested_now, false, id);
-    assert.equal(row.truth_status, 'EXISTANT_NON_TESTE', id);
+    assert.equal(row.truth_status, 'REFUSEE', id);
   }
   assert.equal(runtime.called.some(x => ['work.status','work.artifacts'].includes(x.id)), false);
 });

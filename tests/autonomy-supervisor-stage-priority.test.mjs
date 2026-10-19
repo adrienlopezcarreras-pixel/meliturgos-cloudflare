@@ -124,3 +124,23 @@ test('REPAIR_REQUIRED approved work is actionable and outranks unrelated approve
   assert.equal(selected.id, repair.id);
   assert.equal(selected.status, 'REPAIR_REQUIRED');
 });
+
+test('jobs created before the activity epoch are ignored by the selector', () => {
+  const old = {
+    id: 'old-job',
+    requested_by: 'mel-autonomy',
+    status: 'QUEUED',
+    created_at: 1000,
+    optional_context: { roadmap_id: 'GEN2-17' },
+  };
+  const fresh = {
+    id: 'fresh-job',
+    requested_by: 'mel-autonomy',
+    status: 'QUEUED',
+    created_at: 5000,
+    optional_context: { roadmap_id: 'MEL-FOUNDER-01' },
+  };
+  assert.equal(selectActionableAutonomyJob([old, fresh], { epochMs: 4000 }).id, 'fresh-job');
+  assert.equal(selectActionableAutonomyJob([old], { epochMs: 4000 }), null);
+  assert.equal(selectActionableAutonomyJob([old, fresh]).id, 'old-job');
+});
