@@ -329,6 +329,9 @@ const COST_SENSITIVE_CAPABILITIES = new Set([
   'evolution.preflight',
   'work.plan.generate',
   'media.audio.transcribe',
+  // Provider-backed analysis must be both explicitly sampled and cost-approved.
+  'media.image.analyze',
+  'media.video.analyze',
   'evolution.enqueue',
   'web.research',
   'github.repository.read',
@@ -427,8 +430,10 @@ function autoExecutionBlockReason({ deep, record, sample, declared, costSensitiv
   const health = String(record?.health || '').toUpperCase();
   if (['UNAVAILABLE','OFFLINE','DISABLED','BLOCKED','DOWN','BROKEN','ERROR','FAILED','FAIL','UNHEALTHY'].includes(health)) return 'HEALTH_UNAVAILABLE';
   if (record?.health_refresh_verified === false) return 'HEALTH_REFRESH_UNVERIFIED';
-  if (sample === undefined && !strict && !deep) return 'NO_BOUNDED_SAMPLE';
   if (costSensitive && !costApproved && !strict) return 'UNKNOWN_OR_EXTERNAL_COST';
+  // Missing input is not a runnable smoke sample. Fabricating {} produced
+  // IMAGE_INPUT_REQUIRED / VIDEO_INPUT_REQUIRED false runtime failures.
+  if (sample === undefined) return 'NO_BOUNDED_SAMPLE';
   return null;
 }
 
@@ -577,7 +582,6 @@ export async function auditRuntimeCapabilities(runtime, {
       costApproved,
       strict,
     });
-    if ((strict || deep) && blockedReason == null && sample === undefined) sample = {};
     if (deep && blockedReason == null && typeof sample === 'function') {
       try {
         const sampleTimeoutMs = Math.max(50, Math.min(60_000, Number(executionTimeoutMs) || 15_000));
