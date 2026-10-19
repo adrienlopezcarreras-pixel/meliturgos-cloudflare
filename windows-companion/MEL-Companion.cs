@@ -1841,11 +1841,76 @@ class MainForm : Form
     }
     void ChooseMiniUsbAction(object sender,EventArgs e)
     {
-        var choice=MessageBox.Show(this,
-            "OUI : diagnostic USB en lecture seule.\nNON : sauvegarde intégrale USB en lecture seule (deux lectures vérifiées).\nANNULER : ne rien faire.\n\nAucune de ces actions ne flashe la MINI.",
-            "MEL MINI — opération locale",MessageBoxButtons.YesNoCancel,MessageBoxIcon.Warning);
-        if(choice==DialogResult.Yes)RunMiniUsbPreflight(sender,e);
-        else if(choice==DialogResult.No)RunMiniUsbBackup(sender,e);
+        // Local GUI entry point. Firmware installation is not an alternative
+        // to the verified-backup and recovery requirements.
+        using(var dialog=new Form())
+        {
+            dialog.Text="MEL MINI — maintenance USB (COM3)";
+            dialog.ClientSize=new Size(500,215);
+            dialog.FormBorderStyle=FormBorderStyle.FixedDialog;
+            dialog.StartPosition=FormStartPosition.CenterParent;
+            dialog.MaximizeBox=false;dialog.MinimizeBox=false;
+            var note=new Label {Text="MINI sur COM3. Sélectionnez une opération. Les contrôles restent locaux, sans terminal ni code à saisir.",
+                Left=15,Top=15,Width=470,Height=48};
+            var check=new Button {Text="Vérifier la MINI",Left=15,Top=76,Width=147,Height=40};
+            var backup=new Button {Text="Sauvegarder",Left=176,Top=76,Width=147,Height=40};
+            var install=new Button {Text="Mise à jour",Left=337,Top=76,Width=147,Height=40};
+            var close=new Button {Text="Fermer",Left=365,Top=160,Width=119,Height=35,DialogResult=DialogResult.Cancel};
+            check.Click+=(o,args)=>{dialog.Close();RunMiniUsbPreflight(sender,e);};
+            backup.Click+=(o,args)=>{dialog.Close();RunMiniUsbBackup(sender,e);};
+            install.Click+=(o,args)=>{dialog.Close();CheckMiniUsbUpdateReadiness(sender,e);};
+            dialog.Controls.AddRange(new Control[]{note,check,backup,install,close});
+            dialog.CancelButton=close;
+            if(k>1f)dialog.Scale(new SizeF(k,k));
+            dialog.ShowDialog(this);
+        }
+    }
+    void CheckMiniUsbUpdateReadiness(object sender,EventArgs e)
+    {
+        // A complete flash backup is NOT a demonstrated recovery. Never
+        // treat success=true as permission to write to existing hardware.
+        var root=Path.Combine(MelApp.MelDir,"mini-full-backups");
+        if(!Directory.Exists(root))
+        {
+            MessageBox.Show(this,"Aucune sauvegarde USB MINI trouvée. Le flash reste bloqué.",
+                "MEL MINI — mise à jour",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            return;
+        }
+        bool foundBackup=false, recoveryProven=false, flashAllowed=false;
+        foreach(var file in Directory.GetFiles(root,"backup.json",SearchOption.AllDirectories))
+        {
+            try
+            {
+                var data=System.Text.Json.JsonDocument.Parse(File.ReadAllText(file));
+                using(data)
+                {
+                    var value=data.RootElement;
+                    System.Text.Json.JsonElement p;
+                    if(!value.TryGetProperty("port",out p)||p.GetString()!="COM3")continue;
+                    if(!value.TryGetProperty("success",out p)||p.ValueKind!=System.Text.Json.JsonValueKind.True)continue;
+                    foundBackup=true;
+                    bool thisRecovery=value.TryGetProperty("restore_proven",out p)&&p.ValueKind==System.Text.Json.JsonValueKind.True;
+                    bool thisAllowed=value.TryGetProperty("flash_allowed",out p)&&p.ValueKind==System.Text.Json.JsonValueKind.True;
+                    if(thisRecovery&&thisAllowed){recoveryProven=true;flashAllowed=true;}
+                }
+            }
+            catch(Exception) { /* malformed evidence is never trusted */ }
+        }
+        // The two proofs must come from the SAME backup, not be combined
+        // from separate records. See readiness check below.
+        if(!foundBackup || !recoveryProven || !flashAllowed)
+        {
+            MessageBox.Show(this,
+                "Sauvegarde COM3 : "+(foundBackup?"détectée":"absente")+
+                "\\nRestauration démontrée : "+(recoveryProven?"oui":"non")+
+                "\\nAutorisation de flash : "+(flashAllowed?"oui":"non")+
+                "\\n\\nLa mise à jour n'écrit rien : le plan de récupération doit d'abord être qualifié.",
+                "MEL MINI — mise à jour non autorisée",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            return;
+        }
+        MessageBox.Show(this,
+            "Des preuves locales sont présentes, mais la qualification de l'image, la concordance des partitions et la vérification sur l'appareil restent requises. Aucun flash automatique n'est encore autorisé par cette version.",
+            "MEL MINI — vérifications complémentaires",MessageBoxButtons.OK,MessageBoxIcon.Information);
     }
     void RunMiniUsbBackup(object sender,EventArgs e)
     {
