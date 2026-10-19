@@ -23,6 +23,7 @@ import { formatPersonalProfileRecall, retrieveContext, retrievePersonalProfileCo
 import { isMelWorkKickoff, startMelWorkKickoff } from '../work/mel-work-kickoff.js';
 import { isSubstantialMelTask, findMelWorkReference, launchSubstantialMelTask, getSubstantialMelStatus } from '../work/mel-general-kickoff.js';
 import { isMaxModeMention } from '../evolution/chat-intent.js';
+import { enqueueOwnerDevelopmentRequest } from '../evolution/owner-development-queue.js';
 import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse, formatVerifiedAutonomyActivityResponse, formatVerifiedDevBridgeStatusResponse, formatVerifiedAutonomyRuntimeResponse, MAX_MODE_EXPLANATION } from './response-grounding.js';
 import { buildResponseQualityInstruction, finalizeEvidenceAlignedResponse, inferResponseMode } from './response-quality.js';
 import { buildConversationFocusInstruction, deriveConversationFocus } from './conversation-focus.js';
@@ -40,7 +41,7 @@ import { privateConnectedDataRequest } from './connected-data-intent.js';
 import { createChatDeadline, hasChatBudget, raceChatDeadline, chatDeadlineError, COUNCIL_RECOVERY_MIN_REMAINING_MS, CONTINUATION_MIN_REMAINING_MS, FALLBACK_ATTEMPT_MIN_REMAINING_MS } from './chat-deadline.js';
 import { inferCurrentFactVerificationPolicy, hasAuthoritativeCurrentFactEvidence, currentFactReliabilityInstruction } from './current-fact-reliability.js';
 import { buildPresentationInstruction } from '../presentation/presentation-skill.js';
-import { executeLeakedReads, parseAgentAction, responseIsBareToolCall, runAgentToolLoop, stripLeakedToolCalls, wantsAgentTools } from './agent-tools.js';
+import { executeLeakedReads, missingCapabilityShouldBeLearned, parseAgentAction, responseIsBareToolCall, runAgentToolLoop, stripLeakedToolCalls, wantsAgentTools } from './agent-tools.js';
 
 // Beyond this length a chat message is treated as an instruction (see handleNativeChat).
 export const INSTRUCTION_PROMPT_CHARS = 280;
@@ -1645,6 +1646,26 @@ export async function handleNativeChat(request, env, options = {}) {
     for (const row of agentResults) {
       toolResults.push(row);
       if (row.status === 'SUCCEEDED') capabilitiesUsed.push(row.capability);
+    }
+  }
+
+  if (!releaseSmoke && missingCapabilityShouldBeLearned(toolResults) && runtime?.bus) {
+    try {
+      const learned = await enqueueOwnerDevelopmentRequest({
+        env,
+        goal: activeTaskText,
+        conversationId,
+        requestKey: String(body.client_message_id ?? body.message_id ?? body.request_id ?? ''),
+        capabilities: runtime.bus.list(),
+      });
+      if (learned?.job_id) {
+        toolResults.push({ capability: 'evolution.enqueue', status: 'SUCCEEDED', result: learned });
+        capabilitiesUsed.push('evolution.enqueue');
+      } else {
+        toolResults.push({ capability: 'evolution.enqueue', status: 'FAILED', error: String(learned?.status || 'NO_NEW_CAPABILITY_NEEDED') });
+      }
+    } catch (error) {
+      toolResults.push({ capability: 'evolution.enqueue', status: 'FAILED', error: String(error?.code || error?.message || 'EVOLUTION_ENQUEUE_FAILED') });
     }
   }
 
