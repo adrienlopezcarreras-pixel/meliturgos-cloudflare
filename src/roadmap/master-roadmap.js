@@ -7,7 +7,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-10-19.1';
+export const ROADMAP_REGISTRY_REVISION = '2026-10-19.2';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -217,6 +217,13 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-FOUNDER-06', 'Valider Companion, APK et MINI sur les appareils réels', 'BLOCKED_HUMAN', 'Le propriétaire doit disposer d’un PC, d’un téléphone et d’un MINI matériellement sain. L’écran cassé et l’absence de son ne se corrigent pas dans le dépôt. Ne pas les marquer vérifiés.', 'P1'),
     item('MEL-FOUNDER-07', 'Prouver une restauration isolée du patrimoine', 'PLANNED', 'Manifeste, priorité 1. Restaurer evolution_ledger, conversations et dev_jobs dans un environnement isolé. La D1 de production ne change pas. Un backup existant sans cette comparaison n’est pas une restauration prouvée.', 'P1'),
     item('MEL-FOUNDER-08', 'Promouvoir un LoRA seulement après un gain mesuré', 'PLANNED', 'Manifeste, priorité 2. Un run d’entraînement n’est pas un LoRA actif. L’activation exige le même modèle de base, un gain mesuré, aucune régression majeure et un finetune_id persisté. Sinon le statut reste non actif.', 'P1')
+  ]),
+
+  phase('P17', 'Compte du manifeste : continuer après le cycle fondateur', [
+    item('MEL-MANIFEST-01', 'Tenir le compte des cinq priorités du manifeste', 'PLANNED', 'Après les preuves du cycle fondateur, associe chaque priorité 0 à 4 à une exécution réelle. N’écris DONE_VERIFIED sur aucune ligne sans cette preuve.', 'P1'),
+    item('MEL-MANIFEST-02', 'Reprendre le même travail au tick suivant', 'PLANNED', 'Le bail est rendu. Un seul job par objectif. Le tick suivant lit le journal et continue, sans créer un second job.', 'P1'),
+    item('MEL-MANIFEST-03', 'Enregistrer une compétence nouvelle sur le bus unique', 'PLANNED', 'Une demande sans outil devient un diff, un avis du Council, une CI verte, puis une capacité du bus. Pas de second moteur.', 'P1'),
+    item('MEL-MANIFEST-04', 'Conserver une version stable avant une évolution risquée', 'PLANNED', 'La sauvegarde est vérifiée et la restauration est comparée hors de la D1 de production. Le rollback connu reste disponible.', 'P1')
   ]),
 ]);
 
