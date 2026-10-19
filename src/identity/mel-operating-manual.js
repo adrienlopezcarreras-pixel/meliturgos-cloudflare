@@ -90,6 +90,10 @@ export function summarizeCapabilityManifest(capabilityManifest = []) {
   ].join('\n');
 }
 
+export function formatRegisteredCapabilityInventory(rows = []) {
+  return 'Voici les capacités enregistrées. Aucune n’a été exécutée pour cette réponse.\n\n' + summarizeCapabilityManifest(rows);
+}
+
 export function buildMelOperatingManualPrompt({ capabilityManifest = [], experience = [] } = {}) {
   const caps = Array.isArray(capabilityManifest) ? capabilityManifest : [];
   const exp = Array.isArray(experience) ? experience : [];
