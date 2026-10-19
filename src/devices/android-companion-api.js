@@ -322,8 +322,43 @@ function approximateNetworkLocation(request) {
   return parts.join(", ").slice(0, 240);
 }
 
+function contextMessages(body) {
+  const rows = Array.isArray(body?.context_messages) ? body.context_messages : [];
+  return rows.slice(0, 8).map(row => {
+    const role = row?.role === "assistant" || row?.role === "mel" ? "assistant" : row?.role === "user" ? "user" : "";
+    const content = safe(row?.content, 4000);
+    const id = safe(row?.id, 120);
+    if (!role || !content || !/^[a-zA-Z0-9_.:-]{8,120}$/.test(id)) return null;
+    return { id, role, content };
+  }).filter(Boolean);
+}
+
+async function rememberContext(env, auth, conversationId, messages) {
+  if (!env?.DB || !messages.length) return 0;
+  const service = createConversationService(env);
+  let saved = 0;
+  for (const message of messages) {
+    await service.archiveMessage({
+      id: message.id,
+      conversationId,
+      deviceId: auth.deviceId,
+      role: message.role,
+      content: message.content,
+      timestamp: Date.now() + saved,
+      provenance: "android-local-context",
+    });
+    saved += 1;
+  }
+  return saved;
+}
+
 async function deviceChat(request,env,auth) {
   const body = await request.json().catch(()=>({}));
+  const conversationId = conversationIdFor(auth,body);
+  const remembered = await rememberContext(env, auth, conversationId, contextMessages(body)).catch(() => 0);
+  if (body.record_context === true) {
+    return json({ ok:true, recorded:remembered, conversation_id:conversationId });
+  }
   const text = safe(body.text ?? body.message,100000);
   if (!text) return json({ok:false,code:"MESSAGE_REQUIRED"},400);
   const inputSource = body.input_source === "voice-server-transcription" ? "voice-server-transcription" : "text";
@@ -333,7 +368,7 @@ async function deviceChat(request,env,auth) {
     headers:{"content-type":"application/json"},
     body:JSON.stringify({
       text,
-      conversation_id:conversationIdFor(auth,body),
+      conversation_id:conversationId,
       device_id:auth.deviceId,
       ui_theme:safe(body.ui_theme,40)||"futuristic",
       ui_mode:uiMode,

@@ -253,22 +253,35 @@ class MelApiClient(
         conversationId: String,
         voice: Boolean = false,
         uiMode: String = "normal",
-        preferCompanionCompute: Boolean = false
+        preferCompanionCompute: Boolean = false,
+        contextMessages: JSONArray? = null
     ): JSONObject {
         require(text.isNotBlank())
         val mode = if (uiMode.lowercase() == "complete") "complete" else "normal"
+        val payload = JSONObject()
+            .put("text", text)
+            .put("conversation_id", conversationId)
+            .put("ui_mode", mode)
+            .put("ui_theme", "futuristic")
+            .put("input_source", if (voice) "voice-server-transcription" else "text")
+            .put("voice_reply", voice)
+            .put("prefer_companion_compute", preferCompanionCompute && !voice)
+            .put("use_companion_compute", preferCompanionCompute && !voice)
+        if (contextMessages != null && contextMessages.length() > 0) {
+            payload.put("context_messages", contextMessages)
+        }
+        return jsonRequest("/api/android/v1/chat", "POST", payload)
+    }
+
+    fun remember(conversationId: String, messages: JSONArray): JSONObject {
+        require(messages.length() > 0)
         return jsonRequest(
             "/api/android/v1/chat",
             "POST",
             JSONObject()
-                .put("text", text)
+                .put("record_context", true)
                 .put("conversation_id", conversationId)
-                .put("ui_mode", mode)
-                .put("ui_theme", "futuristic")
-                .put("input_source", if (voice) "voice-server-transcription" else "text")
-                .put("voice_reply", voice)
-                .put("prefer_companion_compute", preferCompanionCompute && !voice)
-                .put("use_companion_compute", preferCompanionCompute && !voice)
+                .put("context_messages", messages)
         )
     }
 
