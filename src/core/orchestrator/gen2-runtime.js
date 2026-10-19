@@ -16,6 +16,7 @@ import { registerCommunicationAuditCapability } from '../../capabilities/communi
 import { registerKnowledgeWorkspaceCapabilities } from '../../capabilities/knowledge-workspace-capabilities.js';
 import { registerEvolutionLedgerCapabilities } from '../../capabilities/evolution-ledger-capabilities.js';
 import { registerRecoveryDrillCapability } from '../../capabilities/recovery-drill-capability.js';
+import { registerPatrimonyCompareCapability } from '../../backup/restore-service.js';
 import { registerColdStandbyCapability } from '../../capabilities/cold-standby-capability.js';
 import { validateManifest } from '../../plugins/validator.js';
 import { transition } from '../lifecycle/extension.js';
@@ -96,6 +97,7 @@ export function createGen2Runtime({ audit, env = {} } = {}) {
   registerKnowledgeWorkspaceCapabilities(bus, env);
   registerEvolutionLedgerCapabilities(bus, env);
   registerRecoveryDrillCapability(bus, env);
+  registerPatrimonyCompareCapability(bus);
   registerColdStandbyCapability(bus, env);
   const plugins = new Map();
   const modules = new Map();
