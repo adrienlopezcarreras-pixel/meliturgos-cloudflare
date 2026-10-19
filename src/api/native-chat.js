@@ -40,7 +40,7 @@ import { privateConnectedDataRequest } from './connected-data-intent.js';
 import { createChatDeadline, hasChatBudget, raceChatDeadline, chatDeadlineError, COUNCIL_RECOVERY_MIN_REMAINING_MS, CONTINUATION_MIN_REMAINING_MS, FALLBACK_ATTEMPT_MIN_REMAINING_MS } from './chat-deadline.js';
 import { inferCurrentFactVerificationPolicy, hasAuthoritativeCurrentFactEvidence, currentFactReliabilityInstruction } from './current-fact-reliability.js';
 import { buildPresentationInstruction } from '../presentation/presentation-skill.js';
-import { parseAgentAction, responseIsBareToolCall, runAgentToolLoop } from './agent-tools.js';
+import { executeLeakedReads, parseAgentAction, responseIsBareToolCall, runAgentToolLoop, stripLeakedToolCalls } from './agent-tools.js';
 
 // Beyond this length a chat message is treated as an instruction (see handleNativeChat).
 export const INSTRUCTION_PROMPT_CHARS = 280;
@@ -2292,9 +2292,14 @@ export async function handleNativeChat(request, env, options = {}) {
   }
 
   const rawModelText = stripInternalCounters(ai.text);
-  const modelResponseText = responseIsBareToolCall(rawModelText)
+  if (runtime?.bus) {
+    const leaked = await executeLeakedReads({ bus: runtime.bus, text: rawModelText, already: toolResults, context: nativeCapabilityContext(env, request, options) });
+    for (const row of leaked) toolResults.push(row);
+  }
+  const visibleModelText = stripLeakedToolCalls(rawModelText);
+  const modelResponseText = !visibleModelText || responseIsBareToolCall(rawModelText)
     ? (connectorReadsFactualAnswer(toolResults) || 'Le JSON d’appel d’outil n’est pas une réponse. Aucun résultat d’outil de cette requête ne permet de le remplacer.')
-    : rawModelText;
+    : visibleModelText;
   const groundedResponseText = instructionPrompt && modelResponseText.trim()
     ? modelResponseText
     : communicationAuditObserved
