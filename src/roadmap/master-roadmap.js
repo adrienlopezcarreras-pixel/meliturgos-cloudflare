@@ -7,7 +7,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-10-19.2';
+export const ROADMAP_REGISTRY_REVISION = '2026-10-19.3';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -223,7 +223,13 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-MANIFEST-01', 'Tenir le compte des cinq priorités du manifeste', 'PLANNED', 'Après les preuves du cycle fondateur, associe chaque priorité 0 à 4 à une exécution réelle. N’écris DONE_VERIFIED sur aucune ligne sans cette preuve.', 'P1'),
     item('MEL-MANIFEST-02', 'Reprendre le même travail au tick suivant', 'PLANNED', 'Le bail est rendu. Un seul job par objectif. Le tick suivant lit le journal et continue, sans créer un second job.', 'P1'),
     item('MEL-MANIFEST-03', 'Enregistrer une compétence nouvelle sur le bus unique', 'PLANNED', 'Une demande sans outil devient un diff, un avis du Council, une CI verte, puis une capacité du bus. Pas de second moteur.', 'P1'),
-    item('MEL-MANIFEST-04', 'Conserver une version stable avant une évolution risquée', 'PLANNED', 'La sauvegarde est vérifiée et la restauration est comparée hors de la D1 de production. Le rollback connu reste disponible.', 'P1')
+    item('MEL-MANIFEST-04', 'Conserver une version stable avant une évolution risquée', 'PLANNED', 'La sauvegarde est vérifiée et la restauration est comparée hors de la D1 de production. Le rollback connu reste disponible.', 'P1'),
+    item('MEL-MANIFEST-05', 'Prouver un audit profond qui appelle vraiment', 'PLANNED', 'Lancer capability.audit avec deep vrai. Compter seulement les appelées, les refusées et les échouées. Un traité sans appel ne compte pas. Aucune mutation, aucun appel payant.', 'P1'),
+    item('MEL-MANIFEST-06', 'Ne reprendre aucun travail d’avant l’époque d’activité', 'PLANNED', 'Le tick ne sélectionne qu’un job QUEUED créé après l’époque. L’ancien journal reste lisible. Un travail annulé n’est pas repris.', 'P1'),
+    item('MEL-MANIFEST-07', 'Laisser la veille ouvrir un seul travail supervisé', 'PLANNED', 'Une découverte crée un seul job. Deux jobs pour la même découverte sont un échec. Ne pas créer une seconde veille.', 'P1'),
+    item('MEL-MANIFEST-08', 'Dire la vérité sur Gmail tant que le compte manque', 'PLANNED', 'Cinq messages lus, ou le code exact PIPEDREAM_GMAIL_ACCOUNT_REQUIRED, GMAIL_SEARCH_FAILED_NETWORK ou GMAIL_SEARCH_FAILED_ALL_PATHS_FAILED. Un refus n’est pas une lecture réussie.', 'P1'),
+    item('MEL-MANIFEST-09', 'Faire évoluer une compétence seulement après un écart prouvé', 'PLANNED', 'Si aucune capacité du bus ne couvre la demande, créer un seul objectif, puis un diff, un Council nommé et une CI verte. Enregistrer la compétence sur le bus unique. Ne pas l’inventer dans la réponse.', 'P1'),
+    item('MEL-MANIFEST-10', 'Fermer le compte du manifeste sans ligne manquante', 'PLANNED', 'Les priorités 0 à 3 sont prouvées et les lignes fondatrices correspondantes sont DONE_VERIFIED. La priorité 4 reste BLOCKED_HUMAN tant que Companion, Android et MINI n’ont pas été utilisés en conditions réelles. Ne pas écrire MEL à 100 % avant cela.', 'P1')
   ]),
 ]);
 
