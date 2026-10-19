@@ -10,9 +10,12 @@ test('Windows Companion keeps owner PC/compute permissions visible and refreshes
   // The connection banner has only the online state: never cram permission
   // labels into it.
   assert.match(main, /connection=CellLabel\(brand,"Vérification de la connexion…"/);
-  assert.match(main, /connection\.Text=online\?"Connecté à MEL":"Serveur indisponible — reconnexion automatique";/);
-  const connectionRefresh = main.slice(main.indexOf('connection.Text=online?'), main.indexOf('connection.ForeColor=online?'));
-  assert.doesNotMatch(connectionRefresh.split(';')[0], /Accès PC/);
+  assert.match(main, /var connectionText=online\?"Connecté à MEL"/);
+  assert.match(main, /:!engineUp\?"Moteur local arrêté"/);
+  assert.match(main, /:"Serveur indisponible — reconnexion automatique"/);
+  assert.match(main, /connection\.Text=connectionText;/);
+  const connectionRefresh = main.slice(main.indexOf('var connectionText=online?'), main.indexOf('connection.Text=connectionText;'));
+  assert.doesNotMatch(connectionRefresh, /Accès PC/);
 
   // Show grants in their own row of the work-station card (a docked layout
   // cell, so it follows the card's width).
@@ -26,4 +29,9 @@ test('Windows Companion keeps owner PC/compute permissions visible and refreshes
   // Closing the local permissions dialog updates the display without
   // waiting for the 30-second polling tick.
   assert.match(main, /using\(var dlg=new PermissionsForm\(\)\)dlg\.ShowDialog\(this\);RefreshAll\(\);/);
+  assert.match(source, /void LogEngineStart\(Exception ex\)/);
+  assert.match(source, /companion-startup\.log/);
+  const starter = source.slice(source.indexOf('public static void StartCompanion()'), source.indexOf('static void LogEngineStart'));
+  assert.match(starter, /LogEngineStart\(ex\)/);
+  assert.doesNotMatch(starter, /catch \{ \}/);
 });
