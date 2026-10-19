@@ -200,6 +200,43 @@ test('chat requests that need several actions on the PC go to the agent, simple 
   }
 });
 
+test('the phone and MINI can make the Companion open a page on the PC', async () => {
+  const { handleNativeChat } = await import('../src/api/native-chat.js');
+  const db = await setup();
+  const pc = fakeCompanion(db);
+  const ai = scriptedAi([{ action: 'done', summary: 'La page est ouverte.' }]);
+  const miniAi = scriptedAi([{ action: 'done', summary: 'Le Monde est ouvert.' }]);
+  const timer = setInterval(() => { pc.tick().catch(() => {}); }, 40);
+  try {
+    const phone = await handleNativeChat(new Request('https://mel.example/api/chat', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'va sur wikipedia.org', conversation_id: 'phone-1' }),
+    }), { DB: db, AI: ai }, { authorized: true, source: 'android-companion', device_id: 'pixel' });
+    const phoneData = await phone.json();
+    assert.equal(phone.headers.get('content-type').includes('json'), true);
+    assert.equal(phoneData.ok, true, JSON.stringify(phoneData));
+    assert.equal(phoneData.response_mode, 'computer-agent');
+    assert.equal(pc.executed[0], 'browser.navigate');
+
+    const mini = await handleNativeChat(new Request('https://mel.example/api/chat', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        text: 'navigue sur lemonde.fr depuis mon pc',
+        conversation_id: 'mini-1',
+        input_source: 'voice-server-transcription',
+        voice_reply: true,
+      }),
+    }), { DB: db, AI: miniAi }, { authorized: true, source: 'waveshare-terminal', device_id: 'mini-1' });
+    const miniData = await mini.json();
+    assert.equal(miniData.ok, true, JSON.stringify(miniData));
+    assert.equal(miniData.response_mode, 'computer-agent');
+    assert.ok(pc.executed.includes('browser.navigate'));
+  } finally {
+    clearInterval(timer);
+    db.close();
+  }
+});
+
 test('MEL Chat streams each PC step live, then the proof and the summary, and archives the exchange', async () => {
   const { handleNativeChat } = await import('../src/api/native-chat.js');
   const db = await setup();

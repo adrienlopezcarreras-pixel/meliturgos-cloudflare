@@ -329,8 +329,9 @@ export function streamComputerAgent({ env, goal, archive = async () => false }) 
         finalText = finalText || (result.ok ? 'C’est fait.' : 'Je n’ai pas pu terminer : ' + (result.code || result.status));
         send({ type: 'delta', text: finalText });
         let archived = false;
+        const archivedText = [lines.join('\n'), finalText, proofUrl || ''].filter(Boolean).join('\n\n');
         try {
-          archived = await archive([...lines, '', finalText].join('\n'), { status: result.status || result.code, proof: proofUrl });
+          archived = await archive(archivedText, { status: result.status || result.code, proof: proofUrl });
         } catch {}
         send({ type: 'done', model: 'mel-computer-agent', chars: finalText.length, archived: archived === true, truncated: false, steps: lines.length, proof_url: proofUrl, agent_status: result.status || result.code });
       } catch (error) {

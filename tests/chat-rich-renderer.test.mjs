@@ -57,6 +57,46 @@ test('rich renderer preserves technical identifiers containing underscores', () 
   assert.equal(host.querySelector('em')?.textContent, 'italique');
 });
 
+test('rich renderer shows an image, a sound, a video and a page, and keeps raw HTML inert', () => {
+  const { dom, host } = render([
+    '![Le Vatican](https://example.com/pape.jpg)',
+    '',
+    'https://example.com/note.mp3',
+    '',
+    'https://example.com/clip.mp4',
+    '',
+    'https://www.youtube.com/watch?v=abcdefghijk',
+    '',
+    'https://www.vatican.va/content/vatican/fr/holy-father.html',
+    '',
+    'Voir aussi https://example.com/dans-la-phrase',
+    '',
+    '<img src=x onerror="window.pwned=true">',
+    '',
+    '![mauvais](javascript:alert(1))',
+  ].join('\n'));
+  assert.equal(dom.window.pwned, undefined);
+  const images = [...host.querySelectorAll('img')];
+  assert.equal(images.length, 1);
+  assert.equal(images[0].src, 'https://example.com/pape.jpg');
+  assert.equal(images[0].alt, 'Le Vatican');
+  assert.equal(host.querySelector('audio')?.src, 'https://example.com/note.mp3');
+  assert.equal(host.querySelector('video')?.src, 'https://example.com/clip.mp4');
+  const frames = [...host.querySelectorAll('iframe')];
+  assert.equal(frames.length, 2);
+  assert.equal(frames[0].src, 'https://www.youtube-nocookie.com/embed/abcdefghijk');
+  assert.equal(frames[1].src, 'https://www.vatican.va/content/vatican/fr/holy-father.html');
+  for (const frame of frames) {
+    assert.equal(frame.getAttribute('sandbox'), 'allow-scripts allow-popups allow-presentation');
+    assert.equal(frame.getAttribute('sandbox').includes('allow-same-origin'), false);
+  }
+  const sentence = [...host.querySelectorAll('a')].find(link => link.textContent === 'https://example.com/dans-la-phrase');
+  assert.ok(sentence);
+  assert.equal(host.querySelector('iframe[src="https://example.com/dans-la-phrase"]'), null);
+  assert.match(host.textContent, /<img src=x/);
+  assert.match(host.textContent, /javascript:alert/);
+});
+
 test('rich renderer keeps raw HTML inert and refuses unsafe link schemes', () => {
   const payload = [
     '<img src=x onerror="window.pwned=true">',
