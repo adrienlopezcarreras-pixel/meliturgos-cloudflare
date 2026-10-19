@@ -1881,18 +1881,15 @@ class MainForm : Form
         {
             try
             {
-                var data=System.Text.Json.JsonDocument.Parse(File.ReadAllText(file));
-                using(data)
-                {
-                    var value=data.RootElement;
-                    System.Text.Json.JsonElement p;
-                    if(!value.TryGetProperty("port",out p)||p.GetString()!="COM3")continue;
-                    if(!value.TryGetProperty("success",out p)||p.ValueKind!=System.Text.Json.JsonValueKind.True)continue;
-                    foundBackup=true;
-                    bool thisRecovery=value.TryGetProperty("restore_proven",out p)&&p.ValueKind==System.Text.Json.JsonValueKind.True;
-                    bool thisAllowed=value.TryGetProperty("flash_allowed",out p)&&p.ValueKind==System.Text.Json.JsonValueKind.True;
-                    if(thisRecovery&&thisAllowed){recoveryProven=true;flashAllowed=true;}
-                }
+                var data=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(File.ReadAllText(file));
+                object value;
+                if(!data.TryGetValue("port",out value)||Convert.ToString(value)!="COM3")continue;
+                if(!data.TryGetValue("success",out value)||!Object.Equals(value,true))continue;
+                foundBackup=true;
+                object restore,allowed;
+                bool both=data.TryGetValue("restore_proven",out restore)&&Object.Equals(restore,true)
+                    &&data.TryGetValue("flash_allowed",out allowed)&&Object.Equals(allowed,true);
+                if(both){recoveryProven=true;flashAllowed=true;}
             }
             catch(Exception) { /* malformed evidence is never trusted */ }
         }
