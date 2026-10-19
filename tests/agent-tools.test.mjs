@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runAgentToolLoop, parseAgentAction, responseIsBareToolCall, AGENT_MAX_STEPS } from '../src/api/agent-tools.js';
+import { runAgentToolLoop, parseAgentAction, responseIsBareToolCall, stripLeakedToolCalls, executeLeakedReads, AGENT_MAX_STEPS } from '../src/api/agent-tools.js';
 
 const bus = (calls) => ({
   list: () => ['capability.audit', 'evolution.enqueue', 'autonomy.status'].map(id => ({ id, description: id, input_schema: { type: 'object' } })),
@@ -66,4 +66,21 @@ test('a gmail read requested with arguments is executed, not left as text', asyn
 test('only a whole JSON tool call counts as a bare call', () => {
   assert.equal(responseIsBareToolCall('{"tool":"gmail.messages.search","arguments":{}}'), true);
   assert.equal(responseIsBareToolCall('Voici le résultat.\n{"tool":"gmail.messages.search"}'), false);
+});
+
+test('a tool JSON glued to the answer is removed and a missed read is executed once', async () => {
+  const calls = [];
+  const bus = {
+    async execute(id, input) { calls.push([id, input]); return { count: 5 }; },
+  };
+  const text = 'Je lance la lecture.\n{"tool":"gmail.messages.search","arguments":{"query":"in:inbox","maxResults":5}}';
+  assert.equal(stripLeakedToolCalls(text), 'Je lance la lecture.');
+  const rows = await executeLeakedReads({ bus, text, already: [] });
+  assert.deepEqual(calls, [['gmail.messages.search', { query: 'in:inbox', maxResults: 5 }]]);
+  assert.equal(rows[0].status, 'SUCCEEDED');
+  const again = await executeLeakedReads({ bus, text, already: rows });
+  assert.equal(again.length, 0);
+  assert.equal(calls.length, 1);
+  const mutation = await executeLeakedReads({ bus, text: '{"tool":"evolution.enqueue","input":{"goal":"x"}}' });
+  assert.equal(mutation.length, 0);
 });
