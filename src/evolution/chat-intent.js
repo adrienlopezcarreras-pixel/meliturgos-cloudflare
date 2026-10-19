@@ -185,7 +185,14 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
   const text = String(body.text ?? body.message ?? body.prompt ?? '').trim();
   if (!text) return request;
   const requestKey = body.client_message_id ?? body.message_id ?? body.request_id ?? body.id ?? '';
-  if (isEvolutionDevelopmentIntent(text)) {
+  const selfStateFirst = inferSelfStateIntent(text);
+  const knowledgeFirst = selfStateFirst ? null : inferKnowledgeCapability(text);
+  const persistentKnowledgeFirst = knowledgeFirst && (
+    knowledgeFirst.id !== 'knowledge.research'
+    || knowledgeFirst.input?.save_file === true
+    || knowledgeFirst.input?.remember === true
+  );
+  if (isEvolutionDevelopmentIntent(text) && !selfStateFirst && !persistentKnowledgeFirst) {
     body.capability = enqueueCapability(text, body, requestKey);
     body.intent_routing = { mode: 'deterministic', intent: 'DEVELOPMENT', confidence: 1 };
   } else if (text.length > 280) {
