@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { proveD1SnapshotRestore } from '../release-tools/predeploy-backup-refresh/d1-restore-proof.mjs';
 import { exportD1SystemState } from '../src/backup/system-backup-runtime.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
+import { probeD1Restore } from '../release-tools/predeploy-backup-refresh/probe-d1-restore.mjs';
 
 async function snapshotFixture() {
   const source = sqliteD1();
@@ -88,6 +89,14 @@ test('predeploy proof executes real CHECK constraints and sanitizes SQL error me
   extra.schema = extra.schema.replace('value INTEGER NOT NULL', 'value INTEGER NOT NULL CHECK(value > 0)');
   extra.rows[0].value = -1;
   await rejectsSafely(snapshot, 'BACKUP_SQLITE_RESTORE_FAILED');
+  await assert.rejects(proveD1SnapshotRestore(snapshot), error => {
+    assert.equal(error.diagnostic.stage, 'insert_rows');
+    assert.equal(error.diagnostic.reason, 'CHECK_CONSTRAINT');
+    assert.match(error.diagnostic.table_sha256, /^[a-f0-9]{64}$/);
+    assert.equal(error.diagnostic.sqlite_errcode, 275);
+    assert.doesNotMatch(JSON.stringify(error), /extra_data|private-|value|CREATE TABLE/);
+    return true;
+  });
 });
 
 test('predeploy restores foreign keys without relying on table order and rejects broken references', async () => {
@@ -128,4 +137,48 @@ test('predeploy runner requires the real restore before registering restoreVerif
   assert.ok(proof > 0 && proof < registration);
   assert.match(runner, /sqliteRestoreProof,/);
   assert.match(runner, /isolated_restore: persisted\.sqliteRestoreProof/);
+});
+
+test('production restore probe uses only bounded SELECT queries and never exports private values', async () => {
+  const snapshot = await snapshotFixture();
+  const calls = [];
+  const proof = await probeD1Restore({
+    accountId: 'a'.repeat(32), apiToken: 'private-token', databaseId: 'b'.repeat(36),
+    fetchImpl: async (url, options) => {
+      const { sql, params } = JSON.parse(options.body);
+      assert.match(sql, /^SELECT\s/);
+      assert.equal(options.redirect, 'error');
+      assert.equal(options.headers.Authorization, 'Bearer private-token');
+      assert.equal(new URL(url).hostname, 'api.cloudflare.com');
+      assert.equal(options.signal.aborted, false);
+      calls.push(sql);
+      let results;
+      if (sql.includes('sqlite_master')) {
+        results = snapshot.tables.map(({ name, schema }) => ({ name, schema }));
+      } else {
+        const name = sql.match(/FROM "([^"]+)"/)[1];
+        const [limit, offset] = params;
+        assert.equal(limit, 500);
+        assert.equal(offset, 0);
+        results = table(snapshot, name).rows.slice(offset, offset + limit);
+      }
+      return Response.json({ success: true, result: [{ success: true, results }] });
+    },
+  });
+  assert.equal(proof.ok, true);
+  assert.equal(proof.production_written, false);
+  assert.equal(calls.length, 5);
+  assert.doesNotMatch(JSON.stringify(proof), /private-|CREATE|extra_data|conversations/);
+});
+
+test('production restore probe redacts Cloudflare errors and refuses redirects or malformed results', async () => {
+  for (const payload of [
+    { success: false, errors: [{ message: 'private-row-or-schema' }] },
+    { success: true, result: [{ success: true, results: null }] },
+  ]) {
+    await assert.rejects(probeD1Restore({
+      accountId: 'a'.repeat(32), apiToken: 'private-token', databaseId: 'b'.repeat(36),
+      fetchImpl: async () => Response.json(payload),
+    }), error => error.code === 'RESTORE_PROBE_QUERY_FAILED' && !JSON.stringify(error).includes('private-'));
+  }
 });

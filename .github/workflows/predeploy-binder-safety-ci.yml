@@ -1,6 +1,13 @@
 name: Predeploy binder safety CI
 
 on:
+  workflow_dispatch:
+  push:
+    branches: ['candidate/codex-restore-proof-diagnostic']
+    paths:
+      - 'release-tools/predeploy-backup-refresh/**'
+      - 'tests/predeploy-d1-restore-proof.test.mjs'
+      - '.github/workflows/predeploy-binder-safety-ci.yml'
   pull_request:
     branches: [main]
     paths:
@@ -9,6 +16,8 @@ on:
       - '.github/workflows/predeploy-binder-safety-ci.yml'
       - '.github/workflows/deploy-cloudflare-release.yml'
       - 'release-tools/predeploy-backup-binder/worker.js'
+      - 'release-tools/predeploy-backup-refresh/**'
+      - 'tests/predeploy-d1-restore-proof.test.mjs'
 
 permissions:
   contents: read
@@ -20,14 +29,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '22'
       - name: Verify exact tested SHA
         shell: bash
-        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
       - name: Verify binder tests syntax
         run: |
           node --check tests/predeploy-backup-sidecar-unique-name.test.mjs
@@ -35,3 +44,27 @@ jobs:
       - name: Verify fail-closed backup gates and Cloudflare 1042 propagation
         run: |
           node --test tests/predeploy-backup-sidecar-unique-name.test.mjs tests/predeploy-backup-binder.test.mjs
+      - name: Verify isolated restore and safe diagnostics
+        run: node --test tests/predeploy-d1-restore-proof.test.mjs
+
+  production-readonly-restore:
+    if: github.event_name != 'pull_request' && github.actor == 'adrienlopezcarreras-pixel'
+    needs: predeploy-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: production-readonly-restore
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Restore a SELECT-only production export in disposable SQLite
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node release-tools/predeploy-backup-refresh/probe-d1-restore.mjs

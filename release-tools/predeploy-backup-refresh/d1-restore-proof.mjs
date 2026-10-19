@@ -41,9 +41,13 @@ export async function proveD1SnapshotRestore(database) {
   // This connection cannot access D1; schema is prepared as one CREATE TABLE
   // statement, so a second statement can never attach/read/write another file.
   const sqlite = new DatabaseSync(':memory:', { allowExtension: false });
+  let stage = 'begin';
+  let tableHash = null;
   try {
     sqlite.exec('PRAGMA foreign_keys=OFF; BEGIN');
     for (const table of database.tables) {
+      stage = 'create_table';
+      tableHash = digest(String(table.name));
       if (!/^\s*CREATE\s+TABLE\b/i.test(table.schema || '')
           || !table.name || String(table.name).startsWith('sqlite_') || String(table.name).startsWith('_cf_')) {
         fail('BACKUP_SQLITE_SCHEMA_UNSUPPORTED');
@@ -51,6 +55,8 @@ export async function proveD1SnapshotRestore(database) {
       sqlite.prepare(table.schema).run();
     }
     for (const table of database.tables) {
+      stage = 'insert_rows';
+      tableHash = digest(String(table.name));
       const info = sqlite.prepare(`PRAGMA table_xinfo(${quote(table.name)})`).all();
       if (!info.length) fail('BACKUP_SQLITE_TABLE_MISSING');
       const writable = info.filter(column => column.hidden === 0).map(column => column.name);
@@ -62,12 +68,17 @@ export async function proveD1SnapshotRestore(database) {
         statement.run(...writable.map(column => binding(row[column])));
       }
     }
+    stage = 'commit';
+    tableHash = null;
     sqlite.exec('COMMIT; PRAGMA foreign_keys=ON');
+    stage = 'foreign_key_check';
     if (sqlite.prepare('PRAGMA foreign_key_check').all().length) fail('BACKUP_SQLITE_FOREIGN_KEY_MISMATCH');
+    stage = 'integrity_check';
     const integrity = sqlite.prepare('PRAGMA integrity_check').all();
     if (integrity.length !== 1 || Object.values(integrity[0])[0] !== 'ok') fail('BACKUP_SQLITE_INTEGRITY_FAILED');
 
     // Reuse the exact bounded exporter used for the production snapshot.
+    stage = 'reexport';
     const restored = await exportD1(null, async (_sidecar, path) => {
       if (path === '/d1/tables') return {
         status: 'D1_TABLES',
@@ -80,6 +91,7 @@ export async function proveD1SnapshotRestore(database) {
       const rows = sqlite.prepare(`SELECT * FROM ${quote(table)} LIMIT ? OFFSET ?`).all(limit, offset).map(exportRow);
       return { status: 'D1_ROWS_PAGE', table, offset, limit, rows, has_more: rows.length === limit };
     });
+    stage = 'compare';
     const patrimony = comparePatrimonyExports(database, restored);
     const sourceHash = exportDigest(database);
     const restoredHash = exportDigest(restored);
@@ -100,7 +112,23 @@ export async function proveD1SnapshotRestore(database) {
   } catch (error) {
     // SQLite errors can include schema identifiers or private row contents.
     const code = /^BACKUP_SQLITE_[A-Z_]+$/.test(error?.code || '') ? error.code : 'BACKUP_SQLITE_RESTORE_FAILED';
-    throw Object.assign(new Error(code), { code });
+    const reasons = [
+      [/no such column/i, 'UNKNOWN_COLUMN'],
+      [/no such function/i, 'UNKNOWN_FUNCTION'],
+      [/no such collation/i, 'UNKNOWN_COLLATION'],
+      [/syntax error/i, 'SQL_SYNTAX'],
+      [/UNIQUE constraint failed/i, 'UNIQUE_CONSTRAINT'],
+      [/CHECK constraint failed/i, 'CHECK_CONSTRAINT'],
+      [/NOT NULL constraint failed/i, 'NOT_NULL_CONSTRAINT'],
+      [/FOREIGN KEY constraint failed|foreign key mismatch/i, 'FOREIGN_KEY_CONSTRAINT'],
+      [/already exists/i, 'SCHEMA_COLLISION'],
+    ];
+    const reason = reasons.find(([pattern]) => pattern.test(String(error?.message || '')))?.[1] || 'UNCLASSIFIED';
+    const diagnostic = {
+      stage, reason, table_sha256: tableHash,
+      sqlite_errcode: Number.isSafeInteger(error?.errcode) ? error.errcode : null,
+    };
+    throw Object.assign(new Error(code), { code, diagnostic });
   } finally {
     sqlite.close();
   }
