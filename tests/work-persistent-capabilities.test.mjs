@@ -120,6 +120,10 @@ test('Work survives a new bus instance with state, checkpoints and artifacts int
   assert.equal(artifacts.artifacts[0].node_id, 'one');
   assert.equal(artifacts.artifacts[0].artifact.name, 'proof.txt');
   assert.equal(artifacts.artifacts[0].artifact.value, 'persisted');
+  assert.deepEqual(artifacts.tool_results.map(row => [row.node_id, row.capability]), [
+    ['one', 'fixture.artifact'], ['two', 'echo'],
+  ]);
+  assert.equal(artifacts.tool_results[1].result.value, 'done');
 });
 
 test('persistent Work keeps recursive work execution fail-closed', async () => {

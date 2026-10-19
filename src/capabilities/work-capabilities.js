@@ -46,17 +46,6 @@ function minimalCapabilityInput(record, seed) {
   return synthesizeSchemaValue(record?.input_schema || { type: 'object' }, seed);
 }
 
-function selectAllowedCapabilityId(text, catalog = []) {
-  const raw = String(text || '').trim();
-  if (!raw) return '';
-  const exact = catalog.find(record => raw === String(record?.id || ''));
-  if (exact) return String(exact.id);
-  const tokens = raw.match(/[A-Za-z0-9_.:-]+/g) || [];
-  const allowed = new Set(catalog.map(record => String(record?.id || '')));
-  const matches = [...new Set(tokens.filter(token => allowed.has(token)))];
-  return matches.length === 1 ? matches[0] : '';
-}
-
 const DAG_ID = { type: 'string', minLength: 1, maxLength: 200 };
 const CONVERSATION_ID = { type: 'string', minLength: 1, maxLength: 200 };
 const PASSIVE_RESUME_AT = Number.MAX_SAFE_INTEGER;
@@ -503,50 +492,19 @@ export function registerWorkCapabilities(bus, { db } = {}) {
 
     if (!accepted) {
       repairAttempted = true;
-      const repairCatalog = catalog
-        .filter((record) => {
-          const id = String(record?.id || '');
-          const risk = String(record?.risk || '').toUpperCase();
-          return risk === 'LOW'
-            && record?.approval_required !== true
-            && record?.enabled !== false
-            && String(record?.health || '').toUpperCase() !== 'UNAVAILABLE'
-            && !id.startsWith('work.')
-            && !id.startsWith('augmentio.');
-        })
-        .sort((a, b) => {
-          if (String(a.id) === 'echo' && String(b.id) !== 'echo') return -1;
-          if (String(b.id) === 'echo' && String(a.id) !== 'echo') return 1;
-          const aRequired = Array.isArray(a?.input_schema?.required) ? a.input_schema.required.length : 0;
-          const bRequired = Array.isArray(b?.input_schema?.required) ? b.input_schema.required.length : 0;
-          return aRequired - bRequired || String(a.id).localeCompare(String(b.id));
-        })
-        .slice(0, 4);
-      const constrainedCatalog = repairCatalog.length ? repairCatalog : catalog
-        .filter((record) => !String(record?.id || '').startsWith('work.') && !String(record?.id || '').startsWith('augmentio.'))
-        .slice(0, 4);
-      const repairPrompt = [
-        'Tu répares un plan MEL qui a échoué à la validation stricte.',
-        'Réponds UNIQUEMENT avec un objet JSON valide, sans markdown ni commentaire.',
-        'FORMAT EXACT:',
-        '{"steps":[{"id":"step-1","title":"...","capability":"capability.id","input":{},"dependsOn":[],"idempotent":false}],"constraints":[]}',
-        'RÈGLES ABSOLUES:',
-        '- choisis UNE SEULE capability dans REPAIR_CAPABILITIES;',
-        '- copie exactement son id;',
-        '- fournis exactement les champs requis par son input_schema, sans champ supplémentaire;',
-        '- n’utilise jamais work.* ni augmentio.*;',
-        '- si echo est présent, préfère echo pour un diagnostic sans effet de bord et utilise un champ value texte non vide;',
-        '- ne lance rien et ne persiste rien;',
-        'OBJECTIF:',
-        String(input.goal || '').slice(0, 4000),
-        'CONTRAINTES:',
-        JSON.stringify((input.constraints || []).slice(0, 32)),
-        'REPAIR_CAPABILITIES:',
-        JSON.stringify(constrainedCatalog),
-        'ECHECS PRECEDENTS:',
-        JSON.stringify(validationFailures.slice(0, 12)),
-      ].join('\n').slice(0, 12000);
-
+      // An invalid plan is not authorization to invent a diagnostic step.
+      // Retry once for the ORIGINAL owner goal using the SAME catalog and
+      // contract validation as initial planning.
+      const repairBase = buildWorkPlanningPrompt({
+        goal: input.goal,
+        constraints: input.constraints || [],
+        catalog,
+      });
+      const instruction = 'Corrige le plan invalide sans remplacer l’objectif original par un diagnostic générique. Garde uniquement des capacités du catalogue et respecte leurs schémas. Les actions sensibles restent soumises aux approbations du propriétaire.\n';
+      const errors = JSON.stringify(validationFailures.slice(0, 8));
+      const prefix = instruction + repairBase + '\nECHECS_PRECEDENTS:\n';
+      if (prefix.length > 12000) throw workError('WORK_PLAN_REPAIR_PROMPT_TOO_LARGE');
+      const repairPrompt = prefix + errors.slice(0, 12000 - prefix.length);
       const repaired = await executeBoundedPlanningFanout({
         capability: 'REASONING',
         input: repairPrompt,
@@ -559,77 +517,7 @@ export function registerWorkCapabilities(bus, { db } = {}) {
       });
       providerFailures += Number(repaired?.failures || 0);
       tryCandidates(repaired, 'augmentio:work.plan.generate:repair');
-
-      if (!accepted && constrainedCatalog.length) {
-        const selectionPrompt = [
-          'Choisis UNE SEULE capability pour réaliser un plan de diagnostic sans effet de bord.',
-          'Réponds UNIQUEMENT avec son id exact, sans JSON, sans phrase et sans markdown.',
-          'IDS_AUTORISES:',
-          constrainedCatalog.map(record => String(record.id)).join('\n'),
-          'OBJECTIF:',
-          String(input.goal || '').slice(0, 2000),
-        ].join('\n').slice(0, 6000);
-
-        const selected = await executeBoundedPlanningFanout({
-          capability: 'REASONING',
-          input: selectionPrompt,
-          context: {
-            purpose: 'work-plan-generation-capability-selection',
-            execution_policy: 'PLAN_ONLY_NO_EXECUTION',
-            capability_count: constrainedCatalog.length,
-          },
-          maxCandidates: Math.min(4, Math.max(1, Number(input.maxCandidates) || 3)),
-        });
-        providerFailures += Number(selected?.failures || 0);
-        const rankedSelections = Array.isArray(selected?.candidates) && selected.candidates.length
-          ? selected.candidates
-          : selected?.best ? [selected.best] : [];
-        candidateCount += rankedSelections.length;
-
-        for (const candidate of rankedSelections) {
-          const capabilityId = selectAllowedCapabilityId(candidate?.text, constrainedCatalog);
-          if (!capabilityId) {
-            validationFailures.push({
-              provider: candidate?.provider || null,
-              model: candidate?.model || null,
-              code: 'WORK_PLAN_MODEL_CAPABILITY_SELECTION_INVALID',
-            });
-            continue;
-          }
-          const record = constrainedCatalog.find(item => String(item.id) === capabilityId);
-          try {
-            const syntheticText = JSON.stringify({
-              steps: [{
-                id: 'step-1',
-                title: `Diagnostic via ${capabilityId}`,
-                capability: capabilityId,
-                input: minimalCapabilityInput(record, input.goal),
-                dependsOn: [],
-                idempotent: true,
-              }],
-              constraints: input.constraints || [],
-            });
-            accepted = parseCapabilityAwareWorkPlan({
-              text: syntheticText,
-              id: input.id,
-              goal: input.goal,
-              constraints: input.constraints || [],
-              catalog,
-              source: 'augmentio:work.plan.generate:structured-selection',
-            });
-            acceptedCandidate = candidate;
-            break;
-          } catch (error) {
-            validationFailures.push({
-              provider: candidate?.provider || null,
-              model: candidate?.model || null,
-              code: String(error?.code || error?.message || 'WORK_PLAN_STRUCTURED_SELECTION_INVALID').slice(0, 120),
-            });
-          }
-        }
-      }
     }
-
     if (!accepted) {
       const error = workError('WORK_PLAN_GENERATION_NO_VALID_CANDIDATE');
       error.validation_failures = validationFailures.slice(0, 12);
@@ -929,6 +817,17 @@ export function registerWorkCapabilities(bus, { db } = {}) {
       id: dag.id,
       status: dag.status,
       artifacts: Array.isArray(dag.artifacts) ? dag.artifacts.slice(0, 100) : [],
+      // TASK results are already sanitized, signed and durably checkpointed
+      // as node.result. Expose those receipts directly instead of manufacturing
+      // duplicate artifacts or reporting a successful job with no output.
+      tool_results: (Array.isArray(dag.nodes) ? dag.nodes : [])
+        .filter(node => node.kind === 'TASK' && node.status === 'COMPLETED' && node.result !== null)
+        .slice(0, 32)
+        .map(node => ({
+          node_id: node.id,
+          capability: String(node.payload?.capability || ''),
+          result: node.result,
+        })),
     };
   });
 }

@@ -21,7 +21,7 @@ import { MEL_RUNTIME_OPERATING_EXPERIENCE } from '../learning/runtime-operating-
 import { stripInternalCounters } from './chat-sanitization.js';
 import { formatPersonalProfileRecall, retrieveContext, retrievePersonalProfileContext } from '../core/orchestrator/conversation-context.js';
 import { isMelWorkKickoff, startMelWorkKickoff } from '../work/mel-work-kickoff.js';
-import { isSubstantialMelTask, findMelWorkReference, launchSubstantialMelTask, getSubstantialMelStatus } from '../work/mel-general-kickoff.js';
+import { isSubstantialMelTask, requiresOperationalMelWork, findMelWorkReference, launchSubstantialMelTask, getSubstantialMelStatus } from '../work/mel-general-kickoff.js';
 import { isMaxModeMention } from '../evolution/chat-intent.js';
 import { enqueueOwnerDevelopmentRequest } from '../evolution/owner-development-queue.js';
 import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse, formatVerifiedAutonomyActivityResponse, formatVerifiedDevBridgeStatusResponse, formatVerifiedAutonomyRuntimeResponse, MAX_MODE_EXPLANATION } from './response-grounding.js';
@@ -354,6 +354,29 @@ export function inferNativeCodeCapability(text, recent = []) {
 }
 
 
+/**
+ * Let the owner address any actually registered low-risk tool by its exact id.
+ * This is a chat routing convenience, not a second executor or permission gate:
+ * input, authorization, health and output are still checked by CapabilityBus.
+ * Never infer a mutation from a vague conversational sentence.
+ */
+export function inferExplicitRegisteredCapability(text, runtime) {
+  const value = String(text || '').trim();
+  const match = value.match(/^(?:utilise|exécute|execute|lance|appelle|teste)\s+(?:(?:la|le)\s+|l['’])?(?:capabilit[eé]|capability|comp[eé]tence|outil)\s+[`"']?([a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+)[`"']?(?:\s+(?:avec|input|param[eè]tres?)\s+(\{[\s\S]*\}))?\s*$/i);
+  if (!match || !runtime?.bus?.describe) return null;
+  let record;
+  try { record = runtime.bus.describe(match[1]); } catch { return null; }
+  // General text cannot opt in to sensitive work; structured capability calls
+  // and the existing explicit approvals handle those cases instead.
+  if (record?.enabled !== true || String(record?.risk).toUpperCase() !== 'LOW' || record?.approval?.required === true) return null;
+  let input = {};
+  if (match[2]) {
+    try { input = JSON.parse(match[2]); } catch { return null; }
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  }
+  return { id: String(record.id), input, execution_intent: 'EXPLICIT_REGISTERED_CAPABILITY' };
+}
+
 export function inferNativeExecutionCapability(text, recent = []) {
   const value = String(text || '').trim();
   if (!value) return null;
@@ -470,12 +493,12 @@ export function inferNativeComputerCapability(text) {
   return null;
 }
 
-export async function buildRuntimeCapabilityManifest(runtime) {
+export function buildRuntimeCapabilityManifest(runtime) {
   if (!runtime?.bus) return [];
-  let rows = [];
-  try { rows = await runtime.bus.refreshHealthAll(); }
-  catch { try { rows = runtime.bus.list(); } catch { rows = []; } }
-  return rows.slice(0, 96).map(row => ({
+  // Discovery is a projection of the canonical registry, never a connector
+  // health sweep. The selected tool gets its own live preflight in bus.execute;
+  // dedicated diagnostic capabilities own full health audits.
+  return runtime.bus.list().map(row => ({
     id: String(row.id),
     name: String(row.name || row.id || '').slice(0, 160),
     category: String(row.category || String(row.id || '').split('.')[0] || 'other').slice(0, 80),
@@ -1394,7 +1417,7 @@ export async function handleNativeChat(request, env, options = {}) {
   // existing cron/open-loop mechanism resumes remaining checkpoints.
   if (!releaseSmoke && !body.capability?.id && inputSource === 'text') {
     const refId = findMelWorkReference(text, recent);
-    const goalRequested = !refId && isSubstantialMelTask(text);
+    const goalRequested = !refId && (isSubstantialMelTask(text) || requiresOperationalMelWork(text));
     if (refId || goalRequested) {
       const workContext = nativeCapabilityContext(env, request, options);
       let outcome;
@@ -1414,7 +1437,10 @@ export async function handleNativeChat(request, env, options = {}) {
       }
       const count = Number(outcome.completed_steps || 0);
       const lastSection = Array.isArray(outcome.sections) ? outcome.sections.at(-1) : null;
-      const responseText = outcome.ok
+      const responseText = outcome?.status === 'TOOL_DEVELOPMENT_QUEUED'
+        ? 'MEL — développement d’outil manquant enregistré : ' + outcome.development_job_id
+          + '. La demande est transmise au pipeline de développement supervisé (Council, inspection et tests avant activation). Aucun nouvel outil n’est encore disponible ni validé.'
+        : outcome.ok
         ? [
             'MEL — travail persistant ' + outcome.id,
             'État observé : ' + String(outcome.status || 'ENREGISTRÉ')
@@ -1547,6 +1573,7 @@ export async function handleNativeChat(request, env, options = {}) {
         return explicitCodeRead?.id === 'code.read' ? explicitCodeRead : (melWorkReadiness ? { id: 'self.state', input: {} } : null);
       })()
     : (melWorkReadiness ? { id: 'self.state', input: {} } : null)
+      || inferExplicitRegisteredCapability(activeTaskText, runtime)
       || inferredExecutionCapability
       || inferredSelfActivityCapability
       || inferNativeComputerCapability(activeTaskText)
@@ -1606,14 +1633,10 @@ export async function handleNativeChat(request, env, options = {}) {
     }, { headers:{'cache-control':'no-store'} });
   }
 
-  if (!releaseSmoke && (!env.AI || typeof env.AI.run !== 'function')) {
-    return Response.json({ error: 'AI_BINDING_MISSING', code: 'AI_BINDING_MISSING' }, { status: 503 });
-  }
-
-  let capabilityManifest = releaseSmoke || plainChatTurn ? [] : await buildRuntimeCapabilityManifest(runtime);
   const capability = releaseSmoke
     ? inferredCapability
     : (body.capability?.id ? body.capability : inferredCapability);
+  let capabilityManifest = releaseSmoke || plainChatTurn ? [] : buildRuntimeCapabilityManifest(runtime);
   if (capability?.id === 'capability.audit' && capability?.input?.deep !== true && runtime?.bus?.list) {
     const rows = runtime.bus.list().map(row => ({
       id: String(row.id || ''),
@@ -2040,6 +2063,40 @@ export async function handleNativeChat(request, env, options = {}) {
       status: succeeded ? 200 : 502,
       headers: { 'cache-control': 'no-store' },
     });
+  }
+
+  // Execution belongs to CapabilityBus, not to the text-generation provider.
+  // If Workers AI is offline, an already authorized tool still returns its
+  // actual receipt; ordinary conversation still requires inference.
+  if (!env?.AI || typeof env.AI.run !== 'function') {
+    const executed = capability?.id
+      ? toolResults.find(row => String(row.capability) === String(capability.id))
+      : null;
+    if (!executed) {
+      return Response.json({ ok:false, error:'AI_BINDING_MISSING', code:'AI_BINDING_MISSING' },
+        { status:503, headers:{'cache-control':'no-store'} });
+    }
+    const succeeded = executed.status === 'SUCCEEDED';
+    const code = String(executed.error || 'CAPABILITY_FAILED');
+    const data = succeeded ? JSON.stringify(executed.result ?? null) : '';
+    const responseText = succeeded
+      ? 'Compétence ' + String(executed.capability) + ' exécutée et vérifiée par le bus. Résultat :\\n'
+        + data.slice(0, 7000) + (data.length > 7000 ? '\\n[Résultat abrégé, données structurées dans tool_results]' : '')
+      : 'La compétence ' + String(executed.capability) + ' n’a pas été exécutée avec succès : ' + code + '.';
+    let archiveSaved = false;
+    if (service) {
+      try {
+        await service.archiveMessage({ conversationId, deviceId, role:'user', content:text, timestamp:Date.now(), provenance:userProvenance, metadata:userMetadata });
+        await service.archiveMessage({ conversationId, deviceId, role:'assistant', content:responseText, timestamp:Date.now()+1, provenance:'native-chat:capability-receipt', metadata:{ capability:executed.capability, status:executed.status, error_code:succeeded ? null : code } });
+        archiveSaved = true;
+      } catch {}
+    }
+    return Response.json({
+      ok:succeeded, text:responseText,
+      model:'deterministic-capability-receipt', provider:'mel',
+      response_mode:'capability-receipt', capability_used:capabilitiesUsed,
+      tool_results:toolResults, archive_saved:archiveSaved,
+    }, { status:succeeded ? 200 : 502, headers:{'cache-control':'no-store'} });
   }
 
   const knowledgeMemory = toolResults.find(row => row.capability === 'knowledge.research' && row.status === 'SUCCEEDED')?.result?.memory || null;

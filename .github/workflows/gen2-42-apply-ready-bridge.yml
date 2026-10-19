@@ -306,8 +306,7 @@ jobs:
           set -euo pipefail
           git config user.name "MEL Cloud Dev Bridge"
           git config user.email "mel-cloud-bridge@localhost"
-          # The bridge's own result file is evidence, never part of the change.
-          echo 'bridge-apply-result.json' >> .git/info/exclude
+          # Generated evidence is excluded by the repository's canonical .gitignore.
           git add --all
           set +e
           HYGIENE_OUTPUT="$(git diff --cached --check 2>&1)"
