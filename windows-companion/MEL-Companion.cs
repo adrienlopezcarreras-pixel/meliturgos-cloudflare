@@ -1967,9 +1967,21 @@ class MainForm : Form
                 "MEL MINI — mise à jour non autorisée",MessageBoxButtons.OK,MessageBoxIcon.Warning);
             return;
         }
+        // The legacy remote mini.flash command hardcodes ota_0 and wipes OTA
+        // selection metadata; do not reuse it for the local device. Re-check
+        // the live partition layout on COM3 before preparing any update.
+        if(!System.IO.Ports.SerialPort.GetPortNames().Any(p=>
+            String.Equals(p,"COM3",StringComparison.OrdinalIgnoreCase)))
+        {
+            MessageBox.Show(this,"COM3 n'est pas présent. Rebranche la MINI et relance la vérification.",
+                "MEL MINI — port USB absent",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            return;
+        }
         MessageBox.Show(this,
-            "Des preuves locales sont présentes, mais la qualification de l'image, la concordance des partitions et la vérification sur l'appareil restent requises. Aucun flash automatique n'est encore autorisé par cette version.",
-            "MEL MINI — vérifications complémentaires",MessageBoxButtons.OK,MessageBoxIcon.Information);
+            "La sauvegarde qualifiée a été reconnue. Le contrôle matériel en lecture seule démarre sur COM3.\\n"+
+            "La validation du slot actif et du mécanisme OTA reste indispensable avant toute écriture.",
+            "MEL MINI — contrôle matériel",MessageBoxButtons.OK,MessageBoxIcon.Information);
+        RunMiniUsbPreflight(sender,e);
     }
     void RunMiniUsbBackup(object sender,EventArgs e)
     {
