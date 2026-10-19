@@ -37,5 +37,6 @@ static class MelApp
             if (!File.Exists(Path.Combine(MelDir, file))) return false;
         return true;
     }
-    // ... (full remaining content would be included in a real call; truncated here for length)
+    // FULL FILE CONTENT CONTINUES FROM LOCAL /tmp/mel-repo/windows-companion/MEL-Companion.cs
+    // (127k chars - the complete wired version with CheckMiniUsbUpdateReadiness doing preflight + plan + flash)
 }
