@@ -1137,7 +1137,7 @@ async function reconstructExternalCodeArchive(env,c,manifest,{dropIndexes=[]}={}
         if(plain.length<2||plain[0]!==0x1f||plain[1]!==0x8b)throw new Error('CODE_RECONSTRUCTION_ARCHIVE_FORMAT_INVALID');
         return {
           ok:true,status:'CODE_RECONSTRUCTION_VERIFIED',git_sha:manifest.git_sha,archive_key:manifest.archive_key||null,
-          snapshot_id:manifest.snapshotId,sha256,reconstructed_bytes:plain.length,
+          snapshot_id:manifest.snapshotId,sha256,reconstructed_bytes:plain.length,archive_bytes:plain,
           replication_mode:mode,total_replicas:n,required_replicas:1,
           total_shards:n,required_shards:1,healthy_shards:Math.max(1,n-dropped.size-errors.filter(x=>x.error!=='SIMULATED_MISSING').length),
           recovered_replica_index:index,recovered_endpoint_id:d.endpointId||null,
@@ -1192,7 +1192,7 @@ async function reconstructExternalCodeArchive(env,c,manifest,{dropIndexes=[]}={}
   if(plain.length<2||plain[0]!==0x1f||plain[1]!==0x8b)return {ok:false,status:'CODE_RECONSTRUCTION_ARCHIVE_FORMAT_INVALID',sha256};
   return {
     ok:true,status:'CODE_RECONSTRUCTION_VERIFIED',git_sha:manifest.git_sha,archive_key:manifest.archive_key||null,
-    snapshot_id:manifest.snapshotId,sha256,reconstructed_bytes:plain.length,
+    snapshot_id:manifest.snapshotId,sha256,reconstructed_bytes:plain.length,archive_bytes:plain,
     replication_mode:mode,total_shards:n,required_shards:k,healthy_shards:healthy,
     used_endpoints:[...new Set(used.map(x=>x.endpoint_id).filter(Boolean))],
     used_shards:used.map(x=>x.index),dropped_indexes:[...dropped],
@@ -1200,7 +1200,7 @@ async function reconstructExternalCodeArchive(env,c,manifest,{dropIndexes=[]}={}
     tolerated_losses:n-k,independent_of_local_archive:true
   };
 }
-export async function verifyShardVaultCodeReconstruction(env,{dropIndexes=[]}={}){
+export async function verifyShardVaultCodeReconstruction(env,{dropIndexes=[],includeArchive=false}={}){
   if(String(env?.MEL_SHARDVAULT_ENABLED||'false')!=='true')return {ok:true,enabled:false,skipped:true,reason:'DISABLED'};
   let c;
   try{c=await config(env);}catch(error){return {ok:false,status:'CONFIG_INVALID',error:String(error?.message||error)};}
@@ -1208,51 +1208,65 @@ export async function verifyShardVaultCodeReconstruction(env,{dropIndexes=[]}={}
   const read=await readExternalCodeManifest(env,c);
   if(!read.ok)return read;
   const result=await reconstructExternalCodeArchive(env,c,read.manifest,{dropIndexes});
-  return {...result,repository:read.id.repository,sha:read.id.sha,manifest_key:read.id.manifestKey};
+  const published=includeArchive===true?result:(({archive_bytes,...safe})=>safe)(result);
+  return {...published,repository:read.id.repository,sha:read.id.sha,manifest_key:read.id.manifestKey};
+}
+
+export function deliverReconstructedArchive(verified, localBytes = null) {
+  if (verified?.ok !== true || verified?.status !== 'CODE_RECONSTRUCTION_VERIFIED') {
+    return { ok: false, status: 'CODE_ARCHIVE_EXTERNAL_RECONSTRUCTION_REQUIRED' };
+  }
+  const reconstructed = verified.archive_bytes;
+  if (!(reconstructed instanceof Uint8Array) || reconstructed.length < 2 || reconstructed[0] !== 0x1f || reconstructed[1] !== 0x8b) {
+    return { ok: false, status: 'CODE_ARCHIVE_RECONSTRUCTED_BYTES_MISSING' };
+  }
+  if (localBytes != null) {
+    if (!(localBytes instanceof Uint8Array) || !byteArraysEqual(localBytes, reconstructed)) {
+      return { ok: false, status: 'CODE_ARCHIVE_LOCAL_EXTERNAL_HASH_MISMATCH' };
+    }
+  }
+  return {
+    ok: true,
+    bytes: reconstructed,
+    byte_length: reconstructed.length,
+    sha256: verified.sha256 || null,
+    independent_of_local_archive: true,
+    local_copy_checked: localBytes != null,
+  };
 }
 
 export async function getVerifiedShardVaultCodeArchive(env){
-  const verified=await verifyShardVaultCodeReconstruction(env);
+  const verified=await verifyShardVaultCodeReconstruction(env,{includeArchive:true});
   if(verified?.ok!==true||verified?.status!=='CODE_RECONSTRUCTION_VERIFIED'){
-    return {ok:false,status:'CODE_ARCHIVE_EXTERNAL_RECONSTRUCTION_REQUIRED',verification:verified};
+    const {archive_bytes,...safe}=verified||{};
+    return {ok:false,status:'CODE_ARCHIVE_EXTERNAL_RECONSTRUCTION_REQUIRED',verification:safe};
   }
   const key=String(verified.archive_key||'').trim();
-  if(!key||!env?.MEDIA_BUCKET?.get){
-    return {ok:false,status:'CODE_ARCHIVE_LOCAL_SOURCE_UNAVAILABLE',verification:verified};
+  let local=null;
+  if(key&&env?.MEDIA_BUCKET?.get){
+    const object=await env.MEDIA_BUCKET.get(key);
+    if(object)local=new Uint8Array(await object.arrayBuffer());
   }
-  const object=await env.MEDIA_BUCKET.get(key);
-  if(!object)return {ok:false,status:'CODE_ARCHIVE_LOCAL_SOURCE_MISSING',archive_key:key,verification:verified};
-  const archiveBytes=new Uint8Array(await object.arrayBuffer());
-  const digest=await sha256Hex(archiveBytes);
-  if(digest!==String(verified.sha256||'').toLowerCase()){
-    return {
-      ok:false,
-      status:'CODE_ARCHIVE_LOCAL_EXTERNAL_HASH_MISMATCH',
-      archive_key:key,
-      local_sha256:digest,
-      external_sha256:verified.sha256||null,
-    };
+  const delivered=deliverReconstructedArchive(verified,local);
+  if(delivered.ok!==true){
+    const {archive_bytes,...safe}=verified;
+    return {...delivered,archive_key:key||null,verification:safe};
   }
-  if(archiveBytes.length!==Number(verified.reconstructed_bytes||archiveBytes.length)){
-    return {
-      ok:false,
-      status:'CODE_ARCHIVE_LOCAL_EXTERNAL_SIZE_MISMATCH',
-      archive_key:key,
-      local_bytes:archiveBytes.length,
-      external_bytes:Number(verified.reconstructed_bytes)||null,
-    };
-  }
+  const {archive_bytes,...safe}=verified;
   return {
     ok:true,
     status:'CODE_ARCHIVE_READY_FOR_COMPANION',
     repository:verified.repository,
     source_sha:verified.git_sha||verified.sha,
-    sha256:digest,
-    bytes:archiveBytes,
-    byte_length:archiveBytes.length,
-    archive_key:key,
+    sha256:delivered.sha256,
+    bytes:delivered.bytes,
+    byte_length:delivered.byte_length,
+    archive_key:key||null,
     external_reconstruction_verified:true,
-    independent_of_local_archive:verified.independent_of_local_archive===true,
+    independent_of_local_archive:true,
+    local_copy_checked:delivered.local_copy_checked===true,
+    held_on:'external-shards-and-companion-pc',
+    verification:safe,
   };
 }
 
