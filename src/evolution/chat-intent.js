@@ -49,9 +49,10 @@ export function inferCapabilityInspectionIntent(text) {
   if (!value) return null;
 
   const self = /\b(?:mel|toi|tu|tes|ton|ta|elle|ses)\b/i.test(value);
+  const direct = /\b(?:que\s+sais[- ]?tu\s+faire|que\s+peux[- ]?tu\s+faire|tu\s+peux\s+faire\s+quoi|qu['’]est-ce\s+que\s+tu\s+(?:sais|peux)\s+faire|c['’]est\s+quoi\s+tes\s+capacit[ée]s|quelles?\s+sont\s+tes\s+(?:capacit[ée]s|comp[ée]tences|outils))\b/i.test(value);
   const capabilityDomain = /\b(?:capacit[ée]s?|comp[ée]tences?|outils?|modules?|fonctions?|fonctionnalit[ée]s?|skills?|capabilities?|ce\s+que\s+tu\s+sais\s+faire|que\s+sais[- ]?tu\s+faire|que\s+peux[- ]?tu\s+faire)\b/i.test(value);
   const asksInventory = /\b(?:quelles?|liste|inventaire|montre|affiche|connais|connaitre|sais|peux|fonctionne|marchent?|actives?|disponibles?|r[ée]elles?|[ée]tat|status|statut|audit|teste?|tester|v[ée]rifie|v[ée]rifier)\b/i.test(value);
-  if (!(capabilityDomain && (self || /\btu\b/i.test(value)) && asksInventory)) return null;
+  if (!(direct || (capabilityDomain && (self || /\btu\b/i.test(value)) && asksInventory))) return null;
 
   const deep = /\b(?:teste|tester|testes|v[ée]rifie|v[ée]rifier|audit\s+complet|audit\s+profond|r[ée]ellement|pour\s+de\s+vrai|smoke|ex[ée]cute|ex[ée]cuter)\b/i.test(value);
   return { id: 'capability.audit', input: { deep } };
