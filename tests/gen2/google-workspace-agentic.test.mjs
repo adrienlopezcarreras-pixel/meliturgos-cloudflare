@@ -474,3 +474,31 @@ test('Gmail search uses Pipedream when the native Gmail call fails on the networ
   assert.ok(proxyCalls.some(call => call.app === 'gmail' && String(call.url).includes('/messages?')));
   assert.equal(proxyCalls.some(call => call.app !== 'gmail'), false);
 });
+
+test('Gmail stays callable when the Pipedream Gmail account is simply not linked', async () => {
+  const bus = new CapabilityBus();
+  registerGoogleWorkspaceCapabilities(bus, {
+    env: { MELITURGOS_USER: 'adrien' },
+    resolveAccessToken: async () => 'google-token',
+    fetchImpl: async () => { throw new TypeError('network down'); },
+    pipedreamRuntime: {
+      async proxy() {
+        const error = new Error('PIPEDREAM_GMAIL_ACCOUNT_REQUIRED');
+        error.code = 'PIPEDREAM_GMAIL_ACCOUNT_REQUIRED';
+        error.status = 409;
+        throw error;
+      },
+    },
+  });
+  const health = await bus.refreshHealth('gmail.messages.search');
+  assert.equal(health.health, 'DEGRADED');
+  assert.equal(health.health_detail, 'PIPEDREAM_GMAIL_ACCOUNT_REQUIRED');
+  await assert.rejects(
+    () => bus.execute('gmail.messages.search', { query: 'in:inbox', limit: 1 }, {
+      owner: 'adrien',
+      permissions: ['google.gmail.read'],
+    }),
+    (error) => error.code === 'GMAIL_SEARCH_FAILED_ALL_PATHS_FAILED'
+      && error.fallback_code === 'PIPEDREAM_GMAIL_ACCOUNT_REQUIRED',
+  );
+});
