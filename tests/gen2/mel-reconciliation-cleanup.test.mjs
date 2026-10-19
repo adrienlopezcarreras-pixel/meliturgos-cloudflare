@@ -31,9 +31,16 @@ test('MEL reconciliation keeps every registered capability unique, executable an
   }
 });
 
-test('MEL reconciliation roadmap leaves only genuinely unverified work open', () => {
+test('MEL reconciliation roadmap leaves only the founder cycle open', () => {
   const open = flattenRoadmap()
     .filter(row => row.status !== 'DONE_VERIFIED')
     .map(row => ({ id: row.id, status: row.status }));
-  assert.deepEqual(open, []);
+  assert.deepEqual(open, [
+    { id: 'MEL-FOUNDER-01', status: 'IN_PROGRESS' },
+    { id: 'MEL-FOUNDER-02', status: 'IN_PROGRESS' },
+    { id: 'MEL-FOUNDER-03', status: 'PLANNED' },
+    { id: 'MEL-FOUNDER-04', status: 'PLANNED' },
+    { id: 'MEL-FOUNDER-05', status: 'PLANNED' },
+    { id: 'MEL-FOUNDER-06', status: 'BLOCKED_HUMAN' },
+  ]);
 });
