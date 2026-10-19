@@ -526,7 +526,10 @@ async function sovereigntyCodeArchive(request,env,url){
    "x-content-type-options":"nosniff",
    "x-mel-source-sha":sourceSha,
    "x-mel-archive-sha256":String(archive.sha256||""),
-   "x-mel-external-reconstruction-verified":archive.external_reconstruction_verified===true?"1":"0"
+   "x-mel-external-reconstruction-verified":archive.external_reconstruction_verified===true?"1":"0",
+   "x-mel-archive-source":"external-shards",
+   "x-mel-local-copy-checked":archive.local_copy_checked===true?"1":"0",
+   "x-mel-held-on":"external-shards-and-companion-pc"
  });
  return new Response(archive.bytes,{status:200,headers});
 }

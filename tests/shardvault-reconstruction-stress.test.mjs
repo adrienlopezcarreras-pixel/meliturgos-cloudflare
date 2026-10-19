@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { __shardvaultTest } from '../src/continuity/shardvault-runtime.js';
+import { __shardvaultTest, deliverReconstructedArchive } from '../src/continuity/shardvault-runtime.js';
 
 function makeData(k,size,seed){
   return Array.from({length:k},(_,shard)=>{
@@ -67,6 +67,21 @@ test('external code target assignment withstands repeated endpoint failures with
     assert.equal(new Set(ids).size,7,`round ${round} must use seven distinct endpoints`);
     assert.equal(result.pending_indices.length,0);
   }
+});
+
+test('the PC receives the archive reconstructed online, even when the local copy is gone', () => {
+  const online = new Uint8Array([0x1f, 0x8b, 0x08, 0x00, 0x6d, 0x65, 0x6c]);
+  const verified = { ok: true, status: 'CODE_RECONSTRUCTION_VERIFIED', sha256: 'abc', archive_bytes: online };
+  const withoutLocal = deliverReconstructedArchive(verified, null);
+  assert.equal(withoutLocal.ok, true);
+  assert.equal(withoutLocal.independent_of_local_archive, true);
+  assert.equal(withoutLocal.local_copy_checked, false);
+  assert.equal(__shardvaultTest.byteArraysEqual(withoutLocal.bytes, online), true);
+
+  const checked = deliverReconstructedArchive(verified, online.slice());
+  assert.equal(checked.local_copy_checked, true);
+  assert.equal(deliverReconstructedArchive(verified, new Uint8Array([0x1f, 0x8b, 0x00])).ok, false);
+  assert.equal(deliverReconstructedArchive({ ok: true, status: 'CODE_RECONSTRUCTION_VERIFIED', archive_bytes: new Uint8Array([1, 2, 3]) }).status, 'CODE_ARCHIVE_RECONSTRUCTED_BYTES_MISSING');
 });
 
 test('ShardVault UI and API expose an explicit code reconstruction proof', async () => {
