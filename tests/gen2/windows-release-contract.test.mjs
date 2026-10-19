@@ -102,8 +102,9 @@ test('native Companion installs the complete MINI read-only USB bundle and expos
  assert.match(source,/Contrôle USB MINI/);
  assert.match(source,/SerialPort\.GetPortNames\(\)/);
  assert.match(source,/DialogResult\.Yes/);
- assert.match(source,/UseShellExecute=true/);
- assert.match(source,/-NoExit -File/);
+ assert.match(source,/CreateNoWindow=true/);
+ assert.match(source,/-NonInteractive -ExecutionPolicy Bypass -File/);
+ assert.match(source,/-ConfirmedByCompanion/);
  assert.doesNotMatch(source,/\bwrite_flash\b|\berase_flash\b/);
  for(const file of ['MEL-MINI-USB-Preflight.ps1','local_readonly_preflight.py',
   'inspect_partitions.py','inspect_ota_state.py','inspect_image.py']){
@@ -114,7 +115,7 @@ test('native Companion installs the complete MINI read-only USB bundle and expos
  const backup=await read('windows-companion/MEL-MINI-USB-Backup.ps1');
  assert.match(source,/MiniUsbBackupPath/);
  assert.match(source,/RunMiniUsbBackup/);
- assert.match(source,/SAUVEGARDER_MINI_USB|Sauvegarder la MINI par USB/);
+ assert.match(source,/Sauvegarder la mémoire complète|Sauvegarder/);
  assert.match(build,/MEL-MINI-USB-Backup\.ps1/);
  assert.match(verify,/MEL-MINI-USB-Backup\.ps1/);
  assert.match(backup,/SAUVEGARDER_MINI_USB/);
