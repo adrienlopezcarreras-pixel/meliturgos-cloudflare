@@ -20,6 +20,12 @@ test('autonomy status language maps to evidence-based status capability', () => 
   }
 });
 
+test('an order to reactivate MAX resumes autonomy instead of explaining how', () => {
+  assert.deepEqual(inferAutonomyControlIntent('Réactive MAX'), { id: 'autonomy.resume', input: {} });
+  assert.deepEqual(inferAutonomyControlIntent('Mets MAX en pause'), { id: 'autonomy.pause', input: { reason: 'owner-chat' } });
+  assert.deepEqual(inferAutonomyControlIntent('comment réactiver MAX ?'), { id: 'autonomy.status', input: {} });
+});
+
 test('explicit continue-development language maps to one bounded autonomy tick', () => {
   for (const text of [
     'continue ton développement MEL',
