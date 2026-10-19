@@ -13,12 +13,15 @@ function normalized(value) {
 const OFFICEHOLDER_ROLE = /\b(?:pape|pontife|saint[- ]?pere|president|premier ministre|prime minister|chef du gouvernement|chancelier|roi|reine|monarque|maire|gouverneur|pdg|ceo|directeur general|patriarche|dalai[- ]?lama)\b/i;
 const OFFICEHOLDER_IDENTITY_ASK = /\b(?:qui est|quel est|quelle est|comment s'appelle|comment se nomme|quel est le nom|quelle est le nom|nom du|nom de la|nom de l'|actuel|actuelle|en fonction|titulaire|who is|current)\b/i;
 const POPE_ROLE = /\b(?:pape|pontife|saint[- ]?pere)\b/i;
+const HISTORICAL_OFFICE = /\b(?:etait|ancien|ancienne|precedent|precedente|feu|defunt|defuncte|en\s+(?:1\d{3}|20[01]\d)|au\s+\d{1,2}e\s+siecle)\b/i;
 
 export function inferCurrentFactVerificationPolicy(text) {
   const value = normalized(text);
-  if (!value || !OFFICEHOLDER_ROLE.test(value) || !OFFICEHOLDER_IDENTITY_ASK.test(value)) return null;
-
+  if (!value || !OFFICEHOLDER_ROLE.test(value) || HISTORICAL_OFFICE.test(value)) return null;
   const pope = POPE_ROLE.test(value);
+  // « une photo du pape » affirme qui occupe la fonction. Seule une date passée
+  // reste une question historique. Les autres fonctions exigent une question d’identité.
+  if (!pope && !OFFICEHOLDER_IDENTITY_ASK.test(value)) return null;
   return Object.freeze({
     kind: 'CURRENT_OFFICEHOLDER',
     strict: true,
