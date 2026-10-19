@@ -126,3 +126,26 @@ test('patrimony comparison reads two exports and writes nothing', () => {
   assert.equal(changed.tables.conversations.same, true);
   assert.equal(changed.production_written, false);
 });
+
+test('the patrimony comparison is a real capability and writes nothing', async () => {
+  const { createGen2Runtime } = await import('../src/core/orchestrator/gen2-runtime.js');
+  const runtime = createGen2Runtime({ env: {} });
+  const pack = (ids) => ({
+    type: 'MEL_D1_LOGICAL_EXPORT_V1',
+    tableCount: 3,
+    tables: ['evolution_ledger', 'conversations', 'dev_jobs'].map(name => ({
+      name,
+      schema: 'CREATE TABLE ' + name + '(id TEXT)',
+      rowCount: ids.length,
+      rows: ids.map(id => ({ id })),
+    })),
+  });
+  const result = await runtime.bus.execute('backup.patrimony.compare', {
+    before: pack(['a']),
+    after: pack(['a', 'b']),
+  }, { owner: 'owner', permissions: [] });
+  assert.equal(result.ok, true);
+  assert.equal(result.identical, false);
+  assert.equal(result.production_written, false);
+  assert.equal(result.tables.evolution_ledger.after, 2);
+});

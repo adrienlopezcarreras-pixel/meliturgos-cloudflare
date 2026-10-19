@@ -57,6 +57,32 @@ export function comparePatrimonyExports(before, after) {
   return { ok: true, identical, tables, production_written: false };
 }
 
+export function registerPatrimonyCompareCapability(bus) {
+  if (!bus || typeof bus.discover !== 'function') throw new TypeError('CAPABILITY_BUS_REQUIRED');
+  bus.discover({
+    id: 'backup.patrimony.compare',
+    name: 'Comparer deux exports du patrimoine',
+    category: 'resilience',
+    version: '1.0.0',
+    provider: 'mel',
+    description: 'Compares evolution_ledger, conversations and dev_jobs between two logical exports. It never writes production.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        before: { type: 'object', additionalProperties: true },
+        after: { type: 'object', additionalProperties: true },
+      },
+      required: ['before', 'after'],
+      additionalProperties: false,
+    },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW',
+    permissions: [],
+    health: 'DEGRADED',
+    enabled: true,
+  }, async (input) => comparePatrimonyExports(input?.before, input?.after));
+}
+
 function validateR2Inventory(value) {
   if (!value || value.type !== 'MEL_R2_INVENTORY_V1') {
     return { ok: false, code: 'RESTORE_R2_INVENTORY_REQUIRED' };
