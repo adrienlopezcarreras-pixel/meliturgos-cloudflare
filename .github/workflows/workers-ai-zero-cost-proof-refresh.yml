@@ -121,8 +121,10 @@ jobs:
 
           PROOF="$(cat workers-ai-zero-cost-proof.json)"
           test -n "${PROOF}"
-          printf '%s' "${PROOF}" | npx wrangler versions secret put MEL_WORKERS_AI_ZERO_COST_PROOF_JSON --name meliturgos --env=""
-          echo "Workers AI zero-cost runtime proof refreshed without code deployment."
+          SECRET_LOG="$(printf '%s' "${PROOF}" | npx wrangler versions secret put MEL_WORKERS_AI_ZERO_COST_PROOF_JSON --name meliturgos --env="")"
+          printf '%s\n' "${SECRET_LOG}"
+          printf '%s\n' "${SECRET_LOG}" >> zero-cost-secret-versions.log
+          echo "Workers AI zero-cost proof stored on a new Worker version (not production yet)."
 
       - name: Re-prove Browser Run Workers Free hard-limit status
         shell: bash
@@ -170,8 +172,25 @@ jobs:
           NODE
           PROOF="$(cat browser-run-zero-cost-proof.json)"
           test -n "${PROOF}"
-          printf '%s' "${PROOF}" | npx wrangler versions secret put MEL_BROWSER_RUN_ZERO_COST_PROOF_JSON --name meliturgos --env=""
-          echo "Browser Run zero-cost runtime proof refreshed without code deployment."
+          SECRET_LOG="$(printf '%s' "${PROOF}" | npx wrangler versions secret put MEL_BROWSER_RUN_ZERO_COST_PROOF_JSON --name meliturgos --env="")"
+          printf '%s\n' "${SECRET_LOG}"
+          printf '%s\n' "${SECRET_LOG}" >> zero-cost-secret-versions.log
+          echo "Browser Run zero-cost proof stored on the latest Worker version (not production yet)."
+
+      - name: Promote refreshed zero-cost proof version to production
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -f zero-cost-secret-versions.log
+          # versions secret put creates a version and does NOT shift traffic.
+          # The second put is based on the latest version, so it carries both secrets.
+          VID="$(grep -oE 'Created version [0-9a-f-]{36}' zero-cost-secret-versions.log | awk '{print $3}' | tail -1)"
+          test -n "${VID}"
+          echo "Promoting Worker version ${VID} to 100% production traffic"
+          npx wrangler versions deploy "${VID}@100%" --yes --name meliturgos --message "Promote refreshed zero-cost proofs"
 
       - name: Upload sanitized refresh evidence
         if: always()
