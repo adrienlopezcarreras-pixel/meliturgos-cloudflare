@@ -64,7 +64,7 @@ export async function reconcileVerifiedCompletionsBehindLaunchGate(env = {}, opt
     return { ok: true, skipped: true, reason: 'COMPLETION_REPOSITORY_UNAVAILABLE', completed: [], rejected: [] };
   }
   const benchmarkRuntime = resolveRuntimeBenchmarkEvaluator(env, options);
-  const epochMs = options.epochMs ?? await readActivityListEpoch(env?.DB);
+  const epochMs = options.epochMs ?? await readActivityListEpoch(env?.DB, { strict: true });
   const reconcile = typeof options.completionReconciler === 'function'
     ? options.completionReconciler
     : reconcileRuntimeCompletions;
@@ -133,7 +133,7 @@ function mustFailClosed(error) {
   return FATAL_RUNTIME_CONFIGURATION_ERRORS.has(String(error?.code || error?.message || '').toUpperCase());
 }
 
-function validateCandidateBranches(env = {}) {
+export function validateCandidateBranches(env = {}) {
   const canonicalBranch = String(env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH).trim();
   const teacherBranch = String(env?.MEL_TEACHER_BRANCH || canonicalBranch).trim();
   if (!canonicalBranch.startsWith('candidate/')) {
@@ -381,7 +381,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
   validateCandidateBranches(env);
 
   const repository = options.repository || new D1DevJobRepository(env.DB);
-  const epochMs = options.epochMs ?? await readActivityListEpoch(env?.DB);
+  const epochMs = options.epochMs ?? await readActivityListEpoch(env?.DB, { strict: true });
   const currentRepository = currentAutonomyRepository(repository, epochMs);
   let preEnsure = {
     created: false,
@@ -648,7 +648,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     };
   }
 
-  const epochMs = await readActivityListEpoch(env?.DB);
+  const epochMs = await readActivityListEpoch(env?.DB, { strict: true });
   const launchApproval = launchApprovalValid(env, control, options);
   if (!launchApproval.ok) {
     let passiveCompletions;

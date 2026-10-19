@@ -284,15 +284,11 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
 
   bus.discover({
     id: 'evolution.enqueue', name: 'Lancer un développement autonome supervisé', category: 'evolution', version: '1.0.0', provider: 'mel',
-    description: 'Persists an owner-requested development job, runs the mandatory multi-AI Council and candidate inspection, then queues the Teacher review so work can continue asynchronously.',
+    description: 'Durably queues an owner development goal and starts its existing Council, inspection and Teacher pipeline via Worker waitUntil; the autonomy runtime resumes interruptions.',
     input_schema: enqueueInputSchema,
     output_schema: { type: 'object', additionalProperties: true },
-    risk: 'MEDIUM', permissions: [], health: runtimeEnv.DB ? 'DEGRADED' : 'UNAVAILABLE', healthcheck: async () => {
-      if (!runtimeEnv.DB) return { status: 'OFFLINE', reason: 'DB_BINDING_UNAVAILABLE' };
-      return inspectZeroCostProviderReadiness(runtimeEnv, { capability: 'GENERAL', minimum: 2, refreshHealth: true });
-    }, enabled: true
-  }, async input => {
-    if (!runtimeEnv.AI) throw capabilityError('AI_BINDING_MISSING');
+    risk: 'MEDIUM', permissions: [], health: runtimeEnv.DB ? 'HEALTHY' : 'UNAVAILABLE', enabled: true
+  }, async (input, context = {}) => {
     if (!runtimeEnv.DB) throw capabilityError('DB_BINDING_MISSING');
     return enqueueOwnerDevelopmentRequest({
       env: runtimeEnv,
@@ -301,6 +297,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
       requestKey: input.requestKey || '',
       fetchImpl: githubFetch,
       capabilities: bus.list(),
+      waitUntil: typeof context.waitUntil === 'function' ? context.waitUntil : null,
     });
   });
 

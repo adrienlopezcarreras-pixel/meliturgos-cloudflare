@@ -440,7 +440,7 @@ export function autonomyQueueReadBlocker(state) {
 
 export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repository = null, benchmarkEvaluator = null, benchmarkModelId = '', roadmap = null, maxAutonomy = false, epochMs = null } = {}) {
   const jobRepository = repository || new D1DevJobRepository(env.DB);
-  const activityEpoch = epochMs ?? await readActivityListEpoch(env?.DB);
+  const activityEpoch = epochMs ?? await readActivityListEpoch(env?.DB, { strict: true });
   const currentRepository = currentAutonomyRepository(jobRepository, activityEpoch);
   const reconciliation = await reconcileRuntimeTeacherReplies({ repository: currentRepository, env, fetchImpl }).catch((error) => ({
     ok: false,

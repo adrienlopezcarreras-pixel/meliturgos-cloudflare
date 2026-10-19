@@ -200,3 +200,22 @@ test('a job created in the same millisecond as the epoch resumes without creatin
     f.DB.close();
   }
 });
+
+test('an unreadable activity epoch cannot make historical jobs actionable', async () => {
+  const f = await fixture();
+  try {
+    const old = await f.oldJob('old-approved', 'TEACHER_APPROVED');
+    f.env.DB = {
+      ...f.DB,
+      prepare(sql) {
+        if (sql.startsWith('SELECT last_seen FROM dev_bridge_state')) {
+          return { bind() { return { async first() { throw new Error('fixture epoch read unavailable'); } }; } };
+        }
+        return f.DB.prepare(sql);
+      },
+    };
+    await assert.rejects(() => f.tick(), { code: 'ACTIVITY_EPOCH_READ_FAILED' });
+    assert.deepEqual(await f.repository.get(old.id), old);
+    assert.equal((await f.repository.list()).length, 1);
+  } finally { f.DB.close(); }
+});

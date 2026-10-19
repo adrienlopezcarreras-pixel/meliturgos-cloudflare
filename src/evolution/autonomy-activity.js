@@ -14,7 +14,7 @@ import { readAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
 
 export const ACTIVITY_LIST_EPOCH_ID = 'activity-list-epoch';
 
-export async function readActivityListEpoch(db) {
+export async function readActivityListEpoch(db, { strict = false } = {}) {
   if (!db?.prepare) return 0;
   try {
     const row = await db.prepare('SELECT last_seen FROM dev_bridge_state WHERE bridge_id=? LIMIT 1')
@@ -22,6 +22,7 @@ export async function readActivityListEpoch(db) {
     const epoch = Number(row?.last_seen || 0);
     return Number.isFinite(epoch) && epoch > 0 ? epoch : 0;
   } catch {
+    if (strict) throw Object.assign(new Error('ACTIVITY_EPOCH_READ_FAILED'), { code: 'ACTIVITY_EPOCH_READ_FAILED' });
     return 0;
   }
 }

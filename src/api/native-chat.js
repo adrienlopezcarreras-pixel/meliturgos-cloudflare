@@ -1714,6 +1714,7 @@ export async function handleNativeChat(request, env, options = {}) {
         conversationId,
         requestKey: String(body.client_message_id ?? body.message_id ?? body.request_id ?? ''),
         capabilities: runtime.bus.list(),
+        waitUntil: typeof options?.waitUntil === 'function' ? options.waitUntil : null,
       });
       if (learned?.job_id) {
         toolResults.push({ capability: 'evolution.enqueue', status: 'SUCCEEDED', result: learned });
