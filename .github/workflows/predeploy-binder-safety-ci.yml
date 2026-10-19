@@ -64,6 +64,7 @@ jobs:
         with:
           node-version: '22'
       - name: Restore a SELECT-only production export in disposable SQLite
+        if: github.event_name == 'workflow_dispatch'
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -103,7 +104,7 @@ jobs:
           ./node_modules/.bin/wrangler deploy --config "$PREVIEW_CONFIG" > "${RUNNER_TEMP}/restore-preview-deploy.log" 2>&1 || {
             echo 'RESTORE_PROBE_PREVIEW_DEPLOY_FAILED'; exit 1;
           }
-          PREVIEW_URL="$(rg -o 'https://[^[:space:]]+\.workers\.dev' "${RUNNER_TEMP}/restore-preview-deploy.log" | tail -1)"
+          PREVIEW_URL="$(grep -Eo 'https://[^[:space:]]+\.workers\.dev' "${RUNNER_TEMP}/restore-preview-deploy.log" | tail -1)"
           test -n "$PREVIEW_URL"
           READY=0
           for ATTEMPT in $(seq 1 12); do
