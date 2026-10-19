@@ -94,7 +94,8 @@ test('Council proof refresh is short-lived, fail-closed and not silently cancell
   assert.match(refresh, /cron: '\*\/15 \* \* \* \*'/);
   assert.match(refresh, /cancel-in-progress: false/);
   assert.match(refresh, /accounts\/\$\{CLOUDFLARE_ACCOUNT_ID\}\/entitlements/);
-  assert.match(refresh, /MEL_WORKERS_AI_ZERO_COST_PROOF_JSON/);
+  assert.match(refresh, /node scripts\/publish-zero-cost-proof-sql\.mjs/);
+  assert.doesNotMatch(refresh, /wrangler\s+(?:versions|secret|deploy|publish)\b/);
   assert.match(refresh, /expires_at:new Date\(now\+60\*60\*1000\)/);
   assert.match(suite, /WORKERS_AI_PROOF_REFRESH: \$\{\{ needs\.workers-ai-proof-refresh\.result \}\}/);
   assert.match(suite, /proof\.workers_ai_proof_refresh/);

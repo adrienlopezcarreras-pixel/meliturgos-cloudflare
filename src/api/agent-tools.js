@@ -1,3 +1,5 @@
+import { stableStringify } from '../resilience/recovery-bundle.js';
+
 // Native tool use for MEL chat: the model chooses and calls its own
 // CapabilityBus capabilities (strict JSON protocol, works on any Workers AI
 // model), up to AGENT_MAX_STEPS, before the normal grounded answer is written.
@@ -63,17 +65,39 @@ const LEAKED_READ_TOOLS = new Set([
   'code.read', 'code.search', 'web.research', 'computer.status',
 ]);
 
+/** Preserve actionable fallback diagnostics without copying upstream bodies. */
+export function toolFailureDetails(error) {
+  const result = { error:String(error?.code || error?.message || 'CAPABILITY_FAILED').slice(0, 180) };
+  for (const field of ['native_code', 'fallback_code']) {
+    const code = String(error?.[field] || '');
+    if (/^[A-Z][A-Z0-9_]{0,159}$/.test(code)) result[field] = code;
+  }
+  return result;
+}
+
 function eachJsonObject(text, visit) {
   const source = String(text || '');
   for (let start = 0; start < source.length; start += 1) {
     if (source[start] !== '{') continue;
     let depth = 0;
+    let quoted = false;
+    let escaped = false;
     for (let end = start; end < source.length; end += 1) {
-      if (source[end] === '{') depth += 1;
-      else if (source[end] === '}') {
+      const char = source[end];
+      if (quoted) {
+        if (escaped) escaped = false;
+        else if (char === '\\') escaped = true;
+        else if (char === '"') quoted = false;
+        continue;
+      }
+      if (char === '"') quoted = true;
+      else if (char === '{') depth += 1;
+      else if (char === '}') {
         depth -= 1;
         if (depth === 0) {
           visit(source.slice(start, end + 1), start, end + 1);
+          // Nested objects are arguments/data, never separate tool requests.
+          start = end;
           break;
         }
       }
@@ -117,7 +141,7 @@ export async function executeLeakedReads({ bus, text, already = [], context = {}
       const result = await bus.execute(action.tool, action.input, context);
       results.push({ capability: action.tool, status: 'SUCCEEDED', result: summarize(result) });
     } catch (error) {
-      results.push({ capability: action.tool, status: 'FAILED', error: String(error?.code || error?.message || 'CAPABILITY_FAILED').slice(0, 180) });
+      results.push({ capability: action.tool, status: 'FAILED', ...toolFailureDetails(error) });
     }
   }
   return results;
@@ -171,12 +195,12 @@ export async function runAgentToolLoop({ env, bus, text, recent = [], context = 
       results.push({ capability: action.tool, status: 'FAILED', error: 'AGENT_TOOL_NOT_ALLOWED' });
       continue;
     }
-    if (results.some(r => r.capability === action.tool && JSON.stringify(r.input) === JSON.stringify(action.input))) break;
+    if (results.some(r => r.capability === action.tool && stableStringify(r.input) === stableStringify(action.input))) break;
     try {
       const result = await bus.execute(action.tool, action.input, context);
       results.push({ capability: action.tool, input: action.input, status: 'SUCCEEDED', result: summarize(result) });
     } catch (error) {
-      results.push({ capability: action.tool, input: action.input, status: 'FAILED', error: String(error?.code || error?.message || 'CAPABILITY_FAILED') });
+      results.push({ capability: action.tool, input: action.input, status: 'FAILED', ...toolFailureDetails(error) });
     }
   }
   return results.map(({ input, ...row }) => row);

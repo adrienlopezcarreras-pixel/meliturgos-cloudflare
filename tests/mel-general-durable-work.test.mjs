@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isSubstantialMelTask, findMelWorkReference, buildSubstantialMelNodes, launchSubstantialMelTask } from '../src/work/mel-general-kickoff.js';
+import { isSubstantialMelTask, requiresOperationalMelWork, findMelWorkReference, buildSubstantialMelNodes, launchSubstantialMelTask } from '../src/work/mel-general-kickoff.js';
 import { createWorkDag, WorkDagRunner } from '../src/work/work-dag.js';
 import { OpenLoopService } from '../src/conversations/open-loop-service.js';
 
@@ -250,4 +250,141 @@ test('concurrent create conflict fails closed if winning DAG cannot be read', as
   assert.equal(result.ok,false);
   assert.equal(result.code,'D1_UNAVAILABLE');
   assert.deepEqual(calls,['work.status','work.create','work.status']);
+});
+
+
+test('operational long tasks use the registered Work planner and persist executable TASK nodes', async () => {
+  const goal = 'Inspecte le dépôt GitHub avec tes outils et vérifie les fichiers source, les tests et les dépendances pour trouver les anomalies avant de proposer une correction.';
+  assert.equal(requiresOperationalMelWork(goal), true);
+  assert.equal(requiresOperationalMelWork(GOAL), false);
+  let created = null;
+  const used = [];
+  const bus = {
+    describe(id) {
+      assert.equal(id,'code.search');
+      return {id,enabled:true,health:'HEALTHY',risk:'LOW',approval:null};
+    },
+    async execute(id, input) {
+      used.push(id);
+      if (id === 'work.status' && !created) throw Object.assign(new Error('WORK_DAG_NOT_FOUND'),{code:'WORK_DAG_NOT_FOUND'});
+      if (id === 'work.plan.generate') {
+        assert.equal(input.goal,goal);
+        return {plan:{steps:[{capability:'code.search'}]},
+          nodes:[{id:'inspect-code',kind:'TASK',idempotent:true,payload:{capability:'code.search',input:{query:'source'}}}]};
+      }
+      if (id === 'work.create') {created=input;return {id:input.id};}
+      if (id === 'openloop.capture') return {ok:true};
+      if (id === 'work.status') return {status:'RUNNING',node_counts:{PENDING:1,COMPLETED:0},completed:false,blocked:false};
+      if (id === 'work.run') return {status:'RUNNING'};
+      throw new Error('Unexpected capability '+id);
+    },
+  };
+  const background=[];
+  const result=await launchSubstantialMelTask({bus,text:goal,conversationId:'tools-work',context:{waitUntil:p=>background.push(p)}});
+  assert.equal(result.ok,true,JSON.stringify(result));
+  assert.equal(created.nodes[0].kind,'TASK');
+  assert.equal(created.nodes[0].payload.capability,'code.search');
+  assert.ok(used.includes('work.plan.generate'));
+  assert.equal(background.length,1);
+  await Promise.all(background);
+  assert.ok(used.includes('work.run'));
+});
+
+test('operational work never substitutes fake echo or automatically authorizes writes', async () => {
+  const goal='Corrige le code source du dépôt GitHub avec tes outils et vérifie les tests pour résoudre réellement le problème dans le projet.';
+  for(const capability of ['echo','danger.write']) {
+    let created=false;
+    const bus={
+      describe(id){return {id,enabled:true,health:'HEALTHY',risk:id==='echo'?'LOW':'HIGH',approval:null};},
+      async execute(id) {
+        if(id==='work.status')throw Object.assign(new Error('WORK_DAG_NOT_FOUND'),{code:'WORK_DAG_NOT_FOUND'});
+        if(id==='work.plan.generate')return {plan:{steps:[{capability}]},nodes:[{id:'step-1',kind:'TASK',payload:{capability,input:{}}}]};
+        if(id==='work.create'){created=true;return {};}
+        throw Error('Unexpected '+id);
+      },
+    };
+    const result=await launchSubstantialMelTask({bus,text:goal,conversationId:'blocked-'+capability,context:{}});
+    assert.equal(result.ok,false);
+    assert.equal(result.code,'MEL_OPERATIONAL_PLAN_REQUIRES_REAL_SAFE_TOOL');
+    assert.equal(created,false);
+  }
+});
+
+test('tool-dependent very long instructions fail visibly rather than dropping constraints', async () => {
+  const goal='Inspecte le dépôt GitHub avec tes outils et vérifie les fichiers sources et dépendances. ' + 'Exigence opérationnelle détaillée. '.repeat(140);
+  assert.ok(goal.length>4000);
+  let planningCalled=false;
+  const bus={async execute(id) {
+    if(id==='work.status')throw Object.assign(new Error('WORK_DAG_NOT_FOUND'),{code:'WORK_DAG_NOT_FOUND'});
+    if(id==='work.plan.generate')planningCalled=true;
+    throw Error('UNEXPECTED_'+id);
+  }};
+  const result=await launchSubstantialMelTask({bus,text:goal,conversationId:'long-tool-work',context:{}});
+  assert.equal(result.ok,false);
+  assert.equal(result.code,'MEL_OPERATIONAL_GOAL_TOO_LONG');
+  assert.equal(planningCalled,false);
+});
+
+
+test('confirmed owner-requested missing tool enters existing Council development queue instead of a fake Work DAG', async () => {
+  const goal='Développe un outil manquant de spectrométrie infrarouge astronomique pour mes données, avec un module fiable et des tests réels, sans inventer les résultats ni activer le code sans validation.';
+  assert.equal(requiresOperationalMelWork(goal),true);
+  const calls=[];
+  const bus={async execute(id,input) {
+    calls.push(id);
+    if(id==='work.status')throw Object.assign(new Error('WORK_DAG_NOT_FOUND'),{code:'WORK_DAG_NOT_FOUND'});
+    if(id==='evolution.module.propose')return {decision:'PROPOSE_MODULE',gap:{classification:'POSSIBLE_GAP'}};
+    if(id==='evolution.enqueue')return {ok:true,created:true,job_id:'owner-chat-new-tool-123',status:'WAITING_TEACHER',teacher:{status:'WAITING_TEACHER'}};
+    throw Error('UNEXPECTED_'+id);
+  }};
+  const result=await launchSubstantialMelTask({bus,text:goal,conversationId:'gap-conversation',context:{}});
+  assert.equal(result.ok,true);
+  assert.equal(result.status,'TOOL_DEVELOPMENT_QUEUED');
+  assert.equal(result.development_job_id,'owner-chat-new-tool-123');
+  assert.equal(result.tool_gap_verified,true);
+  assert.ok(calls.includes('evolution.enqueue'));
+  assert.ok(!calls.includes('work.create'));
+  assert.ok(!calls.includes('work.plan.generate'));
+});
+
+test('existing matching tool must use Work planning, not start duplicate Module Lab work', async () => {
+  const goal='Développe un outil pour inspecter le code source du dépôt GitHub et vérifier les tests dans la branche candidate en utilisant les compétences déjà enregistrées.';
+  let created=null;
+  const calls=[];
+  const bus={
+    describe(id){return {id,enabled:true,health:'HEALTHY',risk:'LOW'};},
+    async execute(id,input) {
+      calls.push(id);
+      if(id==='work.status'&&!created)throw Object.assign(new Error('WORK_DAG_NOT_FOUND'),{code:'WORK_DAG_NOT_FOUND'});
+      if(id==='evolution.module.propose')return {decision:'REUSE_EXISTING',gap:{classification:'MATCHED_AVAILABLE'}};
+      if(id==='work.plan.generate')return {plan:{steps:[{capability:'code.search'}]},nodes:[{id:'read',kind:'TASK',idempotent:true,payload:{capability:'code.search',input:{query:'source'}}}]};
+      if(id==='work.create'){created=input;return {id:input.id};}
+      if(id==='openloop.capture')return {ok:true};
+      if(id==='work.status')return {status:'RUNNING',node_counts:{PENDING:1,COMPLETED:0},completed:false,blocked:false};
+      throw Error('UNEXPECTED_'+id);
+    },
+  };
+  const result=await launchSubstantialMelTask({bus,text:goal,conversationId:'reuse-conversation',context:{}});
+  assert.equal(result.ok,true,JSON.stringify(result));
+  assert.ok(created);
+  assert.ok(calls.includes('work.plan.generate'));
+  assert.ok(!calls.includes('evolution.enqueue'));
+});
+
+
+test('durable status surfaces persisted TASK receipts rather than hiding results of real tools', async () => {
+  const {getSubstantialMelStatus}=await import('../src/work/mel-general-kickoff.js');
+  const bus={async execute(id) {
+    if(id==='work.status')return {status:'COMPLETED',completed:true,blocked:false,node_counts:{COMPLETED:1}};
+    if(id==='work.artifacts')return {artifacts:[],tool_results:[{
+      node_id:'search',capability:'code.search',result:{matches:[{path:'src/index.js',line:12}]},
+    }]};
+    throw Error('UNEXPECTED_'+id);
+  }};
+  const state=await getSubstantialMelStatus({bus,id:'verified-task',context:{}});
+  assert.equal(state.sections.length,1);
+  assert.equal(state.sections[0].node_id,'search');
+  assert.match(state.sections[0].text,/code.search/);
+  assert.match(state.sections[0].text,/src\/index.js/);
+  assert.equal(state.complete_cycle,true);
 });

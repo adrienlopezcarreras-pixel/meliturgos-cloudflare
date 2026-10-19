@@ -16,6 +16,54 @@ export function isSubstantialMelTask(text) {
   return value.length >= 550 || LONG_SIGNALS.test(normalized.slice(0, 1500));
 }
 
+// A large request involving external systems must not be downgraded to a
+// text-only writing DAG that can never invoke the requested tools.
+export function requiresOperationalMelWork(text) {
+  const source = String(text || '').trim();
+  if (source.length < 120 || source.length > MAX_PROMPT) return false;
+  const normalized = normalize(source);
+  if (!START_VERBS.test(normalized.slice(0, 400))
+      && !/^(?:utilise|lance|cherche|inspecte|controle|modifie|deploie|teste|verifie|telecharge)\b/.test(normalized)) return false;
+  const operation = /\b(?:utilise|utiliser|execute|executer|effectue|effectuer|lance|lancer|cherche|chercher|inspecte|inspecter|controle|controler|corrige|corriger|developpe|developper|modifie|modifier|deploie|deployer|teste|tester|verifie|verifier|telecharge|telecharger)\b/.test(normalized);
+  const target = /\b(?:github|depot|repository|repo|code\s+source|fichiers?\s+(?:prives?|google|drive)|google\s+drive|onedrive|gmail|outlook|cloudflare|d1|companion|ordinateur|pc|api|base\s+de\s+donnees|connecteurs?|competences?|outils?|workflow|ci|pull\s+request)\b/.test(normalized);
+  return operation && target;
+}
+
+async function operationalWorkNodes(bus, text, id, context) {
+  // The canonical multi-AI Work planner resolves real CapabilityBus contracts.
+  // Never truncate an operational instruction and silently omit constraints.
+  if (text.length > 4000) throw Object.assign(new Error('MEL_OPERATIONAL_GOAL_TOO_LONG'), { code:'MEL_OPERATIONAL_GOAL_TOO_LONG' });
+  const generated = await bus.execute('work.plan.generate', {
+    id,
+    goal: text,
+    constraints: ['Réutiliser les compétences enregistrées du CapabilityBus.', 'Aucune action sensible ou écriture externe sans confirmation explicite.'],
+    maxCandidates: 3,
+  }, context);
+  if (!Array.isArray(generated?.nodes) || !generated.nodes.length || !Array.isArray(generated?.plan?.steps)) {
+    throw Object.assign(new Error('MEL_OPERATIONAL_PLAN_INVALID'), { code:'MEL_OPERATIONAL_PLAN_INVALID' });
+  }
+  for (const step of generated.plan.steps) {
+    const descriptor = bus.describe(step.capability);
+    // Non-mutating autonomous work may proceed. Sensitive operations remain
+    // on their existing per-capability owner approval workflow, never on a
+    // synthetic fallback or a broad text instruction.
+    if (descriptor.enabled !== true || String(descriptor.health).toUpperCase() === 'UNAVAILABLE'
+        || String(descriptor.risk).toUpperCase() !== 'LOW' || descriptor.approval?.required === true
+        || ['echo','augmentio.fanout'].includes(String(step.capability || ''))) {
+      throw Object.assign(new Error('MEL_OPERATIONAL_PLAN_REQUIRES_REAL_SAFE_TOOL'), { code:'MEL_OPERATIONAL_PLAN_REQUIRES_REAL_SAFE_TOOL' });
+    }
+  }
+  return generated.nodes;
+}
+
+function explicitlyRequestsMissingToolDevelopment(text) {
+  const goal = normalize(text);
+  // The owner, not an untrusted model's invented capability id, must request
+  // development. Reuse Module Lab's existing gap classifier and Council.
+  return /\b(?:outil|competence|capacite|connecteur|module|plugin)\b/.test(goal)
+    && /\b(?:manquant|manquante|manque|absent|inexistant|n.existe\s+pas|developpe|developper|cree|creer|ajoute|ajouter)\b/.test(goal);
+}
+
 export function findMelWorkReference(text, recent = []) {
   const normalized = normalize(text);
   // Bare continuation is only for the *immediately preceding* explicit MEL
@@ -91,8 +139,14 @@ export async function getSubstantialMelStatus({ bus, id, context, includeArtifac
     blocked: result.blocked === true, complete_cycle: result.completed === true, updated_at: result.updated_at || null };
   if (includeArtifacts) {
     const page = await bus.execute('work.artifacts', { id }, context);
-    output.sections = (page?.artifacts || []).filter(row => row?.artifact?.kind === 'work_draft_section')
+    const drafts = (page?.artifacts || []).filter(row => row?.artifact?.kind === 'work_draft_section')
       .map(row => ({ node_id: String(row.node_id || ''), text: String(row.artifact.text || '').slice(0, 12000) }));
+    const tools = (page?.tool_results || []).map(row => ({
+      node_id: String(row.node_id || ''),
+      text: 'Outil exécuté : ' + String(row.capability || '') + '\n'
+        + JSON.stringify(row.result ?? null).slice(0, 4000),
+    }));
+    output.sections = [...drafts, ...tools].slice(-100);
   }
   return output;
 }
@@ -116,12 +170,37 @@ export async function launchSubstantialMelTask({ bus, text, conversationId, cont
     if (!genuinelyMissing && (!existing || typeof existing !== 'object')) {
       throw Object.assign(new Error('WORK_DAG_STATUS_INVALID'), { code: 'WORK_DAG_STATUS_INVALID' });
     }
+    if (genuinelyMissing && requiresOperationalMelWork(text)
+        && explicitlyRequestsMissingToolDevelopment(text)) {
+      if (text.length > 4000) throw Object.assign(new Error('MEL_OPERATIONAL_GOAL_TOO_LONG'), { code:'MEL_OPERATIONAL_GOAL_TOO_LONG' });
+      const proposal = await bus.execute('evolution.module.propose', { goal:text }, context);
+      if (proposal?.decision === 'PROPOSE_MODULE' && proposal?.gap?.classification === 'POSSIBLE_GAP') {
+        const development = await bus.execute('evolution.enqueue', {
+          goal:text, conversationId, requestKey:id,
+        }, context);
+        if (!development?.job_id) throw Object.assign(new Error('MEL_TOOL_DEVELOPMENT_NOT_QUEUED'), { code:'MEL_TOOL_DEVELOPMENT_NOT_QUEUED' });
+        return {
+          ok:true,
+          id:development.job_id,
+          development_job_id:development.job_id,
+          status:'TOOL_DEVELOPMENT_QUEUED',
+          created:development.created === true,
+          started:false,
+          completed_steps:0,
+          remaining_steps:null,
+          tool_gap_verified:true,
+          teacher_status:development.teacher?.status || null,
+        };
+      }
+    }
     if (genuinelyMissing) {
       try {
         await bus.execute('work.create', {
           id, jobId: id, conversationId,
           goal: ('MEL: travail utilisateur persistant (cycle de production). ' + text).slice(0, 3900),
-          nodes: buildSubstantialMelNodes(text),
+          nodes: requiresOperationalMelWork(text)
+            ? await operationalWorkNodes(bus, text, id, context)
+            : buildSubstantialMelNodes(text),
         }, context);
         created = true;
       } catch (error) {

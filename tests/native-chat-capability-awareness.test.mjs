@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inferNativeCodeCapability, inferConnectedDataCapability, buildRuntimeCapabilityManifest, applyCapabilityExecutionEvidence } from '../src/api/native-chat.js';
+import { inferNativeCodeCapability, inferConnectedDataCapability, inferExplicitRegisteredCapability, buildRuntimeCapabilityManifest, applyCapabilityExecutionEvidence } from '../src/api/native-chat.js';
 
 test('follow-up access question reuses recent code context and path', () => {
   const recent = [
@@ -18,12 +18,12 @@ test('follow-up access question without code context does not invent code intent
   assert.equal(inferNativeCodeCapability("Tu m'as dit que tu avais accès ?", recent), null);
 });
 
-test('runtime capability manifest refreshes health and uses the same strict truth vocabulary as audits', async () => {
-  let refreshed = false;
+test('runtime capability manifest reads registry truth without probing providers', async () => {
+  let listed = false;
   const runtime = {
     bus: {
-      async refreshHealthAll() {
-        refreshed = true;
+      list() {
+        listed = true;
         return [
           { id: 'code.read', enabled: true, health: 'HEALTHY', provider: 'github', risk: 'LOW', permissions: ['code.read'] },
           { id: 'code.search', enabled: true, health: 'DEGRADED', implementation_status: 'PARTIAL', provider: 'github', risk: 'LOW', permissions: ['code.read'] },
@@ -35,7 +35,7 @@ test('runtime capability manifest refreshes health and uses the same strict trut
     }
   };
   const manifest = await buildRuntimeCapabilityManifest(runtime);
-  assert.equal(refreshed, true);
+  assert.equal(listed, true);
   assert.deepEqual(manifest.map(x => [x.id, x.status]), [
     ['code.read', 'EXISTANT_NON_TESTE'],
     ['code.search', 'PARTIEL'],
@@ -52,7 +52,7 @@ test('runtime capability manifest refreshes health and uses the same strict trut
 test('successful tool execution upgrades only that capability to EXISTANT_ET_TESTE for this request', async () => {
   const manifest = await buildRuntimeCapabilityManifest({
     bus: {
-      refreshHealthAll: async () => [
+      list: () => [
         { id:'code.read', enabled:true, health:'HEALTHY', provider:'github', risk:'LOW', permissions:[] },
         { id:'web.research', enabled:true, health:'HEALTHY', provider:'web', risk:'LOW', permissions:[] },
       ],
@@ -123,4 +123,103 @@ test('connected private-data routing only plans an email mutation when recipient
     inferConnectedDataCapability('Envoie un mail Outlook à test@example.com'),
     null,
   );
+});
+
+
+test('all registered capabilities remain visible to MEL chat, including IDs beyond index 96', async () => {
+  const rows = Array.from({length: 164}, (_, i) => ({
+    id: 'fixture.' + i, name: 'Fixture ' + i, category:'fixture',
+    enabled:true, health:'HEALTHY', risk:'LOW', permissions:[],
+  }));
+  rows.push({
+    id:'media.video.generate', name:'Video generation', category:'media',
+    enabled:true, health:'UNAVAILABLE', risk:'MEDIUM', permissions:[],
+  });
+  const manifest = await buildRuntimeCapabilityManifest({
+    bus: { list: () => rows },
+  });
+  assert.equal(manifest.length, 165);
+  assert.equal(manifest[164].id, 'media.video.generate');
+  assert.equal(manifest[164].status, 'BLOCKED_EXTERNAL');
+  assert.equal(manifest[164].tested_now, false);
+});
+
+test('explicit low-risk capability requests route through the normal runtime bus', () => {
+  const descriptors = {
+    'skill.list': { id:'skill.list', enabled:true, risk:'LOW', approval:{required:false} },
+    'd1.read': { id:'d1.read', enabled:true, risk:'LOW' },
+    'd1.write': { id:'d1.write', enabled:true, risk:'HIGH' },
+    'danger.approval': { id:'danger.approval', enabled:true, risk:'LOW', approval:{required:true} },
+    'offline.tool': { id:'offline.tool', enabled:false, risk:'LOW' },
+  };
+  const runtime = { bus: { describe(id) {
+    if (!descriptors[id]) throw new Error('CAPABILITY_NOT_FOUND');
+    return descriptors[id];
+  } } };
+  assert.deepEqual(inferExplicitRegisteredCapability('utilise la compétence skill.list', runtime), {
+    id:'skill.list', input:{}, execution_intent:'EXPLICIT_REGISTERED_CAPABILITY',
+  });
+  assert.deepEqual(inferExplicitRegisteredCapability('exécute l’outil d1.read avec {"table":"jobs"}', runtime), {
+    id:'d1.read', input:{table:'jobs'}, execution_intent:'EXPLICIT_REGISTERED_CAPABILITY',
+  });
+  assert.equal(inferExplicitRegisteredCapability('utilise la compétence d1.write', runtime), null);
+  assert.equal(inferExplicitRegisteredCapability('utilise la compétence danger.approval', runtime), null);
+  assert.equal(inferExplicitRegisteredCapability('utilise la compétence offline.tool', runtime), null);
+  assert.equal(inferExplicitRegisteredCapability('utilise la compétence invented.tool', runtime), null);
+  assert.equal(inferExplicitRegisteredCapability('utilise la compétence skill.list avec {oops}', runtime), null);
+  assert.equal(inferExplicitRegisteredCapability('parle-moi de skill.list', runtime), null);
+});
+
+
+test('registered deterministic tools execute through CapabilityBus even with no AI binding', async () => {
+  const {handleNativeChat} = await import('../src/api/native-chat.js');
+  const request = new Request('https://mel.test/api/chat', {
+    method:'POST', headers:{'content-type':'application/json'},
+    body:JSON.stringify({text:'Utilise la compétence echo avec une valeur vérifiable',
+      capability:{id:'echo', input:{value:'OUTIL_EXECUTE_SANS_MODELE'}},
+      conversation_id:'no-ai-capability'}),
+  });
+  const response=await handleNativeChat(request,{},{authorized:true});
+  const payload=await response.json();
+  assert.equal(response.status,200,JSON.stringify(payload));
+  assert.equal(payload.ok,true);
+  assert.equal(payload.response_mode,'capability-receipt');
+  assert.equal(payload.model,'deterministic-capability-receipt');
+  assert.equal(payload.tool_results[0].capability,'echo');
+  assert.equal(payload.tool_results[0].status,'SUCCEEDED');
+  assert.equal(payload.tool_results[0].result.value,'OUTIL_EXECUTE_SANS_MODELE');
+  assert.match(payload.text,/OUTIL_EXECUTE_SANS_MODELE/);
+});
+
+test('without AI a failed tool remains failed, and ordinary chat still requires inference', async () => {
+  const {handleNativeChat} = await import('../src/api/native-chat.js');
+  const send=async (body)=> {
+    const response=await handleNativeChat(new Request('https://mel.test/api/chat',{
+      method:'POST', headers:{'content-type':'application/json'},body:JSON.stringify(body),
+    }),{}, {authorized:true});
+    return {status:response.status,payload:await response.json()};
+  };
+  const invalid=await send({text:'Test de validation',capability:{id:'echo',input:{wrong:'bad'}}});
+  assert.equal(invalid.status,502);
+  assert.equal(invalid.payload.ok,false);
+  assert.equal(invalid.payload.response_mode,'capability-receipt');
+  assert.equal(invalid.payload.tool_results[0].status,'FAILED');
+  assert.equal(invalid.payload.capability_used.length,0);
+  assert.doesNotMatch(invalid.payload.text,/exécutée et vérifiée/);
+  const plain=await send({text:'Bonjour'});
+  assert.equal(plain.status,503);
+  assert.equal(plain.payload.code,'AI_BINDING_MISSING');
+  assert.equal(plain.payload.tool_results,undefined);
+});
+
+
+test('direct tool discovery never scans health of all unrelated connectors', async () => {
+  const calls=[];
+  const manifest=await buildRuntimeCapabilityManifest({bus:{
+    list(){calls.push('list');return [{id:'echo',enabled:true,health:'HEALTHY',risk:'LOW',permissions:[]}];},
+    refreshHealthAll(){calls.push('refresh-all');throw new Error('unrelated external health call');},
+  }});
+  assert.deepEqual(calls,['list']);
+  assert.equal(manifest[0].id,'echo');
+  assert.equal(manifest[0].tested_now,false);
 });

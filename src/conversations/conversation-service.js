@@ -142,6 +142,19 @@ export class ConversationService {
     return latest ? messages.reverse() : messages;
   }
 
+  async getArchivedTurn(conversationId, clientMessageId) {
+    const turnKey = String(clientMessageId || '').replace(/[^a-zA-Z0-9_.:-]/g, '').slice(0, 80);
+    if (!conversationId || !turnKey) return null;
+    await this.migrate();
+    const rows = await this.db.prepare(`SELECT * FROM archive_messages
+      WHERE conversation_id = ? AND id IN (?, ?)`)
+      .bind(conversationId, `user:${conversationId}:${turnKey}`.slice(0, 180), `assistant:${conversationId}:${turnKey}`.slice(0, 180)).all();
+    const messages = (rows.results || []).map(this._rowToMessage);
+    const user = messages.find(row => row.role === 'user');
+    const assistant = messages.find(row => row.role === 'assistant');
+    return user && assistant ? { user, assistant } : null;
+  }
+
   async registerDevice({ id, owner = "", name = "", kind = "unknown", metadata = {} }) {
     await this.migrate();
     const now = Date.now();

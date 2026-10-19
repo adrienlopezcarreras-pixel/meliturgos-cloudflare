@@ -101,3 +101,41 @@ test('a tool JSON glued to the answer is removed and a missed read is executed o
   const mutation = await executeLeakedReads({ bus, text: '{"tool":"evolution.enqueue","input":{"goal":"x"}}' });
   assert.equal(mutation.length, 0);
 });
+
+test('leaked read parsing preserves braces, escaped quotes and backslashes inside a query', async () => {
+  const input = { query: 'subject:{MEL "quoted" \\ path', limit: 5 };
+  const text = 'Lecture demandée.\n```json\n' + JSON.stringify({ tool: 'gmail.messages.search', input }) + '\n```\nRésultat attendu.';
+  const calls = [];
+  const rows = await executeLeakedReads({ bus: { async execute(id, value) { calls.push([id, value]); return { count: 0 }; } }, text });
+  assert.deepEqual(calls, [['gmail.messages.search', input]]);
+  assert.equal(rows.length, 1);
+  assert.equal(stripLeakedToolCalls(text), 'Lecture demandée.\n\nRésultat attendu.');
+});
+
+test('tool-shaped nested data never becomes a second read or survives removal of its outer call', async () => {
+  const calls = [];
+  const nested = { tool: 'calendar.events.read', input: {} };
+  const outer = JSON.stringify({ tool: 'gmail.messages.search', input: { query: 'x', metadata: nested } });
+  const bus = { async execute(id, input) { calls.push([id, input]); return { count: 0 }; } };
+  await executeLeakedReads({ bus, text: outer });
+  assert.deepEqual(calls, [['gmail.messages.search', { query: 'x', metadata: nested }]]);
+  assert.equal(stripLeakedToolCalls('Avant\n' + outer + '\nAprès'), 'Avant\n\nAprès');
+  calls.length = 0;
+  await executeLeakedReads({ bus, text: JSON.stringify({ data: nested }) });
+  assert.deepEqual(calls, []);
+});
+
+test('equivalent reordered tool inputs cannot execute the same action twice in the agent loop', async () => {
+  const calls = [];
+  const replies = [
+    '{"tool":"gmail.messages.search","input":{"query":"in:inbox","limit":5}}',
+    '{"tool":"gmail.messages.search","input":{"limit":5,"query":"in:inbox"}}',
+  ];
+  const localBus = {
+    list: () => [{ id: 'gmail.messages.search' }],
+    async execute(id, input) { calls.push([id, input]); return { count: 0 }; },
+  };
+  const rows = await runAgentToolLoop({ env: ai(replies), bus: localBus, text: 'teste Gmail' });
+  assert.equal(calls.length, 1);
+  assert.equal(rows.length, 1);
+});
