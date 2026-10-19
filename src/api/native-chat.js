@@ -29,7 +29,7 @@ import { buildConversationFocusInstruction, deriveConversationFocus } from './co
 import { loadConversationFocusState, saveConversationFocusState } from './conversation-focus-store.js';
 import { assessResponseQuality, enforceResponseQuality, persistResponseQualityEvent } from './response-quality-audit.js';
 import { inferKnowledgeCapability } from './knowledge-intent.js';
-import { streamChatResponse } from './chat-stream.js';
+import { plainChatMayStream, streamChatResponse } from './chat-stream.js';
 import { instrumentBus } from './chat-progress.js';
 import { runLocalPcModel } from '../models/local-pc-model.js';
 import { rankedStreamModels } from '../models/model-tournament.js';
@@ -40,7 +40,7 @@ import { privateConnectedDataRequest } from './connected-data-intent.js';
 import { createChatDeadline, hasChatBudget, raceChatDeadline, chatDeadlineError, COUNCIL_RECOVERY_MIN_REMAINING_MS, CONTINUATION_MIN_REMAINING_MS, FALLBACK_ATTEMPT_MIN_REMAINING_MS } from './chat-deadline.js';
 import { inferCurrentFactVerificationPolicy, hasAuthoritativeCurrentFactEvidence, currentFactReliabilityInstruction } from './current-fact-reliability.js';
 import { buildPresentationInstruction } from '../presentation/presentation-skill.js';
-import { parseAgentAction, responseIsBareToolCall, runAgentToolLoop } from './agent-tools.js';
+import { executeLeakedReads, parseAgentAction, responseIsBareToolCall, runAgentToolLoop, stripLeakedToolCalls, wantsAgentTools } from './agent-tools.js';
 
 // Beyond this length a chat message is treated as an instruction (see handleNativeChat).
 export const INSTRUCTION_PROMPT_CHARS = 280;
@@ -2052,8 +2052,17 @@ export async function handleNativeChat(request, env, options = {}) {
   // for one complete JSON reply (which made long answers hit the browser
   // timeout). Only for plain conversation: tool results, voice, Council
   // fan-out, LoRA and release smoke keep the full pipeline below.
-  if (body.stream === true && !voiceReply && !releaseSmoke && !parallel && !personalProfileIntent
-      && toolResults.length === 0 && activeAdapter == null && typeof env?.AI?.run === 'function') {
+  if (plainChatMayStream({
+    stream: body.stream === true,
+    voice: voiceReply,
+    releaseSmoke,
+    parallel,
+    personalProfile: personalProfileIntent,
+    toolCount: toolResults.length,
+    actionRequest: wantsAgentTools(activeTaskText),
+    adapter: activeAdapter,
+    ai: typeof env?.AI?.run === 'function',
+  })) {
     return streamChatResponse({
       env,
       messages,
@@ -2292,9 +2301,14 @@ export async function handleNativeChat(request, env, options = {}) {
   }
 
   const rawModelText = stripInternalCounters(ai.text);
-  const modelResponseText = responseIsBareToolCall(rawModelText)
+  if (runtime?.bus) {
+    const leaked = await executeLeakedReads({ bus: runtime.bus, text: rawModelText, already: toolResults, context: nativeCapabilityContext(env, request, options) });
+    for (const row of leaked) toolResults.push(row);
+  }
+  const visibleModelText = stripLeakedToolCalls(rawModelText);
+  const modelResponseText = !visibleModelText || responseIsBareToolCall(rawModelText)
     ? (connectorReadsFactualAnswer(toolResults) || 'Le JSON d’appel d’outil n’est pas une réponse. Aucun résultat d’outil de cette requête ne permet de le remplacer.')
-    : rawModelText;
+    : visibleModelText;
   const groundedResponseText = instructionPrompt && modelResponseText.trim()
     ? modelResponseText
     : communicationAuditObserved
