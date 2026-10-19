@@ -183,10 +183,11 @@ test('Companion uses docked, responsive shell and wrapped device cards', async (
  assert.doesNotMatch(source,/p\.Paint\+=delegate\(object sender,PaintEventArgs ev\)/);
 });
 
-test('Companion USB MINI preselects COM3 when present while retaining fallback', async () => {
+test('Companion USB MINI requires COM3 and runs GUI-confirmed readonly check', async () => {
  const source=await read('windows-companion/MEL-Companion.cs');
- assert.match(source,/Array\.IndexOf\(ports,"COM3"\)/);
- assert.match(source,/SelectedIndex=miniPortIndex>=0\?miniPortIndex:0/);
+ assert.match(source,/ports\.Contains\("COM3"\)/);
+ assert.match(source,/-Port COM3 -ConfirmedByCompanion/);
+ assert.match(source,/CreateNoWindow=true/);
 });
 
 test('MINI destructive installer stays single, verified and explicitly addressed', async () => {
