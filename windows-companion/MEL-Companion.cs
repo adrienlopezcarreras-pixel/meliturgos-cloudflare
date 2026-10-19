@@ -1928,6 +1928,25 @@ class MainForm : Form
                 object value;
                 if(!data.TryGetValue("port",out value)||Convert.ToString(value)!="COM3")continue;
                 if(!data.TryGetValue("success",out value)||!Object.Equals(value,true))continue;
+                // A manifest alone is not a backup: check the actual full image,
+                // its capacity and cryptographic digest before accepting evidence.
+                object pathValue, sizeValue, hashValue;
+                if(!data.TryGetValue("flash_file",out pathValue) ||
+                   !data.TryGetValue("capacity_bytes",out sizeValue) ||
+                   !data.TryGetValue("flash_sha256",out hashValue))continue;
+                var backupPath=Convert.ToString(pathValue);
+                var expectedHash=Convert.ToString(hashValue);
+                long expectedSize;
+                if(!Int64.TryParse(Convert.ToString(sizeValue),out expectedSize) ||
+                   expectedSize<8L*1024*1024 || expectedSize>32L*1024*1024 ||
+                   String.IsNullOrEmpty(backupPath) || !File.Exists(backupPath) ||
+                   new FileInfo(backupPath).Length!=expectedSize ||
+                   String.IsNullOrEmpty(expectedHash) || expectedHash.Length!=64)continue;
+                string actualHash;
+                using(var stream=File.OpenRead(backupPath))
+                using(var sha=SHA256.Create())
+                    actualHash=BitConverter.ToString(sha.ComputeHash(stream)).Replace("-","").ToLowerInvariant();
+                if(!String.Equals(actualHash,expectedHash,StringComparison.OrdinalIgnoreCase))continue;
                 foundBackup=true;
                 object restore,allowed;
                 bool both=data.TryGetValue("restore_proven",out restore)&&Object.Equals(restore,true)
