@@ -585,6 +585,25 @@ function summarizeToolResult(result) {
   } catch { return { error: 'TOOL_RESULT_SERIALIZATION_FAILED' }; }
 }
 
+function withOfficialVisual(responseText, userText, toolResults) {
+  const policy = inferCurrentFactVerificationPolicy(userText);
+  if (!policy?.strict) return responseText;
+  const asked = String(userText || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (!/\b(?:photo|image|portrait)\b/.test(asked.replace(/\bpapae\b/g, 'pape'))) return responseText;
+  const evidence = (toolResults || []).find(row => row?.capability === 'web.research' && row?.status === 'SUCCEEDED');
+  const sources = Array.isArray(evidence?.result?.sources) ? evidence.result.sources : [];
+  const image = sources.map(source => String(source?.image_url || '')).find(url => /^https:\/\//.test(url) && !/\.svg(?:$|\?)/i.test(url));
+  let text = String(responseText || '').trim();
+  if (/\b(?:need to invoke|we need to|invoke the|invoquer l['’ ]?outil|web\.research tool)\b/i.test(text)) {
+    const title = String(sources.find(source => source?.title)?.title || '').replace(/\s+/g, ' ').trim().slice(0, 180);
+    text = title
+      ? `D’après la source consultée : ${title}.`
+      : 'La source a été consultée, mais le modèle n’a pas donné le fait.';
+  }
+  if (image && !text.includes(image)) text = `${text}\n\n![Portrait](${image})`;
+  return text;
+}
+
 function responseAdmitsUncertainty(value) {
   return /\b(?:je\s+ne\s+sais\s+pas|je\s+n['’]?ai\s+pas\s+la\s+r[ée]ponse|je\s+ne\s+peux\s+pas\s+(?:r[ée]pondre|faire|ex[ée]cuter|lancer)|je\s+n['’]?arrive\s+pas\s+[àa]|impossible\s+pour\s+moi|aucun\s+chemin\s+d['’]?action|je\s+ne\s+sais\s+pas\s+comment)\b/i.test(String(value || ''));
 }
@@ -2523,7 +2542,7 @@ export async function handleNativeChat(request, env, options = {}) {
         focus:conversationFocus,
         assessment:effectiveQualityAssessment,
       });
-  const responseText = qualityGuardedResponseText;
+  const responseText = withOfficialVisual(qualityGuardedResponseText, activeTaskText, toolResults);
   const responseGuarded = responseText !== qualityCandidateText;
   const automaticCouncilXp = automaticCouncilAccepted
     ? await persistCouncilRecoveryXp(env, {

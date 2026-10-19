@@ -6,6 +6,8 @@ function normalized(value) {
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[’']/g, "'")
+    .replace(/\bpapae\b/g, 'pape')
+    .replace(/\bpappe\b/g, 'pape')
     .replace(/\s+/g, ' ')
     .trim();
 }
