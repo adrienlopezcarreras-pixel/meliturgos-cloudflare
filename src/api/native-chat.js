@@ -41,7 +41,7 @@ import { privateConnectedDataRequest } from './connected-data-intent.js';
 import { createChatDeadline, hasChatBudget, raceChatDeadline, chatDeadlineError, COUNCIL_RECOVERY_MIN_REMAINING_MS, CONTINUATION_MIN_REMAINING_MS, FALLBACK_ATTEMPT_MIN_REMAINING_MS } from './chat-deadline.js';
 import { inferCurrentFactVerificationPolicy, hasAuthoritativeCurrentFactEvidence, currentFactReliabilityInstruction } from './current-fact-reliability.js';
 import { buildPresentationInstruction } from '../presentation/presentation-skill.js';
-import { executeLeakedReads, missingCapabilityShouldBeLearned, parseAgentAction, responseIsBareToolCall, runAgentToolLoop, stripLeakedToolCalls, wantsAgentTools } from './agent-tools.js';
+import { executeLeakedReads, missingCapabilityShouldBeLearned, parseAgentAction, responseIsBareToolCall, runAgentToolLoop, stripLeakedToolCalls, toolFailureDetails, wantsAgentTools } from './agent-tools.js';
 
 // Beyond this length a chat message is treated as an instruction (see handleNativeChat).
 export const INSTRUCTION_PROMPT_CHARS = 280;
@@ -744,7 +744,8 @@ export function connectorReadsFactualAnswer(toolResults = []) {
   if (!rows.length) return '';
   const lines = rows.map(row => {
     const state = row.status === 'SUCCEEDED' ? 'exécuté' : 'échec';
-    const why = row.status === 'FAILED' ? ' — ' + String(row.error || 'erreur').slice(0, 120) : '';
+    const diagnostics = [row.error || 'erreur', row.native_code, row.fallback_code].filter(Boolean);
+    const why = row.status === 'FAILED' ? ' — ' + diagnostics.map(code => String(code).slice(0, 160)).join(' ; ') : '';
     return row.capability + ' : ' + state + why;
   });
   return 'Lectures connectées, sans recopier le contenu privé :\n' + lines.join('\n');
@@ -1410,6 +1411,24 @@ export async function handleNativeChat(request, env, options = {}) {
       ...input,
       metadata: { ...(input.metadata && typeof input.metadata === 'object' ? input.metadata : {}), client_message_id: clientMessageId },
     });
+    // Completed connected reads replay their durable answer. This uses the
+    // existing archive, without claiming at-most-once execution before commit.
+    const connected = body.capability?.id ? body.capability : inferConnectedDataCapability(text);
+    if (/^(?:gmail\.messages\.(?:search|read)|calendar\.events\.read|drive\.files\.(?:list|search))$/.test(String(connected?.id || ''))) {
+      let archivedTurn;
+      try { archivedTurn = await service.getArchivedTurn(conversationId, clientMessageId); }
+      catch { return Response.json({ ok:false, code:'CHAT_REPLAY_LOOKUP_FAILED' }, { status:503, headers:{ 'cache-control':'no-store' } }); }
+      if (archivedTurn) {
+        if (archivedTurn.user.content !== text) return Response.json({ ok:false, code:'CLIENT_MESSAGE_ID_CONFLICT' }, { status:409, headers:{ 'cache-control':'no-store' } });
+        return Response.json({
+          ok:true, text:archivedTurn.assistant.content,
+          model:archivedTurn.assistant.model || 'archived-connected-read', provider:'mel',
+          response_mode:'archived-connected-read', replayed:true, archive_saved:true,
+          capability_used:[], tool_results:[],
+          response_grounding:{ mode:'archived-connected-read', source:'archive_messages', original_timestamp:archivedTurn.assistant.timestamp },
+        }, { headers:{ 'cache-control':'no-store' } });
+      }
+    }
   }
 
   // General large-work path: archive a durable job and return before a
@@ -1687,7 +1706,7 @@ export async function handleNativeChat(request, env, options = {}) {
         capabilitiesUsed.push(step.id);
       } catch (error) {
         const code = error.code || error.message || 'CAPABILITY_FAILED';
-        toolResults.push({ capability: step.id, status: 'FAILED', error: code });
+        toolResults.push({ capability: step.id, status: 'FAILED', ...toolFailureDetails(error) });
         if (code === 'EXPLICIT_APPROVAL_REQUIRED' && !approvalRequired) {
           approvalRequired = {
             capability: String(step.id),
@@ -1704,7 +1723,7 @@ export async function handleNativeChat(request, env, options = {}) {
       capabilitiesUsed.push(capability.id);
     } catch (error) {
       const code = error.code || error.message || 'CAPABILITY_FAILED';
-      toolResults.push({ capability: capability.id, status: 'FAILED', error: code });
+      toolResults.push({ capability: capability.id, status: 'FAILED', ...toolFailureDetails(error) });
       if (code === 'EXPLICIT_APPROVAL_REQUIRED') {
         approvalRequired = {
           capability: String(capability.id),
