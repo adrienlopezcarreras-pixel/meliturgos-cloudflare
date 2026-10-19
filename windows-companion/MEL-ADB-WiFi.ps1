@@ -62,7 +62,14 @@ function Run-Adb([string[]]$arglist) {
     $errorText = ''
     if (Test-Path -LiteralPath $stderr) { $errorText = Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue }
     $flatError = [string]($errorText -replace '[\r\n]+',' ')
-    if ($process.ExitCode -ne 0) { throw ("ADB_COMMAND_FAILED exit={0} detail={1}" -f $process.ExitCode,$flatError.Substring(0,[Math]::Min(180,$flatError.Length))) }
+    $process.Refresh()
+    $exitCode = $process.ExitCode
+    if ($exitCode -ne 0) {
+      $detail = $flatError
+      if ([string]::IsNullOrWhiteSpace($detail)) { $detail = ($output -join ' ') }
+      if ([string]::IsNullOrWhiteSpace($detail)) { $detail = 'ADB_PROCESS_NONZERO_EXIT_WITHOUT_DIAGNOSTIC' }
+      throw ("ADB_COMMAND_FAILED exit={0} detail={1}" -f $exitCode,$detail.Substring(0,[Math]::Min(180,$detail.Length)))
+    }
     return $output
   } finally {
     if ($null -ne $process) { $process.Dispose() }
