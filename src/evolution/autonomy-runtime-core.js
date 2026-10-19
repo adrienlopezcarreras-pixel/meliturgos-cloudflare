@@ -12,6 +12,19 @@ import { runRuntimeWorkDagResumeProof } from './autonomy-proof.js';
 import { prepareApprovedImplementationProposal } from './autonomy-implementation-planner.js';
 import { prepareApprovedBridgePackage } from './autonomy-bridge-preparer.js';
 
+const USEFUL_AUTONOMY_EVENTS = new Set([
+  'JOB_COMPLETED',
+  'JOB_STATE_ADVANCED',
+  'IMPLEMENTATION_PREPARED',
+  'BRIDGE_PACKAGE_PREPARED',
+  'ROADMAP_COMPLETION_ADVANCED',
+  'COMPLETION_REJECTED_AND_DIAGNOSED',
+]);
+
+export function autonomyTickAdvanced(events) {
+  return (Array.isArray(events) ? events : []).some(event => USEFUL_AUTONOMY_EVENTS.has(event));
+}
+
 const INSPECTION_FILES = [
   'AUTONOMY_STATE.json',
   'TEACHER_BRIDGE.md',
@@ -644,7 +657,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         : waitingExternal
           ? (ensured?.external_progress?.status || 'WAITING_EXTERNAL_PROGRESS')
           : autonomyQueueReadBlocker(state);
-  const advanced = progressEvents.length > 0;
+  const advanced = autonomyTickAdvanced(progressEvents);
 
   return {
     ok: true,
