@@ -6,6 +6,7 @@ import {
   getRoadmapPayload,
   validateRoadmap,
 } from '../src/roadmap/master-roadmap.js';
+import { selectNextAutonomyItem } from '../src/evolution/autonomy-supervisor.js';
 
 function byId(id) {
   return flattenRoadmap().find(row => row.id === id);
@@ -79,6 +80,22 @@ test('canonical roadmap forbids bare DONE and requires exact production proof fo
   assert.equal(loraTrace.status, 'DONE_VERIFIED');
   assert.match(loraTrace.next, /37923410226|11615521167|verifyLoraDailyTrace|trace_verified=1/i);
 
-  const nonVerified = rows.filter(row => row.status !== 'DONE_VERIFIED');
-  assert.deepEqual(nonVerified.map(row => row.id), []);
+  const nonVerified = rows.filter(row => row.status !== 'DONE_VERIFIED').map(row => row.id).sort();
+  assert.deepEqual(nonVerified, [
+    'MEL-FOUNDER-01',
+    'MEL-FOUNDER-02',
+    'MEL-FOUNDER-03',
+    'MEL-FOUNDER-04',
+    'MEL-FOUNDER-05',
+    'MEL-FOUNDER-06',
+  ]);
+});
+
+test('MAX selects the open founder cycle instead of treating the historical registry as finished', () => {
+  const next = selectNextAutonomyItem();
+  assert.equal(next.id, 'MEL-FOUNDER-01');
+  assert.equal(next.status, 'IN_PROGRESS');
+  const decisionIds = ['MEL-FOUNDER-01','MEL-FOUNDER-02','MEL-FOUNDER-03','MEL-FOUNDER-04','MEL-FOUNDER-05'];
+  for (const id of decisionIds) assert.notEqual(byId(id).status, 'DONE_VERIFIED', id);
+  assert.equal(byId('MEL-FOUNDER-06').status, 'BLOCKED_HUMAN');
 });

@@ -55,7 +55,7 @@ test('roadmap.read returns the real truth next to the declared roadmap', async (
   await exec(d, 'code.read', 'SUCCEEDED', 60_000);
   const bus = createDefaultCapabilityBus({ env: { DB: d } });
   const payload = await bus.execute('roadmap.read', {}, { owner: 'test', permissions: [] });
-  assert.equal(payload.summary.percent_complete, 100, 'declared roadmap unchanged');
+  assert.equal(payload.summary.percent_complete, 96, 'historical proofs stay, the founder cycle stays open');
   assert.equal(payload.truth.available, true);
   assert.equal(payload.truth.items['MEL-CODE-01'].truth, 'VERIFIED_LIVE');
   d.close();
