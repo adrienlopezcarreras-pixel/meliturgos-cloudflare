@@ -90,6 +90,38 @@ test('predeploy proof executes real CHECK constraints and sanitizes SQL error me
   await rejectsSafely(snapshot, 'BACKUP_SQLITE_RESTORE_FAILED');
 });
 
+test('predeploy proof reports the failing stage and SQLite result code without names, SQL or values', async () => {
+  const diagnosticOf = async snapshot => {
+    let caught;
+    await assert.rejects(proveD1SnapshotRestore(snapshot), error => { caught = error; return true; });
+    assert.equal(caught.code, 'BACKUP_SQLITE_RESTORE_FAILED');
+    assert.equal(caught.message, 'BACKUP_SQLITE_RESTORE_FAILED');
+    assert.doesNotMatch(JSON.stringify(caught), /private-|SELECT|CREATE|INSERT|extra_data|constraint failed:/);
+    return caught.diagnostic;
+  };
+  const duplicate = await snapshotFixture();
+  const extra = table(duplicate, 'extra_data');
+  extra.rows.push({ ...extra.rows[0] });
+  extra.rowCount += 1;
+  assert.deepEqual(await diagnosticOf(duplicate), {
+    stage: 'insert',
+    table_index: duplicate.tables.indexOf(extra),
+    error_code: 'ERR_SQLITE_ERROR',
+    sqlite_errcode: 1555, // SQLITE_CONSTRAINT_PRIMARYKEY
+    sqlite_errstr: 'constraint failed',
+  });
+  const invalid = await snapshotFixture();
+  const broken = table(invalid, 'extra_data');
+  broken.schema = 'CREATE TABLE extra_data(id INTEGER PRIMARY KEY, value private-type(';
+  assert.deepEqual(await diagnosticOf(invalid), {
+    stage: 'schema',
+    table_index: invalid.tables.indexOf(broken),
+    error_code: 'ERR_SQLITE_ERROR',
+    sqlite_errcode: 1, // SQLITE_ERROR
+    sqlite_errstr: 'SQL logic error',
+  });
+});
+
 test('predeploy restores foreign keys without relying on table order and rejects broken references', async () => {
   const snapshot = await snapshotFixture();
   const jobs = table(snapshot, 'dev_jobs');
