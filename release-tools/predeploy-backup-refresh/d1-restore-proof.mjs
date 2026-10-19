@@ -6,6 +6,7 @@ import { exportD1 } from './d1-export.mjs';
 
 const quote = value => '"' + String(value).replaceAll('"', '""') + '"';
 const fail = code => { throw Object.assign(new Error(code), { code }); };
+const SAFE_CODE = /^[A-Z][A-Z0-9_]{1,63}$/;
 const digest = value => createHash('sha256').update(value).digest('hex');
 
 function exportDigest(value) {
@@ -28,6 +29,19 @@ function binding(value) {
   fail('BACKUP_SQLITE_VALUE_UNSUPPORTED');
 }
 
+// Only fixed vocabularies leave this module: never SQLite messages, SQL, names or values.
+function safeDiagnostic(error, stage, tableIndex) {
+  const prefix = /^([A-Z][A-Z0-9_]{1,63})(?::|$)/.exec(String(error?.message || ''))?.[1] || null;
+  return {
+    stage,
+    table_index: Number.isInteger(tableIndex) ? tableIndex : null,
+    error_code: SAFE_CODE.test(error?.code || '') ? error.code : prefix,
+    sqlite_errcode: Number.isInteger(error?.errcode) ? error.errcode : null,
+    // sqlite3_errstr() is the generic text for the result code, e.g. "constraint failed".
+    sqlite_errstr: /^[a-z ]{1,80}$/i.test(error?.errstr || '') ? error.errstr : null,
+  };
+}
+
 function exportRow(row) {
   return Object.fromEntries(Object.entries(row).map(([key, value]) => [
     key, value instanceof Uint8Array ? Array.from(value) : value,
@@ -41,16 +55,22 @@ export async function proveD1SnapshotRestore(database) {
   // This connection cannot access D1; schema is prepared as one CREATE TABLE
   // statement, so a second statement can never attach/read/write another file.
   const sqlite = new DatabaseSync(':memory:', { allowExtension: false });
+  let stage = 'begin';
+  let tableIndex = null;
   try {
     sqlite.exec('PRAGMA foreign_keys=OFF; BEGIN');
-    for (const table of database.tables) {
+    stage = 'schema';
+    for (const [index, table] of database.tables.entries()) {
+      tableIndex = index;
       if (!/^\s*CREATE\s+TABLE\b/i.test(table.schema || '')
           || !table.name || String(table.name).startsWith('sqlite_') || String(table.name).startsWith('_cf_')) {
         fail('BACKUP_SQLITE_SCHEMA_UNSUPPORTED');
       }
       sqlite.prepare(table.schema).run();
     }
-    for (const table of database.tables) {
+    stage = 'insert';
+    for (const [index, table] of database.tables.entries()) {
+      tableIndex = index;
       const info = sqlite.prepare(`PRAGMA table_xinfo(${quote(table.name)})`).all();
       if (!info.length) fail('BACKUP_SQLITE_TABLE_MISSING');
       const writable = info.filter(column => column.hidden === 0).map(column => column.name);
@@ -62,11 +82,16 @@ export async function proveD1SnapshotRestore(database) {
         statement.run(...writable.map(column => binding(row[column])));
       }
     }
+    tableIndex = null;
+    stage = 'commit';
     sqlite.exec('COMMIT; PRAGMA foreign_keys=ON');
+    stage = 'foreign_key_check';
     if (sqlite.prepare('PRAGMA foreign_key_check').all().length) fail('BACKUP_SQLITE_FOREIGN_KEY_MISMATCH');
+    stage = 'integrity_check';
     const integrity = sqlite.prepare('PRAGMA integrity_check').all();
     if (integrity.length !== 1 || Object.values(integrity[0])[0] !== 'ok') fail('BACKUP_SQLITE_INTEGRITY_FAILED');
 
+    stage = 'export';
     // Reuse the exact bounded exporter used for the production snapshot.
     const restored = await exportD1(null, async (_sidecar, path) => {
       if (path === '/d1/tables') return {
@@ -80,6 +105,7 @@ export async function proveD1SnapshotRestore(database) {
       const rows = sqlite.prepare(`SELECT * FROM ${quote(table)} LIMIT ? OFFSET ?`).all(limit, offset).map(exportRow);
       return { status: 'D1_ROWS_PAGE', table, offset, limit, rows, has_more: rows.length === limit };
     });
+    stage = 'compare';
     const patrimony = comparePatrimonyExports(database, restored);
     const sourceHash = exportDigest(database);
     const restoredHash = exportDigest(restored);
@@ -100,7 +126,7 @@ export async function proveD1SnapshotRestore(database) {
   } catch (error) {
     // SQLite errors can include schema identifiers or private row contents.
     const code = /^BACKUP_SQLITE_[A-Z_]+$/.test(error?.code || '') ? error.code : 'BACKUP_SQLITE_RESTORE_FAILED';
-    throw Object.assign(new Error(code), { code });
+    throw Object.assign(new Error(code), { code, diagnostic: safeDiagnostic(error, stage, tableIndex) });
   } finally {
     sqlite.close();
   }
