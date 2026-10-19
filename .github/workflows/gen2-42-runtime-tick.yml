@@ -95,7 +95,7 @@ jobs:
           printf '{"phase":"%s"}' "$PHASE" > tick-request.json
           ATTEMPT=1
           while true; do
-            CODE="$(curl -sS --max-time 180 \
+            CODE="$(curl -sS --max-time 300 \
               -o tick-response.raw.json \
               -w '%{http_code}' \
               -X POST "$BASE_URL/api/internal/release-launch-bootstrap" \
