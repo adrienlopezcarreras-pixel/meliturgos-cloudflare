@@ -17,7 +17,10 @@ export function melParseNdjsonLines(buffer) {
   return { events, rest };
 }
 
-async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 45000 } = {}) {
+// Le serveur peut travailler 90 s sans nouveau fragment si un appel de modèle
+// bloque les battements. Le silence autorisé reste sous le délai client de
+// 120 s, et au-dessus de ce budget, pour ne pas couper une réponse encore en cours.
+async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 105000 } = {}) {
   const startedAt = Date.now();
   const controller = new AbortController();
   let timer = setTimeout(() => controller.abort(), firstByteMs);
@@ -123,7 +126,7 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 45000 } = {
       }
     }
   } catch (error) {
-    failure = { code: error?.name === 'AbortError' ? 'Réponse interrompue (aucun texte reçu depuis 45 s)' : String(error?.message || error) };
+    failure = { code: error?.name === 'AbortError' ? 'Réponse interrompue (aucun texte reçu)' : String(error?.message || error) };
   } finally {
     clearTimeout(timer);
     if (bubble) bubble.classList.remove('streaming');

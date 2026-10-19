@@ -121,6 +121,8 @@ test('NDJSON client parser keeps incomplete trailing lines for the next chunk', 
 test('full mode page ships the streaming client and still parses', async () => {
   const html = await (await fullMode({ request: new Request('https://mel.example/full'), env: {} })).text();
   assert.match(html, /async function melChatFetch\(/);
+  assert.match(html, /idleMs = 105000/);
+  assert.doesNotMatch(html, /aucun texte reçu depuis 45/);
   assert.match(html, /await melChatFetch\(\{text,/);
   assert.match(html, /function melRenderTrace\(/);
   const main = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).find(src => src.includes('melChatFetch'));
