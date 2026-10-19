@@ -10,6 +10,8 @@ test('deterministic capability inspection understands natural French formulation
     'Quelles sont tes capacités réelles ?',
     'MEL, liste tes compétences actives',
     'Que sais-tu faire actuellement ?',
+    'Tu peux faire quoi ?',
+    'C’est quoi tes capacités ?',
     'Montre-moi les outils que tu peux vraiment utiliser',
   ];
   for (const text of shallow) {
@@ -100,4 +102,14 @@ test('global communication audit does not get trapped in the current conversatio
   assert.equal(body.capability?.id, 'conversation.audit');
   assert.equal(body.capability?.input?.allConversations, true);
   assert.equal(body.capability?.input?.conversationId, undefined);
+});
+
+test('an inventory answer lists registered capabilities and does not claim they ran', async () => {
+  const { formatRegisteredCapabilityInventory } = await import('../src/identity/mel-operating-manual.js');
+  const text = formatRegisteredCapabilityInventory([
+    { id: 'calendar.events.read', category: 'calendar', status: 'EXISTANT_NON_TESTE', health: 'DEGRADED', enabled: true },
+  ]);
+  assert.match(text, /Aucune n’a été exécutée/);
+  assert.match(text, /calendar\.events\.read\[NT,degraded\]/);
+  assert.equal(inferCapabilityInspectionIntent('Répare le bug du chat'), null);
 });

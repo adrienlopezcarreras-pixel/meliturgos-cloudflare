@@ -109,6 +109,14 @@ export async function handleRevenueApi(request, env, ctx = null) {
         return json({ok:true,cycleId:cycle.id,status:cycle.state,result:cycle.result?JSON.parse(cycle.result):null,updatedAt:cycle.updated_at});
       }catch{return json({ok:false,code:'WORK_CYCLE_READ_UNAVAILABLE'},503)}
     }
+    if(request.method==='GET'&&url.searchParams.has('latest')){
+      try{
+        await env.DB.prepare('CREATE TABLE IF NOT EXISTS mel_work_artifacts (id TEXT PRIMARY KEY, mission_id TEXT NOT NULL, content TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL)').run();
+        const artifact=await env.DB.prepare('SELECT id, mission_id, content, status, created_at FROM mel_work_artifacts ORDER BY created_at DESC LIMIT 1').first();
+        if(!artifact)return json({ok:true,artifact:null,paid:false,delivery:false});
+        return json({ok:true,artifact,paid:false,delivery:String(artifact.status||'').toUpperCase()==='SUBMITTED',note:'Fichier enregistré. Un brouillon n’est ni une remise ni un paiement.'});
+      }catch{return json({ok:false,code:'WORK_ARTIFACT_READ_UNAVAILABLE'},503)}
+    }
     if(request.method==='GET'&&url.searchParams.has('artifact_id')){
       const artifactId=url.searchParams.get('artifact_id')||'';
       if(!/^work-[a-f0-9]{64}$/.test(artifactId))return json({ok:false,code:'WORK_ARTIFACT_ID_INVALID'},400);
