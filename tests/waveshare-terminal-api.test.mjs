@@ -130,26 +130,22 @@ test('MINI prefers MEL Mobile and uses Wi-Fi only as transport fallback', async 
   assert.match(source,/if \(!g_wifi_connected\) return ESP_ERR_INVALID_STATE/);
 });
 
-test('MINI BLE transport keeps reconnect protections enabled', async () => {
-  const bridge = await readFile(
-    new URL('../firmware/waveshare-terminal/main/mel_mobile_bridge.cpp', import.meta.url),
-    'utf8'
+test('MINI BLE transport is the compiled Link V2 peripheral, not the old central', async () => {
+  const [cmake, shim, transport] = await Promise.all([
+    readFile(new URL('../firmware/waveshare-terminal/main/CMakeLists.txt', import.meta.url), 'utf8'),
+    readFile(new URL('../firmware/waveshare-terminal/main/mel_mobile_bridge_v2.cpp', import.meta.url), 'utf8'),
+    readFile(new URL('../firmware/waveshare-terminal/main/mel_link_v2_transport.cpp', import.meta.url), 'utf8'),
+  ]);
+  assert.match(cmake, /mel_mobile_bridge_v2\.cpp/);
+  assert.doesNotMatch(cmake, /mel_mobile_bridge\.cpp/);
+  assert.doesNotMatch(cmake, /nimble_peer\.c/);
+  assert.match(shim, /return mel_link_v2_transport_keepalive\(\)/);
+  assert.match(transport, /bool mel_link_v2_transport_keepalive\(void\)/);
+  assert.match(transport, /send_v2\(MEL_LINK_V2_PING/);
+  assert.match(transport, /g_active\.pong/);
+  await assert.rejects(
+    readFile(new URL('../firmware/waveshare-terminal/main/mel_mobile_bridge.cpp', import.meta.url), 'utf8')
   );
-  const header = await readFile(
-    new URL('../firmware/waveshare-terminal/main/mel_mobile_bridge.h', import.meta.url),
-    'utf8'
-  );
-  const main = await readFile(
-    new URL('../firmware/waveshare-terminal/main/main.cpp', import.meta.url),
-    'utf8'
-  );
-  assert.match(bridge,/xQueueCreate\(32, sizeof\(NotifyFrame\)\)/);
-  assert.match(bridge,/mel_mobile_bridge_keepalive\(void\)/);
-  assert.match(bridge,/BLE_GAP_INITIAL_CONN_LATENCY/);
-  assert.match(bridge,/BLE_GAP_INITIAL_SUPERVISION_TIMEOUT/);
-  assert.match(header,/bool mel_mobile_bridge_keepalive\(void\);/);
-  assert.match(main,/if \(keepalive_seconds >= 8\)/);
-  assert.match(main,/mel_mobile_bridge_keepalive\(\);/);
 });
 
 test('MINI firmware validates the WAV contract before writing to ES8311', async () => {
