@@ -2,6 +2,13 @@ export const CHAT_RICH_RENDERER_SOURCE = String.raw`
 (function(){
   const BT=String.fromCharCode(96),FENCE=BT.repeat(3);
   const SAFE_PROTOCOLS=new Set(['http:','https:']);
+  function imageSource(href){
+    const url=new URL(href,window.location.href);
+    if(url.origin===window.location.origin)return url.href;
+    const proxy=new URL('/api/media/web-image',window.location.origin);
+    proxy.searchParams.set('url',url.href);
+    return proxy.href;
+  }
 
   function safeUrl(raw){
     try{
@@ -32,7 +39,7 @@ export const CHAT_RICH_RENDERER_SOURCE = String.raw`
     box.className='mel-rich-media';
     if(kind==='image'){
       const img=document.createElement('img');
-      img.src=href;img.alt=String(alt||'');img.referrerPolicy='no-referrer';img.loading='lazy';
+      img.src=imageSource(href);img.alt=String(alt||'');img.referrerPolicy='no-referrer';img.loading='lazy';
       box.appendChild(img);
     }else if(kind==='audio'){
       const audio=document.createElement('audio');
@@ -82,7 +89,7 @@ export const CHAT_RICH_RENDERER_SOURCE = String.raw`
         const href=parts?safeUrl(parts[2]):null;
         if(href&&!/\.svg(?:$|\?)/i.test(href)){
           const img=document.createElement('img');
-          img.className='mel-rich-inline';img.src=href;img.alt=parts[1]||'';img.referrerPolicy='no-referrer';
+          img.className='mel-rich-inline';img.src=imageSource(href);img.alt=parts[1]||'';img.referrerPolicy='no-referrer';
           parent.appendChild(img);
         }else appendText(parent,raw);
       }else if(raw.startsWith('[')){
@@ -164,7 +171,7 @@ export const CHAT_RICH_RENDERER_SOURCE = String.raw`
           const box=document.createElement('figure');
           box.className='mel-rich-media';
           const img=document.createElement('img');
-          img.src=href;img.alt=imageLine[1]||'';img.referrerPolicy='no-referrer';img.loading='lazy';
+          img.src=imageSource(href);img.alt=imageLine[1]||'';img.referrerPolicy='no-referrer';img.loading='lazy';
           box.appendChild(img);
           root.appendChild(box);
           i++;continue;

@@ -1,4 +1,5 @@
 import InternetService from '../services/internet-service.js';
+import { researchWebImage } from '../media/web-image.js';
 
 export function registerWebResearchCapability(bus, env = {}) {
   bus.discover({
@@ -14,7 +15,8 @@ export function registerWebResearchCapability(bus, env = {}) {
         query: { type: 'string', minLength: 1, maxLength: 2000 },
         domains: { type: 'array', maxItems: 3, items: { type: 'string', minLength: 1, maxLength: 253 } },
         seed_urls: { type: 'array', maxItems: 6, items: { type: 'string', minLength: 8, maxLength: 500 } },
-        depth: { type: 'integer', minimum: 1, maximum: 3 }
+        depth: { type: 'integer', minimum: 1, maximum: 3 },
+        image_search: { type: 'boolean' }
       },
       required: ['query'],
       additionalProperties: false
@@ -27,6 +29,7 @@ export function registerWebResearchCapability(bus, env = {}) {
   }, async input => {
     const service = new InternetService(env);
     service.minInterval = Math.max(0, Math.min(5000, Number(env.MEL_WEB_MIN_INTERVAL_MS ?? 1000) || 0));
+    if (input.image_search === true) return researchWebImage(service, input.query);
     return service.research(
       input.query,
       input.domains || null,

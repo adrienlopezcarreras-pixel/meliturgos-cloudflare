@@ -1,5 +1,6 @@
 import { conversationRoutes } from "./api/routes/conversations.js";
 import { requireAuth, isReleaseSmokeRequest } from "./core/security.js";
+import { handleWebImage } from './api/web-image.js';
 import { approvedCapabilitiesFromRequest } from "./security/approval-gates.js";
 import { maybeHandleGoogleOAuthApi } from "./api/google-oauth-api.js";
 import { maybeHandleMailOAuthApi } from "./api/mail-oauth-api.js";
@@ -461,6 +462,7 @@ async function routeResolvedRequest(request, env, ctx) {
       });
     }
 
+    if (url.pathname === '/api/media/web-image') return handleWebImage(request, env);
     const shardVaultResponse = await handleShardVaultStatus(request, env);
     if (shardVaultResponse) return shardVaultResponse;
 
