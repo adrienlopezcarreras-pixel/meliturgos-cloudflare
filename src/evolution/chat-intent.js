@@ -57,6 +57,14 @@ export function inferCapabilityInspectionIntent(text) {
   return { id: 'capability.audit', input: { deep } };
 }
 
+export function inferSelfAuditIntent(text) {
+  const value = String(text || '').trim();
+  if (!/\bself[- ]?audit\b/i.test(value)) return null;
+  const launch = /\b(?:lance|lancer|d[ée]marre|d[ée]marrer|ex[ée]cute|ex[ée]cuter)\b/i.test(value);
+  if (!launch) return { id: 'self.audit.status', input: {} };
+  return { id: 'self.audit.run', input: { level: 'DAILY' } };
+}
+
 export function inferSelfStateIntent(text) {
   const value = String(text || '').trim();
   if (!value) return null;
@@ -216,7 +224,8 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
       : '';
 
     const autonomy = inferAutonomyControlIntent(text, contextualRoutingContext);
-    const capabilityInspection = autonomy ? null : inferCapabilityInspectionIntent(text);
+    const selfAudit = autonomy ? null : inferSelfAuditIntent(text);
+    const capabilityInspection = autonomy || selfAudit ? null : inferCapabilityInspectionIntent(text);
     const communicationAudit = autonomy || capabilityInspection ? null : inferCommunicationAuditIntent(text);
     const codeIntegrity = autonomy || capabilityInspection || communicationAudit ? null : inferCodeIntegrityIntent(text);
     const openWork = autonomy || capabilityInspection || communicationAudit || codeIntegrity ? null : inferOpenWorkIntent(text);
@@ -224,6 +233,7 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
     const webResearch = autonomy || capabilityInspection || communicationAudit || codeIntegrity || openWork || moduleProposal ? null : inferWebResearchIntent(text);
 
     if (autonomy) routeDeterministic(body, autonomy, 'AUTONOMY_CONTROL');
+    else if (selfAudit) routeDeterministic(body, selfAudit, 'SELF_AUDIT');
     else if (capabilityInspection) routeDeterministic(body, capabilityInspection, 'CAPABILITY_STATUS');
     else if (communicationAudit) {
       if (communicationAudit.input.allConversations !== true) {

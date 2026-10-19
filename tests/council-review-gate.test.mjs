@@ -9,6 +9,14 @@ test('council verdicts and majority rule', async () => {
   assert.equal(decide([A, A, R, N]), 'APPROVED');
   assert.equal(decide([A, R, R, A]), 'REJECTED');
   assert.equal(decide([A, N, N, N]), 'INSUFFICIENT_REVIEWERS');
+  assert.equal(decide([
+    { model: '@cf/openai/gpt-oss-120b', verdict: 'APPROVE' },
+    { model: '@cf/openai/gpt-oss-120b', verdict: 'APPROVE' },
+  ]), 'INSUFFICIENT_REVIEWERS');
+  assert.equal(decide([
+    { model: '@cf/openai/gpt-oss-120b', verdict: 'APPROVE' },
+    { model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', verdict: 'APPROVE' },
+  ]), 'APPROVED');
   const env = { AI: { async run(m) { return { response: m.includes('gemma') ? 'oops' : '{"verdict":"REJECT","blocking":["import inexistant"]}' }; } } };
   assert.equal((await runCouncilReview(env, { diff: '+x' })).decision, 'REJECTED');
   const wf = await readFile(new URL('../.github/workflows/mel-candidate-promotion.yml', import.meta.url), 'utf8');

@@ -35,7 +35,17 @@ export function parseVerdict(text) {
 }
 
 export function decide(reviews) {
-  const valid = reviews.filter(r => r.verdict);
+  const valid = [];
+  const seen = new Set();
+  for (const review of Array.isArray(reviews) ? reviews : []) {
+    if (!review?.verdict) continue;
+    const model = String(review.model || '').trim();
+    if (model) {
+      if (seen.has(model)) continue;
+      seen.add(model);
+    }
+    valid.push(review);
+  }
   const approvals = valid.filter(r => r.verdict === 'APPROVE').length;
   const rejections = valid.length - approvals;
   if (valid.length < 2) return 'INSUFFICIENT_REVIEWERS';

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { injectEvolutionPreflightCapability, inferCapabilityInspectionIntent, inferCommunicationAuditIntent, buildIntentRoutingContext } from '../src/evolution/chat-intent.js';
+import { injectEvolutionPreflightCapability, inferCapabilityInspectionIntent, inferCommunicationAuditIntent, inferSelfAuditIntent, buildIntentRoutingContext } from '../src/evolution/chat-intent.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import { createConversationService } from '../src/conversations/conversation-service.js';
 import { classifySemanticOwnerIntent } from '../src/evolution/semantic-intent.js';
@@ -100,4 +100,17 @@ test('global communication audit does not get trapped in the current conversatio
   assert.equal(body.capability?.id, 'conversation.audit');
   assert.equal(body.capability?.input?.allConversations, true);
   assert.equal(body.capability?.input?.conversationId, undefined);
+});
+
+test('an explicit self-audit is not sent to the capability inventory', async () => {
+  assert.deepEqual(inferSelfAuditIntent('où en est le self-audit'), { id: 'self.audit.status', input: {} });
+  const request = new Request('https://mel.example/api/chat', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'Lance le self-audit' }),
+  });
+  const body = await (await injectEvolutionPreflightCapability(request)).json();
+  assert.equal(body.capability?.id, 'self.audit.run');
+  assert.equal(body.capability?.input?.level, 'DAILY');
+  assert.equal(inferCapabilityInspectionIntent('Fais un audit complet de tes outils')?.id, 'capability.audit');
 });
