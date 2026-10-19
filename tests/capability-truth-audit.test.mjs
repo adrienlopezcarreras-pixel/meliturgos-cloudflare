@@ -382,7 +382,8 @@ test('deep audit fails closed on provider/cost-sensitive samples until exact zer
   assert.equal(webApproved.tested_now, true);
   assert.equal(webApproved.auto_execution_blocked, null);
   assert.equal(webApproved.truth_status, 'EXISTANT_ET_TESTE');
-  assert.deepEqual(calls, ['device.policy.preview', 'web.research', 'device.policy.preview']);
+  assert.deepEqual(calls, ['device.policy.preview', 'web.research'],
+    'second audit cannot execute device.policy.preview without its fixture');
 });
 
 test('declared STUB and NOT_IMPLEMENTED capabilities cannot masquerade as healthy or be smoke-executed', async () => {
