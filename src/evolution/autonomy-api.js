@@ -356,13 +356,13 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
     }
     let tick = null;
     if (enabled) {
-      tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState, roadmap });
+      tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState, roadmap, ownerLeaseWaitMs: 90_000 });
     }
     const state = await getAutonomyState(env, { repository: repo, autonomyControlState, roadmap });
     return Response.json({ ok: true, launch: prepared, control, tick, state }, { headers: { 'cache-control': 'no-store' } });
   }
 
-  const tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState, roadmap });
+  const tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState, roadmap, ownerLeaseWaitMs: 90_000 });
   const state = await getAutonomyState(env, { repository: repo, autonomyControlState, roadmap });
   return Response.json({ ok: true, tick, state }, { headers: { 'cache-control': 'no-store' } });
 }
