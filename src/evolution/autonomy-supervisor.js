@@ -12,6 +12,11 @@ export const MAX_AUTONOMOUS_ROADMAP_ATTEMPTS = 3;
 
 // Autonomy-first ordering: finish the ability to keep working before cosmetics or devices.
 const AUTONOMY_ORDER = [
+  'MEL-FOUNDER-01',
+  'MEL-FOUNDER-02',
+  'MEL-FOUNDER-03',
+  'MEL-FOUNDER-04',
+  'MEL-FOUNDER-05',
   'MEL-WORK-01',
   'MEL-WORK-02',
   'GEN2-17',

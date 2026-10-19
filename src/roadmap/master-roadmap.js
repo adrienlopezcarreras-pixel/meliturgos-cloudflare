@@ -7,7 +7,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-10-09.3';
+export const ROADMAP_REGISTRY_REVISION = '2026-10-19.1';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -206,7 +206,16 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-REL-01', 'Release figée sur commit exact', 'DONE_VERIFIED', 'Répéter pour chaque déploiement', 'P0'),
     item('MEL-REL-02', 'CI complet vert avant déploiement', 'DONE_VERIFIED', 'Conserver gate', 'P0'),
     item('MEL-REL-03', 'Smoke tests production après déploiement', 'DONE_VERIFIED', 'Release run 35693911802 vert sur SHA f5f294b1b4167fdbc88926d590f1dd808b73133e : readiness publique GO, code.read/code.search authentifiés via chat, self-check, mémoire ONLINE, Professor + runtime UI et HTTP production vérifiés.', 'P0')
-  ])
+  ]),
+
+  phase('P16', 'Cycle fondateur 2026-10-19 : reprendre, agir, se développer', [
+    item('MEL-FOUNDER-01', 'Exécuter les outils du chat au lieu d’afficher leur JSON', 'IN_PROGRESS', 'Prouver en production une lecture Gmail, une lecture Agenda et une lecture Drive, ou l’erreur d’authentification exacte de chacune. Aucun JSON d’appel ne doit rester la réponse. Aucune reprise ne doit dupliquer le message ni l’action.', 'P0'),
+    item('MEL-FOUNDER-02', 'Faire avancer MAX sur un travail persistant', 'IN_PROGRESS', 'Plusieurs ticks successifs doivent persister une progression réelle et libérer le lease. Un tick ignoré pour LEASE_BUSY n’est pas un progrès. Ne pas déclarer SUCCESS sans écriture durable.', 'P0'),
+    item('MEL-FOUNDER-03', 'Transformer une capacité absente en objectif de développement persistant', 'PLANNED', 'Une demande autorisée sans outil ne se termine pas par un refus. Elle crée un objectif evolution reprenable, testé, puis enregistré sur le bus unique. Pas de second moteur.', 'P0'),
+    item('MEL-FOUNDER-04', 'Council réel sur une décision de code', 'PLANNED', 'Au moins deux modèles distincts quand ils sont disponibles. Si un seul répond, le dire. Ne pas simuler un quorum. Avis persisté, lié au SHA, sans lever les garde-fous ni le coût zéro.', 'P1'),
+    item('MEL-FOUNDER-05', 'Un travail MEL WORK sans dépense, du besoin au livrable', 'PLANNED', 'Demande, exécution, artefact persisté et consultable. Un brouillon ou un enqueue n’est pas une livraison.', 'P1'),
+    item('MEL-FOUNDER-06', 'Valider Companion, APK et MINI sur les appareils réels', 'BLOCKED_HUMAN', 'Le propriétaire doit disposer d’un PC, d’un téléphone et d’un MINI matériellement sain. L’écran cassé et l’absence de son ne se corrigent pas dans le dépôt. Ne pas les marquer vérifiés.', 'P1')
+  ]),
 ]);
 
 export function flattenRoadmap() {
