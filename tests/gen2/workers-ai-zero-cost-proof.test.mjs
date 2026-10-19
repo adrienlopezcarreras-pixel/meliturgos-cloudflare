@@ -180,6 +180,13 @@ test('scheduled zero-cost proof refresh authenticates canonical D1 publication a
     'fresh evidence must reach the existing runtime without a second Worker deployment owner');
 });
 
+test('renewed evidence retains the models already authorized by the approved release', async () => {
+  const names = text => [...text.match(/models:\s*\[([\s\S]*?)\]/)[1].matchAll(/'(@cf\/[^']+)'/g)].map(row => row[1]).sort();
+  const release = await readFile(new URL('../../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const refresh = await readFile(new URL('../../.github/workflows/workers-ai-zero-cost-proof-refresh.yml', import.meta.url), 'utf8');
+  assert.deepEqual(names(refresh), names(release), 'renewal must not withdraw authorization from a live media or Council model');
+});
+
 test('zero-cost proofs refresh immediately after an approved release or workflow update as well as on the recurring schedule', async () => {
   const workflow = await readFile(new URL('../../.github/workflows/workers-ai-zero-cost-proof-refresh.yml', import.meta.url), 'utf8');
   assert.match(workflow, /push:\s*\n\s+branches: \[main\]/);
