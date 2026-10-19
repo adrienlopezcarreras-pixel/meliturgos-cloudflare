@@ -144,7 +144,10 @@ test('snapshot sanitization keeps distinct secret digests so a hashed primary ke
   });
   snapshot.tableCount += 1;
   // createVerifiedBackupService() sanitizes every export before the restore proof runs.
-  const sanitized = sanitize(snapshot);
+  const defaultSanitized = sanitize(snapshot);
+  assert.deepEqual(table(defaultSanitized, 'web_sessions').rows.map(row => row.token_hash),
+    ['[REDACTED]', '[REDACTED]']);
+  const sanitized = sanitize(snapshot, { preserveDigests: true });
   const sessions = table(sanitized, 'web_sessions');
   assert.deepEqual(sessions.rows.map(row => row.session_token), ['[REDACTED]', '[REDACTED]']);
   assert.notEqual(sessions.rows[0].token_hash, sessions.rows[1].token_hash);
