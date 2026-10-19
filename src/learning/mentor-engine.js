@@ -67,14 +67,75 @@ function safePath(path) {
   return value;
 }
 
+function escapeRawJsonStrings(text) {
+  let out = '';
+  let quote = false;
+  let escaped = false;
+  for (const char of text) {
+    if (!quote) {
+      out += char;
+      if (char === '"') quote = true;
+      continue;
+    }
+    if (escaped) {
+      out += char;
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      out += char;
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      out += char;
+      quote = false;
+      continue;
+    }
+    if (char === '\n') { out += '\\n'; continue; }
+    if (char === '\r') { out += '\\r'; continue; }
+    if (char === '\t') { out += '\\t'; continue; }
+    out += char;
+  }
+  return out;
+}
+
+function incompleteFile(content) {
+  return /(?:\/\/|\*|\#)\s*\.\.\.\s*(?:existing|reste|rest of|inchangé|unchanged)/i.test(content)
+    || /\[(?:truncated|contenu omis|à compléter)\]/i.test(content)
+    || /^diff --git /m.test(content);
+}
+
+function proposalFromMarkedFiles(raw) {
+  const text = String(raw || '');
+  if (!text.includes('<<<MEL_FILE')) return null;
+  const changes = [];
+  const pattern = /(?:^|\n)FILE[ \t]+(\S+)[ \t]*\n<<<MEL_FILE\n([\s\S]*?)\nMEL_FILE(?=\n|$)/g;
+  let match;
+  while ((match = pattern.exec(text))) {
+    changes.push({ path: match[1], content: match[2], reason: 'Fichier complet délimité' });
+  }
+  if (!changes.length) return null;
+  const summary = (text.match(/(?:^|\n)SUMMARY[ \t]+(.+)/) || [])[1] || 'Proposition de développement MEL';
+  const tests = [...text.matchAll(/(?:^|\n)TESTS[ \t]+(.+)/g)].flatMap((row) => row[1].split(/[,\s]+/));
+  return { summary, changes, tests, confidence: 0.5, lessons: [], risks: [] };
+}
+
 function parseJsonCandidate(raw) {
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  const marked = proposalFromMarkedFiles(raw);
+  if (marked) return marked;
   let text = String(raw || '').trim();
   text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
   const first = text.indexOf('{');
   const last = text.lastIndexOf('}');
   if (first < 0 || last <= first) throw Object.assign(new Error('MENTOR_JSON_REQUIRED'), { code: 'MENTOR_JSON_REQUIRED' });
-  return JSON.parse(text.slice(first, last + 1));
+  const slice = text.slice(first, last + 1);
+  try {
+    return JSON.parse(slice);
+  } catch {
+    return JSON.parse(escapeRawJsonStrings(slice));
+  }
 }
 
 function normalizeInspectedFiles(files = []) {
@@ -93,7 +154,9 @@ function normalizeInspectedFiles(files = []) {
 
 function normalizeProposal(value, provenance = {}) {
   const parsed = parseJsonCandidate(value);
-  const rawChanges = Array.isArray(parsed.changes) ? parsed.changes : [];
+  const rawChanges = Array.isArray(parsed.changes)
+    ? parsed.changes
+    : (parsed.path && parsed.content != null ? [parsed] : []);
   if (!rawChanges.length) throw Object.assign(new Error('MENTOR_CHANGES_REQUIRED'), { code: 'MENTOR_CHANGES_REQUIRED' });
   const seen = new Set();
   const changes = [];
@@ -101,7 +164,7 @@ function normalizeProposal(value, provenance = {}) {
     const path = safePath(raw?.path);
     if (seen.has(path)) continue;
     const content = String(raw?.content ?? '');
-    if (!content || content.length > MAX_CHANGE_CHARS) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
+    if (!content || content.length > MAX_CHANGE_CHARS || incompleteFile(content)) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
     seen.add(path);
     changes.push({ path, content, reason: bounded(raw?.reason || '', 1200) });
   }
@@ -133,7 +196,13 @@ function buildRepairPrompt({ goal, files, raw, failure, mode }) {
   return [
     'Tu répares UNE réponse de code Mentor MELITURGOS qui a échoué à la validation structurée.',
     `MODE: ${mode === 'repair' ? 'RÉPARATION APRÈS TEST' : 'IMPLÉMENTATION'}.`,
-    'Réponds UNIQUEMENT avec un objet JSON valide, sans markdown ni commentaire.',
+    'Si le fichier est long, n’utilise pas JSON. Réponds avec ce bloc, une fois par fichier:',
+    'SUMMARY une phrase',
+    'TESTS test:smoke',
+    'FILE src/exemple.js',
+    '<<<MEL_FILE',
+    'contenu complet du fichier',
+    'MEL_FILE',
     'Structure obligatoire:',
     '{"summary":"...","changes":[{"path":"src/...","content":"CONTENU COMPLET DU FICHIER","reason":"..."}],"tests":["test:smoke"],"confidence":0.0,"lessons":["..."],"risks":["..."]}',
     'changes doit contenir au moins un fichier texte sûr déjà inspecté ou un fichier nouveau strictement nécessaire dans les chemins autorisés.',
@@ -155,9 +224,15 @@ function buildPrompt({ role, goal, files, lessons, experiences, previousAttempts
     'Tu es un membre du Mentor Council de MELITURGOS chargé de produire du code réellement applicable.',
     `RÔLE INDÉPENDANT: ${role}.`,
     `MODE: ${mode === 'repair' ? 'RÉPARATION APRÈS TEST' : 'IMPLÉMENTATION'}.`,
-    'Règle absolue: réponds UNIQUEMENT avec un objet JSON valide, sans markdown.',
-    'Le JSON doit avoir exactement cette structure générale:',
-    '{"summary":"...","changes":[{"path":"src/...","content":"CONTENU COMPLET DU FICHIER","reason":"..."}],"tests":["test:smoke"],"confidence":0.0,"lessons":["..."],"risks":["..."]}',
+    'Règle absolue: un objet JSON valide, ou un fichier complet délimité. Pas de prose autour.',
+    'JSON: {"summary":"...","changes":[{"path":"src/...","content":"CONTENU COMPLET DU FICHIER","reason":"..."}],"tests":["test:smoke"],"confidence":0.0,"lessons":["..."],"risks":["..."]}',
+    'Si le fichier est long, utilise plutôt:',
+    'SUMMARY une phrase',
+    'TESTS test:smoke',
+    'FILE src/exemple.js',
+    '<<<MEL_FILE',
+    'contenu complet du fichier',
+    'MEL_FILE',
     'Chaque change.content doit contenir le FICHIER COMPLET final, jamais un diff, jamais des points de suspension.',
     'Ne modifie pas de secrets, .env, credentials, node_modules, .git ou fichiers privés.',
     'Ne prétends pas qu’un test est passé: tu proposes seulement les tests à exécuter.',

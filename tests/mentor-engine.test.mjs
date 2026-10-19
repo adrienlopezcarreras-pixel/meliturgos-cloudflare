@@ -212,6 +212,44 @@ test('mentor still refuses writing to inspection-only repository paths', async (
 });
 
 
+test('mentor accepts a complete delimited file when JSON would break', async () => {
+  const engine = new MentorEngine({
+    providerFactory: async () => [provider('coder-delimited', `SUMMARY Ajoute le client\nTESTS test:smoke\nFILE src/tools/google-client.js\n<<<MEL_FILE\nexport function search() {\n  return [];\n}\nMEL_FILE`)],
+  });
+  const result = await engine.propose({
+    env: {},
+    goal: 'Écrire le client Google',
+    inspectedFiles: [{ path: 'src/tools/google-client.js', content: 'export function search() { return null; }\n' }],
+  });
+  assert.equal(result.proposal.changes[0].path, 'src/tools/google-client.js');
+  assert.match(result.proposal.changes[0].content, /return \[\]/);
+});
+
+test('mentor accepts JSON whose file content contains raw newlines', async () => {
+  const raw = '{"summary":"Corrige le client","changes":[{"path":"src/tools/google-client.js","content":"export function search() {\n  return [];\n}\n","reason":"lecture"}],"tests":["test:smoke"]}';
+  const engine = new MentorEngine({ providerFactory: async () => [provider('coder-newlines', raw)] });
+  const result = await engine.propose({
+    env: {},
+    goal: 'Écrire le client Google',
+    inspectedFiles: [{ path: 'src/tools/google-client.js', content: 'export function search() { return null; }\n' }],
+  });
+  assert.match(result.proposal.changes[0].content, /return \[\]/);
+});
+
+test('mentor refuses a delimited placeholder instead of a complete file', async () => {
+  const engine = new MentorEngine({
+    providerFactory: async () => [provider('coder-placeholder', 'FILE src/example.js\n<<<MEL_FILE\nexport const ready = true;\n// ... existing code\nMEL_FILE')],
+  });
+  await assert.rejects(
+    () => engine.propose({
+      env: {},
+      goal: 'Ne pas accepter un fichier tronqué',
+      inspectedFiles: [{ path: 'src/example.js', content: 'export const ready = false;\n' }],
+    }),
+    error => error.code === 'MENTOR_NO_VALID_CODE_PROPOSAL' && error.failures.some(row => row.error === 'MENTOR_INVALID_CHANGE'),
+  );
+});
+
 test('mentor failure diagnostics classify malformed JSON without exposing model output', async () => {
   const engine = new MentorEngine({
     providerFactory: async () => [sequenceProvider('bad-json', ['not json', 'still not json'], [])],
