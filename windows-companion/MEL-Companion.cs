@@ -52,6 +52,8 @@ static class MelApp
     public static DateTime LastEngineRefreshUtc = DateTime.MinValue;
     public static string LastEngineRefreshStatus = "NOT_RUN";
     public static string LastEngineRefreshError = "";
+    public static string LastEngineStartError = "";
+    public static bool LastHeartbeatServerOk;
     public static NotifyIcon Tray;
     public static HotKeyWindow HotKey;
     public const string HotKeyLabel = "Ctrl+Alt+M";
@@ -561,6 +563,11 @@ static class MelApp
         try
         {
             if (CompanionProcess != null && !CompanionProcess.HasExited) return;
+            if (!File.Exists(CompanionPath))
+            {
+                LogEngineStart(new FileNotFoundException("MEL_ENGINE_SCRIPT_MISSING", CompanionPath));
+                return;
+            }
             var psi = new ProcessStartInfo("powershell.exe");
             psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + CompanionPath + "\" -Run";
             psi.UseShellExecute = false;
@@ -569,6 +576,24 @@ static class MelApp
             psi.EnvironmentVariables["MEL_COMPANION_HEADLESS"] = "1";
             psi.EnvironmentVariables["MEL_COMPANION_PARENT_PID"] = Process.GetCurrentProcess().Id.ToString();
             CompanionProcess = Process.Start(psi);
+            if (CompanionProcess == null)
+            {
+                LogEngineStart(new InvalidOperationException("MEL_ENGINE_PROCESS_MISSING"));
+                return;
+            }
+            LastEngineStartError = "";
+        }
+        catch (Exception ex) { LogEngineStart(ex); }
+    }
+
+    static void LogEngineStart(Exception ex)
+    {
+        LastEngineStartError = ex == null ? "MOTEUR_NON_DEMARRE" : ex.GetType().Name;
+        try
+        {
+            Directory.CreateDirectory(MelDir);
+            File.AppendAllText(Path.Combine(MelDir, "companion-startup.log"),
+                DateTime.UtcNow.ToString("o") + " [engine] " + (ex == null ? "MEL_ENGINE_PROCESS_MISSING" : ex.ToString()) + Environment.NewLine);
         }
         catch { }
     }
@@ -789,6 +814,7 @@ static class MelApp
             var o = Obj(Http(Server + "/api/computer/v1/heartbeat", "POST", body, DeviceHeaders()));
             object ok;
             var serverOk = o.TryGetValue("ok", out ok) && Convert.ToBoolean(ok);
+            LastHeartbeatServerOk = serverOk;
             object updateRequired;
             if (o.TryGetValue("engine_update_required", out updateRequired) && updateRequired != null && Convert.ToBoolean(updateRequired))
                 MaybeRefreshCompanionEngine(true);
@@ -797,7 +823,7 @@ static class MelApp
                 return serverOk && Convert.ToBoolean(engineOnline);
             return serverOk && CompanionRunning();
         }
-        catch { return false; }
+        catch { LastHeartbeatServerOk = false; return false; }
     }
 
     // Authenticated, passive cross-device activity view. This is NOT an
@@ -2066,14 +2092,18 @@ class MainForm : Form
         try{
             MelApp.EnsureCompanion();
             var online=MelApp.Heartbeat();
+            var engineUp=MelApp.CompanionRunning();
             var pcAccess=MelApp.ConfigBool("remote_access_enabled");
             var computeAllowed=MelApp.ConfigBool("local_compute_enabled");
             var computeProfile=MelApp.ConfigString("local_compute_profile");
-            connection.Text=online?"Connecté à MEL":"Serveur indisponible — reconnexion automatique";
+            var connectionText=online?"Connecté à MEL"
+                :!engineUp?"Moteur local arrêté"+(MelApp.LastEngineStartError.Length==0?"":" · "+MelApp.LastEngineStartError)
+                :"Serveur indisponible — reconnexion automatique";
+            connection.Text=connectionText;
             localAccessStatus.Text="Accès PC : "+(pcAccess?"autorisé":"désactivé")
                 +"  |  Calcul local : "+(computeAllowed?(String.IsNullOrWhiteSpace(computeProfile)?"activé":computeProfile):"désactivé");
             connection.ForeColor=online?Color.FromArgb(25,125,85):gray;
-            if(MelApp.Tray!=null)MelApp.Tray.Text=online?"MEL Companion — connecté":"MEL Companion — reconnexion";
+            if(MelApp.Tray!=null)MelApp.Tray.Text=online?"MEL Companion — connecté":engineUp?"MEL Companion — reconnexion":"MEL Companion — moteur arrêté";
             var adbReport = Path.Combine(MelApp.MelDir, "android-adb-wifi.json");
             adbWifiStatus.Text = "ADB Wi-Fi : en attente du premier diagnostic";
             if (File.Exists(adbReport))
