@@ -1,0 +1,28 @@
+{
+  "kind": "MEL_RUNTIME_REQUEST",
+  "schema_version": 2,
+  "request_id": "efeed983-6302-449d-b511-a4a4c2e73a35",
+  "job_id": "mel-autonomy-gen2-63-1",
+  "roadmap_id": "GEN2-63",
+  "priority": "P1",
+  "created_at": "2026-10-19T20:49:50.862Z",
+  "stage": "TEACHER_REVIEW_REQUIRED",
+  "candidate": {
+    "repository": "adrienlopezcarreras-pixel/meliturgos-cloudflare",
+    "branch": "candidate/mel-clean-autonomy",
+    "sha": "0ed146c42c05ecd85b48d923429c767ae452175d"
+  },
+  "tests": [],
+  "provenance": {
+    "roadmap_id": "GEN2-63",
+    "source": "MEL_RUNTIME_CRON",
+    "generated_by": null
+  },
+  "handoff": null,
+  "constraints": {
+    "candidate_only": true,
+    "zero_added_cost": true,
+    "production_deploy_allowed": false,
+    "no_destructive_d1": true
+  }
+}
