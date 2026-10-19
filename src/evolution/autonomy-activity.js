@@ -11,6 +11,47 @@ import { D1EvolutionLedger } from './evolution-ledger.js';
 import { getAutonomyControl } from './autonomy-control.js';
 import { readAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
 
+
+export const ACTIVITY_LIST_EPOCH_ID = 'activity-list-epoch';
+
+export async function readActivityListEpoch(db) {
+  if (!db?.prepare) return 0;
+  try {
+    const row = await db.prepare('SELECT last_seen FROM dev_bridge_state WHERE bridge_id=? LIMIT 1')
+      .bind(ACTIVITY_LIST_EPOCH_ID).first();
+    const epoch = Number(row?.last_seen || 0);
+    return Number.isFinite(epoch) && epoch > 0 ? epoch : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Hide the activity list before this instant. Active supervised jobs are
+ * cancelled so they cannot keep the queue. Rows stay in D1. */
+export async function resetAutonomyActivityList(db, { now = Date.now() } = {}) {
+  if (!db?.prepare) throw Object.assign(new Error('DB_BINDING_MISSING'), { code: 'DB_BINDING_MISSING' });
+  const cancel = await db.prepare(`UPDATE dev_jobs SET status='CANCELLED', updated_at=?, error='ACTIVITY_LIST_RESET'
+    WHERE status NOT IN ('COMPLETED','COMMITTED','CANCELLED','FAILED')
+    AND (requested_by='mel-autonomy' OR requested_by LIKE 'owner-chat%')`).bind(now).run();
+  await db.prepare(`INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json)
+    VALUES(?,?,?,?)
+    ON CONFLICT(bridge_id) DO UPDATE SET last_seen=excluded.last_seen, status=excluded.status, metadata_json=excluded.metadata_json`)
+    .bind(ACTIVITY_LIST_EPOCH_ID, now, 'RESET', JSON.stringify({ reason: 'owner-activity-list-reset', at: new Date(now).toISOString() }))
+    .run();
+  return {
+    ok: true,
+    epoch: now,
+    cancelled_active: Number(cancel?.meta?.changes || 0),
+    policy: 'hide-before-epoch-do-not-delete',
+  };
+}
+
+function atOrAfter(value, epoch) {
+  if (!epoch) return true;
+  const n = typeof value === 'number' ? value : Date.parse(String(value || ''));
+  return Number.isFinite(n) && n >= epoch;
+}
+
 const STATUS_TEXT = Object.freeze({
   QUEUED: 'En file : attend que le cycle minute le choisisse.',
   PLANNING: 'Plan en cours d’écriture par le conseil de modèles.',
@@ -156,9 +197,10 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
     rows(db, 'SELECT id,state,result,updated_at FROM mel_work_cycles ORDER BY updated_at DESC LIMIT 6'),
     db.prepare("SELECT last_seen,status FROM dev_bridge_state WHERE bridge_id='primary' LIMIT 1").first().catch(() => null),
   ]);
+  const epoch = await readActivityListEpoch(db);
   const supervised = (Array.isArray(allJobs) ? allJobs : []).filter(job => {
     const by = String(job?.requested_by || '').toLowerCase();
-    return by === 'mel-autonomy' || by.startsWith('owner-chat');
+    return (by === 'mel-autonomy' || by.startsWith('owner-chat')) && atOrAfter(job?.created_at, epoch);
   }).sort((a, b) => Number(b?.updated_at || 0) - Number(a?.updated_at || 0));
   const byStatus = {};
   for (const job of supervised) {
@@ -190,13 +232,14 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
       by_status: byStatus,
     },
     jobs,
-    timeline: foldLedger(recentLedger, 40),
-    cloud_bridge_dispatches: dispatches.map(row => ({ job_id: String(row.bridge_id).slice('cloud-bridge-dispatch:'.length), status: row.status, at: num(row.last_seen), relay_job_id: obj(row.metadata_json).relay_job_id || null })),
-    workflow_dispatches: relay.map(row => {
+    timeline: foldLedger(recentLedger.filter(event => atOrAfter(event?.occurred_at, epoch)), 40),
+    activity_list_epoch: epoch || null,
+    cloud_bridge_dispatches: dispatches.filter(row => atOrAfter(row.last_seen, epoch)).map(row => ({ job_id: String(row.bridge_id).slice('cloud-bridge-dispatch:'.length), status: row.status, at: num(row.last_seen), relay_job_id: obj(row.metadata_json).relay_job_id || null })),
+    workflow_dispatches: relay.filter(row => atOrAfter(row.created_at, epoch)).map(row => {
       const result = obj(row.result_json);
       return { id: row.id, workflow: row.workflow, status: row.status, created_at: num(row.created_at), run_id: num(result.relay_run_id), error: clip(row.error, 200) };
     }),
-    work_cycles: workCycles.map(row => {
+    work_cycles: workCycles.filter(row => atOrAfter(row.updated_at, epoch)).map(row => {
       const result = obj(row.result);
       return { at: row.updated_at, state: row.state, status: result.status || row.state, mission: clip(result.mission?.title || result.mission_title || result.task_id, 140), submission: result.submission || null };
     }),

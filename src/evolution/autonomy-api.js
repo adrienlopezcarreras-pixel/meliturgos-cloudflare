@@ -14,7 +14,7 @@ import { SovereigntyCandidateStore } from '../portability/sovereignty-candidate-
 import { parseHttpChatProviderDescriptors } from '../augmentio/http-chat-adapter.js';
 import { evaluateCandidateReadiness, readinessRequirementsForDescriptor } from '../portability/sovereignty-candidate-readiness.js';
 import { localSovereigntyProfile } from '../portability/local-sovereignty-profile.js';
-import { buildAutonomyActivity } from './autonomy-activity.js';
+import { buildAutonomyActivity, resetAutonomyActivityList } from './autonomy-activity.js';
 import { readAutonomyProgressWatchdog, resetAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
 
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
@@ -127,7 +127,8 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
   const isLaunchPrepare = url.pathname === '/api/gen2/autonomy/launch-prepare';
   const isSovereignty = url.pathname === '/api/gen2/autonomy/sovereignty';
   const isActivity = url.pathname === '/api/gen2/autonomy/activity';
-  if (!isPublicControl && !isState && !isActivity && !isTick && !isPause && !isResume && !isMax && !isLaunchReadiness && !isLaunchPrepare && !isSovereignty) return null;
+  const isActivityReset = url.pathname === '/api/gen2/autonomy/activity/reset';
+  if (!isPublicControl && !isState && !isActivity && !isActivityReset && !isTick && !isPause && !isResume && !isMax && !isLaunchReadiness && !isLaunchPrepare && !isSovereignty) return null;
 
   if (isPublicControl) {
     if (request.method !== 'GET') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'GET' } });
@@ -153,6 +154,12 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
   if (isActivity) {
     if (request.method !== 'GET') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'GET' } });
     return Response.json(await buildAutonomyActivity(env, { repository }), { headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (isActivityReset) {
+    if (request.method !== 'POST') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'POST' } });
+    const reset = await resetAutonomyActivityList(env.DB);
+    return Response.json({ ok: true, reset, activity: await buildAutonomyActivity(env, { repository }) }, { headers: { 'cache-control': 'no-store' } });
   }
 
   if (isSovereignty) {
