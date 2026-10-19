@@ -364,6 +364,7 @@ test('Pipedream Connect credentials are encrypted at rest and status never retur
   assert.equal(state.project_id, 'proj_demo123');
   assert.deepEqual(state.supported_apps.sort(), [
     'dropbox',
+    'gmail',
     'google_calendar',
     'google_drive',
     'google_tasks',

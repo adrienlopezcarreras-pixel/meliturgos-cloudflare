@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { missingCapabilityShouldBeLearned, runAgentToolLoop, parseAgentAction, responseIsBareToolCall, AGENT_MAX_STEPS } from '../src/api/agent-tools.js';
+import { missingCapabilityShouldBeLearned, runAgentToolLoop, parseAgentAction, responseIsBareToolCall, stripLeakedToolCalls, executeLeakedReads, AGENT_MAX_STEPS } from '../src/api/agent-tools.js';
 
 const bus = (calls) => ({
   list: () => ['capability.audit', 'evolution.enqueue', 'autonomy.status'].map(id => ({ id, description: id, input_schema: { type: 'object' } })),
@@ -83,4 +83,21 @@ test('a missing tool is learned; an auth failure or a success is not', () => {
     { capability: 'evolution.enqueue', status: 'SUCCEEDED' },
     { capability: 'payments.send', status: 'FAILED', error: 'CAPABILITY_NOT_FOUND' },
   ]), false);
+});
+
+test('a tool JSON glued to the answer is removed and a missed read is executed once', async () => {
+  const calls = [];
+  const bus = {
+    async execute(id, input) { calls.push([id, input]); return { count: 5 }; },
+  };
+  const text = 'Je lance la lecture.\n{"tool":"gmail.messages.search","arguments":{"query":"in:inbox","maxResults":5}}';
+  assert.equal(stripLeakedToolCalls(text), 'Je lance la lecture.');
+  const rows = await executeLeakedReads({ bus, text, already: [] });
+  assert.deepEqual(calls, [['gmail.messages.search', { query: 'in:inbox', maxResults: 5 }]]);
+  assert.equal(rows[0].status, 'SUCCEEDED');
+  const again = await executeLeakedReads({ bus, text, already: rows });
+  assert.equal(again.length, 0);
+  assert.equal(calls.length, 1);
+  const mutation = await executeLeakedReads({ bus, text: '{"tool":"evolution.enqueue","input":{"goal":"x"}}' });
+  assert.equal(mutation.length, 0);
 });

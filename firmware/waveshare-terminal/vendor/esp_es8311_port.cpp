@@ -5,12 +5,21 @@
 #include "esp_codec_dev_defaults.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #define I2S_MCK_PIN 12
 #define I2S_BCK_PIN 13
 #define I2S_LRCK_PIN 15
 #define I2S_DOUT_PIN 16
 #define I2S_DIN_PIN 14
+
+// Playback, the mic loopback and Link V2 TTS are all 48 kHz mono PCM16.
+// The I2S bus must be created at that same rate. Waveshare's factory player
+// and the working ESP32-S3-Touch-LCD-3.5 port both open the ES8311 at the
+// rate the bus was created with. Starting the bus at 16 kHz and then opening
+// the codec at 48 kHz left the clocks disagreeing.
+#define MEL_ES8311_RATE_HZ 48000
 
 static const char *TAG = "MEL_ES8311_PORT";
 
@@ -40,10 +49,7 @@ static esp_err_t es8311_i2s_init() {
     if (err != ESP_OK) return err;
 
     i2s_std_config_t std_cfg = {};
-    // Match Waveshare's factory bring-up exactly: create the duplex I2S bus
-    // at 16 kHz first; esp_codec_dev_open() then applies the requested 48 kHz
-    // codec stream format.
-    std_cfg.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(16000);
+    std_cfg.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(MEL_ES8311_RATE_HZ);
     std_cfg.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
     std_cfg.gpio_cfg.mclk = (gpio_num_t)I2S_MCK_PIN;
     std_cfg.gpio_cfg.bclk = (gpio_num_t)I2S_BCK_PIN;
@@ -83,6 +89,14 @@ void esp_es8311_port_init(i2c_master_bus_handle_t bus_handle) {
     const audio_codec_gpio_if_t *gpio_if = audio_codec_new_gpio();
     if (!ctrl_if || !gpio_if) { g_last_error = ESP_FAIL; ESP_LOGE(TAG, "codec control/gpio interface failed"); return; }
 
+    // Everest init holds the digital block in reset before the driver
+    // programs the clocks. The codec driver releases it during open.
+    uint8_t reset_value = 0x1F;
+    if (ctrl_if->write_reg) {
+        ctrl_if->write_reg(ctrl_if, 0x00, 1, &reset_value, 1);
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+
     es8311_codec_cfg_t es8311_cfg = {};
     es8311_cfg.codec_mode = ESP_CODEC_DEV_WORK_MODE_BOTH;
     es8311_cfg.master_mode = false;
@@ -97,9 +111,9 @@ void esp_es8311_port_init(i2c_master_bus_handle_t bus_handle) {
     const audio_codec_if_t *codec_if = es8311_codec_new(&es8311_cfg);
     if (!codec_if) { g_last_error = ESP_FAIL; ESP_LOGE(TAG, "es8311_codec_new failed"); return; }
 
-    // Keep the exact Waveshare topology that has already produced audible
-    // PCM on this board: one OUT handle and one IN handle sharing the same
-    // ES8311 codec interface and the same I2S data interface.
+    // One OUT handle and one IN handle share the ES8311 and the I2S bus.
+    // PA_CTRL stays on TCA9554 P2, driven high before this init. The codec
+    // PA pin is not a GPIO on this board.
     esp_codec_dev_cfg_t out_cfg = {
         .dev_type = ESP_CODEC_DEV_TYPE_OUT,
         .codec_if = codec_if,
@@ -130,7 +144,7 @@ void esp_es8311_port_init(i2c_master_bus_handle_t bus_handle) {
     esp_codec_set_disable_when_closed(input_dev, false);
 
     esp_codec_dev_sample_info_t fs = {};
-    fs.sample_rate = 48000;
+    fs.sample_rate = MEL_ES8311_RATE_HZ;
     fs.channel = 1;
     fs.bits_per_sample = 16;
     fs.channel_mask = 0;
@@ -178,7 +192,7 @@ void esp_es8311_test(void) {
         ESP_LOGE(TAG, "audio test refused: port not ready err=%s", esp_err_to_name(g_last_error));
         return;
     }
-    const int limit_size = 2 * 48000 * 2;
+    const int limit_size = 2 * MEL_ES8311_RATE_HZ * 2;
     uint8_t *data = (uint8_t *)heap_caps_malloc(limit_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!data) { ESP_LOGE(TAG, "audio test allocation failed"); return; }
 

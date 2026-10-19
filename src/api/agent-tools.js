@@ -55,6 +55,74 @@ export function responseIsBareToolCall(text) {
   return action.final !== true && typeof action.tool === 'string';
 }
 
+const LEAKED_READ_TOOLS = new Set([
+  'gmail.messages.search', 'gmail.messages.read',
+  'calendar.events.read',
+  'drive.files.list', 'drive.files.search',
+  'self.state', 'autonomy.status', 'capability.audit',
+  'code.read', 'code.search', 'web.research', 'computer.status',
+]);
+
+function eachJsonObject(text, visit) {
+  const source = String(text || '');
+  for (let start = 0; start < source.length; start += 1) {
+    if (source[start] !== '{') continue;
+    let depth = 0;
+    for (let end = start; end < source.length; end += 1) {
+      if (source[end] === '{') depth += 1;
+      else if (source[end] === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          visit(source.slice(start, end + 1), start, end + 1);
+          break;
+        }
+      }
+    }
+  }
+}
+
+export function leakedToolCalls(text) {
+  const found = [];
+  eachJsonObject(text, raw => {
+    const action = parseAgentAction(raw);
+    if (typeof action.tool === 'string') found.push(action);
+  });
+  return found;
+}
+
+export function stripLeakedToolCalls(text) {
+  const spans = [];
+  eachJsonObject(text, (raw, start, end) => {
+    const action = parseAgentAction(raw);
+    if (typeof action.tool === 'string') spans.push([start, end]);
+  });
+  let visible = String(text || '');
+  for (const [start, end] of spans.reverse()) visible = visible.slice(0, start) + visible.slice(end);
+  return visible.replace(/```(?:json)?\s*```/gi, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/** A read named in the final answer but not already run is executed once. Mutations are not. */
+export async function executeLeakedReads({ bus, text, already = [], context = {}, summarize = x => x }) {
+  if (typeof bus?.execute !== 'function') return [];
+  const done = new Set((Array.isArray(already) ? already : []).map(row => String(row?.capability || '')));
+  const pending = [];
+  for (const action of leakedToolCalls(text)) {
+    if (!LEAKED_READ_TOOLS.has(action.tool) || done.has(action.tool)) continue;
+    done.add(action.tool);
+    pending.push(action);
+  }
+  const results = [];
+  for (const action of pending.slice(0, 3)) {
+    try {
+      const result = await bus.execute(action.tool, action.input, context);
+      results.push({ capability: action.tool, status: 'SUCCEEDED', result: summarize(result) });
+    } catch (error) {
+      results.push({ capability: action.tool, status: 'FAILED', error: String(error?.code || error?.message || 'CAPABILITY_FAILED').slice(0, 180) });
+    }
+  }
+  return results;
+}
+
 function agentSystem(catalog) {
   return [
     'Tu es MEL. Tu AS des outils réels et tu les appelles TOI-MÊME. Ne demande jamais à Adrien de lancer un curl, une commande ou de fournir un token.',

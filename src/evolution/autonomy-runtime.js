@@ -1,4 +1,4 @@
-import { runAutonomyRuntimeTick as runCoreAutonomyRuntimeTick } from './autonomy-runtime-core.js';
+import { runAutonomyRuntimeTick as runCoreAutonomyRuntimeTick, autonomyTickAdvanced } from './autonomy-runtime-core.js';
 import { getAutonomyControl } from './autonomy-control.js';
 import { AutonomySupervisor, selectActionableAutonomyJob } from './autonomy-supervisor.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
@@ -597,7 +597,7 @@ function augmentTickProgress(tick = {}) {
   if (Array.isArray(tick?.internal_teacher_mirror?.mirrored) && tick.internal_teacher_mirror.mirrored.length > 0) events.add('TEACHER_REQUEST_MIRRORED');
   if (Array.isArray(tick?.owner_chat_teacher_mirror?.mirrored) && tick.owner_chat_teacher_mirror.mirrored.length > 0) events.add('OWNER_CHAT_TEACHER_MIRRORED');
   if (tick?.pre_ensure?.created === true) events.add('JOB_CREATED');
-  const advanced = tick?.advanced === true || events.size > 0;
+  const advanced = autonomyTickAdvanced([...events]);
   return {
     ...tick,
     advanced,

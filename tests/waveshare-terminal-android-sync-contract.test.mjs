@@ -35,6 +35,22 @@ test('MINI recovery uses Link V2 peripheral/server instead of the legacy central
   assert.match(workflow, /set_cfg_y CONFIG_BT_NIMBLE_GATT_SERVER/);
 });
 
+test('MINI ES8311 bus is created at the same 48 kHz the codec is opened with', async () => {
+  const port = await readFile(
+    new URL('../firmware/waveshare-terminal/vendor/esp_es8311_port.cpp', import.meta.url),
+    'utf8'
+  );
+  assert.match(port, /#define MEL_ES8311_RATE_HZ 48000/);
+  assert.match(port, /I2S_STD_CLK_DEFAULT_CONFIG\(MEL_ES8311_RATE_HZ\)/);
+  assert.match(port, /fs\.sample_rate = MEL_ES8311_RATE_HZ/);
+  assert.match(port, /fs\.channel = 1/);
+  assert.match(port, /fs\.bits_per_sample = 16/);
+  assert.doesNotMatch(port, /I2S_STD_CLK_DEFAULT_CONFIG\(16000\)/);
+  assert.match(port, /use_mclk = true/);
+  assert.match(port, /pa_pin = GPIO_NUM_NC/);
+  assert.match(port, /reset_value = 0x1F/);
+});
+
 test('MINI recovery keeps 48 kHz ES8311 playback and 16 kHz STT decimation', async () => {
   const [runtime, transport] = await Promise.all([
     readFile(new URL('../firmware/waveshare-terminal/main/mel_terminal.cpp', import.meta.url), 'utf8'),
