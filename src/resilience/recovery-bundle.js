@@ -1,4 +1,7 @@
 const SENSITIVE_KEY = /(?:secret|token|password|authorization|cookie|otp|signing[_-]?key|recovery[_-]?code)/i;
+// A one-way digest of a secret is not the secret. Redacting it to one constant
+// collapsed distinct D1 keys (web_sessions.token_hash PRIMARY KEY) in snapshots.
+const DIGEST_KEY = /(?:_hash|_sha256|_digest)$/i;
 
 export class RecoveryBundleBuilder {
   constructor({ now = () => new Date().toISOString() } = {}) {
@@ -78,7 +81,7 @@ export function sanitize(value) {
   if (!value || typeof value !== 'object') return value;
   const out = {};
   for (const [key, item] of Object.entries(value)) {
-    out[key] = SENSITIVE_KEY.test(key) ? '[REDACTED]' : sanitize(item);
+    out[key] = SENSITIVE_KEY.test(key) && !DIGEST_KEY.test(key) ? '[REDACTED]' : sanitize(item);
   }
   return out;
 }
