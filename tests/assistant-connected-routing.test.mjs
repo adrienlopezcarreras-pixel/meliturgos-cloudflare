@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { handleNativeChat, inferConnectedDataCapability } from '../src/api/native-chat.js';
+import { handleNativeChat, inferConnectedDataCapability, inferConnectedReadPlan } from '../src/api/native-chat.js';
 import { inferKnowledgeCapability } from '../src/api/knowledge-intent.js';
 import { privateConnectedDataRequest } from '../src/api/connected-data-intent.js';
 import { parisTimeWindow } from '../src/api/assistant-time.js';
@@ -83,4 +83,10 @@ test('with the production owner configuration, a mail search really calls Gmail 
     globalThis.fetch = originalFetch;
     DB.close();
   }
+});
+
+test('a request naming Gmail, Agenda and Drive plans three reads', () => {
+  const plan = inferConnectedReadPlan('Vérifie les connexions Pipedream à Gmail, Google Agenda et Google Drive. Effectue un test réel de lecture pour chacun des trois services, sans modifier de données.');
+  assert.deepEqual(plan.map(step => step.id), ['gmail.messages.search', 'calendar.events.read', 'drive.files.list']);
+  assert.deepEqual(inferConnectedReadPlan('lis mes derniers mails'), []);
 });

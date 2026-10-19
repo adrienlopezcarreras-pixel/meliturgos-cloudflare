@@ -18,7 +18,7 @@
 
 export function melIsTransientFailure(message) {
   const text = String(message || '');
-  return /Réponse serveur trop lente|Failed to fetch|NetworkError|Load failed|network connection was lost|HTTP 50[234]\b|CHAT_DEADLINE_EXCEEDED/i.test(text);
+  return /Réponse serveur trop lente|aucun texte reçu depuis 45|Failed to fetch|NetworkError|Load failed|network connection was lost|HTTP 50[234]\b|CHAT_DEADLINE_EXCEEDED/i.test(text);
 }
 
 export function melRelaunchDelays(kind) {

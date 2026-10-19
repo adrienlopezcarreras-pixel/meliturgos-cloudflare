@@ -40,7 +40,7 @@ import { privateConnectedDataRequest } from './connected-data-intent.js';
 import { createChatDeadline, hasChatBudget, raceChatDeadline, chatDeadlineError, COUNCIL_RECOVERY_MIN_REMAINING_MS, CONTINUATION_MIN_REMAINING_MS, FALLBACK_ATTEMPT_MIN_REMAINING_MS } from './chat-deadline.js';
 import { inferCurrentFactVerificationPolicy, hasAuthoritativeCurrentFactEvidence, currentFactReliabilityInstruction } from './current-fact-reliability.js';
 import { buildPresentationInstruction } from '../presentation/presentation-skill.js';
-import { runAgentToolLoop } from './agent-tools.js';
+import { parseAgentAction, responseIsBareToolCall, runAgentToolLoop } from './agent-tools.js';
 
 // Beyond this length a chat message is treated as an instruction (see handleNativeChat).
 export const INSTRUCTION_PROMPT_CHARS = 280;
@@ -662,6 +662,44 @@ export function inferConnectedDataCapability(value) {
     return { id: 'gmail.messages.search', input: { query: query ? query : (unread ? 'is:unread newer_than:14d' : 'newer_than:7d'), limit: 15 } };
   }
   return null;
+}
+
+
+export function inferConnectedReadPlan(value) {
+  const raw = String(value || '').trim();
+  if (!privateConnectedDataRequest(raw)) return [];
+  const single = inferConnectedDataCapability(raw);
+  if (single?.execution_intent === 'CONNECTED_DATA_MUTATION') return [];
+  const plan = [];
+  if (/\bgmail\b/i.test(raw) || /\b(?:mails?|e-?mails?|courriels?|bo[iî]te\s+(?:mail|de\s+r[ée]ception))\b/i.test(raw)) {
+    const base = single?.id === 'gmail.messages.search' ? single.input : { query: 'in:inbox', limit: 5 };
+    plan.push({ id: 'gmail.messages.search', input: { ...base, limit: 5 } });
+  }
+  if (/\b(?:google\s+agenda|google\s+calendar|agenda|calendrier|calendar)\b/i.test(raw)) {
+    plan.push({ id: 'calendar.events.read', input: { ...parisTimeWindow(raw), limit: 5 } });
+  }
+  if (/\bgoogle\s+drive\b/i.test(raw)) {
+    plan.push({ id: 'drive.files.list', input: { limit: 5 } });
+  }
+  const unique = [];
+  const seen = new Set();
+  for (const step of plan) {
+    if (seen.has(step.id)) continue;
+    seen.add(step.id);
+    unique.push(step);
+  }
+  return unique.length >= 2 ? unique : [];
+}
+
+export function connectorReadsFactualAnswer(toolResults = []) {
+  const rows = (Array.isArray(toolResults) ? toolResults : []).filter(row => /^(gmail\.|calendar\.|drive\.|mail\.|files\.|tasks\.)/.test(String(row?.capability || '')));
+  if (!rows.length) return '';
+  const lines = rows.map(row => {
+    const state = row.status === 'SUCCEEDED' ? 'exécuté' : 'échec';
+    const why = row.status === 'FAILED' ? ' — ' + String(row.error || 'erreur').slice(0, 120) : '';
+    return row.capability + ' : ' + state + why;
+  });
+  return 'Lectures connectées, sans recopier le contenu privé :\n' + lines.join('\n');
 }
 
 export function shouldEscalateNativeChatToCouncil({
@@ -1510,6 +1548,9 @@ export async function handleNativeChat(request, env, options = {}) {
   const capability = releaseSmoke
     ? inferredCapability
     : (body.capability?.id ? body.capability : inferredCapability);
+  const connectedReadPlan = releaseSmoke || capability?.execution_intent === 'CONNECTED_DATA_MUTATION'
+    ? []
+    : inferConnectedReadPlan(activeTaskText);
   const toolResults = [];
   const capabilitiesUsed = [];
   let approvalRequired = null;
@@ -1523,7 +1564,25 @@ export async function handleNativeChat(request, env, options = {}) {
     }, { status: 403, headers: { 'cache-control': 'no-store' } });
   }
 
-  if (capability?.id) {
+  if (connectedReadPlan.length && runtime?.bus) {
+    for (const step of connectedReadPlan) {
+      try {
+        const result = await runtime.bus.execute(String(step.id), step.input || {}, nativeCapabilityContext(env, request, options));
+        toolResults.push({ capability: step.id, status: 'SUCCEEDED', result: summarizeToolResult(result) });
+        capabilitiesUsed.push(step.id);
+      } catch (error) {
+        const code = error.code || error.message || 'CAPABILITY_FAILED';
+        toolResults.push({ capability: step.id, status: 'FAILED', error: code });
+        if (code === 'EXPLICIT_APPROVAL_REQUIRED' && !approvalRequired) {
+          approvalRequired = {
+            capability: String(step.id),
+            input: structuredClone(step.input || {}),
+            scope: String(error?.approval_scope || step.id),
+          };
+        }
+      }
+    }
+  } else if (capability?.id) {
     try {
       const result = await runtime.bus.execute(String(capability.id), capability.input || {}, nativeCapabilityContext(env, request, options));
       toolResults.push({ capability: capability.id, status: 'SUCCEEDED', result: summarizeToolResult(result) });
@@ -1543,7 +1602,7 @@ export async function handleNativeChat(request, env, options = {}) {
 
   // Native tool use: when no deterministic route chose a capability, the model
   // calls its own tools; the grounded answer below is then built from them.
-  if (!releaseSmoke && !capability?.id && !voiceReply && runtime?.bus) {
+  if (!releaseSmoke && !capability?.id && !connectedReadPlan.length && !voiceReply && runtime?.bus) {
     const agentResults = await runAgentToolLoop({
       env, bus: runtime.bus, text: activeTaskText, recent,
       context: nativeCapabilityContext(env, request, options),
@@ -2232,7 +2291,10 @@ export async function handleNativeChat(request, env, options = {}) {
     }));
   }
 
-  const modelResponseText = stripInternalCounters(ai.text);
+  const rawModelText = stripInternalCounters(ai.text);
+  const modelResponseText = responseIsBareToolCall(rawModelText)
+    ? (connectorReadsFactualAnswer(toolResults) || 'Le JSON d’appel d’outil n’est pas une réponse. Aucun résultat d’outil de cette requête ne permet de le remplacer.')
+    : rawModelText;
   const groundedResponseText = instructionPrompt && modelResponseText.trim()
     ? modelResponseText
     : communicationAuditObserved
