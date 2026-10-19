@@ -56,11 +56,23 @@ export async function probeD1BindingRestore({ baseUrl, token, fetchImpl = fetch 
   if (!/^https:\/\/mel-restore-readonly-preview-[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev$/.test(baseUrl || '')
       || String(token || '').length < 32) fail('RESTORE_PROBE_PREVIEW_INVALID');
   const snapshot = await exportD1(null, async (_sidecar, path) => {
-    const response = await fetchImpl(new URL(path, baseUrl), {
-      headers: { authorization: `Bearer ${token}` }, redirect: 'error', signal: AbortSignal.timeout(30_000),
-    });
-    if (!response.ok) fail('RESTORE_PROBE_BINDING_HTTP_FAILED');
-    return response.json();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const response = await fetchImpl(new URL(path, baseUrl), {
+          headers: { authorization: `Bearer ${token}` }, redirect: 'error', signal: AbortSignal.timeout(30_000),
+        });
+        if (!response.ok) {
+          if (response.status < 500 && ![408,429].includes(response.status)) fail('RESTORE_PROBE_BINDING_HTTP_FAILED');
+          throw Object.assign(new Error('RESTORE_PROBE_BINDING_TRANSIENT_HTTP'), { code:'RESTORE_PROBE_BINDING_TRANSIENT_HTTP' });
+        }
+        return await response.json();
+      } catch (error) {
+        if (error?.code === 'RESTORE_PROBE_BINDING_HTTP_FAILED') throw error;
+        if (attempt === 2) fail(error?.code === 'RESTORE_PROBE_BINDING_TRANSIENT_HTTP'
+          ? error.code : error?.name === 'SyntaxError' ? 'RESTORE_PROBE_BINDING_JSON_FAILED' : 'RESTORE_PROBE_BINDING_TRANSPORT_FAILED');
+        await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+      }
+    }
   });
   return proveD1SnapshotRestore(snapshot);
 }
