@@ -80,3 +80,12 @@ test('a heartbeat that sees an active lease exits before touching runtime work',
 
   assert.equal(await releaseAutonomyRuntimeLease({ owner: 'holder', memoryStore }), true);
 });
+
+test('a lease left by a killed invocation frees itself within 90 s (next minute tick)', async () => {
+  const { tryAcquireAutonomyRuntimeLease } = await import('../src/evolution/autonomy-runtime-lease.js');
+  const store = new Map();
+  const first = await tryAcquireAutonomyRuntimeLease({ owner: 'killed', now: 0, memoryStore: store });
+  assert.equal(first.expires_at, 90_000);
+  assert.equal((await tryAcquireAutonomyRuntimeLease({ owner: 'next', now: 60_000, memoryStore: store })).acquired, false);
+  assert.equal((await tryAcquireAutonomyRuntimeLease({ owner: 'next', now: 120_000, memoryStore: store })).acquired, true);
+});
