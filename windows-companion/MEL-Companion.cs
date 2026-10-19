@@ -1911,74 +1911,65 @@ class MainForm : Form
     }
     void RunMiniUsbBackup(object sender,EventArgs e)
     {
-        // On-device confirmation and a second literal approval happen in the terminal.
-        // This is a read-only, double-read, full flash backup. No OTA write or erase.
-        if (!MelApp.MiniUsbPreflightInstalled() || !File.Exists(MelApp.MiniUsbBackupPath))
+        if(!MelApp.MiniUsbPreflightInstalled()||!File.Exists(MelApp.MiniUsbBackupPath))
         {
-            MessageBox.Show(this,"Outils USB de sauvegarde absents : installez le paquet Windows complet.",
-                "MEL MINI — sauvegarde",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            MessageBox.Show(this,"Les outils de sauvegarde USB ne sont pas installés.","MEL MINI",MessageBoxButtons.OK,MessageBoxIcon.Warning);
             return;
         }
-        var ports=System.IO.Ports.SerialPort.GetPortNames()
-            .Where(p=>System.Text.RegularExpressions.Regex.IsMatch(p,@"^COM[0-9]{1,3}$",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-            .Select(p=>p.ToUpperInvariant()).Distinct().OrderBy(p=>p).ToArray();
-        if (ports.Length==0)
+        if(!System.IO.Ports.SerialPort.GetPortNames().Any(p=>String.Equals(p,"COM3",StringComparison.OrdinalIgnoreCase)))
         {
-            MessageBox.Show(this,"Aucun port COM disponible. Branchez la MINI.",
-                "MEL MINI — sauvegarde",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            MessageBox.Show(this,"MINI non détectée sur COM3.","MEL MINI",MessageBoxButtons.OK,MessageBoxIcon.Warning);
             return;
         }
-        using (var dialog=new Form())
+        if(MessageBox.Show(this,"Sauvegarder la mémoire complète de la MINI sur COM3 ?\\nLes données Wi-Fi resteront sur cet ordinateur. La lecture peut redémarrer la carte, mais n'efface rien.",
+            "MEL MINI — sauvegarde",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
+        var button=sender as Button;
+        if(button!=null)button.Enabled=false;
+        System.Threading.Tasks.Task.Run(()=>
         {
-            dialog.Text="Sauvegarder la MINI par USB";
-            dialog.ClientSize=new Size(570,220);
-            dialog.FormBorderStyle=FormBorderStyle.FixedDialog;
-            dialog.StartPosition=FormStartPosition.CenterParent;
-            dialog.MaximizeBox=false;dialog.MinimizeBox=false;
-            var note=new Label {
-                Text="Sauvegarde complète en lecture seule. Le bootloader peut redémarrer la MINI. " +
-                    "Les fichiers contiennent des secrets Wi-Fi/NVS : gardez-les sur cet ordinateur. " +
-                    "Ne débranchez pas le câble pendant les deux lectures.",
-                Left=16,Top=12,Width=535,Height=91
-            };
-            var portList=new ComboBox {
-                Left=16,Top=109,Width=210,DropDownStyle=ComboBoxStyle.DropDownList
-            };
-            portList.Items.AddRange(ports.Cast<object>().ToArray());
-            int index=Array.IndexOf(ports,"COM3");
-            portList.SelectedIndex=index>=0?index:0;
-            var cancel=new Button {Text="Annuler",Left=333,Top=164,Width=100,DialogResult=DialogResult.Cancel};
-            var start=new Button {Text="Sauvegarder",Left=441,Top=164,Width=113,DialogResult=DialogResult.OK};
-            dialog.Controls.Add(note);dialog.Controls.Add(portList);
-            dialog.Controls.Add(cancel);dialog.Controls.Add(start);
-            dialog.AcceptButton=start;dialog.CancelButton=cancel;
-            if(k>1f)dialog.Scale(new SizeF(k,k));
-            if(dialog.ShowDialog(this)!=DialogResult.OK)return;
-            var port=Convert.ToString(portList.SelectedItem);
-            if(!System.Text.RegularExpressions.Regex.IsMatch(port??"",@"^COM[0-9]{1,3}$"))
-                throw new InvalidOperationException("Port USB invalide.");
-            if(MessageBox.Show(this,
-                "Lancer la sauvegarde intégrale sur "+port+" ? " +
-                "Cela peut durer plusieurs minutes et nécessite une alimentation stable. " +
-                "Aucune écriture sur la MINI ne sera effectuée.",
-                "MEL MINI — sauvegarde USB",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
+            var exitCode=-1;
+            string detail="";
             try
             {
                 var psi=new ProcessStartInfo("powershell.exe");
-                psi.UseShellExecute=true;
-                psi.WindowStyle=ProcessWindowStyle.Normal;
+                psi.UseShellExecute=false;
+                psi.CreateNoWindow=true;
+                psi.WindowStyle=ProcessWindowStyle.Hidden;
+                psi.RedirectStandardOutput=true;
+                psi.RedirectStandardError=true;
                 psi.WorkingDirectory=MelApp.MelDir;
-                psi.Arguments="-NoProfile -ExecutionPolicy Bypass -NoExit -File \"" +
-                    MelApp.MiniUsbBackupPath + "\" -Port " + port;
-                Process.Start(psi);
+                psi.Arguments="-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"" +
+                    MelApp.MiniUsbBackupPath + "\" -Port COM3 -ConfirmedByCompanion";
+                using(var process=Process.Start(psi))
+                {
+                    if(process==null)throw new InvalidOperationException("Sauvegarde USB non démarrée.");
+                    var stdout=process.StandardOutput.ReadToEndAsync();
+                    var stderr=process.StandardError.ReadToEndAsync();
+                    if(!process.WaitForExit(900000))
+                    {
+                        try{process.Kill();}catch{}
+                        throw new TimeoutException("Sauvegarde USB : délai dépassé.");
+                    }
+                    exitCode=process.ExitCode;
+                    detail=(stdout.GetAwaiter().GetResult()+"\\n"+stderr.GetAwaiter().GetResult()).Trim();
+                }
             }
-            catch(Exception ex)
+            catch(Exception ex){detail=ex.Message;}
+            if(detail.Length>2000)detail=detail.Substring(detail.Length-2000);
+            try
             {
-                MessageBox.Show(this,"Impossible de démarrer la sauvegarde : "+ex.Message,
-                    "MEL MINI — sauvegarde",MessageBoxButtons.OK,MessageBoxIcon.Error);
+                BeginInvoke((Action)(()=>
+                {
+                    if(button!=null&&!button.IsDisposed)button.Enabled=true;
+                    MessageBox.Show(this,(exitCode==0?"Sauvegarde USB terminée.":"Sauvegarde USB non validée.")+
+                        "\\n\\n"+detail+"\\n\\nAucun flash n'a été effectué.",
+                        "MEL MINI — sauvegarde",MessageBoxButtons.OK,
+                        exitCode==0?MessageBoxIcon.Information:MessageBoxIcon.Warning);
+                }));
             }
-        }
+            catch(ObjectDisposedException){}
+            catch(InvalidOperationException){}
+        });
     }
     void RunMiniFirstInstall(object sender,EventArgs e)
     {
