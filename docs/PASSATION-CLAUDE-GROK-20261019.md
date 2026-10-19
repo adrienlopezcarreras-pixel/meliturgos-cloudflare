@@ -1,5 +1,11 @@
 # Passation MEL — Claude et Grok — 19 octobre 2026
 
+**PR de reprise créée et poussée : [#2295](https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/pull/2295).** Dernier code poussé observé : `2dc5b15b5b8f4e7e732dc3f4290676c9a81288e5` (le présent ajout documentaire vient ensuite). Ne pas confondre avec la production b5bd485e.
+
+État à la sauvegarde finale : PR ouverte, 22 contrôles encore en attente, aucun échec CI observé à cet instant ; pas une validation finale. Build dry-run réussi ; syntaxe réussie sur 1409 modules ; sécurité source 576070fb release-eligible. Suite complète locale toujours en cours ; ne pas annoncer son résultat sans lire la fin du log et le statut de la session 38084. Tests ciblés supplémentaires réussis : 45 lease/bootstrap, 10 images/rendu, 13 restauration/probe, tests RS/crypto et 35 pertes. Aucun déploiement officiel actif.
+
+Le diagnostic binding 39328206747 a échoué **avant la restauration SQLite**, avec `RESTORE_PROBE_FAILED`, alors que la lecture API directe avait passé. Le commit 2dc5b15b apporte trois essais bornés sur la lecture seule et des codes séparant HTTP, transport et JSON, sans données privées. Un nouveau diagnostic est déclenché par ce push. **La cause de BACKUP_SQLITE_RESTORE_FAILED n'est toujours pas identifiée.** Lire le nouveau résultat avant toute correction ou tentative de release ; aucune troisième release officielle n'a été lancée.
+
 ## Dernier ajout avant transfert — source 576070fb72810f6e4951907c564831a0a8683080
 
 Le propriétaire demande désormais de conserver les corrections dans des PR et de déployer progressivement. Les correctifs supplémentaires suivants sont poussés sur `candidate/codex-restore-proof-diagnostic`, au-dessus des commits décrits plus bas :
