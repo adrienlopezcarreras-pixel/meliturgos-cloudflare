@@ -1947,62 +1947,75 @@ class MainForm : Form
     }
     void RunMiniUsbPreflight(object sender,EventArgs e)
     {
-        // Never offer remote flashing: this starts a local, interactive,
-        // read-only bootloader check requiring a second literal confirmation.
+        // Owner action is confirmed once in this local GUI; no PowerShell
+        // prompt, no bootloader-write, and no remote command can invoke it.
         if (!MelApp.MiniUsbPreflightInstalled())
         {
-            MessageBox.Show(this,"Précontrôle MINI incomplet. Réinstallez le paquet Windows officiel.",
+            MessageBox.Show(this,"Précontrôle MINI incomplet. Installez le paquet Windows officiel.",
                 "MEL — USB MINI",MessageBoxButtons.OK,MessageBoxIcon.Warning);
             return;
         }
-        string[] available = System.IO.Ports.SerialPort.GetPortNames();
-        var ports = available.Where(p=>System.Text.RegularExpressions.Regex.IsMatch(
-            p,@"^COM[0-9]{1,3}$",System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-            .Select(p=>p.ToUpperInvariant()).Distinct().OrderBy(p=>p).ToArray();
-        if (ports.Length==0)
+        var ports=System.IO.Ports.SerialPort.GetPortNames()
+            .Where(p=>System.Text.RegularExpressions.Regex.IsMatch(p,@"^COM[0-9]{1,3}$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            .Select(p=>p.ToUpperInvariant()).Distinct().ToArray();
+        if (!ports.Contains("COM3"))
         {
-            MessageBox.Show(this,"Aucun port COM détecté. Connectez la MINI par USB et réessayez.",
-                "MEL — USB MINI",MessageBoxButtons.OK,MessageBoxIcon.Information);
+            MessageBox.Show(this,"MINI indisponible sur COM3. Aucun accès USB n'a été tenté.",
+                "MEL — USB MINI",MessageBoxButtons.OK,MessageBoxIcon.Warning);
             return;
         }
-        using (var dialog=new Form())
+        if (MessageBox.Show(this,
+            "Vérifier la MINI sur COM3 ? La vérification est en lecture seule. L'entrée dans le bootloader peut redémarrer la MINI. Aucun firmware ne sera écrit.",
+            "MEL — Contrôle USB MINI",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
+        var source=sender as Button;
+        if(source!=null)source.Enabled=false;
+        System.Threading.Tasks.Task.Run(()=>
         {
-            dialog.Text="Précontrôle local USB MINI";
-            dialog.ClientSize=new Size(480,170);dialog.FormBorderStyle=FormBorderStyle.FixedDialog;
-            dialog.StartPosition=FormStartPosition.CenterParent;dialog.MaximizeBox=false;dialog.MinimizeBox=false;
-            var note=new Label {Text="Sélectionnez le port de la MINI. Lecture seule : la connexion au bootloader peut redémarrer l'appareil. Aucun flashage.",
-                Left=16,Top=12,Width=445,Height=58};
-            var portList=new ComboBox {Left=16,Top=76,Width=220,DropDownStyle=ComboBoxStyle.DropDownList};
-            portList.Items.AddRange(ports.Cast<object>().ToArray());
-            int miniPortIndex=Array.IndexOf(ports,"COM3");
-            portList.SelectedIndex=miniPortIndex>=0?miniPortIndex:0;
-            var cancel=new Button {Text="Annuler",Left=245,Top=118,Width=100,DialogResult=DialogResult.Cancel};
-            var start=new Button {Text="Continuer",Left=356,Top=118,Width=108,DialogResult=DialogResult.OK};
-            dialog.Controls.Add(note);dialog.Controls.Add(portList);
-            dialog.Controls.Add(cancel);dialog.Controls.Add(start);
-            dialog.AcceptButton=start;dialog.CancelButton=cancel;
-            if(k>1f)dialog.Scale(new SizeF(k,k));
-            if (dialog.ShowDialog(this)!=DialogResult.OK)return;
-            var port=Convert.ToString(portList.SelectedItem);
-            if (!System.Text.RegularExpressions.Regex.IsMatch(port??"", @"^COM[0-9]{1,3}$"))
-                throw new InvalidOperationException("Port MINI invalide.");
-            if (MessageBox.Show(this,"Le précontrôle peut redémarrer la MINI. Confirmer l'ouverture du terminal local ? Une autorisation textuelle supplémentaire sera demandée.",
-                "MEL — USB MINI",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
+            int exitCode=-1;
+            string detail="";
             try
             {
                 var psi=new ProcessStartInfo("powershell.exe");
-                psi.UseShellExecute=true;psi.WindowStyle=ProcessWindowStyle.Normal;
+                psi.UseShellExecute=false;
+                psi.CreateNoWindow=true;
+                psi.WindowStyle=ProcessWindowStyle.Hidden;
+                psi.RedirectStandardOutput=true;
+                psi.RedirectStandardError=true;
                 psi.WorkingDirectory=MelApp.MelDir;
-                psi.Arguments="-NoProfile -ExecutionPolicy Bypass -NoExit -File \""+
-                    MelApp.MiniUsbPreflightPath+"\" -Port "+port;
-                Process.Start(psi);
+                psi.Arguments="-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"" +
+                    MelApp.MiniUsbPreflightPath + "\" -Port COM3 -ConfirmedByCompanion";
+                using(var process=Process.Start(psi))
+                {
+                    if(process==null)throw new InvalidOperationException("Démarrage du précontrôle impossible.");
+                    var output=process.StandardOutput.ReadToEndAsync();
+                    var errors=process.StandardError.ReadToEndAsync();
+                    if(!process.WaitForExit(300000))
+                    {
+                        try { process.Kill(); } catch {}
+                        throw new TimeoutException("Délai de contrôle USB dépassé.");
+                    }
+                    exitCode=process.ExitCode;
+                    detail=(output.GetAwaiter().GetResult()+"\n"+errors.GetAwaiter().GetResult()).Trim();
+                }
             }
-            catch(Exception ex)
+            catch(Exception ex) { detail=ex.Message; }
+            if(detail.Length>2500)detail=detail.Substring(detail.Length-2500);
+            try
             {
-                MessageBox.Show(this,"Impossible d'ouvrir le précontrôle local : "+ex.Message,
-                    "MEL — USB MINI",MessageBoxButtons.OK,MessageBoxIcon.Error);
+                BeginInvoke((Action)(()=>
+                {
+                    if(source!=null&&!source.IsDisposed)source.Enabled=true;
+                    MessageBox.Show(this,
+                        (exitCode==0?"Précontrôle MINI réussi sur COM3.":"Précontrôle MINI non validé sur COM3.")+
+                        "\n\n"+detail+"\n\nAucun flash n'a été effectué.",
+                        "MEL — USB MINI",MessageBoxButtons.OK,
+                        exitCode==0?MessageBoxIcon.Information:MessageBoxIcon.Warning);
+                }));
             }
-        }
+            catch(ObjectDisposedException) {}
+            catch(InvalidOperationException) {}
+        });
     }
     void RunLocalAiBenchmark(object sender,EventArgs e)
     {
