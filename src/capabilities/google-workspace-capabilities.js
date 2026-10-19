@@ -361,6 +361,83 @@ function tasksHealthcheck(resolveAccessToken, fetchImpl, env, pipedreamRuntime, 
   };
 }
 
+
+async function gmailRequest({
+  resolveAccessToken,
+  fetchImpl,
+  pipedreamRuntime,
+  env,
+  context,
+  url,
+  method = 'GET',
+  body,
+  code,
+  provider = null,
+} = {}) {
+  const owner = context?.owner || env?.MELITURGOS_USER || 'owner';
+  const viaPipedream = async () => {
+    if (!pipedreamRuntime || typeof pipedreamRuntime.proxy !== 'function') return null;
+    const proxied = await pipedreamRuntime.proxy({ owner, app: 'gmail', url, method, body, signal: context?.signal });
+    return { provider: 'pipedream', body: proxied?.body || {} };
+  };
+  if (provider === 'pipedream') {
+    const proxied = await viaPipedream();
+    if (!proxied) throw error('PIPEDREAM_RUNTIME_UNAVAILABLE', 503);
+    return proxied;
+  }
+  let nativeError = null;
+  try {
+    const token = await tokenFor(resolveAccessToken, 'gmail', context);
+    const result = await requestJson(fetchImpl, token, url, { method, body, code, signal: context?.signal });
+    return { provider: 'google', body: result };
+  } catch (error_) {
+    nativeError = error_;
+  }
+  try {
+    const proxied = await viaPipedream();
+    if (!proxied) throw nativeError;
+    return proxied;
+  } catch (fallbackError) {
+    if (!pipedreamRuntime || typeof pipedreamRuntime.proxy !== 'function') throw nativeError;
+    const combined = error(code + '_ALL_PATHS_FAILED', 503);
+    combined.native_code = String(nativeError?.code || nativeError?.message || 'GMAIL_NATIVE_FAILED').slice(0, 160);
+    combined.fallback_code = String(fallbackError?.code || fallbackError?.message || 'GMAIL_PIPEDREAM_FAILED').slice(0, 160);
+    throw combined;
+  }
+}
+
+function gmailHealthcheck(resolveAccessToken, fetchImpl, env, pipedreamRuntime, { protectedAction = false } = {}) {
+  const owner = String(env?.MELITURGOS_USER || 'owner').trim() || 'owner';
+  const probe = GMAIL_API + '/profile';
+  return async () => {
+    try {
+      const token = await tokenFor(resolveAccessToken, 'gmail', { owner });
+      await requestJson(fetchImpl, token, probe, { method: 'GET', code: 'GMAIL_HEALTH_FAILED' });
+      return { status: protectedAction ? 'PROTECTED' : 'HEALTHY', transport: 'google' };
+    } catch (nativeError) {
+      if (!pipedreamRuntime || typeof pipedreamRuntime.proxy !== 'function') {
+        const code = String(nativeError?.code || nativeError?.message || 'GMAIL_HEALTH_FAILED').slice(0, 180);
+        const http = Number(nativeError?.status || 0);
+        const unavailable = http === 401 || http === 403 || /AUTH_REQUIRED|_AUTH$/.test(code);
+        return { status: unavailable ? 'UNAVAILABLE' : 'DEGRADED', reason: code };
+      }
+      try {
+        await pipedreamRuntime.proxy({ owner, app: 'gmail', url: probe, method: 'GET' });
+        return {
+          status: protectedAction ? 'PROTECTED' : 'HEALTHY',
+          transport: 'pipedream',
+          native_reason: String(nativeError?.code || nativeError?.message || '').slice(0, 160),
+        };
+      } catch (fallbackError) {
+        return {
+          status: 'UNAVAILABLE',
+          reason: String(fallbackError?.code || fallbackError?.message || 'GMAIL_ALL_PATHS_FAILED').slice(0, 180),
+        };
+      }
+    }
+  };
+}
+
 export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl = fetch, resolveAccessToken = null, pipedreamRuntime = null } = {}) {
   if (!bus || typeof bus.discover !== 'function') throw new TypeError('CAPABILITY_BUS_REQUIRED');
   const resolveToken = resolveAccessToken || fixedTokenResolver(env);
@@ -385,13 +462,15 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
     risk: 'LOW',
     permissions: ['google.gmail.read'],
     health: 'DEGRADED',
-    healthcheck: workspaceHealthcheck(resolveToken, fetchImpl, env, 'gmail'),
+    healthcheck: gmailHealthcheck(resolveToken, fetchImpl, env, pipedreamRuntime),
     enabled: true,
   }, async (input, context) => {
-    const token = await tokenFor(resolveToken, 'gmail', context);
     const q = text(input.query, 'GMAIL_QUERY_INVALID', 1000);
     const url = GMAIL_API + '/messages?' + query({ q, maxResults: listLimit(input.limit) });
-    const body = await requestJson(fetchImpl, token, url, { code: 'GMAIL_SEARCH_FAILED', signal: context?.signal });
+    const listed = await gmailRequest({
+      resolveAccessToken: resolveToken, fetchImpl, pipedreamRuntime, env, context, url, code: 'GMAIL_SEARCH_FAILED',
+    });
+    const body = listed.body || {};
     const ids = (Array.isArray(body.messages) ? body.messages : []).slice(0, listLimit(input.limit)).map(row => ({
       id: String(row.id || ''),
       thread_id: String(row.threadId || ''),
@@ -403,7 +482,12 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
     const messages = await Promise.all(ids.map(async (row, index) => {
       if (index >= GMAIL_SEARCH_METADATA_MAX || !row.id) return row;
       try {
-        const meta = await requestJson(fetchImpl, token, GMAIL_API + '/messages/' + encodeURIComponent(row.id) + '?' + 'format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date', { code: 'GMAIL_METADATA_FAILED', signal: context?.signal });
+        const metaResult = await gmailRequest({
+          resolveAccessToken: resolveToken, fetchImpl, pipedreamRuntime, env, context,
+          url: GMAIL_API + '/messages/' + encodeURIComponent(row.id) + '?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date',
+          code: 'GMAIL_METADATA_FAILED', provider: listed.provider,
+        });
+        const meta = metaResult.body;
         const headers = meta?.payload?.headers;
         return {
           ...row,
@@ -417,7 +501,7 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
         return row;
       }
     }));
-    return { provider: 'google', query: q, messages, count: messages.length };
+    return { provider: listed.provider, query: q, messages, count: messages.length };
   });
 
   bus.discover({
@@ -437,13 +521,15 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
     risk: 'LOW',
     permissions: ['google.gmail.read'],
     health: 'DEGRADED',
-    healthcheck: workspaceHealthcheck(resolveToken, fetchImpl, env, 'gmail'),
+    healthcheck: gmailHealthcheck(resolveToken, fetchImpl, env, pipedreamRuntime),
     enabled: true,
   }, async (input, context) => {
-    const token = await tokenFor(resolveToken, 'gmail', context);
     const id = encodePath(input.message_id, 'GMAIL_MESSAGE_ID_INVALID');
-    const body = await requestJson(fetchImpl, token, GMAIL_API + '/messages/' + id + '?format=full', { code: 'GMAIL_READ_FAILED', signal: context?.signal });
-    return { provider: 'google', message: body };
+    const read = await gmailRequest({
+      resolveAccessToken: resolveToken, fetchImpl, pipedreamRuntime, env, context,
+      url: GMAIL_API + '/messages/' + id + '?format=full', code: 'GMAIL_READ_FAILED',
+    });
+    return { provider: read.provider, message: read.body };
   });
 
   for (const [id, draft, approvalScope] of [
