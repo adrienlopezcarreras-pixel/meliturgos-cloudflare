@@ -11,6 +11,7 @@ import { tryAcquireAutonomyRuntimeLease, releaseAutonomyRuntimeLease } from './a
 import { createZeroCostBenchmarkEvaluator } from '../learning/operator-actions.js';
 import { reconcileRuntimeCompletions } from '../teachers/github-completion-reconciler.js';
 import { recordAutonomyProgressWatchdog, resetAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
+import { readActivityListEpoch } from './autonomy-activity.js';
 
 export * from './autonomy-runtime-core.js';
 
@@ -150,14 +151,17 @@ function validateCandidateBranches(env = {}) {
   return { canonicalBranch, teacherBranch };
 }
 
-async function hasActiveRuntimeWork(repository) {
+async function hasActiveRuntimeWork(repository, epochMs = 0) {
   const jobs = await repository.list();
-  return jobs.some((job) => supervised(job) && ACTIVE_RUNTIME_STATES.has(String(job?.status || '').toUpperCase()));
+  const epoch = Number(epochMs) || 0;
+  return jobs.some((job) => supervised(job)
+    && Number(job?.created_at || 0) >= epoch
+    && ACTIVE_RUNTIME_STATES.has(String(job?.status || '').toUpperCase()));
 }
 
-async function ensureNextRuntimeJob(repository, roadmap = null) {
+async function ensureNextRuntimeJob(repository, roadmap = null, epochMs = 0) {
   try {
-    const supervisor = new AutonomySupervisor({ repository, ...(roadmap ? { roadmap } : {}) });
+    const supervisor = new AutonomySupervisor({ repository, epochMs, ...(roadmap ? { roadmap } : {}) });
     const ensured = await supervisor.ensureNextJob();
     return {
       created: ensured?.created === true,
@@ -207,6 +211,12 @@ async function recordCoreRuntimeFailure(repository, error, { maxAttempts = 3 } =
   const result = candidate.result_json && typeof candidate.result_json === 'object' ? { ...candidate.result_json } : {};
   const previous = result.runtime_retry && typeof result.runtime_retry === 'object' ? result.runtime_retry : {};
   const attempts = Number(previous.attempts || 0) + 1;
+  result.proof = {
+    status: 'ÉCHEC',
+    tool: String(candidate?.optional_context?.roadmap_id || ''),
+    code,
+    request_id: String(candidate.id || ''),
+  };
   result.runtime_retry = {
     attempts,
     last_error: code,
@@ -378,8 +388,9 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     complete: false,
   };
   try {
-    if (!(await hasActiveRuntimeWork(repository))) {
-      preEnsure = await ensureNextRuntimeJob(repository, options.roadmap || null);
+    const epochMs = await readActivityListEpoch(env?.DB).catch(() => 0);
+    if (!(await hasActiveRuntimeWork(repository, epochMs))) {
+      preEnsure = await ensureNextRuntimeJob(repository, options.roadmap || null, epochMs);
     }
   } catch (error) {
     preEnsure = {

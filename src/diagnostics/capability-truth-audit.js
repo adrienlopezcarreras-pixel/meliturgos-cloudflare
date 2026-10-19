@@ -357,11 +357,11 @@ function autoExecutionBlockReason({ deep, record, sample, declared, costSensitiv
   if (record?.risk !== 'LOW') return 'RISK_NOT_LOW';
   if (EXPLICIT_ONLY_AUDIT_CAPABILITIES.has(record?.id)) return 'REQUIRES_EXPLICIT_INVOCATION';
   if (record?.approval?.required === true || OWNER_APPROVAL_SENSITIVE_CAPABILITIES.has(record?.id)) return 'OWNER_APPROVAL_REQUIRED';
-  if (strict && STRICT_MUTATION.test(String(record?.id || ''))) return 'STRICT_MUTATION_REFUSED';
+  if ((strict || deep) && STRICT_MUTATION.test(String(record?.id || ''))) return 'STRICT_MUTATION_REFUSED';
   const health = String(record?.health || '').toUpperCase();
   if (['UNAVAILABLE','OFFLINE','DISABLED','BLOCKED','DOWN','BROKEN','ERROR','FAILED','FAIL','UNHEALTHY'].includes(health)) return 'HEALTH_UNAVAILABLE';
   if (record?.health_refresh_verified === false) return 'HEALTH_REFRESH_UNVERIFIED';
-  if (sample === undefined && !strict) return 'NO_BOUNDED_SAMPLE';
+  if (sample === undefined && !strict && !deep) return 'NO_BOUNDED_SAMPLE';
   if (costSensitive && !costApproved && !strict) return 'UNKNOWN_OR_EXTERNAL_COST';
   return null;
 }
@@ -511,7 +511,7 @@ export async function auditRuntimeCapabilities(runtime, {
       costApproved,
       strict,
     });
-    if (strict && blockedReason == null && sample === undefined) sample = {};
+    if ((strict || deep) && blockedReason == null && sample === undefined) sample = {};
     if (deep && blockedReason == null && typeof sample === 'function') {
       try {
         const sampleTimeoutMs = Math.max(50, Math.min(60_000, Number(executionTimeoutMs) || 15_000));
@@ -598,7 +598,11 @@ export async function auditRuntimeCapabilities(runtime, {
       tested_now: Boolean(execution),
       auto_execution_blocked: blockedReason,
       execution,
-      truth_status: classifyCapabilityTruth(record, execution),
+      truth_status: (() => {
+        const status = classifyCapabilityTruth(record, execution);
+        if ((deep || strict) && blockedReason && status === 'EXISTANT_NON_TESTE') return 'REFUSEE';
+        return status;
+      })(),
     };
     rows.push(row);
     if (progress) {
@@ -630,12 +634,13 @@ export async function auditRuntimeCapabilities(runtime, {
     valid: rows.filter(row => row.contract_valid === true).length,
     invalid: rows.filter(row => row.contract_valid === false).length,
   };
-  const verdict = strict ? strictVerdict(rows) : null;
+  const demanding = Boolean(strict || deep);
+  const verdict = demanding ? strictVerdict(rows) : null;
   return {
     ok: verdict ? verdict.passed : true,
     total: totalRecords,
     deep: Boolean(deep),
-    strict: Boolean(strict),
+    strict: demanding,
     strict_verdict: verdict,
     counts,
     contracts,

@@ -37,7 +37,7 @@ test('deep truth audit refuses GitHub-backed execution and health probes until e
     const row = blocked.capabilities.find(item => item.id === id);
     assert.equal(row.tested_now, false);
     assert.equal(row.auto_execution_blocked, 'UNKNOWN_OR_EXTERNAL_COST');
-    assert.equal(row.truth_status, 'EXISTANT_NON_TESTE');
+    assert.equal(row.truth_status, 'REFUSEE');
   }
 
   const approved = await auditRuntimeCapabilities(fake, {
@@ -49,6 +49,6 @@ test('deep truth audit refuses GitHub-backed execution and health probes until e
   assert.deepEqual(healthCalls, ['code.read']);
   assert.deepEqual(calls, ['code.read']);
   assert.equal(approved.capabilities.find(item => item.id === 'code.read').truth_status, 'EXISTANT_ET_TESTE');
-  assert.equal(approved.capabilities.find(item => item.id === 'code.search').auto_execution_blocked, 'NO_BOUNDED_SAMPLE');
-  assert.equal(approved.capabilities.find(item => item.id === 'code.integrity').auto_execution_blocked, 'NO_BOUNDED_SAMPLE');
+  assert.equal(approved.capabilities.find(item => item.id === 'code.search').auto_execution_blocked, 'UNKNOWN_OR_EXTERNAL_COST');
+  assert.equal(approved.capabilities.find(item => item.id === 'code.integrity').auto_execution_blocked, 'UNKNOWN_OR_EXTERNAL_COST');
 });

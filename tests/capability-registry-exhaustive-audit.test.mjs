@@ -48,6 +48,11 @@ test('deep capability audit executes every automatically-safe sample and none ma
   assert.deepEqual(offlineDependencyFailures, [
     { id: 'autonomy.activity', code: 'DB_BINDING_MISSING' },
     { id: 'autonomy.bridge.status', code: 'DB_BINDING_MISSING' },
+    { id: 'device.sync', code: 'MISSING_FIELD' },
+    { id: 'media.audio.analyze', code: 'AUDIO_INPUT_REQUIRED' },
+    { id: 'media.music.analyze', code: 'AUDIO_INPUT_REQUIRED' },
+    { id: 'melwork.compute.chunk', code: 'MISSING_FIELD' },
+    { id: 'melwork.practice', code: 'MISSING_FIELD' },
   ]);
   assert.ok(failed.every(row => row.truth_status === 'EXISTANT_MAIS_ECHEC_RUNTIME'),
     'missing offline dependencies must never be presented as executed successfully');

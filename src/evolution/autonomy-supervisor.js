@@ -126,10 +126,12 @@ function compareActiveJobs(left, right) {
     || String(left?.id || '').localeCompare(String(right?.id || ''));
 }
 
-export function selectActionableAutonomyJob(jobs = []) {
+export function selectActionableAutonomyJob(jobs = [], { epochMs = 0 } = {}) {
+  const epoch = Number(epochMs) || 0;
   return (Array.isArray(jobs) ? jobs : [])
     .filter(isSupervisedAutonomyJob)
     .filter((job) => !isPassiveRuntimeJob(job))
+    .filter((job) => Number(job?.created_at || 0) >= epoch)
     .sort(compareActiveJobs)[0] || null;
 }
 
@@ -157,12 +159,13 @@ export function isSupervisedAutonomyJob(job) {
 }
 
 export class AutonomySupervisor {
-  constructor({ repository, roadmap = flattenRoadmap(), evolutionLoader = null } = {}) {
+  constructor({ repository, roadmap = flattenRoadmap(), evolutionLoader = null, epochMs = 0 } = {}) {
     if (!repository || typeof repository.list !== 'function' || typeof repository.create !== 'function') {
       throw Object.assign(new Error('AUTONOMY_JOB_REPOSITORY_REQUIRED'), { code: 'AUTONOMY_JOB_REPOSITORY_REQUIRED' });
     }
     this.repository = repository;
     this.roadmap = roadmap;
+    this.epochMs = Number(epochMs) || 0;
     if (evolutionLoader !== null && typeof evolutionLoader !== 'function') throw new Error('EVOLUTION_QUEUE_INVALID_LOADER');
     this.evolutionLoader = evolutionLoader;
   }
@@ -172,7 +175,9 @@ export class AutonomySupervisor {
     // Only jobs created by the supervised autonomy channels may advance, block
     // or consume roadmap attempts. Legacy/manual Professor jobs remain visible
     // in the repository but cannot forge roadmap completion evidence.
-    const supervisedJobs = jobs.filter(isSupervisedAutonomyJob);
+    const supervisedJobs = jobs
+      .filter(isSupervisedAutonomyJob)
+      .filter((job) => Number(job?.created_at || 0) >= this.epochMs);
     const active = supervisedJobs.filter((job) => !TERMINAL_JOB.has(String(job.status || '').toUpperCase()));
     const activeIds = active.map(roadmapIdFromJob).filter(Boolean);
     const completedIds = supervisedJobs

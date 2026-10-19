@@ -233,7 +233,7 @@ test('deep audit executes bounded LOW-risk samples and reports failures instead 
   assert.ok(Number.isFinite(bad.execution.duration_ms));
   assert.equal(medium.tested_now, false);
   assert.equal(medium.auto_execution_blocked, 'RISK_NOT_LOW');
-  assert.equal(medium.truth_status, 'EXISTANT_NON_TESTE');
+  assert.equal(medium.truth_status, 'REFUSEE');
 });
 
 test('deep audit times out one hung LOW-risk smoke and continues with later capabilities', async () => {
@@ -284,10 +284,12 @@ test('deep audit explains every local reason that prevents bounded automatic exe
     samples:{ disabled:{}, high:{}, stub:{} },
   });
   assert.equal(report.capabilities.find(x => x.id === 'disabled').auto_execution_blocked, 'DISABLED');
-  assert.equal(report.capabilities.find(x => x.id === 'missing-sample').auto_execution_blocked, 'NO_BOUNDED_SAMPLE');
+  assert.equal(report.capabilities.find(x => x.id === 'missing-sample').truth_status, 'EXISTANT_ET_TESTE');
+  assert.equal(report.capabilities.find(x => x.id === 'missing-sample').auto_execution_blocked, null);
   assert.equal(report.capabilities.find(x => x.id === 'high').auto_execution_blocked, 'RISK_NOT_LOW');
+  assert.equal(report.capabilities.find(x => x.id === 'high').truth_status, 'REFUSEE');
   assert.equal(report.capabilities.find(x => x.id === 'stub').auto_execution_blocked, 'DECLARED_NON_EXECUTABLE');
-  assert.deepEqual(calls, []);
+  assert.deepEqual(calls, ['missing-sample']);
 });
 
 test('deep audit fails closed on provider/cost-sensitive samples until exact zero-cost proof is supplied', async () => {
@@ -312,7 +314,7 @@ test('deep audit fails closed on provider/cost-sensitive samples until exact zer
   const device = blocked.capabilities.find(x => x.id === 'device.policy.preview');
   assert.equal(webBlocked.tested_now, false);
   assert.equal(webBlocked.auto_execution_blocked, 'UNKNOWN_OR_EXTERNAL_COST');
-  assert.equal(webBlocked.truth_status, 'EXISTANT_NON_TESTE');
+  assert.equal(webBlocked.truth_status, 'REFUSEE');
   assert.equal(device.tested_now, true);
   assert.equal(device.auto_execution_blocked, null);
   assert.deepEqual(calls, ['device.policy.preview']);
@@ -326,7 +328,7 @@ test('deep audit fails closed on provider/cost-sensitive samples until exact zer
   assert.equal(webApproved.tested_now, true);
   assert.equal(webApproved.auto_execution_blocked, null);
   assert.equal(webApproved.truth_status, 'EXISTANT_ET_TESTE');
-  assert.deepEqual(calls, ['device.policy.preview', 'web.research']);
+  assert.deepEqual(calls, ['device.policy.preview', 'web.research', 'device.policy.preview']);
 });
 
 test('declared STUB and NOT_IMPLEMENTED capabilities cannot masquerade as healthy or be smoke-executed', async () => {
@@ -492,7 +494,7 @@ test('dynamic bounded fixture absence is reported without manufacturing a runtim
   const row=report.capabilities[0];
   assert.equal(row.tested_now,false);
   assert.equal(row.auto_execution_blocked,'NO_RUNTIME_FIXTURE');
-  assert.equal(row.truth_status,'EXISTANT_NON_TESTE');
+  assert.equal(row.truth_status,'REFUSEE');
   assert.equal(executions,0);
 });
 
@@ -553,7 +555,7 @@ test('deep audit proves contract of MEDIUM/HIGH capabilities without executing s
     assert.equal(row.contract.handler_registered, true);
     assert.equal(row.tested_now, false);
     assert.equal(row.auto_execution_blocked, 'RISK_NOT_LOW');
-    assert.equal(row.truth_status, 'EXISTANT_NON_TESTE');
+    assert.equal(row.truth_status, 'REFUSEE');
   }
   assert.equal(executions, 0);
 });
@@ -684,7 +686,7 @@ test('external connector reads stay inventoried in global stress without duplica
     const row=report.capabilities.find(item=>item.id===id);
     assert.equal(row.tested_now,false);
     assert.equal(row.auto_execution_blocked,'UNKNOWN_OR_EXTERNAL_COST');
-    assert.equal(row.truth_status,'EXISTANT_NON_TESTE');
+    assert.equal(row.truth_status,'REFUSEE');
   }
   assert.deepEqual(calls,['device.policy.preview']);
 });
@@ -713,7 +715,7 @@ test('automatic capability audit never supplies synthetic approval for recovery 
   for(const row of report.capabilities){
     assert.equal(row.auto_execution_blocked,'OWNER_APPROVAL_REQUIRED');
     assert.equal(row.tested_now,false);
-    assert.equal(row.truth_status,'EXISTANT_NON_TESTE');
+    assert.equal(row.truth_status,'REFUSEE');
   }
   assert.deepEqual(calls,[]);
 });
@@ -891,7 +893,7 @@ test('a long valid evolution ledger is unverified, never a false runtime failure
   assert.deepEqual(calls,[1],'the 80-row chain must not be partially verified as a whole');
   assert.equal(row.auto_execution_blocked,'NO_RUNTIME_FIXTURE');
   assert.equal(row.tested_now,false);
-  assert.equal(row.truth_status,'EXISTANT_NON_TESTE');
+  assert.equal(row.truth_status,'REFUSEE');
   assert.equal(report.counts.EXISTANT_MAIS_ECHEC_RUNTIME||0,0);
 });
 
