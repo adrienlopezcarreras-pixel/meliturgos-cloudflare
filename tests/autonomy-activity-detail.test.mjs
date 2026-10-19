@@ -65,3 +65,34 @@ test('header buttons follow the real control state and never act during a releas
   assert.match(page, /b\.disabled=autonomyControl\.paused===true/);
   assert.match(page, /setInterval\(\(\)=>\{if\(!document\.hidden\)loadAutonomy\(\)/);
 });
+
+test('an activity reset hides older jobs and cancels only the active supervised ones', async () => {
+  const { resetAutonomyActivityList, buildAutonomyActivity } = await import('../src/evolution/autonomy-activity.js');
+  const calls = [];
+  const now = 1_800_000_000_000;
+  const db = {
+    prepare(sql) {
+      let bound = [];
+      const st = {
+        bind(...args) { bound = args; return st; },
+        async run() { calls.push(sql); return { meta: { changes: 4 } }; },
+        async all() {
+          if (/FROM dev_jobs/.test(sql)) return { results: [
+            { id: 'old', status: 'FAILED', requested_by: 'mel-autonomy', goal: 'ancien', created_at: now - 10_000, updated_at: now - 10_000, result_json: '{}' },
+            { id: 'new', status: 'QUEUED', requested_by: 'mel-autonomy', goal: 'nouveau', created_at: now + 1000, updated_at: now + 1000, result_json: '{}' },
+          ] };
+          return { results: [] };
+        },
+        async first() { return bound[0] === 'activity-list-epoch' ? { last_seen: now } : null; },
+      };
+      return st;
+    },
+  };
+  const reset = await resetAutonomyActivityList(db, { now });
+  assert.equal(reset.cancelled_active, 4);
+  assert.match(calls[0], /UPDATE dev_jobs/);
+  assert.match(calls[1], /INSERT INTO dev_bridge_state/);
+  const view = await buildAutonomyActivity({ DB: db }, { now: now + 5000 });
+  assert.deepEqual(view.jobs.map(job => job.id), ['new']);
+  assert.equal(view.activity_list_epoch, now);
+});

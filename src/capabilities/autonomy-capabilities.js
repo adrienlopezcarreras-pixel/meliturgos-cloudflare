@@ -3,7 +3,7 @@ import { getAutonomyReadiness } from '../evolution/autonomy-readiness.js';
 import { runAutonomyRuntimeTick } from '../evolution/autonomy-runtime.js';
 import { getAutonomyControl, setAutonomyControl } from '../evolution/autonomy-control.js';
 import { D1EvolutionLedger } from '../evolution/evolution-ledger.js';
-import { buildAutonomyActivity } from '../evolution/autonomy-activity.js';
+import { buildAutonomyActivity, readActivityListEpoch } from '../evolution/autonomy-activity.js';
 
 function capabilityError(message, code = message) {
   const error = new Error(message);
@@ -172,10 +172,12 @@ export function registerAutonomyCapabilities(bus, env = {}) {
       repository.list(),
       ledger.listRecent({ limit: Math.min(500, limit * 5) }),
     ]);
+    const epoch = await readActivityListEpoch(env.DB);
     const supervised = (Array.isArray(allJobs) ? allJobs : [])
       .filter(job => {
         const requester = String(job?.requested_by || '').toLowerCase();
-        return requester === 'mel-autonomy' || requester.startsWith('owner-chat');
+        const created = Number(job?.created_at || 0);
+        return (requester === 'mel-autonomy' || requester.startsWith('owner-chat')) && (!epoch || created >= epoch);
       })
       .sort((a, b) => Number(b?.updated_at || 0) - Number(a?.updated_at || 0));
     const ids = new Set(supervised.map(job => String(job?.id || '')));
@@ -206,6 +208,7 @@ export function registerAutonomyCapabilities(bus, env = {}) {
       };
     });
     const events = (Array.isArray(recentLedger) ? recentLedger : [])
+      .filter(event => !epoch || Number(event?.occurred_at || 0) >= epoch)
       .filter(event => ids.has(String(event?.evolution_id || ''))
         || String(event?.actor || '').toLowerCase() === 'mel-autonomy'
         || String(event?.actor || '').toLowerCase().startsWith('owner-chat'))
@@ -239,6 +242,7 @@ export function registerAutonomyCapabilities(bus, env = {}) {
         recent_jobs_returned: jobs.length,
         recent_events_returned: events.length,
       },
+      activity_list_epoch: epoch || null,
       recent_jobs: jobs,
       recent_events: events,
     };
