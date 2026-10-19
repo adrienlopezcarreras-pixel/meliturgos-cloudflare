@@ -55,10 +55,13 @@ test('roadmap.read returns the real truth next to the declared roadmap', async (
   await exec(d, 'code.read', 'SUCCEEDED', 60_000);
   const bus = createDefaultCapabilityBus({ env: { DB: d } });
   const payload = await bus.execute('roadmap.read', {}, { owner: 'test', permissions: [] });
-  assert.equal(payload.summary.percent_complete, 94, '133 historical proofs stay verified; the 8 founder items stay open');
+  assert.equal(payload.summary.percent_complete, 92, '133 historical proofs stay verified; the founder cycle and the manifesto account stay open');
   const founder = payload.phases.find(phase => phase.id === 'P16');
+  const manifesto = payload.phases.find(phase => phase.id === 'P17');
   assert.equal(founder.items.length, 8);
   assert.equal(founder.items.some(item => item.status === 'DONE_VERIFIED'), false);
+  assert.equal(manifesto.items.length, 4);
+  assert.equal(manifesto.items.some(item => item.status === 'DONE_VERIFIED'), false);
   assert.equal(payload.truth.available, true);
   assert.equal(payload.truth.items['MEL-CODE-01'].truth, 'VERIFIED_LIVE');
   d.close();

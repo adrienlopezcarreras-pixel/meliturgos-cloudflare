@@ -31,7 +31,7 @@ test('MEL reconciliation keeps every registered capability unique, executable an
   }
 });
 
-test('MEL reconciliation roadmap leaves only the founder cycle open', () => {
+test('MEL reconciliation roadmap leaves the founder cycle and the manifesto account open', () => {
   const open = flattenRoadmap()
     .filter(row => row.status !== 'DONE_VERIFIED')
     .map(row => ({ id: row.id, status: row.status }));
@@ -44,5 +44,9 @@ test('MEL reconciliation roadmap leaves only the founder cycle open', () => {
     { id: 'MEL-FOUNDER-06', status: 'BLOCKED_HUMAN' },
     { id: 'MEL-FOUNDER-07', status: 'PLANNED' },
     { id: 'MEL-FOUNDER-08', status: 'PLANNED' },
+    { id: 'MEL-MANIFEST-01', status: 'PLANNED' },
+    { id: 'MEL-MANIFEST-02', status: 'PLANNED' },
+    { id: 'MEL-MANIFEST-03', status: 'PLANNED' },
+    { id: 'MEL-MANIFEST-04', status: 'PLANNED' },
   ]);
 });
