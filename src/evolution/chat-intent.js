@@ -74,7 +74,7 @@ export function inferSelfAuditIntent(text) {
   return { id: 'self.audit.run', input: { level: 'DAILY' } };
 }
 
-export function inferSelfStateIntent(text) {
+export function inferSelfStateIntent(text, { explicitOnly = false } = {}) {
   const value = String(text || '').trim();
   if (!value) return null;
 
@@ -84,7 +84,11 @@ export function inferSelfStateIntent(text) {
   const internalDomain = /\b(?:m[ée]moires?|chat\s*gpt|travaux?|jobs?|processus|code|repo|repository|d[ée]p[ôo]t|branche|branch|commit|d[ée]ploiement|runtime|changements?|modifications?|impl[ée]ment(?:ation|e|er|[ée]e?s?))\b/i.test(value);
   const currentState = /\b(?:en\s+cours|actuel(?:le|les|s)?|actuellement|maintenant|re[çc]ois|re[çc]oit|r[ée]cup[eè]r(?:e|es|[ée]e?s?)?|import(?:e|[ée]e?s?|ation)|synchronis(?:e|[ée]e?s?|ation)|impl[ée]ment(?:e|er|[ée]e?s?)?|changements?|statut|[ée]tat)\b/i.test(value);
 
-  if (!(self && asksObservation && (broadSelfState || (internalDomain && currentState)))) return null;
+  const loose = internalDomain && currentState;
+  const asksToShow = /\b(?:montre(?:-moi)?|affiche|observes?|observer)\b/i.test(value);
+  const asksForPlan = /\b(?:plan|prochaines?\s+actions?|poursuis|poursuivre|continue(?:r)?)\b/i.test(value);
+  const shownState = (broadSelfState || asksToShow) && !asksForPlan;
+  if (!(self && asksObservation && (shownState || (!explicitOnly && loose)))) return null;
   return { id: 'self.state', input: {} };
 }
 
@@ -202,7 +206,9 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
   const text = String(body.text ?? body.message ?? body.prompt ?? '').trim();
   if (!text) return request;
   const requestKey = body.client_message_id ?? body.message_id ?? body.request_id ?? body.id ?? '';
-  const selfStateFirst = inferSelfStateIntent(text);
+  // A long instruction may mention « travaux » and « état » without asking
+  // for the status sheet. Only an explicit state question keeps that route.
+  const selfStateFirst = inferSelfStateIntent(text, { explicitOnly: text.length > 280 });
   const knowledgeFirst = selfStateFirst ? null : inferKnowledgeCapability(text);
   const persistentKnowledgeFirst = knowledgeFirst && (
     knowledgeFirst.id !== 'knowledge.research'

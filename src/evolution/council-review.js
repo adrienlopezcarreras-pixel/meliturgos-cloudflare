@@ -39,7 +39,11 @@ export function decide(reviews) {
   const seen = new Set();
   for (const review of Array.isArray(reviews) ? reviews : []) {
     if (!review?.verdict) continue;
-    if (typeof review.summary === 'string' && review.summary.trim() === '') continue;
+    const summary = typeof review.summary === 'string' ? review.summary.trim() : null;
+    const blocking = Array.isArray(review.blocking) ? review.blocking.map(item => String(item).trim()).filter(Boolean) : [];
+    // An approval with a blank reason is not a review. A rejection that
+    // names a blocking reason still is, even when the summary is empty.
+    if (summary === '' && !(review.verdict === 'REJECT' && blocking.length)) continue;
     const model = String(review.model || '').trim();
     if (model) {
       if (seen.has(model)) continue;

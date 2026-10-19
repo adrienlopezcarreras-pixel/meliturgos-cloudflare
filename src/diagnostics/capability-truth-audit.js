@@ -634,13 +634,12 @@ export async function auditRuntimeCapabilities(runtime, {
     valid: rows.filter(row => row.contract_valid === true).length,
     invalid: rows.filter(row => row.contract_valid === false).length,
   };
-  const demanding = Boolean(strict || deep);
-  const verdict = demanding ? strictVerdict(rows) : null;
+  const verdict = strict ? strictVerdict(rows) : null;
   return {
     ok: verdict ? verdict.passed : true,
     total: totalRecords,
     deep: Boolean(deep),
-    strict: demanding,
+    strict: Boolean(strict),
     strict_verdict: verdict,
     counts,
     contracts,

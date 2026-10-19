@@ -19,7 +19,11 @@ function attr(attrs, name) {
 
 test('full control surface stays bounded and free of retired Vercel controls', () => {
   const rows = buttons();
-  assert.ok(rows.length <= 88, 'control surface grew beyond the audited 88-button budget');
+  assert.ok(rows.length <= 91, 'control surface grew beyond the audited 91-button budget');
+  assert.match(source, /id="melClearActivity"/);
+  assert.match(source, /id="mobileClearActivity"/);
+  assert.match(source, /\/api\/gen2\/autonomy\/activity\/reset/);
+  assert.match(source, /Rien n’est effacé de la base/);
   assert.ok(source.includes('href="/revenus"'), 'reconciled MEL WORK revenue route must remain in the desktop navigation');
   assert.ok(source.includes('<a class="nav-entry" href="/revenus">'), 'MEL WORK is a main navigation entry on desktop and in the mobile bar');
   assert.ok(!/\.nav a\[href="\/revenus"\][^{]*\{display:none/.test(source), 'MEL WORK is never hidden in the mobile bar');
@@ -83,6 +87,7 @@ test('responsive duplicate controls are limited to the audited autonomy/navigati
     '▶ démarrer cycle mel',
     'mettre mel en pause',
     'activité',
+    'vider la liste',
     'compétences',
     'feuille de route',
     'ordinateur',
