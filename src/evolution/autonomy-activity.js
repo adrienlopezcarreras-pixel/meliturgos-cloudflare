@@ -87,6 +87,14 @@ function obj(value) {
   return {};
 }
 
+function currentTeacherReview(job) {
+  const bridge = obj(job?.result_json?.teacher_bridge);
+  const review = bridge.review;
+  if (!review?.verdict) return null;
+  if (bridge.request?.request_id && review.request_id && review.request_id !== bridge.request.request_id) return null;
+  return review;
+}
+
 function diagnostic(value) {
   const d = obj(value);
   const code = d.code || d.status || d.reason || d.error || null;
@@ -98,14 +106,16 @@ function diagnostic(value) {
 export function jobPipeline(job) {
   const status = String(job?.status || '').toUpperCase();
   const r = obj(job?.result_json);
-  const review = r.teacher_bridge?.review || r.last_teacher_review || {};
+  const review = currentTeacherReview(job) || {};
   const completion = r.autonomy_completion || {};
   const prep = r.bridge_preparation || {};
   const impl = r.implementation_proposal || {};
+  const requestId = obj(r.teacher_bridge).request?.request_id || null;
+  const implMatches = !requestId || !impl.teacher_request_id || impl.teacher_request_id === requestId;
   const steps = [
     { key: 'chosen', label: 'Chantier choisi', done: true },
     { key: 'plan', label: 'Plan validé' + (review.owner_override === true || r.owner_max_autonomy ? ' (par MAX)' : ''), done: review.verdict === 'APPROVE_PLAN' || ['TEACHER_APPROVED', 'CLAIMED', 'APPLIED', 'TESTING', 'COMMITTED', 'COMPLETED'].includes(status) },
-    { key: 'code', label: 'Code écrit', done: String(impl.status || '').toUpperCase() === 'READY' || ['CLAIMED', 'APPLIED', 'TESTING', 'COMMITTED', 'COMPLETED'].includes(status) },
+    { key: 'code', label: 'Code écrit', done: (String(impl.status || '').toUpperCase() === 'READY' && implMatches) || ['CLAIMED', 'APPLIED', 'TESTING', 'COMMITTED', 'COMPLETED'].includes(status) },
     { key: 'package', label: 'Paquet prêt pour le pont', done: String(prep.status || '').toUpperCase() === 'READY' || ['CLAIMED', 'APPLIED', 'TESTING', 'COMMITTED', 'COMPLETED'].includes(status) },
     { key: 'candidate', label: 'Appliqué sur la candidate', done: Boolean(completion.candidate_sha) || ['APPLIED', 'TESTING', 'COMMITTED', 'COMPLETED'].includes(status) },
     { key: 'ci', label: 'CI complète verte', done: String(completion.ci?.conclusion || completion.ci?.status || '').toLowerCase() === 'success' || status === 'COMPLETED' },
@@ -118,7 +128,7 @@ export function jobPipeline(job) {
 export function describeJob(job, now = Date.now()) {
   const r = obj(job?.result_json);
   const status = String(job?.status || 'UNKNOWN').toUpperCase();
-  const review = r.teacher_bridge?.review || r.last_teacher_review || {};
+  const review = currentTeacherReview(job) || {};
   const completion = r.autonomy_completion || {};
   const prep = r.bridge_preparation || {};
   const updated = num(job?.updated_at) || 0;
