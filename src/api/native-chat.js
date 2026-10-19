@@ -34,7 +34,7 @@ import { plainChatMayStream, streamChatResponse } from './chat-stream.js';
 import { instrumentBus } from './chat-progress.js';
 import { runLocalPcModel } from '../models/local-pc-model.js';
 import { rankedStreamModels } from '../models/model-tournament.js';
-import { streamComputerAgent } from '../devices/computer-agent.js';
+import { runComputerAgent, streamComputerAgent } from '../devices/computer-agent.js';
 import { inferComputerAgentGoal } from '../devices/computer-agent-intent.js';
 import { parisTimeWindow } from './assistant-time.js';
 import { privateConnectedDataRequest } from './connected-data-intent.js';
@@ -1462,8 +1462,41 @@ export async function handleNativeChat(request, env, options = {}) {
   }
 
   // MEL takes control of Adrien's PC for multi-step goals (observe → act →
-  // verify → screenshot proof), streamed step by step to the chat.
-  const computerAgentGoal = (!releaseSmoke && !voiceReply && body.stream === true) ? inferComputerAgentGoal(text) : null;
+  // verify → screenshot proof). The web chat streams each step. The phone
+  // and MINI use the same agent and receive one JSON result.
+  const fromOwnedDevice = options?.source === 'android-companion' || options?.source === 'waveshare-terminal';
+  const computerAgentGoal = (!releaseSmoke && (!voiceReply || fromOwnedDevice) && (body.stream === true || fromOwnedDevice))
+    ? inferComputerAgentGoal(text) : null;
+  if (computerAgentGoal && fromOwnedDevice && body.stream !== true) {
+    let spoken = '';
+    const result = await runComputerAgent({
+      env,
+      goal: computerAgentGoal,
+      onEvent: event => { if (event?.type === 'end' && event.text) spoken = String(event.text); },
+    });
+    const responseText = spoken || (result.ok
+      ? `C’est fait sur ton PC : ${result.summary || 'terminé.'}`
+      : `Je n’ai pas pu le faire sur ton PC : ${result.summary || result.code || result.status || 'échec'}`);
+    const visible = result.screenshot ? `${responseText}\n\n${result.screenshot}` : responseText;
+    let archiveSaved = false;
+    if (service) {
+      try {
+        await service.archiveMessage({ conversationId, deviceId, role: 'user', content: text, timestamp: Date.now(), provenance: userProvenance, metadata: userMetadata });
+        await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: visible, model: 'mel-computer-agent', timestamp: Date.now() + 1, provenance: 'native-chat:computer-agent', metadata: { agent_status: result.status || result.code || null, proof: result.screenshot || null, source: options.source } });
+        archiveSaved = true;
+      } catch {}
+    }
+    return Response.json({
+      ok: result.ok === true,
+      text: visible,
+      model: 'mel-computer-agent',
+      provider: 'mel',
+      response_mode: 'computer-agent',
+      computer: { status: result.status || result.code || null, device_id: result.device || null, screenshot: result.screenshot || null },
+      capability_used: ['computer.use'],
+      archive_saved: archiveSaved,
+    }, { headers: { 'cache-control': 'no-store' } });
+  }
   if (computerAgentGoal) {
     return streamComputerAgent({
       env,
