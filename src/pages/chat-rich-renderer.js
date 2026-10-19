@@ -80,7 +80,7 @@ export const CHAT_RICH_RENDERER_SOURCE = String.raw`
       if(raw.startsWith('![')){
         const parts=raw.match(/^!\[([^\]\n]*)\]\(([^)\s]+)\)$/);
         const href=parts?safeUrl(parts[2]):null;
-        if(href&&mediaKind(href)==='image'){
+        if(href&&!/\.svg(?:$|\?)/i.test(href)){
           const img=document.createElement('img');
           img.className='mel-rich-inline';img.src=href;img.alt=parts[1]||'';img.referrerPolicy='no-referrer';
           parent.appendChild(img);
@@ -160,7 +160,15 @@ export const CHAT_RICH_RENDERER_SOURCE = String.raw`
       const imageLine=standalone.match(/^!\[([^\]\n]*)\]\((https?:\/\/[^)\s]+)\)$/);
       if(imageLine){
         const href=safeUrl(imageLine[2]);
-        if(href&&appendMedia(root,href,imageLine[1])){i++;continue}
+        if(href&&!/\.svg(?:$|\?)/i.test(href)){
+          const box=document.createElement('figure');
+          box.className='mel-rich-media';
+          const img=document.createElement('img');
+          img.src=href;img.alt=imageLine[1]||'';img.referrerPolicy='no-referrer';img.loading='lazy';
+          box.appendChild(img);
+          root.appendChild(box);
+          i++;continue;
+        }
       }
       const lone=standalone.match(/^(https?:\/\/\S+)$/);
       if(lone){

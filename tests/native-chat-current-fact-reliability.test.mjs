@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/index.js';
+import { inferCurrentFactVerificationPolicy } from '../src/api/current-fact-reliability.js';
 
 function authHeaders() {
   return {
@@ -52,6 +53,35 @@ test('current pope identity is forced through the stable Vatican source and reac
   assert.match(system, /Léon XIV/);
   assert.match(system, /Robert Francis Prevost/);
   assert.match(system, /vatican\.va/);
+});
+
+test('a mistyped request for a photo of the pope still requires the current Vatican fact', () => {
+  const policy = inferCurrentFactVerificationPolicy('donne moi un photo du papae');
+  assert.equal(policy?.strict, true);
+  assert.equal(policy?.role, 'pope');
+});
+
+test('a narrated tool call is replaced and the official portrait is shown', async () => {
+  const env = {
+    MELITURGOS_USER: 'test',
+    MELITURGOS_PASSWORD: 'test-only',
+    MEL_WEB_MIN_INTERVAL_MS: 0,
+    MEL_WEB_FETCH: async () => new Response(
+      '<html><head><title>Léon XIV</title><meta property="og:image" content="https://www.vatican.va/content/dam/vatican/holy-father/leo-xiv.jpg"></head><body>Léon XIV</body></html>',
+      { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } },
+    ),
+    AI: { async run() { return { response: 'We need to invoke the web.research tool.' }; } },
+  };
+  const response = await worker.fetch(new Request('https://mel.example/api/chat', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ text: 'montre moi un photo du pape', conversation_id: 'pope-image' }),
+  }), env);
+  const data = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(data));
+  assert.match(data.text, /Léon XIV/);
+  assert.match(data.text, /!\[[^\]]*\]\(https:\/\/www\.vatican\.va\/content\/dam\/vatican\/holy-father\/leo-xiv\.jpg\)/);
+  assert.doesNotMatch(data.text, /need to invoke/i);
 });
 
 test('strict current officeholder facts fail closed when authoritative evidence is unavailable', async () => {
