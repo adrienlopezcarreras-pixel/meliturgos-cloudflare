@@ -1,5 +1,6 @@
 import { DomainError, port, requireValue } from '../core/contracts.js';
 import { verifySnapshot } from './backup-service.js';
+import { stableStringify } from '../resilience/recovery-bundle.js';
 
 export const methods = ['plan', 'verify', 'restore'];
 export const RESTORE_PLAN_SCHEMA = 'MEL_RESTORE_PLAN_V1';
@@ -33,24 +34,51 @@ function validateDatabaseExport(value) {
 
 const PATRIMONY_TABLES = ['evolution_ledger', 'conversations', 'dev_jobs'];
 
-function patrimonyIds(rows) {
-  return rows.map(row => String(row?.id || row?.event_id || '')).join('\n');
+function validatePatrimonyExport(value) {
+  const validation = validateDatabaseExport(value);
+  if (!validation.ok) return validation;
+  const tables = new Map();
+  for (const table of asArray(value.tables)) {
+    const name = String(table.name);
+    if (tables.has(name)) return { ok: false, code: 'RESTORE_PATRIMONY_DUPLICATE_TABLE', table: name };
+    tables.set(name, table);
+  }
+  for (const name of PATRIMONY_TABLES) {
+    const table = tables.get(name);
+    if (!table) return { ok: false, code: 'RESTORE_PATRIMONY_TABLE_REQUIRED', table: name };
+    if (typeof table.schema !== 'string' || !table.schema.trim()) {
+      return { ok: false, code: 'RESTORE_PATRIMONY_SCHEMA_REQUIRED', table: name };
+    }
+    const idField = name === 'evolution_ledger' ? 'event_id' : 'id';
+    const ids = new Set();
+    for (const row of table.rows) {
+      const id = row?.[idField];
+      if (typeof id !== 'string' || !id.trim()) {
+        return { ok: false, code: 'RESTORE_PATRIMONY_ROW_ID_REQUIRED', table: name };
+      }
+      if (ids.has(id)) return { ok: false, code: 'RESTORE_PATRIMONY_DUPLICATE_ROW_ID', table: name };
+      ids.add(id);
+    }
+  }
+  return { ok: true, tables };
 }
 
-/** Compare two logical exports. It never writes production. */
+/** Compare complete patrimony data and schema without depending on export order or writing production. */
 export function comparePatrimonyExports(before, after) {
-  const left = validateDatabaseExport(before);
-  const right = validateDatabaseExport(after);
-  if (!left.ok) return { ok: false, side: 'before', code: left.code, production_written: false };
-  if (!right.ok) return { ok: false, side: 'after', code: right.code, production_written: false };
-  const beforeTables = new Map(before.tables.map(table => [String(table.name), table.rows]));
-  const afterTables = new Map(after.tables.map(table => [String(table.name), table.rows]));
+  const left = validatePatrimonyExport(before);
+  if (!left.ok) return { ...left, identical: false, side: 'before', production_written: false };
+  const right = validatePatrimonyExport(after);
+  if (!right.ok) return { ...right, identical: false, side: 'after', production_written: false };
   const tables = {};
   let identical = true;
   for (const name of PATRIMONY_TABLES) {
-    const previous = beforeTables.get(name) || [];
-    const next = afterTables.get(name) || [];
-    const same = previous.length === next.length && patrimonyIds(previous) === patrimonyIds(next);
+    const previousTable = left.tables.get(name);
+    const nextTable = right.tables.get(name);
+    const previous = previousTable.rows;
+    const next = nextTable.rows;
+    const same = previousTable.schema === nextTable.schema
+      && previous.length === next.length
+      && stableStringify(previous.map(stableStringify).sort()) === stableStringify(next.map(stableStringify).sort());
     if (!same) identical = false;
     tables[name] = { before: previous.length, after: next.length, same };
   }

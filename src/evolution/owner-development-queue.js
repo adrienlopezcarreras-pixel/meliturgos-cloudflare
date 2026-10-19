@@ -1,5 +1,5 @@
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
-import { prepareAutonomyTeacherRequest } from './autonomy-runtime.js';
+import { prepareAutonomyTeacherRequest, validateCandidateBranches } from './autonomy-runtime.js';
 import { proposeModuleDraft, proposePluginDraft, enterModuleLabForGap } from '../capabilities/module-proposal-capability.js';
 import { createModuleLab } from '../modules/module-lab.js';
 
@@ -216,6 +216,7 @@ export async function enqueueSupervisedDevelopmentRequest({
   roadmapId = '',
   inspectionPaths = [],
   inspectionQueries = [],
+  waitUntil = null,
 } = {}) {
   const objective = boundedGoal(goal);
   const requester = String(requestedBy || '').trim();
@@ -310,18 +311,49 @@ export async function enqueueSupervisedDevelopmentRequest({
     optional_context: idempotencyContext,
   };
 
+  // Validate the same candidate-only boundary as the autonomy runtime before
+  // durable admission, even when Council work will run after the HTTP response.
+  validateCandidateBranches(env);
   const createdResult = typeof repo.createIfAbsent === 'function'
     ? await repo.createIfAbsent(input)
     : { created: true, job: await repo.create(input) };
   let job = createdResult.job;
   let teacher = null;
 
-  if (['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE'].includes(String(job.status || '').toUpperCase())) {
-    teacher = await prepareAutonomyTeacherRequest({ env, repository: repo, job, fetchImpl });
-    job = await repo.get(job.id);
-  }
-  job = await persistModuleLabNeed(repo, job);
+  const advance = async () => {
+    const latest = await repo.get(job.id);
+    if (!latest) throw Object.assign(new Error('DEVELOPMENT_JOB_NOT_FOUND'), { code:'DEVELOPMENT_JOB_NOT_FOUND' });
+    let updated = latest;
+    if (['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE'].includes(String(updated.status || '').toUpperCase())) {
+      await prepareAutonomyTeacherRequest({ env, repository: repo, job: updated, fetchImpl });
+      updated = await repo.get(updated.id);
+    }
+    return persistModuleLabNeed(repo, updated);
+  };
 
+  // The durable queue is authoritative. On a fresh owner request use the
+  // existing Worker waitUntil hook to begin the same preflight immediately,
+  // while the normal autonomy tick remains the retry path after interruption.
+  // Never schedule another Council run for a replayed message.
+  if (typeof waitUntil === 'function') {
+    let scheduled = false;
+    if (createdResult.created) {
+      try {
+        waitUntil(advance().catch(error => {
+          console.error('[MEL development] queued preflight failed', String(error?.code || error?.message || 'DEVELOPMENT_PREFLIGHT_FAILED'));
+        }));
+        scheduled = true;
+      } catch {
+        // The job is still QUEUED in D1 and eligible for the runtime tick.
+      }
+    }
+    // A replay observes the same durable job without launching a second
+    // Council in the request handler or duplicating the scheduled preflight.
+    return { ...publicJob(job, { created:createdResult.created, teacher:null }), preflight_scheduled: scheduled };
+  }
+
+  job = await advance();
+  teacher = job?.result_json?.teacher_bridge || null;
   return publicJob(job, { created: createdResult.created, teacher });
 }
 

@@ -7,8 +7,19 @@ function context() {
   return { owner: 'audit-owner', permissions: [], requestId: crypto.randomUUID() };
 }
 
+function offlineRuntime() {
+  // This unit harness has no external accounts. Exercise GitHub dependency
+  // refusals through the existing reader hook, rather than a live network
+  // request whose duration can exceed the audit budget. Live proofs are separate.
+  return createGen2Runtime({
+    env: {
+      MEL_GITHUB_FETCH: async () => new Response('GitHub unavailable in offline audit fixture', { status: 503 }),
+    },
+  });
+}
+
 test('every registered runtime capability is unique, inventoried and truth-classified', async () => {
-  const runtime = createGen2Runtime({ env: {} });
+  const runtime = offlineRuntime();
   const records = runtime.bus.list();
   const ids = records.map(row => row.id);
   assert.equal(new Set(ids).size, ids.length, 'capability ids must be unique');
@@ -28,7 +39,7 @@ test('every registered runtime capability is unique, inventoried and truth-class
 });
 
 test('deep capability audit executes every automatically-safe sample and none may fail silently', async () => {
-  const runtime = createGen2Runtime({ env: {} });
+  const runtime = offlineRuntime();
   const report = await auditRuntimeCapabilities(runtime, { deep: true, context: context() });
 
   assert.equal(report.total, runtime.bus.list().length);

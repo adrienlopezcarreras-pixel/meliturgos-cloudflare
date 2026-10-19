@@ -32,6 +32,31 @@ function sequenceProvider(id, payloads, calls) {
   };
 }
 
+test('mentor rejects an oversized proposal instead of silently accepting its first files', async () => {
+  const changes = Array.from({ length: mentorPolicy.max_changes + 1 }, (_, index) => ({
+    path: `src/example-${index}.js`, content: `export const value = ${index};\n`,
+  }));
+  const engine = new MentorEngine({ providerFactory: async () => [provider('oversized', { changes })] });
+  await assert.rejects(() => engine.propose({ env: {}, goal: 'Preserve the entire proposed change set', inspectedFiles: [{ path: 'src/example-0.js', content: 'export const value = -1;\n' }] }), error => {
+    assert.equal(error.code, 'MENTOR_NO_VALID_CODE_PROPOSAL');
+    assert.ok(error.failures.every(failure => failure.error === 'MENTOR_INVALID_CHANGE'));
+    return true;
+  });
+});
+
+test('mentor rejects conflicting duplicate paths instead of dropping the second file', async () => {
+  const changes = [
+    { path: 'src/example.js', content: 'export const value = 1;\n' },
+    { path: 'src/example.js', content: 'export const value = 2;\n' },
+  ];
+  const engine = new MentorEngine({ providerFactory: async () => [provider('ambiguous', { changes })] });
+  await assert.rejects(() => engine.propose({ env: {}, goal: 'Require one complete version per file', inspectedFiles: [{ path: 'src/example.js', content: 'export const value = 0;\n' }] }), error => {
+    assert.equal(error.code, 'MENTOR_NO_VALID_CODE_PROPOSAL');
+    assert.ok(error.failures.every(failure => failure.error === 'MENTOR_INVALID_CHANGE'));
+    return true;
+  });
+});
+
 test('mentor engine selects a valid multi-provider code proposal and stores it as an unvalidated observation', async () => {
   const DB = sqliteD1();
   try {
@@ -267,3 +292,101 @@ test('mentor failure diagnostics classify malformed JSON without exposing model 
     }
   );
 });
+
+test('mentor accepts every complete delimited file with CRLF without changing internal line endings', async () => {
+  const firstContent = 'export function first() {\r\n  return true;\r\n}';
+  const secondContent = 'export const second = true;';
+  const raw = [
+    'SUMMARY Two complete files',
+    'TESTS test:smoke test:integration',
+    'FILE src/first.js',
+    '<<<MEL_FILE',
+    firstContent,
+    'MEL_FILE',
+    'FILE src/second.js',
+    '<<<MEL_FILE',
+    secondContent,
+    'MEL_FILE',
+  ].join('\r\n');
+  const engine = new MentorEngine({ providerFactory: async () => [provider('coder-crlf', raw)] });
+
+  const result = await engine.propose({
+    env: {},
+    goal: 'Propose two complete files',
+    inspectedFiles: [{ path: 'src/first.js', content: 'export const first = false;\n' }],
+  });
+
+  assert.deepEqual(result.proposal.changes.map(({ path, content }) => ({ path, content })), [
+    { path: 'src/first.js', content: firstContent },
+    { path: 'src/second.js', content: secondContent },
+  ]);
+  assert.deepEqual(result.proposal.tests, ['test:smoke', 'test:integration']);
+  assert.equal(result.council.structured_repair_attempted, false);
+});
+
+test('mentor rejects the entire delimited proposal when a later file is truncated', async () => {
+  const raw = 'FILE src/first.js\n<<<MEL_FILE\nexport const first = true;\nMEL_FILE\nFILE src/second.js\n<<<MEL_FILE\nexport const second =';
+  const calls = [];
+  const engine = new MentorEngine({ providerFactory: async () => [sequenceProvider('coder-truncated', [raw], calls)] });
+
+  await assert.rejects(
+    () => engine.propose({
+      env: {},
+      goal: 'Reject an incomplete multi-file implementation',
+      inspectedFiles: [{ path: 'src/first.js', content: 'export const first = false;\n' }],
+    }),
+    error => {
+      assert.equal(error.code, 'MENTOR_NO_VALID_CODE_PROPOSAL');
+      assert.equal(error.repair_attempted, true);
+      assert.deepEqual(error.failures.map(({ error, stage }) => ({ error, stage })), [
+        { error: 'MENTOR_INVALID_CHANGE', stage: 'initial' },
+        { error: 'MENTOR_INVALID_CHANGE', stage: 'repair' },
+      ]);
+      return true;
+    },
+  );
+  assert.equal(calls.length, 2);
+  assert.match(calls[1].input.input, /ERREUR_DE_VALIDATION: MENTOR_INVALID_CHANGE/);
+});
+
+test('mentor repairs an incomplete multi-file response before accepting the full proposal', async () => {
+  const raw = 'FILE src/first.js\n<<<MEL_FILE\nexport const first = true;\nMEL_FILE\nFILE src/second.js\n<<<MEL_FILE\nexport const second =';
+  const repaired = `${raw} true;\nMEL_FILE`;
+  const calls = [];
+  const engine = new MentorEngine({ providerFactory: async () => [sequenceProvider('coder-repair-complete', [raw, repaired], calls)] });
+
+  const result = await engine.propose({
+    env: {},
+    goal: 'Repair a truncated proposal as a whole',
+    inspectedFiles: [{ path: 'src/first.js', content: 'export const first = false;\n' }],
+  });
+
+  assert.equal(result.council.selected_from_repair, true);
+  assert.equal(result.council.structured_repair_valid_proposals, 1);
+  assert.deepEqual(result.proposal.changes.map(change => change.path), ['src/first.js', 'src/second.js']);
+  assert.equal(result.proposal.changes[1].content, 'export const second = true;');
+  assert.equal(calls.length, 2);
+});
+
+for (const format of ['json', 'delimited']) {
+  test(`mentor rejects a unified diff supplied as a complete ${format} file`, async () => {
+    const content = '--- a/src/example.js\n+++ b/src/example.js\n@@ -1 +1 @@\n-export const ready = false;\n+export const ready = true;\n';
+    const raw = format === 'json'
+      ? JSON.stringify({ changes: [{ path: 'src/example.js', content }] })
+      : `FILE src/example.js\n<<<MEL_FILE\n${content}\nMEL_FILE`;
+    const engine = new MentorEngine({ providerFactory: async () => [provider(`coder-diff-${format}`, raw)] });
+
+    await assert.rejects(
+      () => engine.propose({
+        env: {},
+        goal: 'Only accept complete source files',
+        inspectedFiles: [{ path: 'src/example.js', content: 'export const ready = false;\n' }],
+      }),
+      error => {
+        assert.equal(error.code, 'MENTOR_NO_VALID_CODE_PROPOSAL');
+        assert.deepEqual(error.failures.map(row => row.error), ['MENTOR_INVALID_CHANGE', 'MENTOR_INVALID_CHANGE']);
+        return true;
+      },
+    );
+  });
+}

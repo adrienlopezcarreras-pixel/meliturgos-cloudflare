@@ -982,4 +982,19 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     created_at: 1792325200000,
   }),
 
+  Object.freeze({
+    id: 'mentor-complete-proposal-validation-20261019',
+    source: 'codex',
+    domain: 'development-proposal-validation',
+    task: 'Valider une proposition multi-fichier avant de préparer son paquet Teacher.',
+    input: 'Une réponse de modèle peut contenir un fichier complet suivi d’un bloc tronqué, trop de changements ou plusieurs versions d’un même chemin.',
+    before: 'Extraire les blocs qui semblent valides, tronquer la liste à la limite ou ignorer un doublon, puis préparer un paquet partiel.',
+    after: 'Consommer et valider toute la proposition avant de la conserver : tous les fichiers doivent être complets, les chemins uniques et les limites respectées. Accepter LF et CRLF sans modifier le contenu; refuser placeholders et diffs. En cas d’erreur, effectuer seulement la réparation bornée existante et transmettre le code exact; ne persister aucun paquet partiel ni observation de succès.',
+    rationale: 'Une extraction partielle transforme une réponse invalide en changement apparemment valide et peut perdre une partie de l’intention avant le contrôle Teacher.',
+    tests: ['tests/mentor-engine.test.mjs: propositions tronquées, CRLF, diffs, dépassement de limite et doublons', 'tests/autonomy-bridge-preparer.test.mjs: vrai MentorEngine, réparation complète et persistance SQLite locale, sans contournement Teacher'],
+    tags: ['mentor', 'validation', 'complete-files', 'fail-closed', 'teacher'],
+    validated: true,
+    quality: 1,
+    created_at: 1792438446000,
+  }),
 ]);
