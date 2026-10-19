@@ -142,8 +142,9 @@ export function selectActionableAutonomyJob(jobs = [], { epochMs = 0 } = {}) {
   const epoch = Number(epochMs) || 0;
   return (Array.isArray(jobs) ? jobs : [])
     .filter(isSupervisedAutonomyJob)
+    .filter((job) => !TERMINAL_JOB.has(String(job?.status || '').toUpperCase()))
     .filter((job) => !isPassiveRuntimeJob(job))
-    .filter((job) => Number(job?.created_at || 0) >= epoch)
+    .filter((job) => !epoch || Number(job?.created_at || 0) >= epoch)
     .sort(compareActiveJobs)[0] || null;
 }
 
@@ -171,8 +172,10 @@ function roadmapIdFromJob(job) {
   return job?.optional_context?.roadmap_id || null;
 }
 
-function jobAttemptId(itemId, attempt) {
-  return `mel-autonomy-${String(itemId).toLowerCase().replace(/[^a-z0-9-]+/g, '-')}-${attempt}`.slice(0, 180);
+function jobAttemptId(itemId, attempt, epochMs = 0) {
+  const suffix = `${epochMs > 0 ? `-e${epochMs}` : ''}-${attempt}`;
+  const prefix = `mel-autonomy-${String(itemId).toLowerCase().replace(/[^a-z0-9-]+/g, '-')}`;
+  return prefix.slice(0, 180 - suffix.length) + suffix;
 }
 
 export function isSupervisedAutonomyJob(job) {
@@ -198,7 +201,7 @@ export class AutonomySupervisor {
     // in the repository but cannot forge roadmap completion evidence.
     const supervisedJobs = jobs
       .filter(isSupervisedAutonomyJob)
-      .filter((job) => Number(job?.created_at || 0) >= this.epochMs);
+      .filter((job) => !this.epochMs || Number(job?.created_at || 0) >= this.epochMs);
     const active = supervisedJobs.filter((job) => !TERMINAL_JOB.has(String(job.status || '').toUpperCase()));
     const activeIds = active.map(roadmapIdFromJob).filter(Boolean);
     const completedIds = supervisedJobs
@@ -253,7 +256,7 @@ export class AutonomySupervisor {
 
   async ensureNextJob() {
     const current = await this.state();
-    const actionable = selectActionableAutonomyJob(current.active);
+    const actionable = selectActionableAutonomyJob(current.active, { epochMs: this.epochMs });
     if (actionable) return { created: false, job: actionable, next: current.next };
 
     // Teacher, Bridge execution and CI/review are validation/execution lanes,
@@ -297,7 +300,7 @@ export class AutonomySupervisor {
 
     const item = current.next;
     const attempts = current.supervisedJobs.filter((job) => roadmapIdFromJob(job) === item.id).length;
-    const deterministicId = jobAttemptId(item.id, attempts + 1);
+    const deterministicId = jobAttemptId(item.id, attempts + 1, this.epochMs);
     const goal = `[${item.id}] ${item.title}${item.next ? ` — ${item.next}` : ''} | OBJECTIF ${manifestObjective(this.roadmap)}`;
     const input = {
       id: deterministicId,

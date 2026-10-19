@@ -106,9 +106,9 @@ test('tampered verified snapshot is rejected before restore planning', async () 
 test('patrimony comparison reads two exports and writes nothing', () => {
   const table = (name, ids) => ({
     name,
-    schema: 'CREATE TABLE ' + name + '(id TEXT)',
+    schema: 'CREATE TABLE ' + name + '(' + (name === 'evolution_ledger' ? 'event_id' : 'id') + ' TEXT)',
     rowCount: ids.length,
-    rows: ids.map(id => ({ id })),
+    rows: ids.map(id => ({ [name === 'evolution_ledger' ? 'event_id' : 'id']: id })),
   });
   const pack = (ledger, conversations, jobs) => ({
     type: 'MEL_D1_LOGICAL_EXPORT_V1',
@@ -135,9 +135,9 @@ test('the patrimony comparison is a real capability and writes nothing', async (
     tableCount: 3,
     tables: ['evolution_ledger', 'conversations', 'dev_jobs'].map(name => ({
       name,
-      schema: 'CREATE TABLE ' + name + '(id TEXT)',
+      schema: 'CREATE TABLE ' + name + '(' + (name === 'evolution_ledger' ? 'event_id' : 'id') + ' TEXT)',
       rowCount: ids.length,
-      rows: ids.map(id => ({ id })),
+      rows: ids.map(id => ({ [name === 'evolution_ledger' ? 'event_id' : 'id']: id })),
     })),
   });
   const result = await runtime.bus.execute('backup.patrimony.compare', {
@@ -148,4 +148,147 @@ test('the patrimony comparison is a real capability and writes nothing', async (
   assert.equal(result.identical, false);
   assert.equal(result.production_written, false);
   assert.equal(result.tables.evolution_ledger.after, 2);
+});
+
+function patrimonyFixture() {
+  return {
+    type: 'MEL_D1_LOGICAL_EXPORT_V1',
+    tableCount: 3,
+    tables: [
+      { name: 'evolution_ledger', schema: 'CREATE TABLE evolution_ledger(event_id TEXT UNIQUE, evidence_json TEXT)', rows: [
+        { event_id: 'e1', evidence_json: '{"verified":true}' },
+        { event_id: 'e2', evidence_json: '{"verified":false}' },
+      ] },
+      { name: 'conversations', schema: 'CREATE TABLE conversations(id TEXT PRIMARY KEY, title TEXT)', rows: [
+        { id: 'c1', title: 'Conversation originale' },
+      ] },
+      { name: 'dev_jobs', schema: 'CREATE TABLE dev_jobs(id TEXT PRIMARY KEY, result_json TEXT)', rows: [
+        { id: 'j1', result_json: '{"status":"WAITING_TEACHER"}' },
+      ] },
+    ].map(table => ({ ...table, rowCount: table.rows.length })),
+  };
+}
+
+test('patrimony comparison rejects changed content even when every identity and row count is preserved', () => {
+  const before = patrimonyFixture();
+  for (const [name, field] of [['evolution_ledger', 'evidence_json'], ['conversations', 'title'], ['dev_jobs', 'result_json']]) {
+    const after = structuredClone(before);
+    after.tables.find(table => table.name === name).rows[0][field] = 'corrupted';
+    const result = comparePatrimonyExports(before, after);
+    assert.equal(result.ok, true);
+    assert.equal(result.identical, false, name + ' content must be compared');
+    assert.equal(result.tables[name].same, false);
+    assert.equal(result.production_written, false);
+  }
+  assert.deepEqual(before, patrimonyFixture(), 'comparison must not mutate the source export');
+});
+
+test('patrimony comparison accepts the same complete data in a different table, row and property order', () => {
+  const before = patrimonyFixture();
+  const after = structuredClone(before);
+  after.tables.reverse();
+  for (const table of after.tables) {
+    table.rows.reverse();
+    table.rows = table.rows.map(row => Object.fromEntries(Object.entries(row).reverse()));
+  }
+  const result = comparePatrimonyExports(before, after);
+  assert.equal(result.ok, true);
+  assert.equal(result.identical, true);
+  assert.equal(result.production_written, false);
+});
+
+test('patrimony comparison fails closed when a required table is absent, even from both exports', () => {
+  for (const side of ['before', 'after', 'both']) {
+    const before = patrimonyFixture();
+    const after = patrimonyFixture();
+    for (const pack of side === 'before' ? [before] : side === 'after' ? [after] : [before, after]) {
+      pack.tables = pack.tables.filter(table => table.name !== 'dev_jobs');
+      pack.tableCount = pack.tables.length;
+    }
+    const result = comparePatrimonyExports(before, after);
+    assert.equal(result.ok, false);
+    assert.equal(result.identical, false);
+    assert.equal(result.code, 'RESTORE_PATRIMONY_TABLE_REQUIRED');
+    assert.equal(result.side, side === 'both' ? 'before' : side);
+    assert.equal(result.table, 'dev_jobs');
+    assert.equal(result.production_written, false);
+  }
+});
+
+test('patrimony comparison rejects duplicate tables and missing or duplicate row identities', () => {
+  const cases = [
+    {
+      code: 'RESTORE_PATRIMONY_DUPLICATE_TABLE',
+      mutate(pack) { pack.tables.push(structuredClone(pack.tables[0])); pack.tableCount += 1; },
+    },
+    {
+      code: 'RESTORE_PATRIMONY_SCHEMA_REQUIRED',
+      mutate(pack) { pack.tables[0].schema = null; },
+    },
+    {
+      code: 'RESTORE_PATRIMONY_ROW_ID_REQUIRED',
+      mutate(pack) { delete pack.tables[0].rows[0].event_id; },
+    },
+    {
+      code: 'RESTORE_PATRIMONY_DUPLICATE_ROW_ID',
+      mutate(pack) { pack.tables[0].rows[1].event_id = pack.tables[0].rows[0].event_id; },
+    },
+  ];
+  for (const { code, mutate } of cases) {
+    const pack = patrimonyFixture();
+    mutate(pack);
+    const result = comparePatrimonyExports(pack, structuredClone(pack));
+    assert.equal(result.ok, false, code);
+    assert.equal(result.identical, false);
+    assert.equal(result.code, code);
+    assert.equal(result.side, 'before');
+    assert.equal(result.table, 'evolution_ledger');
+    assert.equal(result.production_written, false);
+  }
+});
+
+test('patrimony comparison detects lost columns or schema constraints without exposing row contents', () => {
+  const before = patrimonyFixture();
+  const after = structuredClone(before);
+  after.tables[0].schema = 'CREATE TABLE evolution_ledger(event_id TEXT, evidence_json TEXT)';
+  const result = comparePatrimonyExports(before, after);
+  assert.equal(result.ok, true);
+  assert.equal(result.identical, false);
+  assert.equal(result.tables.evolution_ledger.same, false);
+  assert.equal(JSON.stringify(result).includes('verified'), false);
+});
+
+test('patrimony guard compares real isolated SQLite exports and detects a corrupted restored row', async () => {
+  const { sqliteD1 } = await import('./helpers/sqlite-d1.mjs');
+  const { exportD1SystemState } = await import('../src/backup/system-backup-runtime.js');
+  const source = sqliteD1();
+  const restored = sqliteD1();
+  try {
+    const fixture = patrimonyFixture();
+    for (const database of [source, restored]) {
+      for (const table of fixture.tables) {
+        await database.prepare(table.schema).run();
+        for (const row of database === restored ? [...table.rows].reverse() : table.rows) {
+          const columns = Object.keys(row);
+          await database.prepare(
+            `INSERT INTO ${table.name} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`
+          ).bind(...Object.values(row)).run();
+        }
+      }
+    }
+    const before = await exportD1SystemState(source, { pageSize: 1 });
+    const after = await exportD1SystemState(restored, { pageSize: 1 });
+    assert.equal(comparePatrimonyExports(before, after).identical, true);
+
+    await restored.prepare('UPDATE dev_jobs SET result_json = ? WHERE id = ?').bind('lost evidence', 'j1').run();
+    const corrupted = comparePatrimonyExports(before, await exportD1SystemState(restored));
+    assert.equal(corrupted.ok, true);
+    assert.equal(corrupted.identical, false);
+    assert.equal(corrupted.tables.dev_jobs.same, false);
+    assert.equal(corrupted.production_written, false);
+    assert.deepEqual(await exportD1SystemState(source), before, 'the source database remains unchanged');
+  } finally {
+    source.close();
+    restored.close();
+  }
 });

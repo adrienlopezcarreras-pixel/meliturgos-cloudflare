@@ -12,6 +12,22 @@ import { runRuntimeWorkDagResumeProof } from './autonomy-proof.js';
 import { prepareApprovedImplementationProposal } from './autonomy-implementation-planner.js';
 import { prepareApprovedBridgePackage } from './autonomy-bridge-preparer.js';
 import { droppedTeacherApproval } from '../teachers/owner-max-approval.js';
+import { readActivityListEpoch } from './autonomy-activity.js';
+
+// Bound active reconciliation/sweeps to the same activity generation as the
+// scheduler. The underlying repository still retains its complete journal.
+export function currentAutonomyRepository(repository, epochMs = 0) {
+  const epoch = Math.max(0, Number(epochMs) || 0);
+  return new Proxy(repository, {
+    get(target, key) {
+      if (key === 'list') return async () => (await target.list()).filter(job =>
+        (!epoch || Number(job?.created_at || 0) >= epoch)
+        && String(job?.status || '').toUpperCase() !== 'CANCELLED');
+      const value = Reflect.get(target, key, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
 
 const USEFUL_AUTONOMY_EVENTS = new Set([
   'JOB_COMPLETED',
@@ -422,15 +438,17 @@ export function autonomyQueueReadBlocker(state) {
     : null;
 }
 
-export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repository = null, benchmarkEvaluator = null, benchmarkModelId = '', roadmap = null, maxAutonomy = false } = {}) {
+export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repository = null, benchmarkEvaluator = null, benchmarkModelId = '', roadmap = null, maxAutonomy = false, epochMs = null } = {}) {
   const jobRepository = repository || new D1DevJobRepository(env.DB);
-  const reconciliation = await reconcileRuntimeTeacherReplies({ repository: jobRepository, env, fetchImpl }).catch((error) => ({
+  const activityEpoch = epochMs ?? await readActivityListEpoch(env?.DB);
+  const currentRepository = currentAutonomyRepository(jobRepository, activityEpoch);
+  const reconciliation = await reconcileRuntimeTeacherReplies({ repository: currentRepository, env, fetchImpl }).catch((error) => ({
     ok: false,
     error: error?.code || error?.message || 'TEACHER_RECONCILE_FAILED',
     applied: [],
   }));
 
-  const completions = await reconcileRuntimeCompletions({ repository: jobRepository, env, fetchImpl, benchmarkEvaluator, benchmarkModelId }).catch((error) => ({
+  const completions = await reconcileRuntimeCompletions({ repository: currentRepository, env, fetchImpl, benchmarkEvaluator, benchmarkModelId }).catch((error) => ({
     ok: false,
     error: error?.code || error?.message || 'COMPLETION_RECONCILE_FAILED',
     completed: [],
@@ -440,6 +458,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   const evolutionLoader = !roadmap ? createRuntimeEvolutionLoader(env) : null;
   const supervisor = new AutonomySupervisor({
     repository: jobRepository,
+    epochMs: activityEpoch,
     ...(roadmap ? { roadmap } : {}),
     evolutionLoader,
   });

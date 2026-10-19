@@ -2,13 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { prepareApprovedBridgePackage, normalizeTests } from '../src/evolution/autonomy-bridge-preparer.js';
+import { MentorEngine } from '../src/learning/mentor-engine.js';
+import { MentorMemoryRepository } from '../src/learning/mentor-memory.js';
+import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 
 const SHA = 'cccccccccccccccccccccccccccccccccccccccc';
 const BRANCH = 'candidate/augmentio-core';
 const REQUEST = 'bridge-prep-request';
 
-async function approvedRepository() {
-  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+async function approvedRepository(db = null) {
+  const repository = new D1DevJobRepository(db, { memoryStore: new Map() });
   const job = await repository.create({ id: 'bridge-prep-job', requested_by: 'mel-autonomy', goal: 'Ajouter une petite capacité testée' });
   await repository.update(job.id, {
     status: 'TEACHER_APPROVED',
@@ -219,4 +222,94 @@ test('bridge preparation fails closed on stale candidate or missing Teacher appr
 test('bridge test normalization allows only bounded named scripts', () => {
   assert.deepEqual(normalizeTests(['test:smoke','arbitrary','test:integration','test:smoke']).map(row => row.command), ['test:smoke','test:integration']);
   assert.deepEqual(normalizeTests([]).map(row => row.command), ['test:smoke']);
+});
+
+test('simulated provider output passes through the real MentorEngine repair to a persisted Teacher-approved package', async () => {
+  const DB = sqliteD1();
+  try {
+    const repository = await approvedRepository(DB);
+    const incomplete = 'FILE src/example.js\n<<<MEL_FILE\nexport const ready = true;\nMEL_FILE\nFILE tests/example.test.mjs\n<<<MEL_FILE\nimport assert from';
+    const complete = `${incomplete} 'node:assert/strict';\nassert.equal(true, true);\nMEL_FILE`.replace(/\n/g, '\r\n');
+    const calls = [];
+    const engine = new MentorEngine({
+      memory: new MentorMemoryRepository(DB),
+      providerFactory: async () => [{
+        id: 'simulated-code-provider',
+        providerId: 'fixture',
+        modelId: 'fixture-code',
+        async invoke(input) {
+          calls.push(input);
+          return { text: calls.length === 1 ? incomplete : complete };
+        },
+      }],
+    });
+
+    const prepared = await prepareApprovedBridgePackage({
+      env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
+      repository,
+      job: await repository.get('bridge-prep-job'),
+      fetchImpl: fetchImpl(),
+      mentorEngine: engine,
+    });
+
+    const stored = await new D1DevJobRepository(DB).get('bridge-prep-job');
+    assert.equal(prepared.status, 'READY');
+    assert.equal(prepared.mentor.council.selected_from_repair, true);
+    assert.deepEqual(prepared.mentor.council.rejected_proposals, [
+      { provider: 'simulated-code-provider', error: 'MENTOR_INVALID_CHANGE', stage: 'initial' },
+    ]);
+    assert.equal(calls.length, 2);
+    assert.match(calls[1].input, /ERREUR_DE_VALIDATION: MENTOR_INVALID_CHANGE/);
+    assert.deepEqual(stored.files_json.map(file => file.path), ['src/example.js', 'tests/example.test.mjs']);
+    assert.match(stored.files_json[1].content, /assert.equal\(true, true\);/);
+    assert.equal(stored.result_json.bridge_preparation.mentor.council.selected_from_repair, true);
+    assert.equal(stored.status, 'TEACHER_APPROVED');
+    assert.equal(stored.result_json.teacher_bridge.review.request_id, REQUEST);
+    assert.equal(stored.result_json.implementation_proposal.teacher_request_id, REQUEST);
+    assert.equal(prepared.production_deploy_allowed, false);
+    assert.equal(prepared.human_release_approval_required, true);
+    const experience = await DB.prepare('SELECT outcome, evidence_json FROM mentor_lessons WHERE job_id=?').bind(stored.id).first();
+    assert.equal(experience.outcome, 'OBSERVED');
+    assert.equal(JSON.parse(experience.evidence_json).experience.validated, false);
+  } finally { DB.close(); }
+});
+
+test('real MentorEngine rejection propagates exact failure codes without persisting a partial bridge package', async () => {
+  const DB = sqliteD1();
+  try {
+    const repository = await approvedRepository(DB);
+    const incomplete = 'FILE src/example.js\n<<<MEL_FILE\nexport const ready = true;\nMEL_FILE\nFILE tests/example.test.mjs\n<<<MEL_FILE\nimport assert from';
+    const engine = new MentorEngine({
+      memory: new MentorMemoryRepository(DB),
+      providerFactory: async () => [{
+        id: 'simulated-truncated-provider',
+        async invoke() { return { text: incomplete }; },
+      }],
+    });
+    const job = await repository.get('bridge-prep-job');
+
+    await assert.rejects(
+      () => prepareApprovedBridgePackage({
+        env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
+        repository,
+        job,
+        fetchImpl: fetchImpl(),
+        mentorEngine: engine,
+      }),
+      error => {
+        assert.equal(error.code, 'MENTOR_NO_VALID_CODE_PROPOSAL');
+        assert.deepEqual(error.failures.map(({ error, stage }) => ({ error, stage })), [
+          { error: 'MENTOR_INVALID_CHANGE', stage: 'initial' },
+          { error: 'MENTOR_INVALID_CHANGE', stage: 'repair' },
+        ]);
+        return true;
+      },
+    );
+    const stored = await new D1DevJobRepository(DB).get('bridge-prep-job');
+    assert.deepEqual(stored.files_json, []);
+    assert.equal(stored.result_json.bridge_preparation, undefined);
+    assert.equal(stored.result_json.teacher_bridge.review.request_id, REQUEST);
+    const observations = await DB.prepare('SELECT COUNT(*) AS count FROM mentor_lessons WHERE job_id=?').bind(stored.id).first();
+    assert.equal(observations.count, 0);
+  } finally { DB.close(); }
 });

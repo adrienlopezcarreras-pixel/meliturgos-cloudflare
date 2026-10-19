@@ -1,4 +1,4 @@
-import { runAutonomyRuntimeTick as runCoreAutonomyRuntimeTick, autonomyTickAdvanced } from './autonomy-runtime-core.js';
+import { runAutonomyRuntimeTick as runCoreAutonomyRuntimeTick, autonomyTickAdvanced, currentAutonomyRepository } from './autonomy-runtime-core.js';
 import { getAutonomyControl } from './autonomy-control.js';
 import { AutonomySupervisor, selectActionableAutonomyJob } from './autonomy-supervisor.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
@@ -64,12 +64,13 @@ export async function reconcileVerifiedCompletionsBehindLaunchGate(env = {}, opt
     return { ok: true, skipped: true, reason: 'COMPLETION_REPOSITORY_UNAVAILABLE', completed: [], rejected: [] };
   }
   const benchmarkRuntime = resolveRuntimeBenchmarkEvaluator(env, options);
+  const epochMs = options.epochMs ?? await readActivityListEpoch(env?.DB);
   const reconcile = typeof options.completionReconciler === 'function'
     ? options.completionReconciler
     : reconcileRuntimeCompletions;
   try {
     return await reconcile({
-      repository,
+      repository: currentAutonomyRepository(repository, epochMs),
       env,
       fetchImpl: options.fetchImpl || fetch,
       benchmarkEvaluator: benchmarkRuntime.evaluator,
@@ -155,7 +156,7 @@ async function hasActiveRuntimeWork(repository, epochMs = 0) {
   const jobs = await repository.list();
   const epoch = Number(epochMs) || 0;
   return jobs.some((job) => supervised(job)
-    && Number(job?.created_at || 0) >= epoch
+    && (!epoch || Number(job?.created_at || 0) >= epoch)
     && ACTIVE_RUNTIME_STATES.has(String(job?.status || '').toUpperCase()));
 }
 
@@ -196,10 +197,11 @@ function preservePreEnsureCreation(result, preEnsure) {
   };
 }
 
-async function recordCoreRuntimeFailure(repository, error, { maxAttempts = 3 } = {}) {
-  const jobs = await repository.list();
+async function recordCoreRuntimeFailure(repository, error, { maxAttempts = 3, epochMs = 0 } = {}) {
+  const jobs = await currentAutonomyRepository(repository, epochMs).list();
   const schedulerSelected = selectActionableAutonomyJob(
-    jobs.filter(job => ACTIONABLE_FAILURE_STATES.has(String(job?.status || '').toUpperCase()))
+    jobs.filter(job => ACTIONABLE_FAILURE_STATES.has(String(job?.status || '').toUpperCase())),
+    { epochMs },
   );
   const candidate = schedulerSelected || jobs
     .filter(supervised)
@@ -255,7 +257,7 @@ async function runCoreResilient(env, coreOptions, repository) {
     // candidate-only deployment boundary.
     if (mustFailClosed(error)) throw error;
 
-    const failure = await recordCoreRuntimeFailure(repository, error).catch(() => ({
+    const failure = await recordCoreRuntimeFailure(repository, error, { epochMs: coreOptions.epochMs }).catch(() => ({
       job_id: null,
       attempts: 0,
       quarantined: false,
@@ -379,6 +381,8 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
   validateCandidateBranches(env);
 
   const repository = options.repository || new D1DevJobRepository(env.DB);
+  const epochMs = options.epochMs ?? await readActivityListEpoch(env?.DB);
+  const currentRepository = currentAutonomyRepository(repository, epochMs);
   let preEnsure = {
     created: false,
     job_id: null,
@@ -388,7 +392,6 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     complete: false,
   };
   try {
-    const epochMs = await readActivityListEpoch(env?.DB).catch(() => 0);
     if (!(await hasActiveRuntimeWork(repository, epochMs))) {
       preEnsure = await ensureNextRuntimeJob(repository, options.roadmap || null, epochMs);
     }
@@ -406,6 +409,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
   const coreOptions = {
     ...options,
     repository,
+    epochMs,
     benchmarkEvaluator: benchmarkRuntime.evaluator,
     benchmarkModelId: benchmarkRuntime.model_id,
     maxAutonomy: control.max_autonomy === true,
@@ -421,7 +425,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
       : [];
     internalTeacherMirror = await mirrorAllWaitingInternalTeachers({
       env,
-      repository,
+      repository: currentRepository,
       fetchImpl: options.fetchImpl || fetch,
       excludeRequestIds: mirroredInCore,
     });
@@ -437,7 +441,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
   try {
     ownerChatTeacherMirror = await mirrorAllWaitingOwnerChatTeachers({
       env,
-      repository,
+      repository: currentRepository,
       fetchImpl: options.fetchImpl || fetch,
     });
   } catch (error) {
@@ -463,7 +467,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
 
   let ownerMaxSweep;
   try {
-    ownerMaxSweep = await approveAllWaitingTeachersUnderOwnerMax(repository, { source: 'owner-max-runtime' });
+    ownerMaxSweep = await approveAllWaitingTeachersUnderOwnerMax(currentRepository, { source: 'owner-max-runtime' });
   } catch (error) {
     return {
       ...first,
@@ -577,12 +581,12 @@ export async function runAutonomyMaintenance(env, options = {}) {
   }
 }
 
-async function autonomyProgressSnapshot(repository, roadmap = null) {
+async function autonomyProgressSnapshot(repository, roadmap = null, epochMs = 0) {
   try {
-    const supervisor = new AutonomySupervisor({ repository, ...(roadmap ? { roadmap } : {}) });
+    const supervisor = new AutonomySupervisor({ repository, epochMs, ...(roadmap ? { roadmap } : {}) });
     const state = await supervisor.state();
     const active = Array.isArray(state?.active) ? state.active : [];
-    const actionable = selectActionableAutonomyJob(active);
+    const actionable = selectActionableAutonomyJob(active, { epochMs });
     return {
       work_remaining: active.length > 0 || Boolean(state?.next),
       active_jobs: active.length,
@@ -644,6 +648,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     };
   }
 
+  const epochMs = await readActivityListEpoch(env?.DB);
   const launchApproval = launchApprovalValid(env, control, options);
   if (!launchApproval.ok) {
     let passiveCompletions;
@@ -651,7 +656,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
       // The stale launch gate must fail closed immediately. Reconciling old,
       // already-verified completions can involve remote CI calls, so don't keep
       // the chat request open while doing that background-only maintenance.
-      const reconciliation = reconcileVerifiedCompletionsBehindLaunchGate(env, options)
+      const reconciliation = reconcileVerifiedCompletionsBehindLaunchGate(env, { ...options, epochMs })
         .catch((error) => ({
           ok: false,
           queued: false,
@@ -678,9 +683,9 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
         };
       }
     } else {
-      passiveCompletions = await reconcileVerifiedCompletionsBehindLaunchGate(env, options);
+      passiveCompletions = await reconcileVerifiedCompletionsBehindLaunchGate(env, { ...options, epochMs });
     }
-    const snapshot = repository ? await autonomyProgressSnapshot(repository, options.roadmap || null) : {};
+    const snapshot = repository ? await autonomyProgressSnapshot(repository, options.roadmap || null, epochMs) : {};
     const base = {
       ok: false,
       status: launchApproval.code,
@@ -732,7 +737,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   }
 
   if (!lease.acquired) {
-    const snapshot = repository ? await autonomyProgressSnapshot(repository, options.roadmap || null) : {};
+    const snapshot = repository ? await autonomyProgressSnapshot(repository, options.roadmap || null, epochMs) : {};
     const base = {
       ok: true,
       status: 'SKIPPED_LEASE_BUSY',
@@ -763,7 +768,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   }
 
   try {
-    const raw = await runAutonomyRuntimeTickUnlocked(env, { ...options, repository: repository || options.repository }, control);
+    const raw = await runAutonomyRuntimeTickUnlocked(env, { ...options, epochMs, repository: repository || options.repository }, control);
     const tick = augmentTickProgress(raw);
     const watchdog = await recordAutonomyProgressWatchdog(env?.DB || null, tick, {
       maxAutonomy: control.max_autonomy === true,

@@ -103,19 +103,25 @@ function escapeRawJsonStrings(text) {
 function incompleteFile(content) {
   return /(?:\/\/|\*|\#)\s*\.\.\.\s*(?:existing|reste|rest of|inchangé|unchanged)/i.test(content)
     || /\[(?:truncated|contenu omis|à compléter)\]/i.test(content)
-    || /^diff --git /m.test(content);
+    || /^diff --git /m.test(content)
+    || /^--- [^\r\n]+\r?\n\+\+\+ [^\r\n]+\r?\n@@ /m.test(content);
 }
 
 function proposalFromMarkedFiles(raw) {
   const text = String(raw || '');
   if (!text.includes('<<<MEL_FILE')) return null;
   const changes = [];
-  const pattern = /(?:^|\n)FILE[ \t]+(\S+)[ \t]*\n<<<MEL_FILE\n([\s\S]*?)\nMEL_FILE(?=\n|$)/g;
-  let match;
-  while ((match = pattern.exec(text))) {
-    changes.push({ path: match[1], content: match[2], reason: 'Fichier complet délimité' });
-  }
+  const pattern = /(?:^|\r?\n)FILE[ \t]+(\S+)[ \t]*\r?\n<<<MEL_FILE\r?\n([\s\S]*?)\r?\nMEL_FILE(?=\r?\n|$)/g;
+  const envelope = text.replace(pattern, (_, path, content) => {
+    changes.push({ path, content, reason: 'Fichier complet délimité' });
+    return '\n';
+  });
   if (!changes.length) return null;
+  const remainder = envelope
+    .replace(/^(?:SUMMARY|TESTS)[ \t]+[^\r\n]*\r?$/gm, '')
+    .replace(/^```(?:[A-Za-z0-9_-]+)?[ \t]*\r?$/gm, '')
+    .trim();
+  if (remainder) throw Object.assign(new Error('MENTOR_INVALID_CHANGE'), { code: 'MENTOR_INVALID_CHANGE' });
   const summary = (text.match(/(?:^|\n)SUMMARY[ \t]+(.+)/) || [])[1] || 'Proposition de développement MEL';
   const tests = [...text.matchAll(/(?:^|\n)TESTS[ \t]+(.+)/g)].flatMap((row) => row[1].split(/[,\s]+/));
   return { summary, changes, tests, confidence: 0.5, lessons: [], risks: [] };
@@ -158,11 +164,12 @@ function normalizeProposal(value, provenance = {}) {
     ? parsed.changes
     : (parsed.path && parsed.content != null ? [parsed] : []);
   if (!rawChanges.length) throw Object.assign(new Error('MENTOR_CHANGES_REQUIRED'), { code: 'MENTOR_CHANGES_REQUIRED' });
+  if (rawChanges.length > MAX_CHANGES) throw Object.assign(new Error('MENTOR_INVALID_CHANGE:change-limit'), { code: 'MENTOR_INVALID_CHANGE' });
   const seen = new Set();
   const changes = [];
-  for (const raw of rawChanges.slice(0, MAX_CHANGES)) {
+  for (const raw of rawChanges) {
     const path = safePath(raw?.path);
-    if (seen.has(path)) continue;
+    if (seen.has(path)) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
     const content = String(raw?.content ?? '');
     if (!content || content.length > MAX_CHANGE_CHARS || incompleteFile(content)) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
     seen.add(path);
