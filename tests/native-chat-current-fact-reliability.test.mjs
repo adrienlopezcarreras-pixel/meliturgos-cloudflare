@@ -38,7 +38,7 @@ test('current pope identity is forced through the stable Vatican source and reac
   const response = await worker.fetch(new Request('https://mel.example/api/chat', {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify({ text: "Comment s'appelle le pape ?", conversation_id: 'pope-current' }),
+    body: JSON.stringify({ text: 'montre moi une photo du pape', conversation_id: 'pope-photo' }),
   }), env);
   const data = await response.json();
 
