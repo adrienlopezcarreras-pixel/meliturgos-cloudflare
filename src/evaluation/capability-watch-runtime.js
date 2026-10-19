@@ -437,9 +437,13 @@ export async function proveEcosystemTeacherHandoff(
       && String(item.handoff.code || '').toUpperCase() === 'TEACHER_REQUEST_STALE_SHA'
       && !String(item.handoff.teacher_request_id || '').trim()
   );
+  const releasedCancelled = rawOpen.filter(item =>
+    String(item.handoff.status || '').toUpperCase() === 'CANCELLED'
+  );
   const releasedNonBlocking = new Set([
     ...releasedRetryableFailures,
     ...releasedStaleTeacherRequeues,
+    ...releasedCancelled,
   ]);
   const open = rawOpen.filter(item => !releasedNonBlocking.has(item));
 
@@ -489,6 +493,7 @@ export async function proveEcosystemTeacherHandoff(
       candidate_sha: item.handoff.candidate_sha || null,
       code: item.handoff.code || null,
     })),
+    released_cancelled_count: releasedCancelled.length,
     released_stale_teacher_requeue_count: releasedStaleTeacherRequeues.length,
     released_stale_teacher_requeues: releasedStaleTeacherRequeues.slice(0, 20).map(item => ({
       fingerprint: item.fingerprint,
