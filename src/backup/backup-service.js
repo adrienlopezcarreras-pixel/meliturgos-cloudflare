@@ -36,7 +36,7 @@ export function createVerifiedBackupService({ sources = {}, storage, now = () =>
       // fail-closed semantics while avoiding serial D1/R2 backup latency.
       const exportedRows = await Promise.all(sourceEntries.map(async ([name, exporter]) => [
         name,
-        sanitize(await exporter(input, context)),
+        sanitize(await exporter(input, context), { preserveDigests: name === 'database' }),
       ]));
       for (const [name, payload] of exportedRows) exported[name] = payload;
 
