@@ -673,8 +673,13 @@ export function inferConnectedReadPlan(value) {
   if (single?.execution_intent === 'CONNECTED_DATA_MUTATION') return [];
   const plan = [];
   if (/\bgmail\b/i.test(raw) || /\b(?:mails?|e-?mails?|courriels?|bo[iî]te\s+(?:mail|de\s+r[ée]ception))\b/i.test(raw)) {
-    const base = single?.id === 'gmail.messages.search' ? single.input : { query: 'in:inbox', limit: 5 };
-    plan.push({ id: 'gmail.messages.search', input: { ...base, limit: 5 } });
+    const carried = single?.id === 'gmail.messages.search' ? String(single.input?.query || '').trim() : '';
+    const leftoverInstruction = !carried
+      || /\b(?:agenda|calendrier|calendar|drive|pipedream|[ée]v[ée]nements?|fichiers?)\b/i.test(carried);
+    plan.push({
+      id: 'gmail.messages.search',
+      input: { query: leftoverInstruction ? 'in:inbox' : carried, limit: 5 },
+    });
   }
   if (/\b(?:google\s+agenda|google\s+calendar|agenda|calendrier|calendar)\b/i.test(raw)) {
     plan.push({ id: 'calendar.events.read', input: { ...parisTimeWindow(raw), limit: 5 } });
