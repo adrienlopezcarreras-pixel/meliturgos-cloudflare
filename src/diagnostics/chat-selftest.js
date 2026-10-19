@@ -5,6 +5,58 @@
 // in-process as the owner (streaming enabled, same pipeline as the browser) and
 // returns measurements only: time to first text, duration, length, model,
 // whether it streamed, whether it was archived, and a short excerpt.
+import { createConversationService } from '../conversations/conversation-service.js';
+
+const CONNECTED_READS = ['gmail.messages.search', 'calendar.events.read', 'drive.files.list'];
+const safeCode = value => /^[A-Z][A-Z0-9_]{0,159}$/.test(String(value || '')) ? String(value) : null;
+
+async function connectedReadsSelftest({ origin, password, env, handleChat, chatOptions }) {
+  const started = Date.now();
+  const conversationId = 'selftest-connected-' + crypto.randomUUID();
+  const clientMessageId = 'connected-read-proof-1';
+  const text = 'Lis mes cinq derniers messages Gmail, mon agenda Google et mes fichiers Google Drive. Exécute les trois lectures et donne leur résultat exact.';
+  const call = () => handleChat(new Request(origin + '/api/chat', {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + password, 'content-type': 'application/json' },
+    body: JSON.stringify({ text, conversation_id: conversationId, client_message_id: clientMessageId, stream: false }),
+  }), env, chatOptions);
+  try {
+    const firstResponse = await call();
+    const first = await firstResponse.json();
+    const rows = Array.isArray(first.tool_results) ? first.tool_results : [];
+    const connectors = CONNECTED_READS.map(id => {
+      const matches = rows.filter(row => row?.capability === id);
+      const row = matches[0];
+      const codes = [row?.error, row?.native_code, row?.fallback_code].map(safeCode).filter(Boolean);
+      const succeeded = matches.length === 1 && row?.status === 'SUCCEEDED';
+      const authFailure = matches.length === 1 && row?.status === 'FAILED'
+        && codes.some(code => /(?:AUTH|OAUTH|TOKEN|CONSENT|ACCOUNT_REQUIRED|SCOPE)/.test(code));
+      return { capability: id, status: row?.status === 'SUCCEEDED' ? 'SUCCEEDED' : 'FAILED',
+        codes, executed: matches.length === 1, ok: succeeded || authFailure };
+    });
+    const reply = String(first.text || '');
+    const responseIsText = reply.trim().length > 0 && !/^\s*[\[{]/.test(reply)
+      && !/"(?:tool_calls|function_call|arguments)"\s*:/.test(reply);
+    const replayResponse = await call();
+    const replay = await replayResponse.json();
+    const replayVerified = replayResponse.status === 200 && replay.replayed === true
+      && replay.archive_saved === true && replay.text === reply
+      && Array.isArray(replay.tool_results) && replay.tool_results.length === 0;
+    const messages = await createConversationService({ DB: env.DB }).getMessages(conversationId);
+    const archivedOnce = messages.length === 2
+      && ['user', 'assistant'].every(role => messages.filter(message => message.role === role
+        && message.metadata?.client_message_id === clientMessageId).length === 1);
+    return { case: 'connected_reads',
+      ok: connectors.every(row => row.ok) && responseIsText && replayVerified && archivedOnce,
+      status: firstResponse.status, connectors, response_is_text: responseIsText,
+      replay_verified: replayVerified, archive_exactly_one_turn: archivedOnce,
+      archived: first.archive_saved === true, total_ms: Date.now() - started,
+      private_content_logged: false };
+  } catch (error) {
+    return { case: 'connected_reads', ok: false, error: safeCode(error?.code) || 'CONNECTED_READ_SELFTEST_FAILED',
+      total_ms: Date.now() - started, private_content_logged: false };
+  }
+}
 
 const CASES = Object.freeze({
   short: () => ({ text: 'Bonjour MEL. En une seule phrase : qui es-tu et que peux-tu faire pour moi ?', expect: /mel/i }),
@@ -84,7 +136,11 @@ export async function runChatSelftest({ request, env, handleChat, chatOptions = 
   const password = String(env.MELITURGOS_PASSWORD || '');
   if (!password) return Response.json({ ok: false, code: 'OWNER_AUTH_NOT_CONFIGURED' }, { status: 503 });
   const results = [];
-  for (const name of cases.filter(name => CASES[name]).slice(0, 5)) {
+  for (const name of cases.filter(name => CASES[name] || name === 'connected_reads').slice(0, 5)) {
+    if (name === 'connected_reads') {
+      results.push(await connectedReadsSelftest({ origin, password, env, handleChat, chatOptions }));
+      continue;
+    }
     const { text, expect, reject = null, excerptChars = 280 } = CASES[name]();
     const startedAt = Date.now();
     let outcome;
@@ -120,4 +176,4 @@ export async function runChatSelftest({ request, env, handleChat, chatOptions = 
   return Response.json({ ok: results.length > 0 && results.every(r => r.ok), results }, { headers: { 'cache-control': 'no-store' } });
 }
 
-export const CHAT_SELFTEST_CASES = Object.keys(CASES);
+export const CHAT_SELFTEST_CASES = [...Object.keys(CASES), 'connected_reads'];

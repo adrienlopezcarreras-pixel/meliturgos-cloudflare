@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       cases:
-        description: Comma-separated cases (short,plan,capabilities,big,huge)
+        description: Comma-separated cases (short,plan,capabilities,big,huge,connected_reads)
         required: false
         default: short,plan,big,huge
         type: string
@@ -39,7 +39,9 @@ jobs:
             echo "::add-mask::${TOKEN}"
             CODE="$(curl -sS --max-time 35 -o identity.json -w '%{http_code}' -H "x-mel-parallel-proof: ${TOKEN}" -H 'content-type: application/json' --data '{"phase":"identity"}' "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
             if [ "$CODE" = 200 ] && grep -q "\"deployed_sha\":\"${SHA}\"" identity.json; then
-              echo "TOKEN=${TOKEN}" >> "$GITHUB_ENV"; echo "::notice title=Deployed SHA::${SHA}"; exit 0
+              echo "TOKEN=${TOKEN}" >> "$GITHUB_ENV"
+              echo "DEPLOYED_SHA=${SHA}" >> "$GITHUB_ENV"
+              echo "::notice title=Deployed SHA::${SHA}"; exit 0
             fi
           done
           echo "::error title=selftest::deployed SHA not found among recent deploy runs"; exit 1
@@ -53,8 +55,26 @@ jobs:
           node -e "
           const d=JSON.parse(require('fs').readFileSync('selftest.json','utf8'));
           for(const r of d.results||[]){
+            if(r.case==='connected_reads'){
+              console.log(JSON.stringify(r));
+              continue;
+            }
             const line=[r.case,r.ok?'OK':'ÉCHEC','prompt='+r.prompt_chars,'compris='+r.understood,'flux='+r.streamed,'1er_texte_ms='+r.first_text_ms,'total_ms='+r.total_ms,'réponse='+r.reply_chars,'modèle='+r.model,'archivé='+r.archived,r.error?'erreur='+r.error:'',r.wrong_claim?'affirmation_fausse='+r.wrong_claim:''].join(' · ');
             console.log((r.ok?'::notice':'::error')+' title=MEL chat '+r.case+'::'+line+' — « '+String(r.excerpt||'').replace(/[\r\n]+/g,' ')+' »');
           }
           if(d.ok!==true)process.exit(1);
           " || { cat selftest.json | head -c 2000; exit 1; }
+      - name: Verify production did not change during the proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 35 -o identity-after.json -H "x-mel-parallel-proof: ${TOKEN}" -H 'content-type: application/json' --data '{"phase":"identity"}' "${BASE_URL}/api/internal/release-launch-bootstrap"
+          node -e 'const d=require("./identity-after.json");if(d.deployed_sha!==process.env.DEPLOYED_SHA)process.exit(1)'
+      - name: Keep sanitized self-test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-chat-live-selftest-${{ github.run_id }}
+          path: selftest.json
+          if-no-files-found: ignore
+          retention-days: 14
