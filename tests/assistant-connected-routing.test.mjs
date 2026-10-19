@@ -88,5 +88,9 @@ test('with the production owner configuration, a mail search really calls Gmail 
 test('a request naming Gmail, Agenda and Drive plans three reads', () => {
   const plan = inferConnectedReadPlan('Vérifie les connexions Pipedream à Gmail, Google Agenda et Google Drive. Effectue un test réel de lecture pour chacun des trois services, sans modifier de données.');
   assert.deepEqual(plan.map(step => step.id), ['gmail.messages.search', 'calendar.events.read', 'drive.files.list']);
+  assert.equal(plan[0].input.query, 'in:inbox');
+  assert.equal(plan[0].input.limit, 5);
+  const asked = inferConnectedReadPlan('Lis exactement 5 messages Gmail de la boîte de réception, 5 événements à venir de Google Agenda, et 5 fichiers Google Drive. Une seule fois.');
+  assert.equal(asked[0].input.query, 'in:inbox');
   assert.deepEqual(inferConnectedReadPlan('lis mes derniers mails'), []);
 });
