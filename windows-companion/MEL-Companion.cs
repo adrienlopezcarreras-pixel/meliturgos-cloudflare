@@ -2055,9 +2055,10 @@ class MainForm : Form
             {
                 var table = (Dictionary<string, object>)tableObj;
                 object partsObj;
-                if(table.TryGetValue("partitions", out partsObj) && partsObj is System.Collections.ArrayList)
+                if(table.TryGetValue("partitions", out partsObj) &&
+                   (partsObj is object[] || partsObj is System.Collections.ArrayList))
                 {
-                    var parts = (System.Collections.ArrayList)partsObj;
+                    var parts = partsObj as System.Collections.IEnumerable;
                     foreach(object p in parts)
                     {
                         var part = p as Dictionary<string, object>;
@@ -2121,7 +2122,7 @@ class MainForm : Form
             return;
         }
         if(flashExit == 0)
-            MessageBox.Show(this, "Mise à jour terminée.\nLa MINI redémarre. Vérifiez la reconnexion et la version.\n" + (flashOut.Length > 600 ? flashOut.Substring(0,600) : flashOut),
+            MessageBox.Show(this, "Écriture du firmware dans le slot OTA inactif terminée.\nLe nouveau firmware N’EST PAS encore activé.\nLa MINI redémarre sur son firmware actuel ; vérifiez la reconnexion.\n" + (flashOut.Length > 600 ? flashOut.Substring(0,600) : flashOut),
                 "MEL MINI — réussite", MessageBoxButtons.OK, MessageBoxIcon.Information);
         else
             MessageBox.Show(this, "Flash terminé avec erreur (code " + flashExit + ").\n" + (flashOut.Length > 800 ? flashOut.Substring(0,800) : flashOut),
