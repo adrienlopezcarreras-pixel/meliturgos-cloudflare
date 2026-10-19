@@ -12,6 +12,7 @@ import {
 import { inspectRestoreCandidate } from '../../src/backup/restore-service.js';
 import { APP_VERSION, DB_SCHEMA_VERSION } from '../../src/core/config.js';
 import { exportD1 } from './d1-export.mjs';
+import { proveD1SnapshotRestore } from './d1-restore-proof.mjs';
 
 const SYSTEM_BACKUP_PREFIX = 'backups/system/';
 const MAX_R2_PAGES = 1000;
@@ -300,6 +301,9 @@ async function createBackup() {
       if (!verification) throw new Error('BACKUP_CRYPTOGRAPHIC_VERIFICATION_REQUIRED');
       const restoreProof = inspectRestoreCandidate(snapshot, { integrity: verification });
       if (restoreProof?.ok !== true) throw new Error(`BACKUP_RESTORE_PROOF_FAILED:${restoreProof?.code || 'UNKNOWN'}`);
+      reportProgress('isolated-sqlite-restore:start');
+      const sqliteRestoreProof = await proveD1SnapshotRestore(snapshot.exports.database);
+      reportProgress('isolated-sqlite-restore:complete', `tables=${sqliteRestoreProof.table_count} rows=${sqliteRestoreProof.row_count}`);
 
       const envelope = await encryptionCodec.seal(snapshot);
       const objectKey = `${SYSTEM_BACKUP_PREFIX}${snapshot.id}.enc.json`;
@@ -345,6 +349,7 @@ async function createBackup() {
           restoreTableCount: Number(restoreProof?.database?.tableCount || 0),
           restoreRowCount: Number(restoreProof?.database?.rowCount || 0),
           restoreR2ObjectCount: Number(restoreProof?.r2?.objectCount || 0),
+          sqliteRestoreProof,
         };
         reportProgress('metadata-registration:start');
         const registration = await registerMetadata(sidecar, {
@@ -358,6 +363,7 @@ async function createBackup() {
           id: snapshot.id,
           objectKey,
           restoreProof,
+          sqliteRestoreProof,
           bytes: Number(registration.backup_object_bytes || Buffer.byteLength(payload)),
         };
       } catch (error) {
@@ -396,6 +402,7 @@ async function createBackup() {
         source_branch: sourceBranch,
         encrypted: true,
         restore_candidate_verified: true,
+        isolated_restore: persisted.sqliteRestoreProof,
         backup_object_present: true,
         backup_object_bytes: persisted.bytes,
       },
