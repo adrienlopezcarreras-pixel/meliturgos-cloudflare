@@ -943,3 +943,32 @@ test('one-entry corrupted ledger cannot be hidden by dynamic sample selection', 
   assert.equal(report.capabilities[0].execution.ok,false);
   assert.equal(report.capabilities[0].auto_execution_blocked,null);
 });
+
+test('strict audit attempts cost-sensitive and sample-less LOW reads, and still refuses high risk', async () => {
+  const calls = [];
+  const records = [
+    { id:'web.research', name:'Web', category:'research', provider:'external', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'local.diagnostic', name:'Local', category:'test', provider:'test', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'files.delete', name:'Delete', category:'files', provider:'test', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'high', name:'High', category:'test', provider:'test', risk:'HIGH', enabled:true, health:'HEALTHY' },
+  ];
+  const fake = {
+    bus: {
+      list: () => records,
+      execute: async (id) => {
+        calls.push(id);
+        if (id === 'web.research') throw Object.assign(new Error('NO_ZERO_COST_PROVIDER_AVAILABLE'), { code: 'NO_ZERO_COST_PROVIDER_AVAILABLE' });
+        return { ok: true };
+      },
+    },
+  };
+  const report = await auditRuntimeCapabilities(fake, { deep: true, strict: true, samples: { 'web.research': { query: 'doc' } } });
+  assert.deepEqual(calls.sort(), ['local.diagnostic', 'web.research']);
+  assert.equal(report.ok, false);
+  assert.equal(report.strict, true);
+  assert.deepEqual(report.strict_verdict.failed, ['web.research']);
+  assert.equal(report.capabilities.find(row => row.id === 'files.delete').auto_execution_blocked, 'STRICT_MUTATION_REFUSED');
+  assert.equal(report.capabilities.find(row => row.id === 'high').auto_execution_blocked, 'RISK_NOT_LOW');
+  assert.equal(report.capabilities.find(row => row.id === 'local.diagnostic').truth_status, 'EXISTANT_ET_TESTE');
+  assert.equal(report.capabilities.find(row => row.id === 'web.research').execution.code, 'NO_ZERO_COST_PROVIDER_AVAILABLE');
+});

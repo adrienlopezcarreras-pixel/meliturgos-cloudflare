@@ -134,16 +134,16 @@ export class D1CapabilityStressStore {
   // Single D1 statement arbitrates concurrent owner/cron launches. A separate
   // latestActive() read followed by unconditional INSERT is a TOCTOU race and
   // may create two competing stress jobs after the same idle observation.
-  async createIfNoActive({ id = `cap-stress-${crypto.randomUUID()}`, total = 0 } = {}) {
+  async createIfNoActive({ id = `cap-stress-${crypto.randomUUID()}`, total = 0, summary = {} } = {}) {
     await this.init();
     const now = Date.now();
     const result = await this.db.prepare(`INSERT INTO capability_stress_runs
       (id,status,total,completed,pass,current_capability,summary_json,report_json,error,created_at,updated_at,completed_at)
-      SELECT ?, 'QUEUED', ?, 0, 1, NULL, '{}', NULL, NULL, ?, ?, NULL
+      SELECT ?, 'QUEUED', ?, 0, 1, NULL, ?, NULL, NULL, ?, ?, NULL
       WHERE NOT EXISTS (
         SELECT 1 FROM capability_stress_runs WHERE status IN ('QUEUED','RUNNING','RETRYING')
       )`)
-      .bind(id, Number(total || 0), now, now)
+      .bind(id, Number(total || 0), JSON.stringify(summary || {}), now, now)
       .run();
     const job = await this.latestActive();
     if (!job) throw stressError('CAPABILITY_STRESS_ACTIVE_JOB_NOT_FOUND');
@@ -205,7 +205,8 @@ export class D1CapabilityStressStore {
       : Array.isArray(proposedSummary.registry_ids) ? proposedSummary.registry_ids : null;
     const summary = registryIds
       ? { ...proposedSummary, registry_ids: registryIds }
-      : proposedSummary;
+      : { ...proposedSummary };
+    if (current.summary?.strict === true) summary.strict = true;
     const report = patch.report === undefined ? current.report : patch.report;
     const error = patch.error === undefined ? current.error : patch.error;
     const completedAt = patch.completed_at === undefined ? current.completed_at : patch.completed_at;
@@ -251,10 +252,12 @@ function mergeFirstPassChunk(previousReport, chunk) {
     capabilities[startIndex + offset] = chunk.capabilities[offset];
   }
   const dense = capabilities.filter(Boolean);
+  const strict = chunk?.strict === true || previousReport?.strict === true;
   return {
-    ok: true,
+    ok: strict ? dense.every(row => row?.truth_status !== 'EXISTANT_MAIS_ECHEC_RUNTIME' && row?.truth_status !== 'EXISTANT_NON_TESTE') : true,
     total: Number(chunk?.total || previousReport?.total || dense.length || 0),
     deep: true,
+    strict,
     counts: countsFor(dense),
     contracts: contractsFor(dense),
     capabilities: dense,
@@ -272,7 +275,7 @@ async function finalizePersistentStress({ store, id, finalReport, retryIds = [] 
     .map(row => ({ id: row.id, reason: row.auto_execution_blocked }));
 
   return store.update(id, {
-    status: remainingRuntimeFailures.length ? 'COMPLETE_WITH_FAILURES' : 'COMPLETE',
+    status: (remainingRuntimeFailures.length || finalReport?.ok === false) ? 'COMPLETE_WITH_FAILURES' : 'COMPLETE',
     progress: {
       done: finalReport.total,
       total: finalReport.total,
@@ -281,6 +284,8 @@ async function finalizePersistentStress({ store, id, finalReport, retryIds = [] 
     },
     summary: {
       phase: 'COMPLETE',
+      strict: finalReport?.strict === true,
+      strict_passed: finalReport?.strict === true ? finalReport.ok === true : null,
       retryable_failures: retryIds.length,
       remaining_runtime_failures: remainingRuntimeFailures,
       blocked_count: blocked.length,
@@ -339,6 +344,7 @@ async function executeRetryPass({ bus, store, job, context = {} }) {
 
   const retry = await auditRuntimeCapabilities({ bus }, {
     deep: true,
+    strict: job?.summary?.strict === true,
     context: executionContext(context),
     // First pass stays fast (4 s). Real D1 integrity and self-introspection
     // span multiple independent reads and exceeded that budget in production.
@@ -466,8 +472,10 @@ async function executePersistentStress({ bus, store, job, context = {} }) {
     const persistentStressSamples = { ...SAFE_SAMPLES };
     delete persistentStressSamples['capability.audit'];
 
+    const strict = job?.summary?.strict === true;
     const firstChunk = await auditRuntimeCapabilities({ bus }, {
       deep: true,
+      strict,
       context: executionContext(context),
       executionTimeoutMs: 4_000,
       samples: persistentStressSamples,
@@ -584,10 +592,13 @@ async function claimAndRunPersistentStress({ bus, store, job, context, reused })
   return { ...completed, reused, resumed: reused };
 }
 
-export async function startPersistentCapabilityStress({ bus, db, context = {} } = {}) {
+export async function startPersistentCapabilityStress({ bus, db, context = {}, strict = false } = {}) {
   if (!bus) throw stressError('CAPABILITY_STRESS_BUS_REQUIRED');
   const store = new D1CapabilityStressStore(db);
-  const { job, created } = await store.createIfNoActive({ total: bus.list().length });
+  const { job, created } = await store.createIfNoActive({
+    total: bus.list().length,
+    summary: strict ? { strict: true, phase: 'QUEUED' } : {},
+  });
   return claimAndRunPersistentStress({ bus, store, job, context, reused: !created });
 }
 

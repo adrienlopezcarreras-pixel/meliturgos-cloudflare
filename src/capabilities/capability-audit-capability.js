@@ -13,6 +13,7 @@ export function registerCapabilityAuditCapability(bus, env = {}) {
       type: 'object',
       properties: {
         deep: { type: 'boolean' },
+        strict: { type: 'boolean' },
       },
       additionalProperties: false,
     },
@@ -30,12 +31,13 @@ export function registerCapabilityAuditCapability(bus, env = {}) {
       waitUntil: context.waitUntil,
     };
     if (input.deep === true && env?.DB) {
-      return startPersistentCapabilityStress({ bus, db: env.DB, context: auditContext });
+      return startPersistentCapabilityStress({ bus, db: env.DB, context: auditContext, strict: input.strict === true });
     }
     return auditRuntimeCapabilities(
       { bus },
       {
         deep: input.deep === true,
+        strict: input.strict === true,
         context: auditContext,
       }
     );
