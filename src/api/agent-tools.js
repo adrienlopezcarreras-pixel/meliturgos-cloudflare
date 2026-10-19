@@ -7,6 +7,11 @@ export const AGENT_TOOL_ALLOWLIST = Object.freeze([
   'capability.audit', 'evolution.enqueue', 'model.council',
   'code.read', 'code.search', 'web.research',
   'computer.status', 'computer.quick',
+  // Lectures seulement. Les mutations restent derrière le chemin déterministe
+  // et la confirmation explicite, jamais dans cette boucle.
+  'gmail.messages.search', 'gmail.messages.read',
+  'calendar.events.read',
+  'drive.files.list', 'drive.files.search',
 ]);
 export const AGENT_MAX_STEPS = 4;
 const AGENT_MODEL = '@cf/openai/gpt-oss-120b';
@@ -32,16 +37,29 @@ export function parseAgentAction(text) {
   if (!match) return { final: true };
   try {
     const j = JSON.parse(match[0]);
-    if (j && typeof j.tool === 'string') return { tool: j.tool, input: j.input && typeof j.input === 'object' ? j.input : {} };
+    if (!j || typeof j !== 'object') return { final: true };
+    if (j.final === true && typeof j.tool !== 'string') return { final: true };
+    if (typeof j.tool === 'string') {
+      const raw = j.input ?? j.arguments ?? j.args;
+      const input = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+      return { tool: j.tool, input };
+    }
   } catch {}
   return { final: true };
+}
+
+export function responseIsBareToolCall(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return false;
+  const action = parseAgentAction(trimmed);
+  return action.final !== true && typeof action.tool === 'string';
 }
 
 function agentSystem(catalog) {
   return [
     'Tu es MEL. Tu AS des outils réels et tu les appelles TOI-MÊME. Ne demande jamais à Adrien de lancer un curl, une commande ou de fournir un token.',
-    'Pour appeler un outil, réponds UNIQUEMENT par un JSON : {"tool":"<id>","input":{...}}. Quand tu as assez de résultats, ou si la demande est une simple conversation, réponds UNIQUEMENT : {"final":true}.',
-    'Une demande de développement, de correction, de test complet ou d’audit de tes fonctions passe par evolution.enqueue (avec "goal") ou capability.audit.',
+    'Pour appeler un outil, réponds UNIQUEMENT par un JSON : {"tool":"<id>","input":{...}}. « arguments » est accepté comme alias de input. Quand tu as assez de résultats, ou si la demande est une simple conversation, réponds UNIQUEMENT : {"final":true}.',
+    'Une demande de développement du code passe par evolution.enqueue. Une lecture Gmail, Agenda ou Drive ne passe JAMAIS par evolution.enqueue : utilise gmail.messages.search, calendar.events.read ou drive.files.list.',
     'Outils disponibles : ' + JSON.stringify(catalog),
   ].join('\n');
 }

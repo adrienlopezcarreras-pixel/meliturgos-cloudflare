@@ -78,6 +78,10 @@ export function instrumentBus(runtime, onProgress) {
 
 function shortModel(model) { return String(model || '').replace(/^@cf\/[^/]+\//, ''); }
 
+// Shorter than the browser idle abort (45 s). A silent tool or model call
+// must not look like a dead stream.
+export const CHAT_PROGRESS_HEARTBEAT_MS = 12_000;
+
 /** Wraps the chat handler: streamed progress, then the answer. */
 export async function withChatProgress(request, env, options, handler) {
   let body = null;
@@ -95,6 +99,9 @@ export async function withChatProgress(request, env, options, handler) {
       progress({ id: 'read', kind: 'step', label: 'Je lis ta demande et rassemble le contexte', status: 'running' });
       let readDone = false;
       const finishRead = () => { if (!readDone) { readDone = true; progress({ id: 'read', kind: 'step', label: 'Je lis ta demande et rassemble le contexte', status: 'done' }); } };
+      const heartbeat = setInterval(() => {
+        progress({ id: 'heartbeat', kind: 'step', label: 'Je continue, un outil ou le modèle travaille encore', status: 'running' });
+      }, CHAT_PROGRESS_HEARTBEAT_MS);
       try {
         const response = await handler(request, env, { ...options, onProgress: step => { finishRead(); progress(step); } });
         finishRead();
@@ -142,6 +149,7 @@ export async function withChatProgress(request, env, options, handler) {
         finishRead();
         send({ type: 'error', code: String(error?.code || error?.message || 'CHAT_FAILED').slice(0, 120) });
       } finally {
+        clearInterval(heartbeat);
         open = false;
         try { controller.close(); } catch {}
       }

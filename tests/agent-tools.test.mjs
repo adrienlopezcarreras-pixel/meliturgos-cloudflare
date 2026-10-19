@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runAgentToolLoop, parseAgentAction, AGENT_MAX_STEPS } from '../src/api/agent-tools.js';
+import { runAgentToolLoop, parseAgentAction, responseIsBareToolCall, AGENT_MAX_STEPS } from '../src/api/agent-tools.js';
 
 const bus = (calls) => ({
   list: () => ['capability.audit', 'evolution.enqueue', 'autonomy.status'].map(id => ({ id, description: id, input_schema: { type: 'object' } })),
@@ -39,4 +39,31 @@ test('plain conversation makes no extra model call', async () => {
   const r = await runAgentToolLoop({ env: { AI: { async run() { n += 1; return { response: '{"final":true}' }; } } }, bus: bus([]), text: 'Bonjour, ça va ?' });
   assert.deepEqual(r, []);
   assert.equal(n, 0);
+});
+
+test('arguments is accepted as the tool input and a bare JSON call is recognized', () => {
+  assert.deepEqual(parseAgentAction('{"tool":"gmail.messages.search","arguments":{"query":"in:inbox","maxResults":5}}'), {
+    tool: 'gmail.messages.search',
+    input: { query: 'in:inbox', maxResults: 5 },
+  });
+});
+
+test('a gmail read requested with arguments is executed, not left as text', async () => {
+  const calls = [];
+  const localBus = {
+    list: () => ['gmail.messages.search', 'calendar.events.read', 'drive.files.list'].map(id => ({ id, description: id, input_schema: { type: 'object' } })),
+    async execute(id, input) { calls.push([id, input]); return { ok: true, id }; },
+  };
+  const r = await runAgentToolLoop({
+    env: ai(['{"tool":"gmail.messages.search","arguments":{"query":"in:inbox","maxResults":5}}', '{"final":true}']),
+    bus: localBus,
+    text: 'teste réellement Gmail',
+  });
+  assert.deepEqual(calls, [['gmail.messages.search', { query: 'in:inbox', maxResults: 5 }]]);
+  assert.equal(r[0].status, 'SUCCEEDED');
+});
+
+test('only a whole JSON tool call counts as a bare call', () => {
+  assert.equal(responseIsBareToolCall('{"tool":"gmail.messages.search","arguments":{}}'), true);
+  assert.equal(responseIsBareToolCall('Voici le résultat.\n{"tool":"gmail.messages.search"}'), false);
 });
