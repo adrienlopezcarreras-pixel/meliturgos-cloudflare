@@ -65,6 +65,19 @@ function agentSystem(catalog) {
 }
 
 /** Runs the tool loop. Returns rows in the native-chat toolResults format. */
+const LEARNABLE_MISS = new Set(['AGENT_TOOL_NOT_ALLOWED', 'CAPABILITY_NOT_FOUND']);
+
+// A missing tool is a skill to learn. An existing tool that failed for auth,
+// approval or an absent account is not: that must not become a new module.
+export function missingCapabilityShouldBeLearned(toolResults = []) {
+  const rows = Array.isArray(toolResults) ? toolResults : [];
+  if (rows.some(row => row?.capability === 'evolution.enqueue')) return false;
+  if (rows.some(row => row?.status === 'SUCCEEDED')) return false;
+  const failed = rows.filter(row => row?.status === 'FAILED');
+  if (!failed.length || failed.some(row => !LEARNABLE_MISS.has(String(row?.error || '')))) return false;
+  return true;
+}
+
 export async function runAgentToolLoop({ env, bus, text, recent = [], context = {}, summarize = x => x, now = () => Date.now() }) {
   if (!wantsAgentTools(text)) return [];
   const catalog = agentToolCatalog(bus);
