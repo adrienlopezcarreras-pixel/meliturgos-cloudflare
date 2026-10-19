@@ -4,6 +4,14 @@ function cleanText(value, max = 1200) {
   return String(value ?? '').trim().slice(0, max);
 }
 
+export function droppedTeacherApproval(job) {
+  const bridge = job?.result_json?.teacher_bridge;
+  const review = bridge?.review;
+  if (String(job?.status || '').toUpperCase() !== 'WAITING_TEACHER') return false;
+  if (bridge?.status !== 'ANSWERED' || review?.verdict !== 'APPROVE_PLAN' || review?.development_allowed !== true) return false;
+  return Boolean(bridge?.request?.request_id) && bridge.request.request_id === review.request_id;
+}
+
 export async function applyOwnerMaxApproval(repository, jobId, { source = 'owner-max-runtime' } = {}) {
   if (!repository || !jobId) {
     throw Object.assign(new Error('OWNER_MAX_INPUT_REQUIRED'), { code: 'OWNER_MAX_INPUT_REQUIRED' });
@@ -13,8 +21,15 @@ export async function applyOwnerMaxApproval(repository, jobId, { source = 'owner
   if (!job) throw Object.assign(new Error('JOB_NOT_FOUND'), { code: 'JOB_NOT_FOUND', status: 404 });
 
   const bridge = job?.result_json?.teacher_bridge;
-  if (bridge?.status === 'ANSWERED' && bridge?.review?.development_allowed === true) {
-    return { job, duplicate: true, review: bridge.review };
+  if (bridge?.status === 'ANSWERED' && bridge?.review?.development_allowed === true && bridge?.review?.verdict === 'APPROVE_PLAN') {
+    if (String(job.status || '').toUpperCase() === 'TEACHER_APPROVED') {
+      return { job, duplicate: true, review: bridge.review };
+    }
+    if (!droppedTeacherApproval(job)) {
+      return { job, duplicate: true, review: bridge.review };
+    }
+    const restored = await repository.update(job.id, { status: 'TEACHER_APPROVED', error: null });
+    return { job: restored, duplicate: true, status_restored: true, review: bridge.review };
   }
   if (String(job.status || '').toUpperCase() !== 'WAITING_TEACHER' || bridge?.status !== 'WAITING_TEACHER') {
     throw Object.assign(new Error('OWNER_MAX_TEACHER_REQUEST_REQUIRED'), { code: 'OWNER_MAX_TEACHER_REQUEST_REQUIRED', status: 409 });

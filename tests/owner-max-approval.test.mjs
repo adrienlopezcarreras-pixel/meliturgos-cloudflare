@@ -49,6 +49,21 @@ test('owner MAX converts an already inspected Teacher wait into candidate-only a
   assert.equal(job.result_json.owner_max_autonomy.production_release_allowed, false);
 });
 
+test('an already approved plan left in WAITING_TEACHER is restored, not approved again', async () => {
+  const job = waitingJob();
+  job.result_json.teacher_bridge.status = 'ANSWERED';
+  job.result_json.teacher_bridge.review = {
+    request_id: 'req-owner-max-1',
+    verdict: 'APPROVE_PLAN',
+    development_allowed: true,
+    owner_override: true,
+  };
+  const repo = new MemoryRepo(job);
+  const out = await applyOwnerMaxApproval(repo, job.id);
+  assert.equal(out.status_restored, true);
+  assert.equal((await repo.get(job.id)).status, 'TEACHER_APPROVED');
+});
+
 test('owner MAX fails closed without a correlated candidate Teacher request', async () => {
   const job = waitingJob();
   job.result_json.teacher_bridge.request.candidate.sha = 'not-a-sha';

@@ -11,6 +11,7 @@ import { reconcileRuntimeCompletions } from '../teachers/github-completion-recon
 import { runRuntimeWorkDagResumeProof } from './autonomy-proof.js';
 import { prepareApprovedImplementationProposal } from './autonomy-implementation-planner.js';
 import { prepareApprovedBridgePackage } from './autonomy-bridge-preparer.js';
+import { droppedTeacherApproval } from '../teachers/owner-max-approval.js';
 
 const USEFUL_AUTONOMY_EVENTS = new Set([
   'JOB_COMPLETED',
@@ -563,6 +564,10 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   if (job && ['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE', 'READY_FOR_REVIEW'].includes(String(job.status || '').toUpperCase())) {
     teacher = await prepareAutonomyTeacherRequest({ env, repository: jobRepository, job, fetchImpl });
     job = await jobRepository.get(job.id);
+  }
+
+  if (job && droppedTeacherApproval(job)) {
+    job = await jobRepository.update(job.id, { status: 'TEACHER_APPROVED', error: null });
   }
 
   if (job && String(job.status || '').toUpperCase() === 'WAITING_TEACHER' && job.result_json?.teacher_bridge) {
