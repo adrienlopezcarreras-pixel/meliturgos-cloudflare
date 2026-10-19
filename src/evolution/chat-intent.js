@@ -5,10 +5,12 @@ import { inferKnowledgeCapability } from '../api/knowledge-intent.js';
 export function isEvolutionDevelopmentIntent(text) {
   const value = String(text || '').trim();
   if (!value) return false;
+  // Teaching the owner is a conversation, not a request for MEL to build a skill.
+  if (/\bapprends[-\s]moi\b/i.test(value)) return false;
 
-  const action = /\b(?:d[ée]veloppe(?:r)?|ajoute(?:r)?|cr[ée]e(?:r)?|construis|construire|impl[ée]mente(?:r)?|apprends?|upgrade|am[ée]liore(?:r)?|modifie(?:r)?|change(?:r)?|remplace(?:r)?|supprime(?:r)?|enl[eè]ve(?:r)?|retire(?:r)?|corrige(?:r)?|r[ée]pare(?:r)?|refactor(?:e|er)?|r[ée][ée]cris|r[ée][ée]crire|[ée]dite(?:r)?|int[eè]gre(?:r)?|branche(?:r)?|raccorde(?:r)?|stylise(?:r)?|d[ée]core(?:r)?|mets?\s+[àa]\s+jour|build|develop|implement|add|modify|change|replace|remove|delete|fix|repair|refactor|rewrite|edit|integrate|wire)\b/i.test(value);
+  const action = /\b(?:d[ée]veloppe(?:r)?|ajoute(?:r)?|cr[ée]e(?:r)?|construis|construire|impl[ée]mente(?:r)?|apprends?|upgrade|am[ée]liore(?:r)?|modifie(?:r)?|change(?:r)?|remplace(?:r)?|supprime(?:r)?|enl[eè]ve(?:r)?|retire(?:r)?|corrige(?:r)?|r[ée]pare(?:r)?|refactor(?:e|er)?|r[ée][ée]cris|r[ée][ée]crire|[ée]dite(?:r)?|int[eè]gre(?:r)?|branche(?:r)?|raccorde(?:r)?|stylise(?:r)?|d[ée]core(?:r)?|mets?\s+[àa]\s+jour|sauvegarde(?:r)?|restaur(?:e|er)|surveille(?:r)?|build|develop|implement|add|modify|change|replace|remove|delete|fix|repair|refactor|rewrite|edit|integrate|wire|backup|restore)\b/i.test(value);
 
-  const target = /\b(?:comp[ée]tence|capacit[ée]|module|outil|int[ée]gration|connecteur|plugin|skill|capability|connector|tool|interface|ui|avatar|th[eè]me|design|style|css|html|javascript|js|code|source|fichier|page|frontend|backend|api|route|worker|chat|prompt|r[ée]ponses?|comportement|raisonnement|orchestration|routage|m[ée]moire|roadmap|feuille\s+de\s+route|test|tests?|bouton|menu|panneau|composant|component|layout)\b/i.test(value);
+  const target = /\b(?:comp[ée]tence|capacit[ée]|module|outil|int[ée]gration|connecteur|plugin|skill|capability|connector|tool|interface|ui|avatar|th[eè]me|design|style|css|html|javascript|js|code|source|fichier|page|frontend|backend|api|route|worker|chat|prompt|r[ée]ponses?|comportement|raisonnement|orchestration|routage|m[ée]moire|roadmap|feuille\s+de\s+route|test|tests?|bouton|menu|panneau|composant|component|layout|bug|bugs|panne|r[ée]gression|regression|veille|lora|council|work|sauvegarde|restauration|backup|restore|companion|apk|mini|autonomie)\b/i.test(value);
 
   return action && target;
 }
@@ -190,11 +192,24 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
   if (!body || typeof body !== 'object' || body.capability?.id) return request;
   const text = String(body.text ?? body.message ?? body.prompt ?? '').trim();
   if (!text) return request;
-  // Long messages are instructions: no keyword routing to status tools, the model answers.
-  if (text.length > 280) return request;
-
   const requestKey = body.client_message_id ?? body.message_id ?? body.request_id ?? body.id ?? '';
-
+  const selfStateFirst = inferSelfStateIntent(text);
+  const knowledgeFirst = selfStateFirst ? null : inferKnowledgeCapability(text);
+  const persistentKnowledgeFirst = knowledgeFirst && (
+    knowledgeFirst.id !== 'knowledge.research'
+    || knowledgeFirst.input?.save_file === true
+    || knowledgeFirst.input?.remember === true
+  );
+  if (selfStateFirst) {
+    routeDeterministic(body, selfStateFirst, 'SELF_STATE');
+  } else if (persistentKnowledgeFirst) {
+    routeDeterministic(body, knowledgeFirst, 'KNOWLEDGE');
+  } else if (isEvolutionDevelopmentIntent(text)) {
+    body.capability = enqueueCapability(text, body, requestKey);
+    body.intent_routing = { mode: 'deterministic', intent: 'DEVELOPMENT', confidence: 1 };
+  } else if (text.length > 280) {
+    return request;
+  } else {
   const selfState = inferSelfStateIntent(text);
   const knowledge = selfState ? null : inferKnowledgeCapability(text);
   const persistentKnowledge = knowledge && (
@@ -275,6 +290,7 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
         confidence: semantic.confidence,
       };
     }
+  }
   }
 
   const headers = new Headers(request.headers);
