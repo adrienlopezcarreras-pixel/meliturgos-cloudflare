@@ -236,6 +236,60 @@ test('deep audit executes bounded LOW-risk samples and reports failures instead 
   assert.equal(medium.truth_status, 'REFUSEE');
 });
 
+test('provider-backed media analysis is unverified without real fixtures, never failed on invented empty input', async () => {
+  const ids = ['media.image.analyze', 'media.video.analyze'];
+  const calls = [];
+  const records = ids.map(id => ({
+    id, name: id, category: 'creative-media', provider: 'mel',
+    risk: 'LOW', enabled: true, health: 'HEALTHY',
+  }));
+  const bus = {
+    list: () => records,
+    contract: () => ({ valid: true }),
+    refreshHealth: async id => records.find(record => record.id === id),
+    execute: async (id, input) => {
+      calls.push({ id, input });
+      throw Object.assign(new Error('UNEXPECTED_IMAGE_OR_VIDEO_INPUT_FAILURE'), {
+        code: 'UNEXPECTED_IMAGE_OR_VIDEO_INPUT_FAILURE',
+      });
+    },
+  };
+
+  const audit = await auditRuntimeCapabilities({ bus }, {
+    deep: true, samples: {},
+    zeroCostCapabilityIds: ids,
+  });
+  assert.deepEqual(calls, [], 'never execute image/video analysis with implicit {} input');
+  assert.equal(audit.counts.EXISTANT_MAIS_ECHEC_RUNTIME || 0, 0);
+  for (const row of audit.capabilities) {
+    assert.equal(row.auto_execution_blocked, 'NO_BOUNDED_SAMPLE');
+    assert.equal(row.tested_now, false);
+    assert.equal(row.truth_status, 'REFUSEE');
+  }
+
+  const noCostProof = await auditRuntimeCapabilities({ bus }, {
+    deep: true, samples: {
+      'media.image.analyze': { image_base64: 'synthetic-fixture' },
+      'media.video.analyze': { video_base64: 'synthetic-fixture' },
+    },
+  });
+  assert.deepEqual(calls, [], 'a real sample alone is not proof of zero-added-cost');
+  assert.ok(noCostProof.capabilities.every(row => row.auto_execution_blocked === 'UNKNOWN_OR_EXTERNAL_COST'));
+
+  const actualFailure = await auditRuntimeCapabilities({ bus }, {
+    deep: true, zeroCostCapabilityIds: ids,
+    samples: {
+      'media.image.analyze': { image_base64: 'synthetic-fixture' },
+      'media.video.analyze': { video_base64: 'synthetic-fixture' },
+    },
+  });
+  assert.equal(calls.length, 2, 'explicit valid-looking fixtures still execute when cost approved');
+  assert.ok(actualFailure.capabilities.every(row =>
+    row.truth_status === 'EXISTANT_MAIS_ECHEC_RUNTIME' &&
+    row.execution?.code === 'UNEXPECTED_IMAGE_OR_VIDEO_INPUT_FAILURE'
+  ), 'real runtime failures remain visible');
+});
+
 test('deep audit times out one hung LOW-risk smoke and continues with later capabilities', async () => {
   const records = [
     { id:'hung', name:'Hung', category:'test', provider:'test', risk:'LOW', enabled:true, health:'HEALTHY' },
@@ -284,12 +338,12 @@ test('deep audit explains every local reason that prevents bounded automatic exe
     samples:{ disabled:{}, high:{}, stub:{} },
   });
   assert.equal(report.capabilities.find(x => x.id === 'disabled').auto_execution_blocked, 'DISABLED');
-  assert.equal(report.capabilities.find(x => x.id === 'missing-sample').truth_status, 'EXISTANT_ET_TESTE');
-  assert.equal(report.capabilities.find(x => x.id === 'missing-sample').auto_execution_blocked, null);
+  assert.equal(report.capabilities.find(x => x.id === 'missing-sample').truth_status, 'REFUSEE');
+  assert.equal(report.capabilities.find(x => x.id === 'missing-sample').auto_execution_blocked, 'NO_BOUNDED_SAMPLE');
   assert.equal(report.capabilities.find(x => x.id === 'high').auto_execution_blocked, 'RISK_NOT_LOW');
   assert.equal(report.capabilities.find(x => x.id === 'high').truth_status, 'REFUSEE');
   assert.equal(report.capabilities.find(x => x.id === 'stub').auto_execution_blocked, 'DECLARED_NON_EXECUTABLE');
-  assert.deepEqual(calls, ['missing-sample']);
+  assert.deepEqual(calls, []);
 });
 
 test('deep audit fails closed on provider/cost-sensitive samples until exact zero-cost proof is supplied', async () => {
@@ -946,7 +1000,7 @@ test('one-entry corrupted ledger cannot be hidden by dynamic sample selection', 
   assert.equal(report.capabilities[0].auto_execution_blocked,null);
 });
 
-test('strict audit attempts cost-sensitive and sample-less LOW reads, and still refuses high risk', async () => {
+test('strict audit attempts explicit cost-sensitive samples, but refuses missing LOW-read fixtures and high risk', async () => {
   const calls = [];
   const records = [
     { id:'web.research', name:'Web', category:'research', provider:'external', risk:'LOW', enabled:true, health:'HEALTHY' },
@@ -965,12 +1019,13 @@ test('strict audit attempts cost-sensitive and sample-less LOW reads, and still 
     },
   };
   const report = await auditRuntimeCapabilities(fake, { deep: true, strict: true, samples: { 'web.research': { query: 'doc' } } });
-  assert.deepEqual(calls.sort(), ['local.diagnostic', 'web.research']);
+  assert.deepEqual(calls, ['web.research']);
   assert.equal(report.ok, false);
   assert.equal(report.strict, true);
   assert.deepEqual(report.strict_verdict.failed, ['web.research']);
   assert.equal(report.capabilities.find(row => row.id === 'files.delete').auto_execution_blocked, 'STRICT_MUTATION_REFUSED');
   assert.equal(report.capabilities.find(row => row.id === 'high').auto_execution_blocked, 'RISK_NOT_LOW');
-  assert.equal(report.capabilities.find(row => row.id === 'local.diagnostic').truth_status, 'EXISTANT_ET_TESTE');
+  assert.equal(report.capabilities.find(row => row.id === 'local.diagnostic').truth_status, 'REFUSEE');
+  assert.equal(report.capabilities.find(row => row.id === 'local.diagnostic').auto_execution_blocked, 'NO_BOUNDED_SAMPLE');
   assert.equal(report.capabilities.find(row => row.id === 'web.research').execution.code, 'NO_ZERO_COST_PROVIDER_AVAILABLE');
 });
