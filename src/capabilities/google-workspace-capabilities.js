@@ -429,10 +429,9 @@ function gmailHealthcheck(resolveAccessToken, fetchImpl, env, pipedreamRuntime, 
           native_reason: String(nativeError?.code || nativeError?.message || '').slice(0, 160),
         };
       } catch (fallbackError) {
-        return {
-          status: 'UNAVAILABLE',
-          reason: String(fallbackError?.code || fallbackError?.message || 'GMAIL_ALL_PATHS_FAILED').slice(0, 180),
-        };
+        const reason = String(fallbackError?.code || fallbackError?.message || 'GMAIL_ALL_PATHS_FAILED').slice(0, 180);
+        const accountMissing = /ACCOUNT_REQUIRED$/.test(reason);
+        return { status: accountMissing ? 'DEGRADED' : 'UNAVAILABLE', reason };
       }
     }
   };
