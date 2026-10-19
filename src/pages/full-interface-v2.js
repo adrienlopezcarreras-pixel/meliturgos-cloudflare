@@ -697,7 +697,7 @@ function activityMarkup(a){
   if(!a||a.ok!==true)return 'Activité indisponible.';
   const c=a.control||{},wd=a.watchdog||{},wc=wd.counters||{},pc=a.pc_executor,fmtW=v=>{const n=finiteMetric(v);return n===null?'—':String(n)};
   const mode=c.paused&&(c.reason==='predeploy-release-safety'||/^release-/.test(String(c.source||'')))?'⏸ Pause de mise en production : levée automatiquement après les vérifications'+(c.max_remembered?', puis MAX reprend':''):c.paused?'⏸ En pause'+(c.reason?' ('+c.reason+')':''):c.max_autonomy?'⚡ MAX 100 % (auto-développement sans validation humaine)':'Autonomie supervisée (chaque plan attend ta validation)';
-  let h=activitySection('Mode',
+  let h='<div class="act-sec"><button type="button" class="mel-clear-activity">Vider la liste</button></div>'+activitySection('Mode',
     '<div><b>'+esc(mode)+'</b></div>'
     +'<div class="act-kv">Garde-fou de progression : <b>'+esc(wd.status||'—')+'</b>'+(wd.tripped?' · <span class="act-bad">bloqué après '+esc(wd.consecutive_stalls??'?')+' cycles sans progrès</span>':'')+'</div>'
     +'<div class="act-kv">Dernier cycle : '+esc(wd.last_tick_at?activityTime(Date.parse(wd.last_tick_at)):'—')+' · dernier progrès : '+esc(wd.last_advanced_at?activityTime(Date.parse(wd.last_advanced_at)):'aucun mesuré')+'</div>'
@@ -746,6 +746,17 @@ if(topMax)topMax.onclick=()=>autonomyAction(topMax,'/api/gen2/autonomy/max',{ena
 if(topCycle)topCycle.onclick=()=>autonomyAction(topCycle,'/api/gen2/autonomy/tick',{},'Cycle MEL',qs('#melFullFeedback')).catch(()=>{});
 if(topPause)topPause.onclick=()=>autonomyAction(topPause,autonomyControl.paused===true?'/api/gen2/autonomy/resume':'/api/gen2/autonomy/pause',autonomyControl.paused===true?{}:{reason:'owner-control-center-pause'},autonomyControl.paused===true?'Reprise de MEL':'Mise en pause',qs('#melFullFeedback')).catch(()=>{});
 if(topActivity)topActivity.onclick=async()=>{if(!desktopPanel)return;desktopPanel.hidden=!desktopPanel.hidden;if(!desktopPanel.hidden)await showActivity(qs('#desktopActivityBody'))};
+async function clearActivityList(button){
+  if(!button||button.dataset.busy==='1')return;
+  if(!window.confirm('Vider la liste visible ? Les travaux encore ouverts seront annulés. Rien n’est effacé de la base.'))return;
+  button.dataset.busy='1';button.disabled=true;
+  try{
+    await jfetch('/api/gen2/autonomy/activity/reset',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+    if(desktopPanel&&!desktopPanel.hidden)await showActivity(qs('#desktopActivityBody'));
+    const mobile=qs('#mobileActivityPanel');if(mobile&&!mobile.hidden)await showActivity(mobile);
+  }catch(e){button.disabled=false;button.dataset.busy='';button.textContent='Vider la liste : '+e.message}
+}
+document.addEventListener('click',event=>{const button=event.target.closest?.('.mel-clear-activity');if(button)clearActivityList(button)});
 qs('#desktopActivityClose').onclick=()=>{if(desktopPanel)desktopPanel.hidden=true};
 async function loadWork(){try{const d=await jfetch('/api/work/health');const online=d?.ok===true&&d?.available===true&&String(d?.status||'').toUpperCase()==='ONLINE';const mode=String(d?.mode||'').toLowerCase();qs('#bridgeState').textContent=online?(mode==='preflight-only'?'Préflight disponible':'Disponible'):'Indisponible';qs('#workOut').textContent=JSON.stringify(d,null,2)}catch(e){qs('#bridgeState').textContent='Indisponible';qs('#workOut').textContent='État Work indisponible : '+e.message}try{await loadWorkComputer()}catch(e){qs('#workComputerState').textContent='INDISPONIBLE';qs('#workComputerOut').textContent='Companion inaccessible : '+e.message}}
 qs('#workRefresh').onclick=loadWork;
