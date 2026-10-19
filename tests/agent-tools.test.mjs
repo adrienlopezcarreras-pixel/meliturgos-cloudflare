@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runAgentToolLoop, parseAgentAction, responseIsBareToolCall, stripLeakedToolCalls, executeLeakedReads, AGENT_MAX_STEPS } from '../src/api/agent-tools.js';
+import { missingCapabilityShouldBeLearned, runAgentToolLoop, parseAgentAction, responseIsBareToolCall, stripLeakedToolCalls, executeLeakedReads, AGENT_MAX_STEPS } from '../src/api/agent-tools.js';
 
 const bus = (calls) => ({
   list: () => ['capability.audit', 'evolution.enqueue', 'autonomy.status'].map(id => ({ id, description: id, input_schema: { type: 'object' } })),
@@ -66,6 +66,23 @@ test('a gmail read requested with arguments is executed, not left as text', asyn
 test('only a whole JSON tool call counts as a bare call', () => {
   assert.equal(responseIsBareToolCall('{"tool":"gmail.messages.search","arguments":{}}'), true);
   assert.equal(responseIsBareToolCall('Voici le résultat.\n{"tool":"gmail.messages.search"}'), false);
+});
+
+test('a missing tool is learned; an auth failure or a success is not', () => {
+  assert.equal(missingCapabilityShouldBeLearned([{ capability: 'payments.send', status: 'FAILED', error: 'AGENT_TOOL_NOT_ALLOWED' }]), true);
+  assert.equal(missingCapabilityShouldBeLearned([{ capability: 'x', status: 'FAILED', error: 'CAPABILITY_NOT_FOUND' }]), true);
+  assert.equal(missingCapabilityShouldBeLearned([
+    { capability: 'payments.send', status: 'FAILED', error: 'AGENT_TOOL_NOT_ALLOWED' },
+    { capability: 'gmail.messages.search', status: 'FAILED', error: 'PIPEDREAM_GMAIL_ACCOUNT_REQUIRED' },
+  ]), false);
+  assert.equal(missingCapabilityShouldBeLearned([
+    { capability: 'gmail.messages.search', status: 'SUCCEEDED' },
+    { capability: 'payments.send', status: 'FAILED', error: 'AGENT_TOOL_NOT_ALLOWED' },
+  ]), false);
+  assert.equal(missingCapabilityShouldBeLearned([
+    { capability: 'evolution.enqueue', status: 'SUCCEEDED' },
+    { capability: 'payments.send', status: 'FAILED', error: 'CAPABILITY_NOT_FOUND' },
+  ]), false);
 });
 
 test('a tool JSON glued to the answer is removed and a missed read is executed once', async () => {

@@ -35,7 +35,18 @@ export function parseVerdict(text) {
 }
 
 export function decide(reviews) {
-  const valid = reviews.filter(r => r.verdict);
+  const valid = [];
+  const seen = new Set();
+  for (const review of Array.isArray(reviews) ? reviews : []) {
+    if (!review?.verdict) continue;
+    if (typeof review.summary === 'string' && review.summary.trim() === '') continue;
+    const model = String(review.model || '').trim();
+    if (model) {
+      if (seen.has(model)) continue;
+      seen.add(model);
+    }
+    valid.push(review);
+  }
   const approvals = valid.filter(r => r.verdict === 'APPROVE').length;
   const rejections = valid.length - approvals;
   if (valid.length < 2) return 'INSUFFICIENT_REVIEWERS';
@@ -45,16 +56,19 @@ export function decide(reviews) {
 export async function runCouncilReview(env, { diff, goal = '', models = COUNCIL_REVIEWERS, timeoutMs = 120_000 } = {}) {
   const user = 'Objectif annoncé : ' + String(goal || '(non fourni)').slice(0, 1500) + '\n\nDIFF :\n' + String(diff || '').slice(0, MAX_DIFF);
   const reviews = await Promise.all(models.map(async model => {
+    let timer;
     try {
       const out = await Promise.race([
         env.AI.run(model, { messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: user }], max_tokens: 1200 }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('REVIEW_TIMEOUT')), timeoutMs)),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('REVIEW_TIMEOUT')), timeoutMs); }),
       ]);
       const text = typeof out === 'string' ? out : out?.response || out?.choices?.[0]?.message?.content || out?.output_text || '';
       const parsed = parseVerdict(typeof text === 'string' ? text : JSON.stringify(text));
       return { model, ...(parsed || { verdict: null, error: 'UNPARSEABLE_REVIEW' }) };
     } catch (error) {
       return { model, verdict: null, error: String(error?.message || error).slice(0, 160) };
+    } finally {
+      clearTimeout(timer);
     }
   }));
   return { decision: decide(reviews), reviews };
