@@ -33,6 +33,12 @@ export function inferAutonomyControlIntent(text, context = '') {
   const contextualAutonomyDomain = /\b(?:autonomie|auto[- ]?d[ée]veloppement|self[- ]?development|feuille\s+de\s+route|roadmap|launch\s+gate|DEPLOY_APPROVED|release|d[ée]ploiement|workflow\s+de\s+release|PR\s*#?\d+)\b/i.test(history);
   if (!currentAutonomyDomain && !contextualAutonomyDomain) return null;
 
+  const asksHow = /[?]|\b(?:comment|pourquoi|qu['’]est[- ]ce|c['’]est\s+quoi)\b/i.test(value);
+  const asksResume = /\b(?:r[ée]active(?:r|z)?|remets?\s+(?:en\s+)?(?:route|marche)|enl[èe]ve\s+la\s+pause)\b/i.test(value);
+  if (asksResume && !asksHow) return { id: 'autonomy.resume', input: {} };
+  const asksPause = /\b(?:mets?\s+.{0,24}en\s+pause|mettre\s+en\s+pause|pause\s+(?:max|l['’]autonomie|mel))\b/i.test(value);
+  if (asksPause && !asksHow) return { id: 'autonomy.pause', input: { reason: 'owner-chat' } };
+
   const asksAdvance = /\b(?:continue|continuer|reprends?|reprendre|avance|avancer|poursuis|poursuivre|travaille|travailler|encha[iî]ne|encha[iî]ner|relance|relancer|r[ée]concilie(?:r)?|d[ée]ploie(?:r)?|synchronise(?:r)?|termine(?:r)?)\b/i.test(value);
   // A request containing both status and action must execute the action.
   if (asksAdvance) return { id: 'autonomy.tick', input: {} };
