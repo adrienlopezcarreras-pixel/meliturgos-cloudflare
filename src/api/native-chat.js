@@ -1545,10 +1545,12 @@ export async function handleNativeChat(request, env, options = {}) {
   }
 
   let capabilityManifest = releaseSmoke || plainChatTurn ? [] : await buildRuntimeCapabilityManifest(runtime);
-  const connectedReadPlan = releaseSmoke ? [] : inferConnectedReadPlan(activeTaskText);
-  const capability = connectedReadPlan.length ? null : (releaseSmoke
+  const capability = releaseSmoke
     ? inferredCapability
-    : (body.capability?.id ? body.capability : inferredCapability));
+    : (body.capability?.id ? body.capability : inferredCapability);
+  const connectedReadPlan = releaseSmoke || capability?.execution_intent === 'CONNECTED_DATA_MUTATION'
+    ? []
+    : inferConnectedReadPlan(activeTaskText);
   const toolResults = [];
   const capabilitiesUsed = [];
   let approvalRequired = null;
