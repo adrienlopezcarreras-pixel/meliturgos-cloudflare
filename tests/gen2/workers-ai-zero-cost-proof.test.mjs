@@ -180,7 +180,9 @@ test('scheduled zero-cost proof refresh authenticates BOTH Cloudflare secret upd
   assert.ok(workflow.includes('wrangler versions secret put MEL_WORKERS_AI_ZERO_COST_PROOF_JSON --name meliturgos --env=""'),
     'Workers AI proof must target the same environment');
   assert.doesNotMatch(workflow, /wrangler secret put MEL_(?:BROWSER_RUN|WORKERS_AI)_ZERO_COST_PROOF_JSON/,
-    'proof refresh must update versioned secrets without an implicit production deployment');
+    'proof refresh must not use implicit secret put; production traffic moves only via versions deploy');
+  assert.match(workflow, /npx wrangler versions deploy "\$\{VID\}@100%" --yes --name meliturgos/,
+    'the version that received the secrets must be promoted or production keeps the expired proof');
 });
 
 test('zero-cost proofs refresh immediately after an approved release or workflow update as well as on the recurring schedule', async () => {
