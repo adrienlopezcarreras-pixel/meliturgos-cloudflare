@@ -2043,18 +2043,21 @@ class MainForm : Form
         {
             var proof = MelApp.Json.Deserialize<Dictionary<string, object>>(File.ReadAllText(reportPath));
             object selObj;
-            if(proof.TryGetValue("ota_selection", out selObj) && selObj is Dictionary<string, object> sel)
+            if(proof.TryGetValue("ota_selection", out selObj) && selObj is Dictionary<string, object>)
             {
+                var sel = (Dictionary<string, object>)selObj;
                 object alt, act;
                 if(sel.TryGetValue("alternative_slot", out alt)) inactiveSlot = Convert.ToString(alt);
                 if(sel.TryGetValue("selected_boot_slot_from_otadata", out act)) activeSlot = Convert.ToString(act);
             }
             object tableObj;
-            if(proof.TryGetValue("partition_table", out tableObj) && tableObj is Dictionary<string, object> table)
+            if(proof.TryGetValue("partition_table", out tableObj) && tableObj is Dictionary<string, object>)
             {
+                var table = (Dictionary<string, object>)tableObj;
                 object partsObj;
-                if(table.TryGetValue("partitions", out partsObj) && partsObj is System.Collections.ArrayList parts)
+                if(table.TryGetValue("partitions", out partsObj) && partsObj is System.Collections.ArrayList)
                 {
+                    var parts = (System.Collections.ArrayList)partsObj;
                     foreach(object p in parts)
                     {
                         var part = p as Dictionary<string, object>;
