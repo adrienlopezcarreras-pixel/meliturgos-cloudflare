@@ -123,3 +123,20 @@ test('owner may read saved direct artifact by exact id; other users and malforme
  assert.equal((await res.json()).artifact.content,'REAL D1 BODY');
  assert.equal((await handleRevenueApi(new Request('https://mel.test/api/revenue/direct-work?artifact_id=../../bad',{headers}),env)).status,400);
 });
+
+test('owner can read the latest saved work file without guessing its id', async () => {
+  const DB = sqliteD1();
+  try {
+    const env = { MELITURGOS_USER: 'adrien', MELITURGOS_PASSWORD: 'test', DB };
+    const headers = { authorization: 'Basic ' + Buffer.from('adrien:test').toString('base64') };
+    await DB.prepare('CREATE TABLE mel_work_artifacts (id TEXT PRIMARY KEY, mission_id TEXT NOT NULL, content TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL)').run();
+    await DB.prepare('INSERT INTO mel_work_artifacts (id, mission_id, content, status, created_at) VALUES (?,?,?,?,?)').bind('work-' + 'b'.repeat(64), 'job-1', 'ancien', 'DRAFT_UNVERIFIED', '2026-10-18T10:00:00Z').run();
+    await DB.prepare('INSERT INTO mel_work_artifacts (id, mission_id, content, status, created_at) VALUES (?,?,?,?,?)').bind('work-' + 'c'.repeat(64), 'job-2', 'dernier fichier', 'DRAFT_UNVERIFIED', '2026-10-19T10:00:00Z').run();
+    const res = await handleRevenueApi(new Request('https://mel.test/api/revenue/direct-work?latest=1', { headers }), env);
+    const body = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(body.artifact.content, 'dernier fichier');
+    assert.equal(body.paid, false);
+    assert.equal(body.delivery, false);
+  } finally { DB.close(); }
+});

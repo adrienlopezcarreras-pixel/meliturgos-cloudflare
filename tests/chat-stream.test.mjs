@@ -210,7 +210,7 @@ test('when no cloud model can answer, the local PC model takes over; never other
 });
 
 test('stream drops fake tool calls and English agent narration, keeps the French answer', async () => {
-  const { createToolLeakFilter, withNoToolsNote, STREAM_NO_TOOLS_NOTE } = await import('../src/api/chat-stream.js');
+  const { createToolLeakFilter, withNoToolsNote, STREAM_NO_TOOLS_NOTE, plainChatMayStream } = await import('../src/api/chat-stream.js');
   const leaked = 'Search code for "refactor".{\n  "tool": "code.search",\n  "parameters": {"query": "refactor"}\n}We need to see TOOL_RESULT.{"tool":"code.read","parameters":{"path":"x"}}Given constraints, respond that actions are being executed.J’ai regardé : voici ma proposition. Le JSON {"a":1} reste.';
   for (const size of [1, 4, 33, 10_000]) {
     const filter = createToolLeakFilter();
@@ -226,4 +226,8 @@ test('stream drops fake tool calls and English agent narration, keeps the French
   const messages = withNoToolsNote([{ role: 'system', content: 'S' }, { role: 'user', content: 'go' }]);
   assert.equal(messages.length, 2);
   assert.ok(messages[0].content.endsWith(STREAM_NO_TOOLS_NOTE));
+  const plain = { stream: true, toolCount: 0, ai: true };
+  assert.equal(plainChatMayStream(plain), true);
+  assert.equal(plainChatMayStream({ ...plain, actionRequest: true }), false);
+  assert.equal(plainChatMayStream({ ...plain, toolCount: 1 }), false);
 });
