@@ -44,6 +44,11 @@ export class ConversationService {
 
     await this.ensureConversation(conversationId);
 
+    const turnKey = String(metadata?.client_message_id || '').replace(/[^a-zA-Z0-9_.:-]/g, '').slice(0, 80);
+    const messageId = turnKey
+      ? `${role}:${conversationId}:${turnKey}`.slice(0, 180)
+      : id;
+
     await this.db
       .prepare(
         `INSERT OR IGNORE INTO archive_messages(
@@ -53,7 +58,7 @@ export class ConversationService {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
-        id,
+        messageId,
         conversationId,
         deviceId || null,
         role,
@@ -75,7 +80,7 @@ export class ConversationService {
     // completes the missing memory write without duplicating either record.
     await this.memorySync.sync([{
       conversationId,
-      messageId: id,
+      messageId,
       role,
       content,
       timestamp,
@@ -83,10 +88,10 @@ export class ConversationService {
     }]);
 
     if (deviceId) {
-      await this.updateSyncCheckpoint(deviceId, conversationId, id, timestamp);
+      await this.updateSyncCheckpoint(deviceId, conversationId, messageId, timestamp);
     }
 
-    return { id, conversationId };
+    return { id: messageId, conversationId };
   }
 
   async ensureConversation(id, owner = "", title = "") {

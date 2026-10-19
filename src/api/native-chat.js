@@ -1355,6 +1355,14 @@ export async function handleNativeChat(request, env, options = {}) {
       }));
     } catch { recent = []; }
   }
+  const clientMessageId = String(body.client_message_id || body.message_id || '').replace(/[^a-zA-Z0-9_.:-]/g, '').slice(0, 80);
+  if (service && clientMessageId) {
+    const archiveMessage = service.archiveMessage.bind(service);
+    service.archiveMessage = (input = {}) => archiveMessage({
+      ...input,
+      metadata: { ...(input.metadata && typeof input.metadata === 'object' ? input.metadata : {}), client_message_id: clientMessageId },
+    });
+  }
 
   // General large-work path: archive a durable job and return before a
   // 90-second browser timeout. A bounded step runs in waitUntil, while the
