@@ -25,7 +25,7 @@ Une modification du contenu entre simulation et confirmation invalide le checksu
 
 ## Récupération du code ShardVault
 
-Le découpage, le chiffrement et la reconstruction existants sont conservés. La remise du code doit utiliser les octets reconstruits depuis les fragments ; la copie locale de l'archive doit seulement servir de contrôle facultatif. Le chemin actuel rend déjà les octets reconstruits, mais tente encore une lecture du contrôle local sans traiter son indisponibilité : ce point reste à corriger et éprouver à la fin de l'étape 9. L'indépendance de l'archive locale ne signifie pas encore indépendance de Cloudflare : `readExternalCodeManifest()` lit actuellement le manifeste dans R2, et le Worker utilise le secret qui lui est injecté.
+Le découpage, le chiffrement et la reconstruction existants sont conservés. La remise du code utilise les octets reconstruits depuis les fragments ; la copie locale de l'archive sert uniquement de contrôle facultatif. Son absence ou une erreur de lecture ne bloque plus la remise ; une copie lisible mais différente reste refusée. L'indépendance de l'archive locale ne signifie pas encore indépendance de Cloudflare : `readExternalCodeManifest()` lit actuellement le manifeste dans R2, et le Worker utilise le secret qui lui est injecté.
 
 ### Conserver le matériel de récupération chez le propriétaire
 
@@ -52,6 +52,8 @@ Cette commande lit un manifeste, pas la clé ni l'archive locale. Vérifier que 
 Conserver la pause pendant les étapes précédentes. À la fin de l'étape 9, retirer la pause puis exécuter l'épreuve sur la version réellement servie, liée au SHA exact : rendre trois fragments indisponibles pour la reconstruction, reconstruire avec les quatre restants, récupérer les octets réellement remis et comparer leur SHA-256 à celui de l'archive de ce commit. L'épreuve ne doit lire aucune copie locale de l'archive. Conserver le SHA servi, les trois index exclus, les quatre fragments utilisés, l'empreinte et le résultat dans une preuve sans secret.
 
 `POST /api/gen2/shardvault/code-reconstruct` accepte déjà `{"simulate_missing":[0,2,5]}`. Cette exclusion évite de supprimer physiquement des fragments partagés ; la réponse de vérification seule ne prouve pas la remise des octets au destinataire. Les tests des 35 combinaisons de perte de trois fragments sur sept restent des preuves locales. Ni ces tests ni une ancienne preuve de preview ne clôturent l'épreuve sur la version servie. Une restauration sur un environnement indépendant doit en outre utiliser le manifeste et la clé conservés hors Cloudflare ; tant que ce chemin n'est pas éprouvé, ne pas annoncer une reprise complète après perte de Cloudflare.
+
+Ajouter `"download":true` à cette même requête authentifiée remet l'archive reconstruite et interdit toute lecture de la copie locale de l'archive. Comparer le SHA-256 calculé sur les octets reçus à `x-mel-archive-sha256`, vérifier `x-mel-source-sha` contre le commit servi et `x-mel-local-copy-checked: 0`. Le manifeste est toujours lu et authentifié ; aucune clé n'est renvoyée.
 
 ## Rollback applicatif
 
