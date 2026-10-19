@@ -445,3 +445,32 @@ test('Gmail health distinguishes upstream network and timeout failures without p
     assert.ok(!health.health_detail.includes('non-secret-test-token'));
   }
 });
+
+test('Gmail search uses Pipedream when the native Gmail call fails on the network', async () => {
+  const proxyCalls = [];
+  const bus = new CapabilityBus();
+  registerGoogleWorkspaceCapabilities(bus, {
+    env: { MELITURGOS_USER: 'adrien' },
+    resolveAccessToken: async () => 'google-token',
+    fetchImpl: async () => { throw new TypeError('network down'); },
+    pipedreamRuntime: {
+      async proxy(input) {
+        proxyCalls.push(input);
+        if (String(input.url).includes('/profile')) return { body: { emailAddress: 'owner@example.com' } };
+        if (String(input.url).includes('/messages?')) return { body: { messages: [{ id: 'm-pd', threadId: 't-pd' }] } };
+        return { body: { snippet: 'bonjour', payload: { headers: [{ name: 'Subject', value: 'Facture' }, { name: 'From', value: 'a@b.c' }] } } };
+      },
+    },
+  });
+  const health = await bus.refreshHealth('gmail.messages.search');
+  assert.equal(health.health, 'HEALTHY');
+  const result = await bus.execute('gmail.messages.search', { query: 'newer_than:7d', limit: 1 }, {
+    owner: 'adrien',
+    permissions: ['google.gmail.read'],
+  });
+  assert.equal(result.provider, 'pipedream');
+  assert.equal(result.count, 1);
+  assert.equal(result.messages[0].subject, 'Facture');
+  assert.ok(proxyCalls.some(call => call.app === 'gmail' && String(call.url).includes('/messages?')));
+  assert.equal(proxyCalls.some(call => call.app !== 'gmail'), false);
+});
