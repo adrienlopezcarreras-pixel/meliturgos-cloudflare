@@ -23,6 +23,12 @@ const AUTONOMY_ORDER = [
   'MEL-MANIFEST-02',
   'MEL-MANIFEST-03',
   'MEL-MANIFEST-04',
+  'MEL-MANIFEST-05',
+  'MEL-MANIFEST-06',
+  'MEL-MANIFEST-07',
+  'MEL-MANIFEST-08',
+  'MEL-MANIFEST-09',
+  'MEL-MANIFEST-10',
   'MEL-WORK-01',
   'MEL-WORK-02',
   'GEN2-17',
@@ -139,6 +145,15 @@ export function selectActionableAutonomyJob(jobs = [], { epochMs = 0 } = {}) {
     .filter((job) => !isPassiveRuntimeJob(job))
     .filter((job) => Number(job?.created_at || 0) >= epoch)
     .sort(compareActiveJobs)[0] || null;
+}
+
+export function manifestObjective(roadmap = flattenRoadmap()) {
+  return roadmap
+    .filter((item) => item?.id && (item.id.startsWith('MEL-FOUNDER-') || item.id.startsWith('MEL-MANIFEST-')))
+    .filter((item) => !DONE_ROADMAP.has(item.status))
+    .map((item) => item.id + ':' + item.status)
+    .join(' ')
+    .slice(0, 900);
 }
 
 export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedIds = [], blockedIds = [] } = {}) {
@@ -283,7 +298,7 @@ export class AutonomySupervisor {
     const item = current.next;
     const attempts = current.supervisedJobs.filter((job) => roadmapIdFromJob(job) === item.id).length;
     const deterministicId = jobAttemptId(item.id, attempts + 1);
-    const goal = `[${item.id}] ${item.title}${item.next ? ` — ${item.next}` : ''}`;
+    const goal = `[${item.id}] ${item.title}${item.next ? ` — ${item.next}` : ''} | OBJECTIF ${manifestObjective(this.roadmap)}`;
     const input = {
       id: deterministicId,
       requested_by: 'mel-autonomy',
