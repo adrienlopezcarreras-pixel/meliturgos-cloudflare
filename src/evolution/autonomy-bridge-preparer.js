@@ -125,7 +125,14 @@ function normalizeTests(tests = []) {
 
 function repairMarker(job) {
   const bridge = job?.result_json?.dev_bridge;
-  return bridge?.needs_repair === true ? String(bridge.received_at || '') : '';
+  if (bridge?.needs_repair !== true) return '';
+  // A failure received before the current Teacher approval belongs to a plan
+  // replaced after a candidate SHA change: repairing it targets files the new
+  // plan never inspected (MENTOR_UNINSPECTED_PATH). It stays in result_json.
+  const failedAt = Date.parse(String(bridge.received_at || ''));
+  const approvedAt = Date.parse(String(job?.result_json?.teacher_bridge?.reviewed_at || ''));
+  if (Number.isFinite(failedAt) && Number.isFinite(approvedAt) && failedAt < approvedAt) return '';
+  return String(bridge.received_at || '');
 }
 
 function reusablePackage(job, proposal) {
@@ -173,7 +180,7 @@ export async function prepareApprovedBridgePackage({
     jobId: current.id,
     goal: current.goal,
     inspectedFiles: code.files,
-    previousAttempts: current?.result_json?.dev_bridge?.tests || [],
+    previousAttempts: repairFor ? current?.result_json?.dev_bridge?.tests || [] : [],
     mode,
   });
   const proposal = mentor?.proposal;
