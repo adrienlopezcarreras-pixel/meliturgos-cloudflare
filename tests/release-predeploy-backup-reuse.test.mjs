@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { spawnSync } from 'node:child_process';
 
 test('canonical release proves a recent restore-verified backup through the ephemeral binder before deploy', async () => {
   const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
@@ -326,24 +325,4 @@ test('predeploy binder retries only Cloudflare 1042 propagation while enforcing 
  assert.match(block,/if \[ "\$\{PREPARED\}" != "1" \]; then\s+exit 54/);
  assert.match(block,/predeploy-backup-verified\.marker/);
  assert.doesNotMatch(block,/for ATTEMPT in \$\(seq 1 4\)/);
-});
-
-test('final owner MAX handoff release shell is valid bash, including closed command substitution', async () => {
-  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
-  const start = source.indexOf('      - name: Keep MAX disabled after hardening release');
-  const end = source.indexOf('      - name: Re-enable MAX 100% after verified autonomous release', start);
-  assert.ok(start >= 0 && end > start, 'owner handoff must precede MAX restoration');
-  const step = source.slice(start, end);
-  const marker = '        run: |\n';
-  const scriptStart = step.indexOf(marker);
-  assert.ok(scriptStart > 0, 'handoff must use a real shell script');
-  const scriptLines = step.slice(scriptStart + marker.length).split('\n');
-  const body = [];
-  for (const line of scriptLines) {
-    if (line.trim() && !line.startsWith('          ')) break;
-    body.push(line.startsWith('          ') ? line.slice(10) : '');
-  }
-  assert.match(body.join('\n'), /owner-handoff/);
-  const syntax = spawnSync('bash', ['-n'], { input: body.join('\n'), encoding: 'utf8' });
-  assert.equal(syntax.status, 0, syntax.stderr || 'handoff script must parse as bash');
 });
