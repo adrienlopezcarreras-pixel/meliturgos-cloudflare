@@ -131,7 +131,7 @@ test('full mode exposes the zero-cost LoRA pipeline with real status endpoint an
     read('notebooks/MEL-QLORA-AGENTIC-MAX-COLAB.ipynb'),
     read('.github/workflows/lora-promote-from-huggingface.yml'),
   ]);
-  for (const id of ['freeLoraRefresh', 'freeLoraColab', 'freeLoraHf', 'freeLoraWorkflow', 'freeRuntimeState', 'freeTrainingExamples', 'freeCheckpointStage', 'freeCompatibleLoras', 'freeAgenticState', 'freeAgenticColab']) {
+  for (const id of ['freeLoraRefresh', 'freeLoraColab', 'freeLoraHf', 'freeTrainingExamples', 'freeCheckpointStage', 'freeCompatibleLoras']) {
     assert.ok(sourceHasHtmlId(page, id), `missing free LoRA UI control #${id}`);
   }
   assert.ok(page.includes("data-view=\"lora\""), 'LoRA free panel is missing from full-mode navigation');

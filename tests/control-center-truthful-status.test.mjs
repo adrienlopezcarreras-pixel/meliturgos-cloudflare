@@ -97,9 +97,10 @@ test('activity and learning cards keep missing evidence unknown instead of inven
 
 test('secondary Control Center cards do not claim device or LoRA absence before evidence loads', async()=>{
   const html=await (await renderFullMode()).text();
-  assert.match(html,/id="freeWorkflowState">Vérification…<\/span>/);
-  assert.match(html,/id="freeRuntimeState">Vérification…<\/span>/);
-  assert.match(html,/id="freeRuntimeDetail">État runtime en cours de vérification\.<\/small>/);
+  assert.match(html,/id="freeGpuState">Vérification…<\/span>/);
+  assert.match(html,/id="freeValidationState">Vérification…<\/span>/);
+  assert.doesNotMatch(html,/id="freeWorkflowState"/);
+  assert.doesNotMatch(html,/id="freeRuntimeState"/);
   assert.match(html,/id="computerState">VÉRIFICATION…<\/span>/);
   assert.match(html,/id="computerOut">Chargement de l’état ordinateur…<\/pre>/);
   assert.match(html,/id="terminalDevices"><div class="muted">Chargement des terminaux…<\/div>/);
@@ -113,7 +114,7 @@ test('secondary Control Center load failures explicitly invalidate stale LoRA an
   assert.match(runtime,/setLoraTag\('#freeWorkflowState','Indisponible','bad'\)/);
   assert.match(runtime,/setLoraTag\('#freeRuntimeState','Indisponible','bad'\)/);
   assert.match(runtime,/setLoraTag\('#freeAgenticState','Indisponible','bad'\)/);
-  assert.match(runtime,/freeRuntimeDetail'\)\.textContent='État runtime indisponible\.'/);
+  assert.match(runtime,/runtimeDetailEl\.textContent='État runtime indisponible\.'/);
   assert.match(runtime,/terminalDevices'\)\.innerHTML='<div class="muted">État des terminaux indisponible\.<\/div>'/);
 });
 
