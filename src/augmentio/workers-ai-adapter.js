@@ -23,6 +23,13 @@ const COUNCIL_NON_REASONING_MODELS = new Set([
   '@cf/nvidia/nemotron-3-120b-a12b',
 ]);
 
+const NON_REASONING_PURPOSES = new Set([
+  'model-council-independent-critique',
+  'model-council-synthesis',
+  'mel-autonomous-development',
+  'mel-autonomous-development-structured-repair',
+]);
+
 function inferenceOptions(context = {}, modelId = '') {
   const settings = context?.inference_settings && typeof context.inference_settings === 'object'
     ? context.inference_settings
@@ -37,12 +44,10 @@ function inferenceOptions(context = {}, modelId = '') {
     if (maxTokens != null) out.max_tokens = Math.round(maxTokens);
   }
   // Cloudflare documents enable_thinking=false for Gemma 4 and Nemotron 3.
-  // During short Council critique/synthesis probes this reserves max_tokens
-  // for a substantive visible answer rather than reasoning-only output.
-  // Do not change regular chat or other providers, and never fabricate text.
+  // Council probes and Mentor code proposals need the visible answer, not a
+  // reasoning trace that leaves response empty. Ordinary chat is unchanged.
   if (
-    (context?.purpose === 'model-council-independent-critique'
-      || context?.purpose === 'model-council-synthesis')
+    NON_REASONING_PURPOSES.has(String(context?.purpose || '').trim())
     && COUNCIL_NON_REASONING_MODELS.has(String(modelId || '').trim())
   ) {
     out.chat_template_kwargs = { enable_thinking: false };
