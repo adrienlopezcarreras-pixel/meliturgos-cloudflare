@@ -7,6 +7,7 @@ const MAX_FILES = 8;
 const MAX_FILE_CHARS = 45_000;
 const MAX_TOTAL_SOURCE_CHARS = 150_000;
 const MAX_CHANGES = 10;
+const LONG_FILE_CHARS = 4000;
 const MAX_CHANGE_CHARS = 200_000;
 const ALLOWED_TESTS = new Set(['test', 'test:mel', 'test:integration', 'test:acceptance', 'test:smoke', 'test:mvp', 'test:routes']);
 const DENIED_PATH = /(^|\/)(?:\.git|node_modules|\.wrangler|\.env(?:\.|$)|dev\.vars|secrets?|credentials?)(?:\/|$)|(?:^|[._/-])(?:token|password|api[_-]?key|private[_-]?key)(?:[._/-]|$)/i;
@@ -189,7 +190,32 @@ function applyInspectedEdits(edits, inspectedFiles) {
     reason: 'Modification appliquée sur le fichier inspecté',
   }));
 }
-function normalizeProposal(value, provenance = {}, inspectedFiles = []) {
+function forbiddenImportSpecifiers(previousAttempts) {
+  const text = JSON.stringify(previousAttempts || []);
+  const found = new Set();
+  for (const match of text.matchAll(/Unresolved import in [^:]+:\s*([A-Za-z0-9_@./-]+)/g)) found.add(match[1]);
+  return found;
+}
+
+function stillImports(content, specifier) {
+  const escaped = specifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:from\\s+|import\\s*\\()['"]${escaped}['"]|require\\(\\s*['"]${escaped}['"]\\s*\\)`).test(String(content || ''));
+}
+
+function assertAcceptedChange(change, inspectedFiles, forbidden) {
+  const inspected = (Array.isArray(inspectedFiles) ? inspectedFiles : []).find((file) => file.path === change.path);
+  if ((inspected?.content || '').length > LONG_FILE_CHARS && change.reason !== 'Modification appliquée sur le fichier inspecté') {
+    throw Object.assign(new Error(`MENTOR_LONG_FILE_REQUIRES_EDIT:${change.path}`), { code: 'MENTOR_LONG_FILE_REQUIRES_EDIT' });
+  }
+  for (const specifier of forbidden) {
+    if (stillImports(change.content, specifier)) {
+      throw Object.assign(new Error(`MENTOR_REPEATED_BROKEN_IMPORT:${specifier}`), { code: 'MENTOR_REPEATED_BROKEN_IMPORT' });
+    }
+  }
+}
+
+function normalizeProposal(value, provenance = {}, inspectedFiles = [], previousAttempts = []) {
+  const forbidden = forbiddenImportSpecifiers(previousAttempts);
   const parsed = parseJsonCandidate(value);
   const rawChanges = Array.isArray(parsed.changes)
     ? parsed.changes
@@ -214,6 +240,7 @@ function normalizeProposal(value, provenance = {}, inspectedFiles = []) {
   }
   const tests = [...new Set((Array.isArray(parsed.tests) ? parsed.tests : []).map(String).filter(name => ALLOWED_TESTS.has(name)))].slice(0, 4);
   if (!tests.length) tests.push('test:smoke');
+  for (const change of changes) assertAcceptedChange(change, inspectedFiles, forbidden);
   const confidence = Math.max(0, Math.min(1, Number(parsed.confidence) || 0.5));
   const lessons = (Array.isArray(parsed.lessons) ? parsed.lessons : []).map(x => bounded(x, 1200)).filter(Boolean).slice(0, 8);
   return {
@@ -252,6 +279,7 @@ function buildRepairPrompt({ goal, files, raw, failure, mode }) {
     'changes doit contenir au moins un fichier texte sûr déjà inspecté ou un fichier nouveau strictement nécessaire dans les chemins autorisés.',
     'Chaque change.content doit être le CONTENU COMPLET final du fichier. Aucun diff, aucun placeholder, aucune ellipse.',
     'Ne crée aucun secret, credential, token, .env, node_modules ou fichier hors dépôt.',
+    'Un fichier inspecté de plus de 4000 caractères se modifie uniquement par edits. Un import déjà signalé comme introuvable ne doit pas revenir.',
     'Ne prétends jamais qu’un test a réussi; propose seulement des tests autorisés.',
     'Reste strictement dans l’objectif et réutilise les composants existants avant toute création.',
     `OBJECTIF: ${bounded(goal, 12_000)}`,
@@ -371,7 +399,7 @@ export class MentorEngine {
       }
       const raw = result.value?.text ?? result.value;
       try {
-        const proposal = normalizeProposal(raw, result.value?.provenance || { provider: provider.providerId, model: provider.modelId }, files);
+        const proposal = normalizeProposal(raw, result.value?.provenance || { provider: provider.providerId, model: provider.modelId }, files, previousAttempts);
         proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: false });
       } catch (error) {
         const failure = mentorFailureCode(error, 'MENTOR_PROPOSAL_INVALID');
@@ -413,6 +441,7 @@ export class MentorEngine {
             result.value?.text ?? result.value,
             result.value?.provenance || { provider: provider.providerId, model: provider.modelId },
             files,
+            previousAttempts,
           );
           proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: true });
           repairValidProposals += 1;

@@ -248,6 +248,36 @@ test('mentor may read safe repository context outside writable paths while write
   assert.equal(result.proposal.changes[0].path, 'src/example.js');
 });
 
+test('mentor refuses a full rewrite of a long inspected file and a repeated missing import', async () => {
+  const long = 'export const value = 1;\n'.repeat(300);
+  const engine = new MentorEngine({
+    providerFactory: async () => [provider('rewriter', {
+      summary: 'Réécrit le fichier.',
+      changes: [{ path: 'src/roadmap/master-roadmap.js', content: long + 'export const extra = 1;\n', reason: 'fichier entier' }],
+      tests: ['test:smoke'],
+    })],
+  });
+  await assert.rejects(() => engine.propose({
+    env: {},
+    goal: 'Corriger la roadmap',
+    inspectedFiles: [{ path: 'src/roadmap/master-roadmap.js', content: long }],
+  }), error => error.code === 'MENTOR_NO_VALID_CODE_PROPOSAL' && error.failures[0].error === 'MENTOR_LONG_FILE_REQUIRES_EDIT');
+
+  const repeat = new MentorEngine({
+    providerFactory: async () => [provider('importer', {
+      summary: 'Garde googleapis.',
+      changes: [{ path: 'src/evolution/google-tools.js', content: "import { google } from 'googleapis';\nexport const ready = true;\n", reason: 'client' }],
+      tests: ['test:smoke'],
+    })],
+  });
+  await assert.rejects(() => repeat.propose({
+    env: {},
+    goal: 'Corriger l’import',
+    inspectedFiles: [{ path: 'src/evolution/google-tools.js', content: "import { google } from 'googleapis';\n" }],
+    previousAttempts: [{ error: 'Unresolved import in src/evolution/google-tools.js: googleapis' }],
+  }), error => error.code === 'MENTOR_NO_VALID_CODE_PROPOSAL' && error.failures[0].error === 'MENTOR_REPEATED_BROKEN_IMPORT');
+});
+
 test('mentor still refuses writing to inspection-only repository paths', async () => {
   const engine = new MentorEngine({
     providerFactory: async () => [provider('coder-bad-write', {

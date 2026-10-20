@@ -84,6 +84,8 @@ export function repairBudgetDecision({ attempts = 0, maxAttempts = MAX_OWNER_MAX
   return { action: 'REPAIR', signature, unseen, nextPresented, attempts: nextAttempt };
 }
 
+export const MENTOR_PROPOSAL_GATE = 'import-and-long-edit-v1';
+
 export function unansweredExhaustedRepair(job) {
   if (String(job?.status || '').toUpperCase() !== 'FAILED') return null;
   if (String(job?.error || '') !== 'MAX_REPAIR_ATTEMPTS_EXHAUSTED') return null;
@@ -95,7 +97,11 @@ export function unansweredExhaustedRepair(job) {
     failedTests: tests,
     presentedSignatures: result.repair_cycle?.presented_signatures || [],
   });
-  return decision.action === 'REPAIR' && decision.unseen ? decision : null;
+  if (decision.action === 'REPAIR' && decision.unseen) return { ...decision, gate: MENTOR_PROPOSAL_GATE };
+  const text = failureSignature(tests);
+  if (result.repair_cycle?.gate === MENTOR_PROPOSAL_GATE) return null;
+  if (!/Unresolved import|SyntaxError/.test(text)) return null;
+  return { ...decision, action: 'REPAIR', unseen: true, gate: MENTOR_PROPOSAL_GATE };
 }
 
 const STALE_TEACHER_APPROVAL_CODES = new Set([
@@ -527,6 +533,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       status: 'REQUESTED',
       source: 'UNANSWERED_FAILURE',
       presented_signatures: decision.nextPresented,
+      gate: decision.gate || MENTOR_PROPOSAL_GATE,
       attempts: Number(result.repair_cycle?.attempts || 0),
       max_attempts: MAX_OWNER_MAX_REPAIR_ATTEMPTS,
       reopened_at: new Date().toISOString(),
