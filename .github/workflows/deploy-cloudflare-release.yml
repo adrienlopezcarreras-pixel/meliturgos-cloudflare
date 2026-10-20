@@ -2497,7 +2497,7 @@ jobs:
             --data '{"phase":"owner-handoff"}' \
             --output final-autonomy-safe-stop.json \
             --write-out '%{http_code}' \
-            "${BASE_URL}/api/internal/release-launch-bootstrap?expected_sha=${EXPECTED_SHA}" || true)
+            "${BASE_URL}/api/internal/release-launch-bootstrap?expected_sha=${EXPECTED_SHA}" || true)"
           test "${CODE}" = "200"
           node - <<'NODE'
           const d=require('./final-autonomy-safe-stop.json');
