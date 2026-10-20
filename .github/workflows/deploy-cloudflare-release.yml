@@ -463,12 +463,26 @@ jobs:
 
           # Arm cleanup before deploy for the same partial-create/CLI-timeout case.
           BINDER_CREATED=1
-          # Keep binder authentication in the same deployed revision; bound CLI waits
-          # and print captured diagnostics when deployment fails or times out.
-          if ! timeout 180s npx wrangler deploy --config "${BINDER_CONFIG}" \
-            --var "MEL_PREDEPLOY_BINDER_TOKEN:${BINDER_TOKEN}" \
-            >/tmp/predeploy-binder-deploy.log 2>&1; then
+          # Upload can succeed while the subdomain call still returns 10007.
+          # Retry only that visibility gap. Any other deploy failure still stops
+          # the release before a backup is accepted.
+          BINDER_DEPLOYED=0
+          for DEPLOY_ATTEMPT in $(seq 1 8); do
+            if timeout 180s npx wrangler deploy --config "${BINDER_CONFIG}" \
+              --var "MEL_PREDEPLOY_BINDER_TOKEN:${BINDER_TOKEN}" \
+              >/tmp/predeploy-binder-deploy.log 2>&1; then
+              BINDER_DEPLOYED=1
+              break
+            fi
             test ! -s /tmp/predeploy-binder-deploy.log || cat /tmp/predeploy-binder-deploy.log
+            if grep -Eq 'code: 10007|"code"[[:space:]]*:[[:space:]]*10007' /tmp/predeploy-binder-deploy.log; then
+              echo "Cloudflare worker visibility gap (10007) after binder upload; retry ${DEPLOY_ATTEMPT}/8."
+              sleep 4
+              continue
+            fi
+            exit 54
+          done
+          if [ "${BINDER_DEPLOYED}" != "1" ]; then
             exit 54
           fi
 
