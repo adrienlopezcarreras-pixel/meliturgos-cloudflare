@@ -74,6 +74,7 @@ function apiErrorMessage(payload,status){
   if(code==='PIPEDREAM_CONNECT_TOKEN_FAILED'&&Number(payload?.upstream_status)===400)return 'Pipedream Connect Production n’est pas disponible pour ce projet. Utilise Development (gratuit) ou un plan Production.';
   if(code==='PIPEDREAM_AUTH_FAILED')return 'Identifiants Pipedream refusés. Vérifie le Client ID et le Client Secret.';
   if(code==='PIPEDREAM_NOT_CONFIGURED')return 'Pipedream n’est pas encore configuré.';
+  if(code==='AUTONOMY_LAUNCH_GATE_BLOCKED')return 'Activation refusée';
   if(code==='CHAT_DEADLINE_EXCEEDED'||(code==='CHAT_INFERENCE_FAILED'&&String(payload?.detail||'')==='CHAT_DEADLINE_EXCEEDED'))return 'MEL n’a pas pu terminer dans le délai (CHAT_DEADLINE_EXCEEDED). Le serveur s’est arrêté proprement : relance ou découpe la demande.';
   return code||('HTTP '+status);
 }
@@ -625,8 +626,10 @@ function renderAutonomy(state){
   const tripped=watchdog?.tripped===true;
   const badge=qs('#autonomyBadge');
   let badgeText='SUPERVISÉE',badgeKind='warn',modeText='Autonomie supervisée';
-  const releasePause=autonomyControl.paused===true&&(autonomyControl.reason==='predeploy-release-safety'||/^release-/.test(String(autonomyControl.source||'')));
-  if(releasePause){badgeText='MISE EN PROD';modeText='Pause de mise en production'+(autonomyControl.max_remembered?' · MAX reprend ensuite tout seul':'')}
+  const awaitingOwnerLaunch=autonomyControl.paused===true&&autonomyControl.reason==='NEW_RELEASE_AWAITING_OWNER_LAUNCH';
+  const releasePause=autonomyControl.paused===true&&!awaitingOwnerLaunch&&(autonomyControl.reason==='predeploy-release-safety'||/^release-/.test(String(autonomyControl.source||'')));
+  if(awaitingOwnerLaunch){badgeText='À ACTIVER';modeText='Release terminée. Active MAX ou reprends MEL.'}
+  else if(releasePause){badgeText='MISE EN PROD';modeText='Pause de mise en production'+(autonomyControl.max_remembered?' · MAX reprend ensuite tout seul':'')}
   else if(autonomyControl.paused===true){badgeText='PAUSE';modeText='En pause'+(autonomyControl.reason?' · '+autonomyControl.reason:'')}
   else if(maxEnabled&&tripped){badgeText='MAX BLOQUÉ';badgeKind='bad';modeText='MAX 100 % bloqué'}
   else if(maxEnabled&&wdStatus==='ADVANCING'){badgeText='MAX AVANCE';badgeKind='good';modeText='MAX 100 % · progression mesurée'}
@@ -687,7 +690,12 @@ async function autonomyAction(button,url,body,label,feedback=qs('#mobileAutonomy
   button.disabled=true;button.textContent='…';if(feedback)feedback.textContent=label+'…';
   try{
     const d=await jfetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body||{})});
-    renderAutonomy(d?.state||d);await loadAutonomy();const st=d?.tick?.status||d?.tick?.job?.status||d?.control?.status||'';if(feedback)feedback.textContent=label+' : OK'+(st?' ('+st+')':'');if(qs('#desktopActivityPanel')&&!qs('#desktopActivityPanel').hidden)showActivity(qs('#desktopActivityBody'));return d;
+    renderAutonomy(d?.state||d);await loadAutonomy();
+    if(String(url).includes('/api/gen2/autonomy/max')){
+      const on=d?.control?.max_autonomy===true;
+      const text=!d?.control?'État inconnu, relecture nécessaire':d?.tick?.status==='ALREADY_ACTIVE'?'MAX déjà activé':on?'MAX activé':'MAX arrêté';
+      if(feedback)feedback.textContent=text;
+    }else{const st=d?.tick?.status||d?.tick?.job?.status||d?.control?.status||'';if(feedback)feedback.textContent=label+' : OK'+(st?' ('+st+')':'')}if(qs('#desktopActivityPanel')&&!qs('#desktopActivityPanel').hidden)showActivity(qs('#desktopActivityBody'));return d;
   }catch(e){if(feedback)feedback.textContent=label+' : '+e.message;throw e}
   finally{button.disabled=false;if(!['melFullMax','melFullStop','mobilePauseAutonomy'].includes(button.id))button.textContent=previous;renderAutonomy(autonomyControl)}
 }
@@ -696,7 +704,7 @@ function activitySection(title,body){return '<div class="act-sec"><div class="ac
 function activityMarkup(a){
   if(!a||a.ok!==true)return 'Activité indisponible.';
   const c=a.control||{},wd=a.watchdog||{},wc=wd.counters||{},pc=a.pc_executor,fmtW=v=>{const n=finiteMetric(v);return n===null?'—':String(n)};
-  const mode=c.paused&&(c.reason==='predeploy-release-safety'||/^release-/.test(String(c.source||'')))?'⏸ Pause de mise en production : levée automatiquement après les vérifications'+(c.max_remembered?', puis MAX reprend':''):c.paused?'⏸ En pause'+(c.reason?' ('+c.reason+')':''):c.max_autonomy?'⚡ MAX 100 % (auto-développement sans validation humaine)':'Autonomie supervisée (chaque plan attend ta validation)';
+  const mode=c.reason==='NEW_RELEASE_AWAITING_OWNER_LAUNCH'&&c.paused?'⏸ Release terminée : active MAX ou reprends MEL':c.paused&&(c.reason==='predeploy-release-safety'||/^release-/.test(String(c.source||'')))?'⏸ Pause de mise en production : levée automatiquement après les vérifications'+(c.max_remembered?', puis MAX reprend':''):c.paused?'⏸ En pause'+(c.reason?' ('+c.reason+')':''):c.max_autonomy?'⚡ MAX 100 % (auto-développement sans validation humaine)':'Autonomie supervisée (chaque plan attend ta validation)';
   let h=activitySection('Mode',
     '<div><b>'+esc(mode)+'</b></div>'
     +'<div class="act-kv">Garde-fou de progression : <b>'+esc(wd.status||'—')+'</b>'+(wd.tripped?' · <span class="act-bad">bloqué après '+esc(wd.consecutive_stalls??'?')+' cycles sans progrès</span>':'')+'</div>'

@@ -117,3 +117,49 @@ test('autonomy routes enforce method contracts', async () => {
   );
   assert.equal(wrongTick.status, 405);
 });
+
+test('MAX activation reports an already active control without starting another cycle', async () => {
+  const f = fixture();
+  let detached = 0;
+  const response = await maybeHandleAutonomyApi(
+    new Request('http://mel/api/gen2/autonomy/max', {
+      method: 'POST',
+      headers: { authorization: authHeader(), 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: true }),
+    }),
+    f.env,
+    {
+      repository: f.repository,
+      fetchImpl: async () => { detached += 1; return new Response(null, { status: 204 }); },
+      roadmap: TEST_ROADMAP,
+      autonomyControlState: { control: { paused: false, max_autonomy: true, owner_override: true, status: 'MAX_AUTONOMY', source: 'test' } },
+      waitUntil: (work) => { detached += 1; return work; },
+    },
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.already_active, true);
+  assert.equal(body.control.max_autonomy, true);
+  assert.equal(body.tick.status, 'ALREADY_ACTIVE');
+  assert.equal(detached, 0);
+});
+
+test('stopping MAX persists the off state and does not run a cycle', async () => {
+  const f = fixture();
+  const memory = { control: null };
+  const response = await maybeHandleAutonomyApi(
+    new Request('http://mel/api/gen2/autonomy/max', {
+      method: 'POST',
+      headers: { authorization: authHeader(), 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: false }),
+    }),
+    f.env,
+    { repository: f.repository, fetchImpl: f.fetchImpl, roadmap: TEST_ROADMAP, autonomyControlState: memory },
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.persisted, true);
+  assert.equal(body.control.max_autonomy, false);
+  assert.equal(body.tick.status, 'NOT_STARTED');
+  assert.equal(memory.control.max_autonomy, false);
+});

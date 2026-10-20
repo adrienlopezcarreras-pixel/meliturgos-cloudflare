@@ -8,6 +8,7 @@ test('runtime tick is event-driven, bounded, and has an hourly watchdog', async 
   assert.match(source, /chain_depth/);
   assert.match(source, /CHAIN_DEPTH.*-ge 20/);
   assert.match(source, /AUTONOMY_CHAIN_CONTINUED/);
+  assert.match(source, /AUTONOMY_CHAIN_MENTOR_REJECTED_NO_REPEAT/);
   assert.match(source, /gen2-42-runtime-tick\.yml\/dispatches/);
   assert.match(source, /steps\.bridge_fallback\.outputs\.dispatched != 'true'/);
 });

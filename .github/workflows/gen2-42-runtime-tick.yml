@@ -200,6 +200,11 @@ jobs:
             echo "MAX_PROGRESS_WATCHDOG_TRIPPED"
             exit 67
           fi
+          BLOCK="$(node -p "JSON.parse(require('fs').readFileSync('gen2-42-runtime-tick-proof.json','utf8')).progress?.block_reason||''")"
+          if [ "$ADVANCED" != "true" ] && [ "$BLOCK" = "MENTOR_NO_VALID_CODE_PROPOSAL" ]; then
+            echo "AUTONOMY_CHAIN_MENTOR_REJECTED_NO_REPEAT advanced=$ADVANCED block=$BLOCK"
+            exit 0
+          fi
           if [ "$PAUSED" = "true" ] || [ "$READY" = "true" ] || [ "$WORK_REMAINING" != "true" ]; then
             echo "AUTONOMY_CHAIN_IDLE advanced=$ADVANCED paused=$PAUSED bridge_ready=$READY work_remaining=$WORK_REMAINING depth=$CHAIN_DEPTH"
             exit 0

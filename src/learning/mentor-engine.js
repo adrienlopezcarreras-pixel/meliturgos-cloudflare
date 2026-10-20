@@ -232,6 +232,13 @@ function normalizeProposal(value, provenance = {}, inspectedFiles = [], previous
     const path = safePath(raw?.path);
     if (seen.has(path)) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
     const content = String(raw?.content ?? '');
+    const known = new Set((Array.isArray(inspectedFiles) ? inspectedFiles : []).map((file) => file.path));
+    if (!known.has(path)) {
+      const invented = [...content.matchAll(/(?:from\s+|import\s*\()['"]([^'"]+)['"]|require\(\s*['"]([^'"]+)['"]\s*\)/g)]
+        .map((match) => match[1] || match[2])
+        .filter((spec) => spec && !spec.startsWith('.') && !spec.startsWith('/') && !spec.startsWith('node:'));
+      if (invented.length) throw Object.assign(new Error(`MENTOR_UNINSPECTED_PATH:${path}`), { code: 'MENTOR_UNINSPECTED_PATH' });
+    }
     if (!content || content.length > MAX_CHANGE_CHARS || incompleteFile(content)) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
     seen.add(path);
     changes.push({ path, content, reason: bounded(raw?.reason || '', 1200) });
@@ -263,32 +270,37 @@ function sourceBlock(files) {
 }
 
 function buildRepairPrompt({ goal, files, raw, failure, mode }) {
+  const uninspected = /MENTOR_UNINSPECTED_PATH/.test(String(failure || ''));
+  const allowed = (Array.isArray(files) ? files : []).map((file) => file.path).filter(Boolean).join(', ');
   return [
     'Tu répares UNE réponse de code Mentor MELITURGOS qui a échoué à la validation structurée.',
     `MODE: ${mode === 'repair' ? 'RÉPARATION APRÈS TEST' : 'IMPLÉMENTATION'}.`,
-    'Si le fichier est long, n’utilise pas JSON. Réponds avec ce bloc, une fois par fichier:',
-    'SUMMARY une phrase',
-    'TESTS test:smoke',
-    'FILE src/exemple.js',
-    '<<<MEL_FILE',
-    'contenu complet du fichier',
-    'MEL_FILE',
+    uninspected
+      ? `Le fichier proposé n'était pas inspecté. Il est abandonné. Ne le réécris pas. Réponds uniquement par edits sur l'un de ces chemins: ${allowed}.`
+      : 'Si le fichier est long, n’utilise pas JSON. Réponds avec ce bloc, une fois par fichier:',
+    uninspected ? '' : 'SUMMARY une phrase',
+    uninspected ? '' : 'TESTS test:smoke',
+    uninspected ? '' : 'FILE src/exemple.js',
+    uninspected ? '' : '<<<MEL_FILE',
+    uninspected ? '' : 'contenu complet du fichier',
+    uninspected ? '' : 'MEL_FILE',
     'Structure obligatoire, soit le JSON complet, soit edits pour un fichier inspecté long:',
     '{"summary":"...","edits":[{"path":"src/...","find":"EXTRAIT EXACT UNIQUE","replace":"..."}],"tests":["test:smoke"],"confidence":0.0,"lessons":["..."],"risks":["..."]}',
-    '{"summary":"...","changes":[{"path":"src/...","content":"CONTENU COMPLET DU FICHIER","reason":"..."}],"tests":["test:smoke"],"confidence":0.0,"lessons":["..."],"risks":["..."]}',
-    'changes doit contenir au moins un fichier texte sûr déjà inspecté ou un fichier nouveau strictement nécessaire dans les chemins autorisés.',
+    uninspected ? '' : '{"summary":"...","changes":[{"path":"src/...","content":"CONTENU COMPLET DU FICHIER","reason":"..."}],"tests":["test:smoke"],"confidence":0.0,"lessons":["..."],"risks":["..."]}',
+    uninspected ? '' : 'changes doit contenir au moins un fichier texte sûr déjà inspecté ou un fichier nouveau strictement nécessaire dans les chemins autorisés.',
     'Chaque change.content doit être le CONTENU COMPLET final du fichier. Aucun diff, aucun placeholder, aucune ellipse.',
     'Ne crée aucun secret, credential, token, .env, node_modules ou fichier hors dépôt.',
     'Un fichier inspecté de plus de 4000 caractères se modifie uniquement par edits. Un import déjà signalé comme introuvable ne doit pas revenir.',
+    'Ne propose pas un fichier qui n’a pas été inspecté. Modifie un fichier déjà lu.',
     'Ne prétends jamais qu’un test a réussi; propose seulement des tests autorisés.',
     'Reste strictement dans l’objectif et réutilise les composants existants avant toute création.',
     `OBJECTIF: ${bounded(goal, 12_000)}`,
     `ERREUR_DE_VALIDATION: ${bounded(failure || 'INVALID_PROPOSAL', 500)}`,
-    'RÉPONSE_INVALIDE_À_RÉPARER:',
-    bounded(raw || '', 20_000),
+    uninspected ? 'La réponse rejetée n’est pas recopiée: elle pointait vers un fichier non inspecté.' : 'RÉPONSE_INVALIDE_À_RÉPARER:',
+    uninspected ? '' : bounded(raw || '', 20_000),
     'SOURCES_INSPECTÉES:',
     sourceBlock(files),
-  ].join('\n');
+  ].filter((line) => line !== '').join('\n');
 }
 
 function buildPrompt({ role, goal, files, lessons, experiences, previousAttempts, mode }) {
@@ -299,6 +311,7 @@ function buildPrompt({ role, goal, files, lessons, experiences, previousAttempts
     'Règle absolue: un objet JSON valide, ou un fichier complet délimité. Pas de prose autour.',
     'JSON: {"summary":"...","changes":[{"path":"src/...","content":"CONTENU COMPLET DU FICHIER","reason":"..."}],"tests":["test:smoke"],"confidence":0.0,"lessons":["..."],"risks":["..."]}',
     'Pour un fichier inspecté déjà long, n’envoie pas le fichier entier. Envoie plutôt edits: [{"path":"src/...","find":"EXTRAIT EXACT PRÉSENT UNE SEULE FOIS","replace":"REMPLACEMENT"}].',
+    'Ne propose pas un fichier qui n’a pas été inspecté.',
     'Si le fichier est long, utilise plutôt:',
     'SUMMARY une phrase',
     'TESTS test:smoke',

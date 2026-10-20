@@ -115,7 +115,37 @@ export async function getAutonomyState(env, { repository = null, autonomyControl
   };
 }
 
-export async function maybeHandleAutonomyApi(request, env, { repository = null, fetchImpl = fetch, autonomyControlState = null, roadmap = null } = {}) {
+function scheduleAcceptedMaxTick({ env, fetchImpl = fetch, waitUntil = null } = {}) {
+  const token = String(env?.MEL_GITHUB_TOKEN || '').trim();
+  const repository = String(env?.MEL_GITHUB_REPOSITORY || 'adrienlopezcarreras-pixel/meliturgos-cloudflare');
+  const kick = async () => {
+    if (!token) return { status: 'SCHEDULED', via: 'hourly-cron' };
+    const response = await fetchImpl(
+      `https://api.github.com/repos/${repository}/actions/workflows/gen2-42-runtime-tick.yml/dispatches`,
+      {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          accept: 'application/vnd.github+json',
+          'content-type': 'application/json',
+          'user-agent': 'mel-autonomy',
+          'x-github-api-version': '2022-11-28',
+        },
+        body: JSON.stringify({ ref: 'main', inputs: { chain_depth: '0' } }),
+      },
+    );
+    return response.status === 204
+      ? { status: 'ACCEPTED', via: 'gen2-42-runtime-tick' }
+      : { status: 'SCHEDULED', via: 'hourly-cron', dispatch_status: response.status };
+  };
+  if (typeof waitUntil === 'function') {
+    waitUntil(kick().catch(() => null));
+    return { status: 'ACCEPTED', detached: true };
+  }
+  return { status: 'SCHEDULED', via: 'hourly-cron', detached: false };
+}
+
+export async function maybeHandleAutonomyApi(request, env, { repository = null, fetchImpl = fetch, autonomyControlState = null, roadmap = null, waitUntil = null } = {}) {
   const url = new URL(request.url);
   const isPublicControl = url.pathname === '/api/gen2/autonomy/control';
   const isState = url.pathname === '/api/gen2/autonomy/state' || url.pathname === '/api/gen2/autonomy/status';
@@ -330,6 +360,17 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
   if (isMax) {
     const body = await request.clone().json().catch(() => ({}));
     const enabled = body?.enabled !== false;
+    const current = await getAutonomyControl(env.DB, { memoryState: autonomyControlState });
+    if (enabled && current.max_autonomy === true && current.paused !== true) {
+      const state = await getAutonomyState(env, { repository: repo, autonomyControlState, roadmap });
+      return Response.json({
+        ok: true,
+        already_active: true,
+        control: current,
+        tick: { status: 'ALREADY_ACTIVE' },
+        state,
+      }, { headers: { 'cache-control': 'no-store' } });
+    }
     let prepared = null;
     if (enabled) {
       prepared = await prepareAutonomyLaunch(env, { repository: repo });
@@ -354,12 +395,11 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
     if (!enabled) {
       await resetAutonomyProgressWatchdog(env.DB, { status: 'DISABLED' }).catch(() => null);
     }
-    let tick = null;
-    if (enabled) {
-      tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState, roadmap, ownerLeaseWaitMs: 90_000 });
-    }
+    const tick = enabled
+      ? scheduleAcceptedMaxTick({ env, fetchImpl, waitUntil })
+      : { status: 'NOT_STARTED' };
     const state = await getAutonomyState(env, { repository: repo, autonomyControlState, roadmap });
-    return Response.json({ ok: true, launch: prepared, control, tick, state }, { headers: { 'cache-control': 'no-store' } });
+    return Response.json({ ok: true, persisted: true, launch: prepared, control, tick, state }, { headers: { 'cache-control': 'no-store' } });
   }
 
   const tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState, roadmap, ownerLeaseWaitMs: 90_000 });

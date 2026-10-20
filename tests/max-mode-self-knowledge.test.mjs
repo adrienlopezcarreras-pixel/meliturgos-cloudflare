@@ -101,6 +101,12 @@ test('a release pause is explained, and the chosen MAX is said to come back', ()
   assert.doesNotMatch(text, /MAX est désactivé/);
 });
 
+test('a finished release waiting for the owner is not described as a deploy still running', () => {
+  const text = formatVerifiedAutonomyRuntimeResponse({ status: 'PAUSED', control: { paused: true, max_autonomy: false, source: 'release-launch-bootstrap', reason: 'NEW_RELEASE_AWAITING_OWNER_LAUNCH' } }, { operation: 'tick' });
+  assert.match(text, /attend que le propriétaire active MAX/);
+  assert.doesNotMatch(text, /mise en production est en cours/);
+});
+
 test('MAX status answers name the real job, its waiting step and the guard state', () => {
   const text = formatVerifiedAutonomyRuntimeResponse({
     status: 'READY', control: { paused: false, max_autonomy: true },
