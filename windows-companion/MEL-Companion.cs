@@ -54,6 +54,9 @@ static class MelApp
     public static string LastEngineRefreshError = "";
     public static string LastEngineStartError = "";
     public static bool LastHeartbeatServerOk;
+    public static string LastHeartbeatError;
+    public static long LastHeartbeatHttpMs;
+    public static int LastHeartbeatFailures;
     public static NotifyIcon Tray;
     public static HotKeyWindow HotKey;
     public const string HotKeyLabel = "Ctrl+Alt+M";
@@ -747,11 +750,15 @@ static class MelApp
             if (Interlocked.Exchange(ref SupervisorBusy, 1) != 0) return;
             try
             {
+                Heartbeat();
                 EnsureCompanion();
                 StartAdbWifiMonitor();
-                Heartbeat();
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LastHeartbeatError = ex.GetType().Name;
+                LastHeartbeatServerOk = false;
+            }
             finally
             {
                 Interlocked.Exchange(ref SupervisorBusy, 0);
@@ -795,7 +802,13 @@ static class MelApp
                 {"remote_access_enabled",ConfigBool("remote_access_enabled")},
                 {"local_compute_enabled",ConfigBool("local_compute_enabled")},
                 {"local_compute_gpu_enabled",ConfigBool("local_compute_enabled")&&ConfigBool("local_compute_gpu_enabled")},
-                {"local_compute_profile",ConfigString("local_compute_profile")}
+                {"local_compute_profile",ConfigString("local_compute_profile")},
+                {"heartbeat_diag", new Dictionary<string, object> {
+                    {"last_error_code", LastHeartbeatError ?? ""},
+                    {"http_ms", LastHeartbeatHttpMs},
+                    {"engine_process_running", CompanionRunning()},
+                    {"consecutive_failures", LastHeartbeatFailures}
+                }}
             };
             // Optional telemetry is sampled only when explicitly enabled.
             // No valid sample means fail closed, never an invented 0% CPU.
@@ -804,17 +817,17 @@ static class MelApp
                 var measurement = GetLocalComputeTelemetry();
                 if (measurement != null) heartbeat["local_compute_telemetry"] = measurement;
             }
-            // The native shell owns and supervises the authenticated PowerShell
-            // engine. If that child process is alive, attest its heartbeat too
-            // so server-side sovereignty checks do not misclassify an open,
-            // supervised Companion as offline between engine HTTP heartbeats.
-            if (CompanionRunning())
-                heartbeat["engine_heartbeat_at"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            // The native shell must not stamp the engine clock. Only the
+            // PowerShell process's own HTTP heartbeat proves ENGINE_ONLINE.
+            var started = DateTime.UtcNow;
             var body = Json.Serialize(heartbeat);
             var o = Obj(Http(Server + "/api/computer/v1/heartbeat", "POST", body, DeviceHeaders()));
+            LastHeartbeatHttpMs = (long)(DateTime.UtcNow - started).TotalMilliseconds;
             object ok;
             var serverOk = o.TryGetValue("ok", out ok) && Convert.ToBoolean(ok);
             LastHeartbeatServerOk = serverOk;
+            if (serverOk) { LastHeartbeatError = null; LastHeartbeatFailures = 0; }
+            else { LastHeartbeatError = "HEARTBEAT_REJECTED"; LastHeartbeatFailures = Math.Min(LastHeartbeatFailures + 1, 1000); }
             object updateRequired;
             if (o.TryGetValue("engine_update_required", out updateRequired) && updateRequired != null && Convert.ToBoolean(updateRequired))
                 MaybeRefreshCompanionEngine(true);
@@ -823,7 +836,7 @@ static class MelApp
                 return serverOk && Convert.ToBoolean(engineOnline);
             return serverOk && CompanionRunning();
         }
-        catch { LastHeartbeatServerOk = false; return false; }
+        catch (Exception ex) { LastHeartbeatError = ex.GetType().Name; LastHeartbeatFailures = Math.Min(LastHeartbeatFailures + 1, 1000); LastHeartbeatServerOk = false; return false; }
     }
 
     // Authenticated, passive cross-device activity view. This is NOT an

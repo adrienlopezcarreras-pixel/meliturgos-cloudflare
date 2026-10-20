@@ -249,7 +249,21 @@ function Send-Heartbeat {
     screen = @{ x=$bounds.X; y=$bounds.Y; width=$bounds.Width; height=$bounds.Height }
     active_window = (Active-Window)
   }
-  try { [void](Invoke-MelJson -Path "/api/computer/v1/heartbeat" -Method "POST" -Body $body) } catch {}
+  if ($null -eq $script:HeartbeatFailures) { $script:HeartbeatFailures = 0 }
+  $diag = @{ last_error_code = [string]$script:HeartbeatLastError; http_ms = 0; engine_process_running = $true; consecutive_failures = [int]$script:HeartbeatFailures }
+  $body.heartbeat_diag = $diag
+  $started = Get-Date
+  try {
+    [void](Invoke-MelJson -Path "/api/computer/v1/heartbeat" -Method "POST" -Body $body)
+    $script:HeartbeatLastError = $null
+    $script:HeartbeatFailures = 0
+  } catch {
+    $script:HeartbeatFailures = [Math]::Min(1000, ([int]$script:HeartbeatFailures) + 1)
+    $name = $_.Exception.GetType().Name
+    if ($name -notmatch '^[A-Za-z0-9_]+$') { $name = 'HEARTBEAT_FAILED' }
+    $script:HeartbeatLastError = $name
+  }
+  $script:HeartbeatHttpMs = [int]((Get-Date) - $started).TotalMilliseconds
 }
 
 function Capture-PngBytes([System.Drawing.Rectangle]$bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen) {
