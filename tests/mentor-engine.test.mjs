@@ -539,3 +539,56 @@ test('mentor does not invoke fallback models when its first wave already contain
   assert.equal(result.council.selected_provider, 'first-valid');
   assert.equal(calls.length, 1);
 });
+
+ 
+// ChatGPT-GPT6 / MEL-MENTOR-TIMEOUT: deadline regressions, removable with this PR.
+test('mentor advances to a fourth model when the first three hang indefinitely', async () => {
+  const hung = id => ({ id, providerId: 'test', modelId: id, invoke: () => new Promise(() => {}) });
+  const good = provider('fallback-good', {
+    summary: 'Timeout recovery generated a valid inspected-file edit.',
+    edits: [{ path: 'src/example.js', find: 'false', replace: 'true' }],
+    tests: ['test:smoke'],
+  });
+  const engine = new MentorEngine({
+    providerFactory: async () => [hung('hang1'), hung('hang2'), hung('hang3'), good],
+    invokeTimeoutMs: 15,
+    repairTimeoutMs: 15,
+  });
+  const result = await engine.propose({
+    env: {}, jobId: 'timeout-fallback', goal: 'Recover a healthy coding model',
+    inspectedFiles: [{ path: 'src/example.js', content: 'export const ready = false;\n' }],
+  });
+  assert.equal(result.proposal.changes[0].content, 'export const ready = true;\n');
+  assert.deepEqual(result.council.providers_attempted, ['hang1', 'hang2', 'hang3', 'fallback-good']);
+  assert.equal(result.council.selected_provider, 'fallback-good');
+  assert.deepEqual(result.council.rejected_proposals.map(x => x.error), [
+    'MENTOR_PROVIDER_TIMEOUT', 'MENTOR_PROVIDER_TIMEOUT', 'MENTOR_PROVIDER_TIMEOUT',
+  ]);
+});
+
+test('mentor bounds structured repair when a malformed provider hangs during retry', async () => {
+  let calls = 0;
+  const malformed = {
+    id: 'bad-then-hang', providerId: 'test', modelId: 'bad-then-hang',
+    invoke: async () => {
+      calls += 1;
+      return calls === 1 ? { text: '{invalid-json' } : new Promise(() => {});
+    },
+  };
+  const good = provider('backup-good', {
+    summary: 'Alternate model survives blocked structured repair.',
+    edits: [{ path: 'src/example.js', find: 'false', replace: 'true' }],
+    tests: ['test:smoke'],
+  });
+  const engine = new MentorEngine({
+    providerFactory: async () => [malformed, good],
+    invokeTimeoutMs: 15,
+    repairTimeoutMs: 15,
+  });
+  const result = await engine.propose({
+    env: {}, goal: 'Repair a malformed response',
+    inspectedFiles: [{ path: 'src/example.js', content: 'export const ready = false;\n' }],
+  });
+  assert.equal(result.council.selected_provider, 'backup-good');
+  assert.equal(calls, 1, 'valid alternate provider means no repair retry needed');
+});
