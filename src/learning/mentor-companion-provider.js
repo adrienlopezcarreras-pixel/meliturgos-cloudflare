@@ -1,3 +1,4 @@
+// ChatGPT-GPT6 / MEL-MENTOR-FALLBACK: isolated optional PC provider; revert this PR to remove.
 import { ProviderAdapter } from '../augmentio/provider-adapter.js';
 import { ZeroEuroGovernor, ZERO_EURO_POLICY } from '../augmentio/zero-euro-governor.js';
 import { D1AlternativeRegistryStore } from '../portability/d1-alternative-registry-store.js';
