@@ -282,6 +282,7 @@ function buildPrompt({ role, goal, files, lessons, experiences, previousAttempts
     'Ne modifie pas de secrets, .env, credentials, node_modules, .git ou fichiers privés.',
     'Ne prétends pas qu’un test est passé: tu proposes seulement les tests à exécuter.',
     'Privilégie une modification petite, cohérente et testable qui fait avancer réellement l’objectif.',
+    'Un import doit déjà exister : chemin relatif présent dans SOURCES INSPECTÉES, ou dépendance déjà déclarée. N’invente pas un module absent (googleapis, un ../ qui n’existe pas).',
     'OBJECTIF UTILISATEUR:', bounded(goal, 12_000),
     'LEÇONS MÉMORISÉES VALIDÉES/OPÉRATIONNELLES DU MENTOR:', JSON.stringify(lessons || []),
     'EXPÉRIENCES VALIDÉES:', JSON.stringify(experiences?.validated || []),

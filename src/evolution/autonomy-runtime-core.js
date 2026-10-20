@@ -60,6 +60,44 @@ const INSPECTION_FILES = [
 
 export const MAX_OWNER_MAX_REPAIR_ATTEMPTS = 8;
 
+export function failureSignature(tests = []) {
+  return (Array.isArray(tests) ? tests : [])
+    .filter((row) => row && row.passed !== true)
+    .map((row) => String(row.error || row.stderr || '').trim())
+    .filter(Boolean)
+    .join('\n')
+    .slice(0, 500);
+}
+
+// A failure the mentor has not been shown is not an exhausted attempt.
+// Identical repeats still stop at the cap. Distinct texts stop at the cap too.
+export function repairBudgetDecision({ attempts = 0, maxAttempts = MAX_OWNER_MAX_REPAIR_ATTEMPTS, failedTests = [], presentedSignatures = [] } = {}) {
+  const signature = failureSignature(failedTests);
+  const seen = (Array.isArray(presentedSignatures) ? presentedSignatures : []).map((item) => String(item || '')).filter(Boolean);
+  const unseen = Boolean(signature) && !seen.includes(signature);
+  const nextAttempt = Number(attempts || 0) + (unseen ? 0 : 1);
+  const nextPresented = unseen ? [...seen, signature].slice(0, maxAttempts) : seen;
+  const capped = Number.isFinite(maxAttempts) && maxAttempts > 0;
+  if (capped && ((unseen && seen.length >= maxAttempts) || (!unseen && nextAttempt > maxAttempts))) {
+    return { action: 'EXHAUST', signature, unseen, nextPresented: seen, attempts: Number(attempts || 0) };
+  }
+  return { action: 'REPAIR', signature, unseen, nextPresented, attempts: nextAttempt };
+}
+
+export function unansweredExhaustedRepair(job) {
+  if (String(job?.status || '').toUpperCase() !== 'FAILED') return null;
+  if (String(job?.error || '') !== 'MAX_REPAIR_ATTEMPTS_EXHAUSTED') return null;
+  const result = job?.result_json && typeof job.result_json === 'object' ? job.result_json : {};
+  const cycleTests = result.repair_cycle?.failed_tests;
+  const tests = failureSignature(cycleTests) ? cycleTests : (result.dev_bridge?.tests || cycleTests || []);
+  const decision = repairBudgetDecision({
+    attempts: Number(result.repair_cycle?.attempts || result.runtime_retry?.attempts || 0),
+    failedTests: tests,
+    presentedSignatures: result.repair_cycle?.presented_signatures || [],
+  });
+  return decision.action === 'REPAIR' && decision.unseen ? decision : null;
+}
+
 const STALE_TEACHER_APPROVAL_CODES = new Set([
   'TEACHER_APPROVAL_CANDIDATE_SHA_STALE',
   'TEACHER_APPROVAL_CANDIDATE_SHA_REQUIRED',
@@ -334,7 +372,14 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
   if (!repository || !job) throw Object.assign(new Error('AUTONOMY_RUNTIME_INPUT_REQUIRED'), { code: 'AUTONOMY_RUNTIME_INPUT_REQUIRED' });
   let current = await repository.get(job.id);
   if (!current) throw Object.assign(new Error('JOB_NOT_FOUND'), { code: 'JOB_NOT_FOUND' });
-  if (current.result_json?.teacher_bridge?.status === 'WAITING_TEACHER') return current.result_json.teacher_bridge;
+  if (current.result_json?.teacher_bridge?.status === 'WAITING_TEACHER') {
+    // The review is already waiting. A later write must not leave the job
+    // looking runnable (COUNCIL_COMPLETE) or every tick selects it and stalls.
+    if (String(current.status || '').toUpperCase() !== 'WAITING_TEACHER') {
+      await repository.update(current.id, { status: 'WAITING_TEACHER', error: null });
+    }
+    return { ...current.result_json.teacher_bridge, reused: true };
+  }
   if (current.result_json?.teacher_bridge?.status === 'ANSWERED') return current.result_json.teacher_bridge;
 
   const priorReview = current.result_json?.last_teacher_review || null;
@@ -462,6 +507,36 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     ...(roadmap ? { roadmap } : {}),
     evolutionLoader,
   });
+  let reopenedUnansweredRepair = false;
+  try {
+    const existing = await jobRepository.list();
+    const epoch = Number(activityEpoch) || 0;
+    for (const candidate of Array.isArray(existing) ? existing : []) {
+      if (epoch && Number(candidate?.created_at || 0) < epoch) continue;
+      const by = String(candidate?.requested_by || '');
+      if (by !== 'mel-autonomy' && !by.startsWith('owner-chat')) continue;
+      const decision = unansweredExhaustedRepair(candidate);
+      if (!decision) continue;
+      const result = candidate.result_json && typeof candidate.result_json === 'object' ? { ...candidate.result_json } : {};
+      delete result.implementation_proposal;
+      delete result.bridge_package;
+      delete result.bridge_preparation;
+      result.autonomy_blocked = false;
+      delete result.autonomy_block_reason;
+      result.repair_cycle = {
+        ...(result.repair_cycle || {}),
+        status: 'REQUESTED',
+        source: 'UNANSWERED_FAILURE',
+        presented_signatures: decision.nextPresented,
+        attempts: Number(result.repair_cycle?.attempts || 0),
+        max_attempts: MAX_OWNER_MAX_REPAIR_ATTEMPTS,
+        reopened_at: new Date().toISOString(),
+      };
+      await jobRepository.update(candidate.id, { status: 'TEACHER_APPROVED', error: null, result_json: result });
+      reopenedUnansweredRepair = true;
+      break;
+    }
+  } catch { /* listing failures stay inside the normal tick path */ }
   const stateBefore = await supervisor.state();
   const ensured = await supervisor.ensureNextJob();
   let job = ensured.job;
@@ -503,7 +578,6 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     if (teacherState?.status === 'ANSWERED' && teacherState?.review?.verdict === 'APPROVE_PLAN' && teacherState?.review?.development_allowed === true) {
       const result = job.result_json && typeof job.result_json === 'object' ? { ...job.result_json } : {};
       const previousAttempts = Number(result?.repair_cycle?.attempts || result?.runtime_retry?.attempts || 0);
-      const nextAttempt = previousAttempts + 1;
       const failedTests = (Array.isArray(result?.dev_bridge?.tests) ? result.dev_bridge.tests : [])
         .filter((row) => row?.passed !== true)
         .slice(0, 8)
@@ -515,10 +589,17 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
           stdout: String(row?.stdout || '').slice(0, 2000),
           stderr: String(row?.stderr || '').slice(0, 2000),
         }));
+      const decision = repairBudgetDecision({
+        attempts: previousAttempts,
+        maxAttempts: maxAutonomy === true ? MAX_OWNER_MAX_REPAIR_ATTEMPTS : Infinity,
+        failedTests,
+        presentedSignatures: result.repair_cycle?.presented_signatures || [],
+      });
+      const nextAttempt = maxAutonomy === true ? decision.attempts : previousAttempts + 1;
       const executorFailure = jobStatus === 'REPAIR_REQUIRED' && failedTests.length === 0;
       const failureSource = executorFailure ? 'DEV_BRIDGE_EXECUTOR_FAILURE' : 'DEV_BRIDGE_TEST_FAILURE';
 
-      if (maxAutonomy === true && nextAttempt > MAX_OWNER_MAX_REPAIR_ATTEMPTS) {
+      if (maxAutonomy === true && decision.action === 'EXHAUST') {
         result.repair_cycle = {
           ...(result.repair_cycle || {}),
           status: 'EXHAUSTED',
@@ -526,6 +607,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
           attempts: previousAttempts,
           max_attempts: MAX_OWNER_MAX_REPAIR_ATTEMPTS,
           failed_tests: failedTests,
+          presented_signatures: decision.nextPresented,
           exhausted_at: new Date().toISOString(),
         };
         result.runtime_retry = {
@@ -552,6 +634,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
           attempts: nextAttempt,
           max_attempts: maxAutonomy === true ? MAX_OWNER_MAX_REPAIR_ATTEMPTS : null,
           failed_tests: failedTests,
+          presented_signatures: decision.nextPresented,
           failed_result_received_at: job.result_json?.dev_bridge?.received_at || null,
           requested_at: requestedAt,
         };
@@ -658,7 +741,8 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   if (Array.isArray(reconciliation?.applied) && reconciliation.applied.length > 0) progressEvents.push('TEACHER_REPLY_RECONCILED');
   if (Array.isArray(completions?.completed) && completions.completed.length > 0) progressEvents.push('JOB_COMPLETED');
   if (Array.isArray(completions?.rejected) && completions.rejected.length > 0) progressEvents.push('COMPLETION_REJECTED_AND_DIAGNOSED');
-  if (teacher?.status === 'WAITING_TEACHER') progressEvents.push('TEACHER_REQUEST_CREATED');
+  if (reopenedUnansweredRepair) progressEvents.push('JOB_STATE_ADVANCED');
+  if (teacher?.status === 'WAITING_TEACHER' && teacher?.reused !== true) progressEvents.push('TEACHER_REQUEST_CREATED');
   if (String(teacherMirror?.status || '').toUpperCase() === 'MIRRORED') progressEvents.push('TEACHER_REQUEST_MIRRORED');
   if (implementation?.status === 'READY' && implementation?.reused !== true) progressEvents.push('IMPLEMENTATION_PREPARED');
   if (bridgePreparation?.status === 'READY' && bridgePreparation?.reused !== true) progressEvents.push('BRIDGE_PACKAGE_PREPARED');
