@@ -55,6 +55,8 @@ export function localPcCommand({ model = LOCAL_PC_MODEL, messages }) {
   const command = [
     "$ErrorActionPreference='Stop'",
     "$body=[Convert]::FromBase64String('" + payload + "')",
+    "$pref=Join-Path $env:LOCALAPPDATA 'MEL\\local-model.txt'",
+    "if(Test-Path -LiteralPath $pref){$n=(Get-Content -LiteralPath $pref -Raw).Trim();if($n -match '^[A-Za-z0-9_.:/-]{1,80}$'){$o=[Text.Encoding]::UTF8.GetString($body)|ConvertFrom-Json;$o.model=$n;$body=[Text.Encoding]::UTF8.GetBytes(($o|ConvertTo-Json -Compress -Depth 8))}}",
     "$r=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/chat' -Method Post -ContentType 'application/json; charset=utf-8' -Body $body -TimeoutSec 140",
     "$t=[string]$r.message.content",
     "[ordered]@{action='local.model.chat';model=[string]$r.model;text_b64=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($t));eval_count=$r.eval_count}|ConvertTo-Json -Compress",

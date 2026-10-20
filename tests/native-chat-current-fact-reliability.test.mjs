@@ -84,6 +84,50 @@ test('a narrated tool call is replaced and the official portrait is shown', asyn
   assert.doesNotMatch(data.text, /need to invoke/i);
 });
 
+test('a model that claims a generated pope photo is not reported as an image', async () => {
+  const env = {
+    MELITURGOS_USER: 'test',
+    MELITURGOS_PASSWORD: 'test-only',
+    MEL_WEB_MIN_INTERVAL_MS: 0,
+    MEL_WEB_FETCH: async () => new Response(
+      '<html><head><title>Léon XIV</title></head><body>Léon XIV</body></html>',
+      { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } },
+    ),
+    AI: { async run() { return { response: 'Voici la photo du Pape que je t’ai générée. Si mon outil de génération d’image est disponible, il affichera l’image ici.' }; } },
+  };
+  const response = await worker.fetch(new Request('https://mel.example/api/chat', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ text: 'Montre-moi une photo du pape ici.', conversation_id: 'pope-fake' }),
+  }), env);
+  const data = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(data));
+  assert.match(data.text, /n’a pas été obtenue|n'a pas été obtenue/);
+  assert.doesNotMatch(data.text, /générée|affichera l’image/);
+  assert.equal(data.tool_results.find(row => row.capability === 'image.render')?.status, 'FAILED');
+  assert.equal(data.tool_results.find(row => row.capability === 'image.render')?.error, 'IMAGE_NOT_DELIVERED');
+});
+
+test('an autonomy tick asked from chat is queued instead of blocking the reply', async () => {
+  let ran = false;
+  const env = {
+    MELITURGOS_USER: 'test',
+    MELITURGOS_PASSWORD: 'test-only',
+    AI: { async run() { ran = true; return { response: 'ne doit pas partir' }; } },
+  };
+  const response = await worker.fetch(new Request('https://mel.example/api/chat', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ text: 'continue', capability: { id: 'autonomy.tick', input: {} }, conversation_id: 'tick-detach' }),
+  }), env);
+  const data = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(data));
+  assert.equal(ran, false);
+  assert.match(data.text, /moteur persistant/);
+  assert.equal(data.tool_results.find(row => row.capability === 'autonomy.tick')?.status, 'QUEUED');
+  assert.equal(data.advanced, false);
+});
+
 test('strict current officeholder facts fail closed when authoritative evidence is unavailable', async () => {
   let aiCalls = 0;
   const env = {

@@ -103,3 +103,22 @@ test('cloud fallback can atomically claim one exact prepared job without stealin
   assert.equal(duplicate, null, 'the same prepared package must never be claimed twice');
   assert.equal((await repository.get(first.id))?.status, 'TEACHER_APPROVED');
 });
+
+test('a ready package left in review without a candidate commit can be claimed once', async () => {
+  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+  const job = await prepareApprovedBridgeJob(repository, { id: 'mel-review', requestedBy: 'mel-autonomy' });
+  await repository.update(job.id, { status: 'READY_FOR_REVIEW' });
+  const claimed = await repository.claimPrepared(job.id);
+  assert.equal(claimed?.status, 'CLAIMED');
+  assert.equal(await repository.claimPrepared(job.id), null);
+
+  const applied = await prepareApprovedBridgeJob(repository, { id: 'mel-applied', requestedBy: 'mel-autonomy' });
+  await repository.update(applied.id, {
+    status: 'READY_FOR_REVIEW',
+    result_json: {
+      ...applied.result_json,
+      autonomy_completion: { candidate_sha: 'b'.repeat(40) },
+    },
+  });
+  assert.equal(await repository.claimPrepared(applied.id), null);
+});

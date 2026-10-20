@@ -24,8 +24,7 @@ function buildJob(input = {}) {
   return j;
 }
 
-export function isPreparedDevBridgeJob(job) {
-  if (String(job?.status || '').toUpperCase() !== 'TEACHER_APPROVED') return false;
+function preparedPackage(job) {
   const teacher = job?.result_json?.teacher_bridge;
   const preparation = job?.result_json?.bridge_preparation;
   if (teacher?.status !== 'ANSWERED' || teacher?.review?.verdict !== 'APPROVE_PLAN' || teacher?.review?.development_allowed !== true) return false;
@@ -37,6 +36,20 @@ export function isPreparedDevBridgeJob(job) {
   if (!job.files_json.every((file) => file && typeof file.path === 'string' && typeof file.content === 'string')) return false;
   if (!Array.isArray(job.tests_json) || !job.tests_json.length) return false;
   return job.tests_json.every((test) => test && typeof test.command === 'string');
+}
+
+function alreadyApplied(job) {
+  const completion = String(job?.result_json?.autonomy_completion?.candidate_sha || '');
+  return /^[a-f0-9]{40}$/i.test(completion) || job?.result_json?.dev_bridge?.changed === true;
+}
+
+export function isPreparedDevBridgeJob(job) {
+  return String(job?.status || '').toUpperCase() === 'TEACHER_APPROVED' && preparedPackage(job);
+}
+
+/** A READY package that never reached the candidate branch. CI cannot exist yet. */
+export function isUnappliedReadyReviewJob(job) {
+  return String(job?.status || '').toUpperCase() === 'READY_FOR_REVIEW' && preparedPackage(job) && !alreadyApplied(job);
 }
 
 export function isTeacherGatedDevJob(job) {
@@ -225,17 +238,20 @@ export class D1DevJobRepository {
   async claimPrepared(id) {
     await this.init();
     const job = await this.get(id);
-    if (!isPreparedDevBridgeJob(job)) return null;
+    const approved = isPreparedDevBridgeJob(job);
+    const unapplied = isUnappliedReadyReviewJob(job);
+    if (!approved && !unapplied) return null;
+    const expected = approved ? 'TEACHER_APPROVED' : 'READY_FOR_REVIEW';
 
     if (!this.db) {
       const current = this.memory.get(id);
-      if (!isPreparedDevBridgeJob(current)) return null;
+      if (String(current?.status || '').toUpperCase() !== expected) return null;
       return this.update(id, { status: 'CLAIMED' });
     }
 
     const r = await this.db.prepare(
-      "UPDATE dev_jobs SET status=?,updated_at=? WHERE id=? AND status='TEACHER_APPROVED'"
-    ).bind('CLAIMED', Date.now(), id).run();
+      'UPDATE dev_jobs SET status=?,updated_at=? WHERE id=? AND status=?'
+    ).bind('CLAIMED', Date.now(), id, expected).run();
     return r.meta?.changes === 1 ? this.get(id) : null;
   }
 

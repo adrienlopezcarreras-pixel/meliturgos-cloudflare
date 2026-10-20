@@ -196,6 +196,14 @@ export async function runAgentToolLoop({ env, bus, text, recent = [], context = 
       continue;
     }
     if (results.some(r => r.capability === action.tool && stableStringify(r.input) === stableStringify(action.input))) break;
+    if (action.tool === 'autonomy.tick') {
+      if (typeof context?.waitUntil === 'function') {
+        context.waitUntil(bus.execute(action.tool, action.input, context)
+          .catch(error => console.error('[MEL autonomy] agent tick detached', String(error?.code || error?.message || 'UNKNOWN'))));
+      }
+      results.push({ capability: action.tool, input: action.input, status: 'QUEUED', result: { ok: true, status: 'QUEUED', detached: true } });
+      continue;
+    }
     try {
       const result = await bus.execute(action.tool, action.input, context);
       results.push({ capability: action.tool, input: action.input, status: 'SUCCEEDED', result: summarize(result) });

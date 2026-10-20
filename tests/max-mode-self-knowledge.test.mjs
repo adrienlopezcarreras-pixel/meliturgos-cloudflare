@@ -72,7 +72,7 @@ test('no dispatch when not ready, PC online, or dispatched recently', async () =
 test('a READY package is dispatched even when the tick stopped before reporting it', async () => {
   const db = fakeDb();
   const prepare = db.prepare.bind(db);
-  db.prepare = sql => (/FROM dev_jobs WHERE status='TEACHER_APPROVED'/.test(sql)
+  db.prepare = sql => (/json_extract\(result_json,'\$\.bridge_preparation.status'\)='READY'/.test(sql)
     ? { bind() { return this; }, async first() { return { id: 'job-d1', status: 'TEACHER_APPROVED' }; } }
     : prepare(sql));
   const queued = [];

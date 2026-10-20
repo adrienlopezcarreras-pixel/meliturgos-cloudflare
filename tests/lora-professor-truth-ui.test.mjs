@@ -4,15 +4,14 @@ import { readFile } from 'node:fs/promises';
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
 
-test('Professor LoRA panel exposes five truthful pipeline stages', async () => {
+test('Professor LoRA panel keeps only the stages tied to a real run', async () => {
   const source = await read('src/pages/full-interface-v2.js');
-  for (const label of [
-    '1. Entraînement',
-    '2. Checkpoint immuable',
-    '3. Validation / benchmark',
-    '4. Promotion',
-    '5. Actif dans MEL',
-  ]) assert.ok(source.includes(label), `missing LoRA stage: ${label}`);
+  for (const label of ['1. Entraînement', '2. Checkpoint immuable', '3. Validation / benchmark']) {
+    assert.ok(source.includes(label), `missing LoRA stage: ${label}`);
+  }
+  for (const gone of ['4. Promotion', '5. Actif dans MEL', 'Suite AGENTIC', 'Ouvrir la promotion', 'réellement exécuté et terminé']) {
+    assert.equal(source.includes(gone), false, `disconnected LoRA control still shown: ${gone}`);
+  }
 
   assert.ok(source.includes('freeValidationState'), 'validation/benchmark state must be explicit');
   assert.ok(source.includes("traceStatus==='SUCCEEDED'&&Number(dailyTrace?.trace_verified)===1"), 'verified successful trace must be a durable proof input');

@@ -20,7 +20,7 @@ test('owner reasons stay fail closed for stale, busy and revoked PC',()=>{
   [{...device,last_seen_at:now-40000},'COMPANION_UNAVAILABLE'],
   [{...device,metadata:{...device.metadata,local_compute_enabled:false}},'LOCAL_COMPUTE_DISABLED'],
   [{...device,metadata:{...device.metadata,local_compute_telemetry:{...device.metadata.local_compute_telemetry,observed_at:now-11000}}},'COMPUTE_TELEMETRY_STALE'],
-  [{...device,metadata:{...device.metadata,local_compute_telemetry:{...device.metadata.local_compute_telemetry,user_busy:true}}},'PC_PRIORITY'],
+  [{...device,metadata:{...device.metadata,local_compute_telemetry:{...device.metadata.local_compute_telemetry,on_battery:true}}},'PC_PRIORITY'],
   [{...device,halted:true},'COMPANION_UNAVAILABLE'],
   [{...device,metadata:{...device.metadata,engine_heartbeat_at:now-40000}},'COMPANION_UNAVAILABLE'],
  ];

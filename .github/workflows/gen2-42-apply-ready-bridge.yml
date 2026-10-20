@@ -142,7 +142,11 @@ jobs:
           let failed=false;
           for(const spec of job.tests_json||[]){
             const name=String(spec?.command||'').trim();
-            if(!allowed.has(name)) throw new Error('RECONCILE_TEST_NOT_ALLOWED:'+name);
+            if(!allowed.has(name)){
+              results.push({name:String(spec?.name||name||'unnamed'),command:name,passed:false,executed:false,error:'TEST_NOT_EXECUTED'});
+              failed=true;
+              continue;
+            }
             const args=name==='test'?['test']:['run',name];
             const r=spawnSync('npm',args,{stdio:'inherit',shell:false});
             const row={name:String(spec?.name||name),command:name,passed:r.status===0,exit_code:r.status??1};
@@ -270,12 +274,17 @@ jobs:
           // every import resolves (a requested smoke test does not load new files).
           {
             const r=spawnSync('npm',['run','check'],{stdio:'inherit',shell:false});
-            results.push({name:'syntax-and-imports',command:'check',passed:r.status===0,exit_code:r.status??1});
+            results.push({name:'syntax-and-imports',command:'check',passed:r.status===0,exit_code:r.status??1,executed:true});
             if(r.status!==0) failed=true;
           }
+          if(!results.some(row=>row.command==='check'&&row.executed===true&&row.passed===true)) failed=true;
           for(const spec of job.tests_json){
             const name=String(spec?.command||'').trim();
-            if(!allowed.has(name)) throw new Error('APPLY_TEST_NOT_ALLOWED:'+name);
+            if(!allowed.has(name)){
+              results.push({name:String(spec?.name||name||'unnamed'),command:name,passed:false,executed:false,error:'TEST_NOT_EXECUTED'});
+              failed=true;
+              continue;
+            }
             const args=name==='test'?['test']:['run',name];
             const r=spawnSync('npm',args,{stdio:'inherit',shell:false});
             results.push({name:String(spec?.name||name),command:name,passed:r.status===0,exit_code:r.status??1});
@@ -349,7 +358,38 @@ jobs:
           fi
           git commit -m "GEN2-42: apply approved bridge package $JOB_ID"
           NEW_SHA="$(git rev-parse HEAD)"
-          git push origin "HEAD:$CANDIDATE_BRANCH"
+          # Another executor may have pushed while tests ran. Replay this one
+          # commit on the new tip. Never force, never reset the remote branch.
+          PUSHED=0
+          for ATTEMPT in 1 2; do
+            git fetch origin "$CANDIDATE_BRANCH"
+            REMOTE_SHA="$(git rev-parse FETCH_HEAD)"
+            if ! git merge-base --is-ancestor "$REMOTE_SHA" HEAD; then
+              if ! git rebase --onto "$REMOTE_SHA" "$CANDIDATE_SHA" HEAD; then
+                git rebase --abort || true
+                break
+              fi
+              NEW_SHA="$(git rev-parse HEAD)"
+            fi
+            if git push origin "HEAD:$CANDIDATE_BRANCH"; then
+              PUSHED=1
+              break
+            fi
+          done
+          if [ "$PUSHED" != "1" ]; then
+            node - <<'NODE'
+            const fs=require('fs');
+            const current=fs.existsSync('bridge-apply-result.json')?JSON.parse(fs.readFileSync('bridge-apply-result.json','utf8')):{tests:[]};
+            const tests=Array.isArray(current.tests)?[...current.tests]:[];
+            tests.push({name:'candidate push',command:'git.push',passed:false,executed:false,error:'CANDIDATE_PUSH_NOT_FAST_FORWARD'});
+            fs.writeFileSync('bridge-apply-result.json',JSON.stringify({...current,status:'REPAIR_REQUIRED',needs_repair:true,tests},null,2));
+          NODE
+            echo "candidate_ready=false" >> "$GITHUB_OUTPUT"
+            echo "candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
+            echo "candidate_branch=$CANDIDATE_BRANCH" >> "$GITHUB_OUTPUT"
+            echo "no_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # A push made with the workflow token does not start other workflows:
           # run the full candidate suite explicitly on the exact new head.
           code="$(curl --silent --show-error --max-time 30 --request POST \
