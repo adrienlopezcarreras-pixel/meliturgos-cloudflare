@@ -32,7 +32,11 @@ test('fresh local measurements required before admitting GPU work',async()=>{
  assert.equal(decideMeasured({...request,now,telemetry:{...telemetry,on_battery:null}}).reason,'COMPUTE_TELEMETRY_INVALID');
  assert.equal(decideMeasured({...request,now,telemetry:{...telemetry,cpu_percent:85}}).reason,'PC_CPU_BUSY');
  assert.equal(decideMeasured({...request,now,telemetry}).allowed,true);
- assert.equal(decideMeasured({...request,now,telemetry:{...telemetry,user_busy:true}}).allowed,false);
+ assert.equal(decideMeasured({...request,now,telemetry:{...telemetry,user_busy:true}}).allowed,true);
+ const stepped=decideMeasured({...request,profile:'performance',now,telemetry:{...telemetry,user_busy:true,cpu_percent:13.3,free_ram_mb:4915,gpu_available:false}});
+ assert.equal(stepped.allowed,true);
+ assert.equal(stepped.effective_profile,'balanced');
+ assert.equal(stepped.limits.cpu_percent,35);
 });
 
 test('PowerShell engine heartbeat does not erase fresh Windows resource readings',()=>{
