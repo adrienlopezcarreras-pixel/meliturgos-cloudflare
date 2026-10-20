@@ -35,26 +35,35 @@ export function parseVerdict(text) {
 }
 
 export function decide(reviews) {
-  const valid = [];
+  const convened = [];
   const seen = new Set();
   for (const review of Array.isArray(reviews) ? reviews : []) {
-    if (!review?.verdict) continue;
-    const summary = typeof review.summary === 'string' ? review.summary.trim() : null;
-    const blocking = Array.isArray(review.blocking) ? review.blocking.map(item => String(item).trim()).filter(Boolean) : [];
-    // An approval with a blank reason is not a review. A rejection that
-    // names a blocking reason still is, even when the summary is empty.
-    if (summary === '' && !(review.verdict === 'REJECT' && blocking.length)) continue;
-    const model = String(review.model || '').trim();
+    const model = String(review?.model || '').trim();
     if (model) {
       if (seen.has(model)) continue;
       seen.add(model);
     }
-    valid.push(review);
+    convened.push(review || {});
   }
+  const valid = convened.filter((review) => {
+    if (review?.verdict !== 'APPROVE' && review?.verdict !== 'REJECT') return false;
+    const summary = typeof review.summary === 'string' ? review.summary.trim() : null;
+    const blocking = Array.isArray(review.blocking) ? review.blocking.map(item => String(item).trim()).filter(Boolean) : [];
+    // An approval with a blank reason is not a review. A rejection that
+    // names a blocking reason still is, even when the summary is empty.
+    if (summary === '' && !(review.verdict === 'REJECT' && blocking.length)) return false;
+    return true;
+  });
+  // A majority of the models that were actually asked. Two answers out of
+  // four is not a quorum, and a timeout is not a vote.
+  const quorum = Math.floor(convened.length / 2) + 1;
+  if (valid.length < 2) return 'INSUFFICIENT_REVIEWERS';
   const approvals = valid.filter(r => r.verdict === 'APPROVE').length;
   const rejections = valid.length - approvals;
-  if (valid.length < 2) return 'INSUFFICIENT_REVIEWERS';
-  return approvals >= 2 && approvals > rejections ? 'APPROVED' : 'REJECTED';
+  if (approvals >= quorum && approvals > rejections) return 'APPROVED';
+  if (rejections >= quorum) return 'REJECTED';
+  if (valid.length === convened.length) return 'REJECTED';
+  return 'INSUFFICIENT_REVIEWERS';
 }
 
 export async function runCouncilReview(env, { diff, goal = '', models = COUNCIL_REVIEWERS, timeoutMs = 120_000 } = {}) {
@@ -103,12 +112,17 @@ export async function handleCouncilReviewRequest(request, env, { now = Date.now(
   await env.DB.prepare(`INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?)
     ON CONFLICT(bridge_id) DO UPDATE SET last_seen=excluded.last_seen,status=excluded.status,metadata_json=excluded.metadata_json`)
     .bind(key, now, result.decision, JSON.stringify(record)).run().catch(() => {});
-  if (result.decision === 'REJECTED') {
-    // Objections go back to the job so MEL's next plan addresses them.
-    const objections = result.reviews.filter(r => r.verdict === 'REJECT').flatMap(r => r.blocking.map(b => r.model.split('/').pop() + ' : ' + b)).slice(0, 12);
+  if (result.decision === 'REJECTED' || result.decision === 'INSUFFICIENT_REVIEWERS') {
+    const objections = result.reviews.filter(r => r.verdict === 'REJECT').flatMap(r => (r.blocking || []).map(b => r.model.split('/').pop() + ' : ' + b)).slice(0, 12);
+    const unavailable = result.reviews.filter(r => !r.verdict).map(r => String(r.model || '').split('/').pop() + ' : ' + (r.error || 'NO_VERDICT')).slice(0, 8);
+    const repair = result.decision === 'REJECTED';
     for (const id of jobs) {
-      await env.DB.prepare("UPDATE dev_jobs SET result_json=json_set(COALESCE(result_json,'{}'),'$.council_review',json(?)), error=?, updated_at=? WHERE id=?")
-        .bind(JSON.stringify({ decision: 'REJECTED', head, objections, reviewed_at: now }), ('COUNCIL_REJECTED: ' + objections.join(' | ')).slice(0, 900), now, id).run().catch(() => {});
+      const reviewJson = JSON.stringify({ decision: result.decision, head, objections, unavailable, reviewed_at: now });
+      const sql = repair
+        ? `UPDATE dev_jobs SET result_json=json_set(json_set(COALESCE(result_json,'{}'),'$.council_review',json(?)),'$.dev_bridge.needs_repair',json('true')), error=?, status=CASE WHEN status IN ('READY_FOR_REVIEW','CLAIMED','TEACHER_APPROVED') THEN 'REPAIR_REQUIRED' ELSE status END, updated_at=? WHERE id=?`
+        : `UPDATE dev_jobs SET result_json=json_set(COALESCE(result_json,'{}'),'$.council_review',json(?)), updated_at=? WHERE id=?`;
+      const statement = env.DB.prepare(sql);
+      await (repair ? statement.bind(reviewJson, ('COUNCIL_REJECTED: ' + objections.join(' | ')).slice(0, 900), now, id) : statement.bind(reviewJson, now, id)).run().catch(() => {});
     }
   }
   return Response.json({ ok: true, cached: false, ...record });

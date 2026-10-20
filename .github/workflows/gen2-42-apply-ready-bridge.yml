@@ -142,7 +142,11 @@ jobs:
           let failed=false;
           for(const spec of job.tests_json||[]){
             const name=String(spec?.command||'').trim();
-            if(!allowed.has(name)) continue;
+            if(!allowed.has(name)){
+              results.push({name:String(spec?.name||name||'unnamed'),command:name,passed:false,executed:false,error:'TEST_NOT_EXECUTED'});
+              failed=true;
+              continue;
+            }
             const args=name==='test'?['test']:['run',name];
             const r=spawnSync('npm',args,{stdio:'inherit',shell:false});
             const row={name:String(spec?.name||name),command:name,passed:r.status===0,exit_code:r.status??1};
@@ -270,12 +274,17 @@ jobs:
           // every import resolves (a requested smoke test does not load new files).
           {
             const r=spawnSync('npm',['run','check'],{stdio:'inherit',shell:false});
-            results.push({name:'syntax-and-imports',command:'check',passed:r.status===0,exit_code:r.status??1});
+            results.push({name:'syntax-and-imports',command:'check',passed:r.status===0,exit_code:r.status??1,executed:true});
             if(r.status!==0) failed=true;
           }
+          if(!results.some(row=>row.command==='check'&&row.executed===true&&row.passed===true)) failed=true;
           for(const spec of job.tests_json){
             const name=String(spec?.command||'').trim();
-            if(!allowed.has(name)) continue;
+            if(!allowed.has(name)){
+              results.push({name:String(spec?.name||name||'unnamed'),command:name,passed:false,executed:false,error:'TEST_NOT_EXECUTED'});
+              failed=true;
+              continue;
+            }
             const args=name==='test'?['test']:['run',name];
             const r=spawnSync('npm',args,{stdio:'inherit',shell:false});
             results.push({name:String(spec?.name||name),command:name,passed:r.status===0,exit_code:r.status??1});

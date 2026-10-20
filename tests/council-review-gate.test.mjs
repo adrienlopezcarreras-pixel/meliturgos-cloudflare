@@ -6,9 +6,21 @@ import { parseVerdict, decide, runCouncilReview } from '../src/evolution/council
 test('council verdicts and majority rule', async () => {
   assert.equal(parseVerdict('x {"verdict":"approve"} y').verdict, 'APPROVE');
   const A = { verdict: 'APPROVE' }, R = { verdict: 'REJECT' }, N = { verdict: null };
-  assert.equal(decide([A, A, R, N]), 'APPROVED');
+  assert.equal(decide([A, A, R, N]), 'INSUFFICIENT_REVIEWERS');
   assert.equal(decide([A, R, R, A]), 'REJECTED');
   assert.equal(decide([A, N, N, N]), 'INSUFFICIENT_REVIEWERS');
+  assert.equal(decide([
+    { model: '@cf/openai/gpt-oss-120b', verdict: 'APPROVE' },
+    { model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', verdict: 'APPROVE' },
+    { model: '@cf/nvidia/nemotron-3-120b-a12b', verdict: null, error: 'REVIEW_TIMEOUT' },
+    { model: '@cf/google/gemma-4-26b-a4b-it', verdict: null, error: 'EMPTY' },
+  ]), 'INSUFFICIENT_REVIEWERS');
+  assert.equal(decide([
+    { model: 'a', verdict: 'APPROVE', summary: 'correct et testé' },
+    { model: 'b', verdict: 'APPROVE', summary: 'pas de garde-fou retiré' },
+    { model: 'c', verdict: 'APPROVE', summary: 'le changement est branché' },
+    { model: 'd', verdict: null, error: 'REVIEW_TIMEOUT' },
+  ]), 'APPROVED');
   assert.equal(decide([
     { model: '@cf/openai/gpt-oss-120b', verdict: 'APPROVE' },
     { model: '@cf/openai/gpt-oss-120b', verdict: 'APPROVE' },
