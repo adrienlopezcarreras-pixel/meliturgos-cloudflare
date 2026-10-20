@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { parseVerdict, decide, runCouncilReview } from '../src/evolution/council-review.js';
+import { parseVerdict, decide, runCouncilReview, orderCouncilModels, freeCouncilCatalog } from '../src/evolution/council-review.js';
 
 test('council verdicts and majority rule', async () => {
   assert.equal(parseVerdict('x {"verdict":"approve"} y').verdict, 'APPROVE');
@@ -42,4 +42,29 @@ test('council verdicts and majority rule', async () => {
   const wf = await readFile(new URL('../.github/workflows/mel-candidate-promotion.yml', import.meta.url), 'utf8');
   assert.ok(wf.indexOf('/api/internal/council-review') > 0 && wf.indexOf('git push origin "$CAND:refs/heads/main"') > wf.indexOf('/api/internal/council-review'));
   assert.match(wf, /DECISION" != "APPROVED"/);
+});
+
+test('a recent failure is asked again only after the models that still answer', () => {
+  const ids = ['@cf/openai/gpt-oss-120b', '@cf/meta/llama-3.3-70b-instruct-fp8-fast', '@cf/zai-org/glm-4.7-flash'];
+  const now = 1_000_000;
+  const cooling = orderCouncilModels(ids, { '@cf/openai/gpt-oss-120b': { ok: false, at: now - 60_000 } }, now);
+  assert.equal(cooling[0], '@cf/meta/llama-3.3-70b-instruct-fp8-fast');
+  assert.equal(cooling.at(-1), '@cf/openai/gpt-oss-120b');
+  const refreshed = orderCouncilModels(ids, { '@cf/openai/gpt-oss-120b': { ok: false, at: now - 21 * 60 * 1000 } }, now);
+  assert.equal(refreshed[0], '@cf/openai/gpt-oss-120b');
+  assert.ok(freeCouncilCatalog({}).includes('@cf/zai-org/glm-4.7-flash'));
+});
+
+test('silent free models are replaced until three real answers exist', async () => {
+  const called = [];
+  const env = { AI: { async run(model) {
+    called.push(model);
+    if (String(model).includes('gpt-oss') || String(model).includes('nemotron')) throw new Error('DOWN');
+    return { response: '{"verdict":"APPROVE","summary":"changement testé et branché"}' };
+  } } };
+  const result = await runCouncilReview(env, { diff: '+x' });
+  assert.equal(result.decision, 'APPROVED');
+  assert.ok(called.includes('@cf/zai-org/glm-4.7-flash'));
+  assert.equal(result.reviews.filter(review => review.verdict === 'APPROVE').length, 3);
+  assert.ok(result.reviews.some(review => review.error === 'DOWN'));
 });

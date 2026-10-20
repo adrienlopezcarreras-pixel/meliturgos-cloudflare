@@ -4,13 +4,11 @@
 // GitHub OIDC; the verdict is stored per candidate SHA and on the jobs it carries.
 
 import { authorizeGitHubActionsOidcRequest } from '../security/github-actions-oidc.js';
+import { standardRegistry } from '../models/ModelRegistry.js';
 
-export const COUNCIL_REVIEWERS = Object.freeze([
-  '@cf/openai/gpt-oss-120b',
-  '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
-  '@cf/nvidia/nemotron-3-120b-a12b',
-  '@cf/google/gemma-4-26b-a4b-it',
-]);
+const HEALTH_KEY = 'council-model-health';
+const HEALTH_STALE_MS = 20 * 60 * 1000;
+const MIN_ANSWERS = 3;
 const MAX_DIFF = 48_000;
 
 const SYSTEM = [
@@ -66,9 +64,49 @@ export function decide(reviews) {
   return 'INSUFFICIENT_REVIEWERS';
 }
 
-export async function runCouncilReview(env, { diff, goal = '', models = COUNCIL_REVIEWERS, timeoutMs = 120_000 } = {}) {
-  const user = 'Objectif annoncé : ' + String(goal || '(non fourni)').slice(0, 1500) + '\n\nDIFF :\n' + String(diff || '').slice(0, MAX_DIFF);
-  const reviews = await Promise.all(models.map(async model => {
+export function freeCouncilCatalog(env = {}) {
+  const ids = standardRegistry.list()
+    .filter(model => model.provider === 'workers-ai' && model.enabled !== false && model.cost === 0)
+    .sort((a, b) => (b.priority || 0) - (a.priority || 0))
+    .map(model => model.id);
+  const extra = String(env?.MEL_MODEL_CANDIDATES || '').split(',')
+    .map(item => item.trim())
+    .filter(id => /^@cf\/[a-z0-9_.-]+\/[a-z0-9_.:-]+$/i.test(id));
+  return [...new Set([...ids, ...extra])].slice(0, 8);
+}
+
+// A model that failed recently is refreshed last, not forgotten and not asked first.
+export function orderCouncilModels(ids, health = {}, now = Date.now(), staleMs = HEALTH_STALE_MS) {
+  const cooling = id => health?.[id]?.ok === false && now - Number(health[id].at || 0) < staleMs;
+  return [...ids.filter(id => !cooling(id)), ...ids.filter(cooling)];
+}
+
+function answered(review) {
+  if (review?.verdict !== 'APPROVE' && review?.verdict !== 'REJECT') return false;
+  const summary = typeof review.summary === 'string' ? review.summary.trim() : '';
+  const blocking = Array.isArray(review.blocking) ? review.blocking.map(item => String(item).trim()).filter(Boolean) : [];
+  if (summary === '' && !(review.verdict === 'REJECT' && blocking.length)) return false;
+  return true;
+}
+
+async function readModelHealth(env) {
+  try {
+    const row = await env.DB.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?').bind(HEALTH_KEY).first();
+    const parsed = JSON.parse(row?.metadata_json || '{}');
+    return parsed?.models && typeof parsed.models === 'object' ? parsed.models : {};
+  } catch { return {}; }
+}
+
+async function writeModelHealth(env, models, now) {
+  try {
+    await env.DB.prepare(`INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?)
+      ON CONFLICT(bridge_id) DO UPDATE SET last_seen=excluded.last_seen,status=excluded.status,metadata_json=excluded.metadata_json`)
+      .bind(HEALTH_KEY, now, 'REFRESHED', JSON.stringify({ models })).run();
+  } catch { /* a missing table must not invent a vote */ }
+}
+
+async function askModels(env, models, user, timeoutMs) {
+  return Promise.all(models.map(async model => {
     let timer;
     try {
       const out = await Promise.race([
@@ -84,7 +122,23 @@ export async function runCouncilReview(env, { diff, goal = '', models = COUNCIL_
       clearTimeout(timer);
     }
   }));
-  return { decision: decide(reviews), reviews };
+}
+
+export async function runCouncilReview(env, { diff, goal = '', models = null, timeoutMs = 120_000, now = Date.now() } = {}) {
+  const user = 'Objectif annoncé : ' + String(goal || '(non fourni)').slice(0, 1500) + '\n\nDIFF :\n' + String(diff || '').slice(0, MAX_DIFF);
+  const health = await readModelHealth(env);
+  const catalog = Array.isArray(models) && models.length ? models : orderCouncilModels(freeCouncilCatalog(env), health, now);
+  const reviews = [];
+  for (let index = 0; index < catalog.length && reviews.filter(answered).length < MIN_ANSWERS; index += 4) {
+    reviews.push(...await askModels(env, catalog.slice(index, index + 4), user, timeoutMs));
+  }
+  const live = reviews.filter(answered);
+  const nextHealth = { ...health };
+  for (const review of reviews) nextHealth[review.model] = { ok: answered(review), at: now };
+  await writeModelHealth(env, nextHealth, now);
+  // Three real answers decide alone. Fewer than that, the silences stay in
+  // the count so two replies cannot approve a larger asked set.
+  return { decision: decide(live.length >= MIN_ANSWERS ? live : reviews), reviews };
 }
 
 export async function handleCouncilReviewRequest(request, env, { now = Date.now(), review = runCouncilReview } = {}) {
