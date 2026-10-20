@@ -266,7 +266,7 @@ test('Windows installer clears owner password before token-based companion downl
 });
 
 
-test('authenticated native supervisor heartbeat keeps already-installed Windows engine online',async()=>{
+test('native supervisor heartbeat does not count as the PowerShell engine',async()=>{
   const DB=sqliteD1();
   try{
     const env={DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'};
@@ -281,15 +281,26 @@ test('authenticated native supervisor heartbeat keeps already-installed Windows 
     const before=Date.now();
     const response=await maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/heartbeat',{
       method:'POST',headers,
-      body:JSON.stringify({version:'2.3.7',hostname:'PC',user:'adrien',screen:{x:0,y:0,width:1920,height:1080}})
+      body:JSON.stringify({
+        version:'2.3.7',hostname:'PC',user:'adrien',screen:{x:0,y:0,width:1920,height:1080},
+        engine_heartbeat_at:Date.now()+120000,
+        heartbeat_diag:{last_error_code:'WebException',http_ms:40,engine_process_running:true,consecutive_failures:1}
+      })
     }),env);
     const payload=await response.json();
     assert.equal(payload.ok,true);
-    assert.equal(payload.engine_online,true);
-    assert.ok(Number(payload.engine_last_seen_at)>=before);
-    const source=await DB.prepare('SELECT metadata FROM computer_devices WHERE id=?').bind('pc-native-supervisor').first();
-    assert.equal(JSON.parse(source.metadata).engine_direct_heartbeat_at,undefined,
-      'native process supervision must not be presented as an actual engine callback');
+    assert.equal(payload.presence.pc_online,true);
+    assert.equal(payload.presence.engine_online,false);
+    assert.equal(payload.presence.local_ai_ready,false);
+    assert.equal(payload.engine_online,false);
+    const source=await DB.prepare('SELECT last_seen_at,metadata FROM computer_devices WHERE id=?').bind('pc-native-supervisor').first();
+    const metadata=JSON.parse(source.metadata);
+    assert.equal(metadata.engine_direct_heartbeat_at,undefined);
+    assert.equal(metadata.engine_heartbeat_at,undefined);
+    assert.ok(Number(metadata.supervisor_heartbeat_at)>=before);
+    assert.ok(Number(source.last_seen_at)>=before);
+    assert.equal(metadata.heartbeat_diag.last_error_code,'WEBEXCEPTION');
+    assert.equal(metadata.heartbeat_diag.source,'windows');
   }finally{DB.close();}
 });
 
@@ -313,19 +324,24 @@ test('Windows command engine heartbeat is independently fresh from the desktop U
     assert.equal(payload.ok,true);
     assert.equal(payload.engine_online,false);
 
-    const engineHeartbeatAt=Date.now();
+    const seenBefore=await DB.prepare('SELECT last_seen_at FROM computer_devices WHERE id=?').bind('pc-engine-heartbeat').first();
+    const engineHeartbeatAt=Date.now()+60000;
     response=await maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/heartbeat',{
       method:'POST',headers,
-      body:JSON.stringify({engine_version:'1.3.0',engine_heartbeat_at:engineHeartbeatAt,active_window:'MEL_TEST'})
+      body:JSON.stringify({engine_version:'1.3.0',engine_heartbeat_at:engineHeartbeatAt,active_window:'MEL_TEST',local_compute_enabled:false})
     }),env);
     payload=await response.json();
     assert.equal(payload.engine_online,true);
+    assert.equal(payload.presence.pc_online,true);
+    assert.equal(payload.presence.local_ai_ready,false);
     assert.equal(payload.engine_version,'1.3.0');
-    assert.equal(payload.engine_last_seen_at,engineHeartbeatAt);
-    const direct=await DB.prepare('SELECT metadata FROM computer_devices WHERE id=?').bind('pc-engine-heartbeat').first();
+    assert.ok(Number(payload.engine_last_seen_at)>=Date.now()-2000);
+    assert.notEqual(payload.engine_last_seen_at,engineHeartbeatAt);
+    const direct=await DB.prepare('SELECT last_seen_at,metadata FROM computer_devices WHERE id=?').bind('pc-engine-heartbeat').first();
     const directSeen=Number(JSON.parse(direct.metadata).engine_direct_heartbeat_at);
-    assert.ok(directSeen>=engineHeartbeatAt-2000 && directSeen<=Date.now(),
+    assert.ok(directSeen>=Date.now()-2000 && directSeen<=Date.now(),
       'PowerShell heartbeat must be recorded independently from native supervisor');
+    assert.equal(Number(direct.last_seen_at),Number(seenBefore.last_seen_at));
   }finally{DB.close();}
 });
 

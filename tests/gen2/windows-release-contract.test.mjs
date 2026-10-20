@@ -70,7 +70,8 @@ test('native Windows Companion refreshes only its authenticated MEL engine with 
   assert.match(source, /RestartCompanion\(\)/);
   assert.doesNotMatch(source, /powershell\.exe.*Invoke-WebRequest/si);
   assert.match(source, /CompanionRunning\(\)/);
-  assert.match(source, /heartbeat\["engine_heartbeat_at"\] = DateTimeOffset\.UtcNow\.ToUnixTimeMilliseconds\(\)/);
+  assert.doesNotMatch(source, /heartbeat\["engine_heartbeat_at"\]/);
+  assert.match(source, /heartbeat_diag/);
   assert.match(source, /engine_refresh_status/);
   assert.match(source, /engine_update_required/);
   assert.match(source, /MaybeRefreshCompanionEngine\(true\)/);
