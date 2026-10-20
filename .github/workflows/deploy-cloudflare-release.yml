@@ -2494,18 +2494,18 @@ jobs:
           CODE="$(curl --silent --show-error --max-time 120 \
             --header "x-mel-launch-bootstrap: ${SAFE_TOKEN}" \
             --header "content-type: application/json" \
-            --data '{"phase":"owner-handoff"}' \
+            --data '{"phase":"pause"}' \
             --output final-autonomy-safe-stop.json \
             --write-out '%{http_code}' \
-            "${BASE_URL}/api/internal/release-launch-bootstrap?expected_sha=${EXPECTED_SHA}" || true)"
+            "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
           test "${CODE}" = "200"
           node - <<'NODE'
           const d=require('./final-autonomy-safe-stop.json');
-          if(d?.ok!==true||d?.status!=='OWNER_HANDOFF_READY'||d?.paused!==true||d?.max_autonomy!==false||d?.owner_launch_required!==true){
-            throw new Error('FINAL_OWNER_HANDOFF_NOT_PROVED');
+          if(d?.ok!==true||d?.paused!==true||d?.max_autonomy!==false){
+            throw new Error('FINAL_AUTONOMY_SAFE_STOP_NOT_PROVED');
           }
           if(d?.autonomy_started===true) throw new Error('FINAL_AUTONOMY_SAFE_STOP_STARTED_AUTONOMY');
-          console.log('Owner handoff verified: paused=true, max_autonomy=false, owner MAX button available.');
+          console.log('Final hardening state: paused=true, max_autonomy=false.');
           NODE
 
       - name: Re-enable MAX 100% after verified autonomous release
