@@ -38,6 +38,7 @@ function fakeDb(rows = {}) {
         bind(...a) { args = a; return stmt; },
         async first() {
           if (/bridge_id='primary'/.test(sql)) return rows.primary || null;
+          if (/FROM dev_jobs WHERE id=\?/.test(sql)) return rows.package || null;
           if (/WHERE bridge_id=\?/.test(sql)) return rows[args[0]] || null;
           return null;
         },
@@ -67,6 +68,18 @@ test('no dispatch when not ready, PC online, or dispatched recently', async () =
   assert.equal((await maybeDispatchCloudBridge({ DB: fakeDb() }, { job: { id: 'j', status: 'WAITING_TEACHER' } }, { now, relay })).status, 'SKIPPED_NOT_READY');
   assert.equal((await maybeDispatchCloudBridge({ DB: fakeDb({ primary: { last_seen: now - 5_000, status: 'ONLINE' } }) }, readyTick, { now, relay })).status, 'SKIPPED_LOCAL_EXECUTOR_ONLINE');
   assert.equal((await maybeDispatchCloudBridge({ DB: fakeDb({ 'cloud-bridge-dispatch:job-1': { last_seen: now - 60_000 } }) }, readyTick, { now, relay })).status, 'SKIPPED_RECENTLY_DISPATCHED');
+});
+
+test('a package created after the last dispatch is sent without waiting 30 minutes', async () => {
+  const now = 10_000_000;
+  const db = fakeDb({
+    'cloud-bridge-dispatch:job-1': { last_seen: now - 60_000 },
+    package: { package_created_at: new Date(now - 30_000).toISOString() },
+  });
+  const queued = [];
+  const out = await maybeDispatchCloudBridge({ DB: db }, readyTick, { now, relay: { async enqueue(job) { queued.push(job); return { id: 'r3' }; } } });
+  assert.equal(out.status, 'DISPATCH_QUEUED');
+  assert.equal(queued[0].inputs.job_id, 'job-1');
 });
 
 test('a READY package is dispatched even when the tick stopped before reporting it', async () => {
