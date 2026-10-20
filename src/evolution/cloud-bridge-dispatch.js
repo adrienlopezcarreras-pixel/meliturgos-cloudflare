@@ -23,7 +23,7 @@ async function executorOnline(db, now) {
 
 export async function readyJobFromD1(db) {
   try {
-    return await db.prepare(`SELECT id, status FROM dev_jobs
+    return await db.prepare(`SELECT id, status, json_extract(result_json,'$.bridge_preparation.created_at') AS package_created_at FROM dev_jobs
       WHERE json_extract(result_json,'$.bridge_preparation.status')='READY'
         AND json_extract(result_json,'$.implementation_proposal.status')='READY'
         AND (
@@ -39,6 +39,16 @@ export async function readyJobFromD1(db) {
   } catch { return null; }
 }
 
+
+async function packageCreatedMs(db, job) {
+  const direct = Date.parse(job?.package_created_at || job?.result_json?.bridge_preparation?.created_at || '');
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  if (!db?.prepare || !job?.id) return 0;
+  const row = await db.prepare("SELECT json_extract(result_json,'$.bridge_preparation.created_at') AS package_created_at FROM dev_jobs WHERE id=?").bind(job.id).first().catch(() => null);
+  const parsed = Date.parse(row?.package_created_at || '');
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export async function maybeDispatchCloudBridge(env, tick, { now = Date.now(), relay = null } = {}) {
   const db = env?.DB;
   if (!db?.prepare) return { status: 'SKIPPED_NO_TICK' };
@@ -52,7 +62,10 @@ export async function maybeDispatchCloudBridge(env, tick, { now = Date.now(), re
   if (await executorOnline(db, now)) return { status: 'SKIPPED_LOCAL_EXECUTOR_ONLINE' };
   const key = 'cloud-bridge-dispatch:' + String(job.id).slice(0, 160);
   const last = await db.prepare('SELECT last_seen FROM dev_bridge_state WHERE bridge_id=?').bind(key).first().catch(() => null);
-  if (last && now - Number(last.last_seen || 0) < REDISPATCH_MS) return { status: 'SKIPPED_RECENTLY_DISPATCHED' };
+  const packageAt = await packageCreatedMs(db, job);
+  // The same unchanged package is not sent twice inside 30 minutes.
+  // A package created after that dispatch is a new repair and must go out.
+  if (last && packageAt <= Number(last.last_seen || 0) && now - Number(last.last_seen || 0) < REDISPATCH_MS) return { status: 'SKIPPED_RECENTLY_DISPATCHED' };
   const store = relay || new D1GitHubActionRelayStore(db);
   const queued = await store.enqueue({ workflow: CLOUD_BRIDGE_WORKFLOW, ref: 'main', inputs: { job_id: String(job.id), chain_depth: '0' }, now });
   await db.prepare(`INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?)

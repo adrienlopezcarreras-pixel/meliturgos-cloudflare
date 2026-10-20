@@ -620,28 +620,35 @@ async function heartbeat(request,env,a){
  const row=await env.DB.prepare("SELECT metadata FROM computer_devices WHERE id=? LIMIT 1").bind(a.device.id).first();
  let metadata={};try{metadata=JSON.parse(row?.metadata||"{}")}catch{}
  const now=Date.now();
+ const engineBeat=typeof b.engine_version==="string"&&b.engine_version.trim().length>0;
+ const supervisorBeat=!engineBeat&&b.version!==undefined;
  const patch={};
- if(b.version!==undefined)patch.version=b.version||null;
- if(b.engine_version!==undefined)patch.engine_version=b.engine_version||null;
+ if(supervisorBeat&&b.version!==undefined)patch.version=b.version||null;
+ if(engineBeat)patch.engine_version=b.engine_version.trim();
  if(b.engine_refresh_status!==undefined)patch.engine_refresh_status=safe(b.engine_refresh_status,80)||null;
  if(b.engine_refresh_at!==undefined&&Number.isFinite(Number(b.engine_refresh_at)))patch.engine_refresh_at=Number(b.engine_refresh_at);
  if(b.engine_refresh_error!==undefined)patch.engine_refresh_error=safe(b.engine_refresh_error,180)||null;
- if(b.engine_heartbeat_at!==undefined&&Number.isFinite(Number(b.engine_heartbeat_at))){
-   patch.engine_heartbeat_at=Number(b.engine_heartbeat_at);
-   // Track direct PowerShell callbacks separately from native supervisor
-   // process-presence claims. Only the former proves the engine contacted MEL.
-   if(typeof b.engine_version==="string"&&b.engine_version.trim())
-    patch.engine_direct_heartbeat_at=now;
- }else if(
-   b.version!==undefined
-   && typeof b.hostname==="string" && b.hostname.trim()
-   && b.screen && typeof b.screen==="object"
- ){
-   // Native Windows Companion heartbeats are emitted only after
-   // EnsureCompanion() supervises the authenticated PowerShell engine.
-   // Treat that authenticated supervisor heartbeat as fresh engine presence
-   // for compatibility with already-installed native clients.
+ if(engineBeat){
+   // Server receipt time only. A fast PC clock must not look like a future
+   // heartbeat, and this callback must not refresh the supervisor's presence.
    patch.engine_heartbeat_at=now;
+   patch.engine_direct_heartbeat_at=now;
+ }
+ if(supervisorBeat)patch.supervisor_heartbeat_at=now;
+ const diag=b.heartbeat_diag;
+ if(diag&&typeof diag==="object"){
+  const rawCode=typeof diag.last_error_code==="string"?diag.last_error_code.replace(/[^A-Za-z0-9_]/g,"").toUpperCase().slice(0,80):"";
+  const code=rawCode||null;
+  const httpMs=Number(diag.http_ms);
+  const failures=Number(diag.consecutive_failures);
+  patch.heartbeat_diag={
+   source:engineBeat?"powershell":"windows",
+   received_at:now,
+   last_error_code:code,
+   http_ms:Number.isFinite(httpMs)&&httpMs>=0&&httpMs<=60000?Math.round(httpMs):null,
+   engine_process_running:diag.engine_process_running===true,
+   consecutive_failures:Number.isSafeInteger(failures)&&failures>=0&&failures<=1000?failures:null
+  };
  }
  if(b.hostname!==undefined)patch.hostname=b.hostname||null;
  if(b.user!==undefined)patch.user=b.user||null;
@@ -679,25 +686,42 @@ async function heartbeat(request,env,a){
  if(b.screen&&typeof b.screen==="object")patch.screen=b.screen;
  if(b.active_window!==undefined)patch.active_window=b.active_window||null;
  metadata={...metadata,...patch};
- await env.DB.prepare("UPDATE computer_devices SET last_seen_at=?,metadata=? WHERE id=?").bind(now,JSON.stringify(metadata),a.device.id).run();
- const engineHeartbeatAt=Number(metadata.engine_heartbeat_at||0);
- const engineOnline=engineHeartbeatAt>0&&now-engineHeartbeatAt<35000;
- const engineVersion=safe(metadata.engine_version,80)||null;
- const engineUpdateRequired=!versionAtLeast(engineVersion,CURRENT_COMPANION_ENGINE_VERSION);
+ if(supervisorBeat){
+  await env.DB.prepare("UPDATE computer_devices SET last_seen_at=?,metadata=? WHERE id=?").bind(now,JSON.stringify(metadata),a.device.id).run();
+ }else{
+  await env.DB.prepare("UPDATE computer_devices SET metadata=? WHERE id=?").bind(JSON.stringify(metadata),a.device.id).run();
+ }
+ const supervisorAt=Number(metadata.supervisor_heartbeat_at||0);
+ const engineDirectAt=Number(metadata.engine_direct_heartbeat_at||0);
+ const pcOnline=supervisorAt>0&&supervisorAt<=now&&now-supervisorAt<35000;
+ const engineOnline=engineDirectAt>0&&engineDirectAt<=now&&now-engineDirectAt<35000;
+ const remoteAllowed=metadata.remote_access_enabled===true;
  const computeAdmission=evaluateMeasuredOptionalCompute({
    enabled:metadata.local_compute_enabled===true,
    profile:metadata.local_compute_profile||"off",online:engineOnline,
    halted:a.device.halted===true,telemetry:metadata.local_compute_telemetry,now
  });
+ const presence={
+  pc_online:pcOnline,
+  engine_online:engineOnline,
+  remote_access_allowed:remoteAllowed,
+  local_ai_ready:computeAdmission.allowed===true,
+  reconnecting:pcOnline&&now-supervisorAt>20000,
+  offline:!pcOnline
+ };
+ const engineVersion=safe(metadata.engine_version,80)||null;
+ const engineUpdateRequired=!versionAtLeast(engineVersion,CURRENT_COMPANION_ENGINE_VERSION);
  return json({
    ok:true,
    server_time:now,
+   presence,
    engine_online:engineOnline,
    local_compute_enabled:metadata.local_compute_enabled===true,
    local_compute_gpu_enabled:metadata.local_compute_gpu_enabled===true,
    local_compute_admission:{allowed:computeAdmission.allowed,reason:computeAdmission.reason},
    engine_version:engineVersion,
-   engine_last_seen_at:engineHeartbeatAt||null,
+   engine_last_seen_at:engineDirectAt||null,
+   supervisor_last_seen_at:supervisorAt||null,
    required_engine_version:MIN_SOVEREIGN_AI_ENGINE_VERSION,
    engine_update_required:engineUpdateRequired,
    engine_refresh_status:safe(metadata.engine_refresh_status,80)||null,

@@ -39,6 +39,14 @@ for (const modelId of councilModels) {
   }
 }
 
+test('Mentor code proposals on Gemma and Nemotron also disable optional thinking', () => {
+  for (const modelId of councilModels) {
+    for (const purpose of ['mel-autonomous-development', 'mel-autonomous-development-structured-repair']) {
+      const opts = inferenceOptions({ purpose, inference_settings: { max_tokens: 4096 } }, modelId);
+      assert.deepEqual(opts.chat_template_kwargs, { enable_thinking: false });
+    }
+  }
+});
 test('ordinary chat and models without documented switch remain unchanged', () => {
   for (const modelId of councilModels) {
     const opts = inferenceOptions({ purpose: 'ordinary-chat', inference_settings: { max_tokens: 100 } }, modelId);

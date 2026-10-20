@@ -129,9 +129,9 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.doesNotMatch(refreshBlock, /wrangler secret put MEL_BACKUP_ENCRYPTION_KEY_ID/);
   assert.doesNotMatch(refreshBlock, /MEL_D1_DATABASE_ID/);
   assert.match(refreshBlock, /MEL_R2_BUCKET_NAME/);
-  assert.match(refreshBlock, /timeout 300s node release-tools\/predeploy-backup-refresh\/runner\.mjs/);
+  assert.match(refreshBlock, /timeout 1200s node release-tools\/predeploy-backup-refresh\/runner\.mjs/);
   assert.match(refreshBlock, /BACKUP_REFRESH_RC/);
-  assert.match(refreshBlock, /exceeded its 300-second bound/);
+  assert.match(refreshBlock, /exceeded its 1200-second bound/);
   assert.match(refreshBlock, /\/workers\/scripts\/\$\{REFRESH_NAME\}/);
   assert.match(refreshBlock, /SIDECAR_READY=0/);
   assert.match(refreshBlock, /SIDECAR_STABLE_PROBES=0/);
@@ -221,9 +221,11 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.match(binderBlock, /\/prepare/);
   assert.match(binderBlock, /predeploy-backup-verified\.marker/);
   const binderCleanupArm = binderBlock.indexOf('BINDER_CREATED=1', binderBlock.indexOf('Arm cleanup before deploy'));
-  const binderDeploy = binderBlock.indexOf('if ! timeout 180s npx wrangler deploy');
+  const binderDeploy = binderBlock.indexOf('for DEPLOY_ATTEMPT in $(seq 1 8); do');
   assert.ok(binderCleanupArm >= 0 && binderDeploy > binderCleanupArm, 'cleanup must be armed before a bounded binder deploy');
+  assert.match(binderBlock, /code: 10007/);
   assert.match(binderBlock, /predeploy-binder-deploy\.log 2>&1; then[\s\S]*cat \/tmp\/predeploy-binder-deploy\.log[\s\S]*exit 54/);
+  assert.match(binderBlock, /BINDER_DEPLOYED\}" != "1" \][\s\S]*exit 54/);
   assert.match(binderBlock, /--var "MEL_PREDEPLOY_BINDER_TOKEN:\$\{BINDER_TOKEN\}"/);
   assert.doesNotMatch(binderBlock, /wrangler secret put MEL_PREDEPLOY_BINDER_TOKEN/);
   assert.doesNotMatch(binderBlock, /MEL_LAUNCH_BOOTSTRAP_TOKEN/);
@@ -310,6 +312,9 @@ test('predeploy binder retries only Cloudflare 1042 propagation while enforcing 
  const end=source.indexOf('      - name: Prepare encrypted Media Vault secrets for exact deployment',start);
  assert.ok(start>=0&&end>start,'predeploy backup must be ordered before real deployment');
  const block=source.slice(start,end);
+ assert.match(block,/for DEPLOY_ATTEMPT in \$\(seq 1 8\)/);
+ assert.match(block,/code: 10007/);
+ assert.match(block,/if \[ "\$\{BINDER_DEPLOYED\}" != "1" \]; then\s+exit 54/);
  assert.match(block,/for ATTEMPT in \$\(seq 1 20\)/);
  assert.match(block,/error code:\[\[:space:\]\]\*1042/);
  assert.match(block,/Unexpected binder HTTP 404 without Cloudflare edge 1042/);

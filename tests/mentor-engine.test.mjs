@@ -57,6 +57,38 @@ test('mentor rejects conflicting duplicate paths instead of dropping the second 
   });
 });
 
+test('mentor applies one unique edit onto the inspected file instead of requiring the whole file', async () => {
+  const source = 'export function read() {\n  return "old";\n}\n';
+  const engine = new MentorEngine({
+    providerFactory: async () => [provider('editor', {
+      summary: 'Remplace la valeur lue.',
+      edits: [{ path: 'src/example.js', find: 'return "old";', replace: 'return "new";' }],
+      tests: ['test:smoke'],
+      confidence: 0.8,
+    })],
+  });
+  const result = await engine.propose({
+    env: {},
+    goal: 'Changer la valeur lue',
+    inspectedFiles: [{ path: 'src/example.js', content: source }],
+  });
+  assert.equal(result.proposal.changes.length, 1);
+  assert.equal(result.proposal.changes[0].content, 'export function read() {\n  return "new";\n}\n');
+});
+
+test('mentor rejects an edit that is not unique in the inspected file', async () => {
+  const engine = new MentorEngine({
+    providerFactory: async () => [provider('editor', {
+      edits: [{ path: 'src/example.js', find: 'same', replace: 'other' }],
+    })],
+  });
+  await assert.rejects(() => engine.propose({
+    env: {},
+    goal: 'Ne pas appliquer un extrait ambigu',
+    inspectedFiles: [{ path: 'src/example.js', content: 'same\nsame\n' }],
+  }), error => error.code === 'MENTOR_NO_VALID_CODE_PROPOSAL' && error.failures[0].error === 'MENTOR_INVALID_CHANGE');
+});
+
 test('mentor engine selects a valid multi-provider code proposal and stores it as an unvalidated observation', async () => {
   const DB = sqliteD1();
   try {
@@ -214,6 +246,36 @@ test('mentor may read safe repository context outside writable paths while write
 
   assert.equal(result.ok, true);
   assert.equal(result.proposal.changes[0].path, 'src/example.js');
+});
+
+test('mentor refuses a full rewrite of a long inspected file and a repeated missing import', async () => {
+  const long = 'export const value = 1;\n'.repeat(300);
+  const engine = new MentorEngine({
+    providerFactory: async () => [provider('rewriter', {
+      summary: 'Réécrit le fichier.',
+      changes: [{ path: 'src/roadmap/master-roadmap.js', content: long + 'export const extra = 1;\n', reason: 'fichier entier' }],
+      tests: ['test:smoke'],
+    })],
+  });
+  await assert.rejects(() => engine.propose({
+    env: {},
+    goal: 'Corriger la roadmap',
+    inspectedFiles: [{ path: 'src/roadmap/master-roadmap.js', content: long }],
+  }), error => error.code === 'MENTOR_NO_VALID_CODE_PROPOSAL' && error.failures[0].error === 'MENTOR_LONG_FILE_REQUIRES_EDIT');
+
+  const repeat = new MentorEngine({
+    providerFactory: async () => [provider('importer', {
+      summary: 'Garde googleapis.',
+      changes: [{ path: 'src/evolution/google-tools.js', content: "import { google } from 'googleapis';\nexport const ready = true;\n", reason: 'client' }],
+      tests: ['test:smoke'],
+    })],
+  });
+  await assert.rejects(() => repeat.propose({
+    env: {},
+    goal: 'Corriger l’import',
+    inspectedFiles: [{ path: 'src/evolution/google-tools.js', content: "import { google } from 'googleapis';\n" }],
+    previousAttempts: [{ error: 'Unresolved import in src/evolution/google-tools.js: googleapis' }],
+  }), error => error.code === 'MENTOR_NO_VALID_CODE_PROPOSAL' && error.failures[0].error === 'MENTOR_REPEATED_BROKEN_IMPORT');
 });
 
 test('mentor still refuses writing to inspection-only repository paths', async () => {

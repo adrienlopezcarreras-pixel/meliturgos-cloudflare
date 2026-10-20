@@ -29,7 +29,10 @@ async function harness(){
  const paired=await call('/api/computer/v1/pair',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({pair_code:code,computer_id:'pc-1',platform:'windows',name:'Bureau'})});
  const {token}=await paired.json();
  const device={authorization:'Bearer '+token,'x-mel-computer-id':'pc-1'};
- const heartbeat=()=>call('/api/computer/v1/heartbeat',{method:'POST',headers:{...device,'content-type':'application/json'},body:JSON.stringify({version:'2.3.14',remote_access_enabled:true,engine_heartbeat_at:Date.now(),active_window:'Bloc-notes'})});
+ const heartbeat=async()=>{
+  await call('/api/computer/v1/heartbeat',{method:'POST',headers:{...device,'content-type':'application/json'},body:JSON.stringify({version:'2.3.14',hostname:'PC',screen:{width:1,height:1},remote_access_enabled:true,active_window:'Bloc-notes'})});
+  await call('/api/computer/v1/heartbeat',{method:'POST',headers:{...device,'content-type':'application/json'},body:JSON.stringify({engine_version:'1.5.1',engine_heartbeat_at:Date.now()+60000,remote_access_enabled:true,active_window:'Bloc-notes'})});
+ };
  await heartbeat();
  async function capture(){
   const queued=await ownerJson('/api/computer/v1/desktop-view-request',{computer_id:'pc-1'});

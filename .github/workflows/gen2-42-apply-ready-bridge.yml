@@ -268,13 +268,28 @@ jobs:
           import { spawnSync } from 'node:child_process';
           const allowed=new Set(['test','test:mel','test:integration','test:acceptance','test:smoke','test:mvp','test:routes']);
           const job=JSON.parse(await fs.readFile(process.env.BRIDGE_JOB_FILE,'utf8'));
+          function commandEvidence(args){
+            const r=spawnSync(args[0],args.slice(1),{encoding:'utf8',shell:false,maxBuffer:1024*1024});
+            const stdout=String(r.stdout||'');
+            const stderr=String(r.stderr||'');
+            if(stdout) process.stdout.write(stdout);
+            if(stderr) process.stderr.write(stderr);
+            const error=[...stderr.split(/\r?\n/),...stdout.split(/\r?\n/)]
+              .map(line=>line.trim())
+              .filter(line=>/Unresolved import|SyntaxError|Error:|Cannot find|ERR_/i.test(line))
+              .slice(0,8)
+              .join(' | ')
+              .slice(0,500);
+            return {status:r.status,stdout:stdout.slice(-2000),stderr:stderr.slice(-2000),error};
+          }
           const results=[];
           let failed=false;
           // Mandatory gate before any requested test: every module parses and
           // every import resolves (a requested smoke test does not load new files).
+          // Keep the checker text: the mentor only sees this result, not the log.
           {
-            const r=spawnSync('npm',['run','check'],{stdio:'inherit',shell:false});
-            results.push({name:'syntax-and-imports',command:'check',passed:r.status===0,exit_code:r.status??1,executed:true});
+            const r=commandEvidence(['npm','run','check']);
+            results.push({name:'syntax-and-imports',command:'check',passed:r.status===0,exit_code:r.status??1,executed:true,error:r.status===0?'':r.error,stdout:r.status===0?'':r.stdout,stderr:r.status===0?'':r.stderr});
             if(r.status!==0) failed=true;
           }
           if(!results.some(row=>row.command==='check'&&row.executed===true&&row.passed===true)) failed=true;
@@ -285,9 +300,9 @@ jobs:
               failed=true;
               continue;
             }
-            const args=name==='test'?['test']:['run',name];
-            const r=spawnSync('npm',args,{stdio:'inherit',shell:false});
-            results.push({name:String(spec?.name||name),command:name,passed:r.status===0,exit_code:r.status??1});
+            const args=name==='test'?['npm','test']:['npm','run',name];
+            const r=commandEvidence(args);
+            results.push({name:String(spec?.name||name),command:name,passed:r.status===0,exit_code:r.status??1,error:r.status===0?'':r.error,stdout:r.status===0?'':r.stdout,stderr:r.status===0?'':r.stderr});
             if(r.status!==0) failed=true;
           }
           await fs.writeFile('bridge-apply-result.json',JSON.stringify({
