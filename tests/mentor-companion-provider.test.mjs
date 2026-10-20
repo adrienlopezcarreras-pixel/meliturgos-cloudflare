@@ -1,3 +1,4 @@
+// ChatGPT-GPT6 / MEL-MENTOR-FALLBACK consent regression tests.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMentorCompanionFallback } from '../src/learning/mentor-companion-provider.js';
