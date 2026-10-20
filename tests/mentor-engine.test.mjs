@@ -496,6 +496,7 @@ for (const format of ['json', 'delimited']) {
   });
 }
 
+// ChatGPT-GPT6 / MEL-MENTOR-FALLBACK regression tests.
 test('mentor falls back after three provider outages without retrying the same outage as a repair', async () => {
   const calls = [];
   const offline = id => sequenceProvider(id, [Object.assign(new Error('offline'), { code: 'MENTOR_PROVIDER_FAILED' })], calls);
