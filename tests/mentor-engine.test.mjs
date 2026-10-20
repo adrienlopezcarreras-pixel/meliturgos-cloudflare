@@ -57,6 +57,38 @@ test('mentor rejects conflicting duplicate paths instead of dropping the second 
   });
 });
 
+test('mentor applies one unique edit onto the inspected file instead of requiring the whole file', async () => {
+  const source = 'export function read() {\n  return "old";\n}\n';
+  const engine = new MentorEngine({
+    providerFactory: async () => [provider('editor', {
+      summary: 'Remplace la valeur lue.',
+      edits: [{ path: 'src/example.js', find: 'return "old";', replace: 'return "new";' }],
+      tests: ['test:smoke'],
+      confidence: 0.8,
+    })],
+  });
+  const result = await engine.propose({
+    env: {},
+    goal: 'Changer la valeur lue',
+    inspectedFiles: [{ path: 'src/example.js', content: source }],
+  });
+  assert.equal(result.proposal.changes.length, 1);
+  assert.equal(result.proposal.changes[0].content, 'export function read() {\n  return "new";\n}\n');
+});
+
+test('mentor rejects an edit that is not unique in the inspected file', async () => {
+  const engine = new MentorEngine({
+    providerFactory: async () => [provider('editor', {
+      edits: [{ path: 'src/example.js', find: 'same', replace: 'other' }],
+    })],
+  });
+  await assert.rejects(() => engine.propose({
+    env: {},
+    goal: 'Ne pas appliquer un extrait ambigu',
+    inspectedFiles: [{ path: 'src/example.js', content: 'same\nsame\n' }],
+  }), error => error.code === 'MENTOR_NO_VALID_CODE_PROPOSAL' && error.failures[0].error === 'MENTOR_INVALID_CHANGE');
+});
+
 test('mentor engine selects a valid multi-provider code proposal and stores it as an unvalidated observation', async () => {
   const DB = sqliteD1();
   try {

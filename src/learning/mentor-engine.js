@@ -158,15 +158,50 @@ function normalizeInspectedFiles(files = []) {
   return out;
 }
 
-function normalizeProposal(value, provenance = {}) {
+function applyInspectedEdits(edits, inspectedFiles) {
+  if (!Array.isArray(edits) || !edits.length) return [];
+  if (edits.length > MAX_CHANGES) throw Object.assign(new Error('MENTOR_INVALID_CHANGE:change-limit'), { code: 'MENTOR_INVALID_CHANGE' });
+  const byPath = new Map((Array.isArray(inspectedFiles) ? inspectedFiles : []).map(file => [file.path, String(file.content || '')]));
+  const touched = [];
+  for (const edit of edits) {
+    const path = safePath(edit?.path);
+    if (!byPath.has(path)) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
+    const find = String(edit?.find ?? '');
+    const replace = String(edit?.replace ?? '');
+    if (!find || find.length > 8000 || replace.length > MAX_CHANGE_CHARS) {
+      throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
+    }
+    const source = byPath.get(path);
+    const at = source.indexOf(find);
+    if (at < 0 || source.indexOf(find, at + find.length) >= 0) {
+      throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
+    }
+    const content = source.slice(0, at) + replace + source.slice(at + find.length);
+    if (!content || content.length > MAX_CHANGE_CHARS || incompleteFile(content)) {
+      throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
+    }
+    byPath.set(path, content);
+    if (!touched.includes(path)) touched.push(path);
+  }
+  return touched.map(path => ({
+    path,
+    content: byPath.get(path),
+    reason: 'Modification appliquée sur le fichier inspecté',
+  }));
+}
+function normalizeProposal(value, provenance = {}, inspectedFiles = []) {
   const parsed = parseJsonCandidate(value);
   const rawChanges = Array.isArray(parsed.changes)
     ? parsed.changes
     : (parsed.path && parsed.content != null ? [parsed] : []);
-  if (!rawChanges.length) throw Object.assign(new Error('MENTOR_CHANGES_REQUIRED'), { code: 'MENTOR_CHANGES_REQUIRED' });
+  let changes;
+  if (!rawChanges.length) {
+    changes = applyInspectedEdits(parsed.edits, inspectedFiles);
+    if (!changes.length) throw Object.assign(new Error('MENTOR_CHANGES_REQUIRED'), { code: 'MENTOR_CHANGES_REQUIRED' });
+  } else {
   if (rawChanges.length > MAX_CHANGES) throw Object.assign(new Error('MENTOR_INVALID_CHANGE:change-limit'), { code: 'MENTOR_INVALID_CHANGE' });
   const seen = new Set();
-  const changes = [];
+  changes = [];
   for (const raw of rawChanges) {
     const path = safePath(raw?.path);
     if (seen.has(path)) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
@@ -176,6 +211,7 @@ function normalizeProposal(value, provenance = {}) {
     changes.push({ path, content, reason: bounded(raw?.reason || '', 1200) });
   }
   if (!changes.length) throw Object.assign(new Error('MENTOR_CHANGES_REQUIRED'), { code: 'MENTOR_CHANGES_REQUIRED' });
+  }
   const tests = [...new Set((Array.isArray(parsed.tests) ? parsed.tests : []).map(String).filter(name => ALLOWED_TESTS.has(name)))].slice(0, 4);
   if (!tests.length) tests.push('test:smoke');
   const confidence = Math.max(0, Math.min(1, Number(parsed.confidence) || 0.5));
@@ -210,7 +246,8 @@ function buildRepairPrompt({ goal, files, raw, failure, mode }) {
     '<<<MEL_FILE',
     'contenu complet du fichier',
     'MEL_FILE',
-    'Structure obligatoire:',
+    'Structure obligatoire, soit le JSON complet, soit edits pour un fichier inspecté long:',
+    '{"summary":"...","edits":[{"path":"src/...","find":"EXTRAIT EXACT UNIQUE","replace":"..."}],"tests":["test:smoke"],"confidence":0.0,"lessons":["..."],"risks":["..."]}',
     '{"summary":"...","changes":[{"path":"src/...","content":"CONTENU COMPLET DU FICHIER","reason":"..."}],"tests":["test:smoke"],"confidence":0.0,"lessons":["..."],"risks":["..."]}',
     'changes doit contenir au moins un fichier texte sûr déjà inspecté ou un fichier nouveau strictement nécessaire dans les chemins autorisés.',
     'Chaque change.content doit être le CONTENU COMPLET final du fichier. Aucun diff, aucun placeholder, aucune ellipse.',
@@ -233,6 +270,7 @@ function buildPrompt({ role, goal, files, lessons, experiences, previousAttempts
     `MODE: ${mode === 'repair' ? 'RÉPARATION APRÈS TEST' : 'IMPLÉMENTATION'}.`,
     'Règle absolue: un objet JSON valide, ou un fichier complet délimité. Pas de prose autour.',
     'JSON: {"summary":"...","changes":[{"path":"src/...","content":"CONTENU COMPLET DU FICHIER","reason":"..."}],"tests":["test:smoke"],"confidence":0.0,"lessons":["..."],"risks":["..."]}',
+    'Pour un fichier inspecté déjà long, n’envoie pas le fichier entier. Envoie plutôt edits: [{"path":"src/...","find":"EXTRAIT EXACT PRÉSENT UNE SEULE FOIS","replace":"REMPLACEMENT"}].',
     'Si le fichier est long, utilise plutôt:',
     'SUMMARY une phrase',
     'TESTS test:smoke',
@@ -332,7 +370,7 @@ export class MentorEngine {
       }
       const raw = result.value?.text ?? result.value;
       try {
-        const proposal = normalizeProposal(raw, result.value?.provenance || { provider: provider.providerId, model: provider.modelId });
+        const proposal = normalizeProposal(raw, result.value?.provenance || { provider: provider.providerId, model: provider.modelId }, files);
         proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: false });
       } catch (error) {
         const failure = mentorFailureCode(error, 'MENTOR_PROPOSAL_INVALID');
@@ -373,6 +411,7 @@ export class MentorEngine {
           const proposal = normalizeProposal(
             result.value?.text ?? result.value,
             result.value?.provenance || { provider: provider.providerId, model: provider.modelId },
+            files,
           );
           proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: true });
           repairValidProposals += 1;
