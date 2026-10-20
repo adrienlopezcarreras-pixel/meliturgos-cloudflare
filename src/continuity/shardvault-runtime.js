@@ -1235,17 +1235,24 @@ export function deliverReconstructedArchive(verified, localBytes = null) {
   };
 }
 
-export async function getVerifiedShardVaultCodeArchive(env){
-  const verified=await verifyShardVaultCodeReconstruction(env,{includeArchive:true});
+export async function getVerifiedShardVaultCodeArchive(env,{dropIndexes=[],checkLocalCopy=true}={}){
+  const verified=await verifyShardVaultCodeReconstruction(env,{dropIndexes,includeArchive:true});
   if(verified?.ok!==true||verified?.status!=='CODE_RECONSTRUCTION_VERIFIED'){
     const {archive_bytes,...safe}=verified||{};
     return {ok:false,status:'CODE_ARCHIVE_EXTERNAL_RECONSTRUCTION_REQUIRED',verification:safe};
   }
   const key=String(verified.archive_key||'').trim();
   let local=null;
-  if(key&&env?.MEDIA_BUCKET?.get){
-    const object=await env.MEDIA_BUCKET.get(key);
-    if(object)local=new Uint8Array(await object.arrayBuffer());
+  let localCopyStatus=checkLocalCopy===false?'SKIPPED':'MISSING';
+  if(checkLocalCopy!==false&&key&&env?.MEDIA_BUCKET?.get){
+    try{
+      const object=await env.MEDIA_BUCKET.get(key);
+      if(object)local=new Uint8Array(await object.arrayBuffer());
+    }catch{
+      // The reconstructed, authenticated bytes are the source. An unavailable
+      // optional control copy must not make their delivery depend on R2.
+      localCopyStatus='UNAVAILABLE';
+    }
   }
   const delivered=deliverReconstructedArchive(verified,local);
   if(delivered.ok!==true){
@@ -1265,6 +1272,7 @@ export async function getVerifiedShardVaultCodeArchive(env){
     external_reconstruction_verified:true,
     independent_of_local_archive:true,
     local_copy_checked:delivered.local_copy_checked===true,
+    local_copy_status:delivered.local_copy_checked===true?'VERIFIED':localCopyStatus,
     held_on:'external-shards-and-companion-pc',
     verification:safe,
   };

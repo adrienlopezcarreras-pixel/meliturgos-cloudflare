@@ -56,18 +56,20 @@ function validateUrl(urlString) {
   }
 }
 
-async function fetchValidatedRedirectChain(initialUrl, { fetchImpl, timeoutMs, maxRedirects = 4 } = {}) {
+async function fetchValidatedRedirectChain(initialUrl, { fetchImpl, timeoutMs, maxRedirects = 4, httpsOnly = false,
+  accept = 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.2' } = {}) {
   let current = initialUrl;
   const redirectChain = [];
   for (let hop = 0; hop <= maxRedirects; hop += 1) {
     const validation = validateUrl(current);
     if (!validation.valid) throw new Error(`Invalid URL: ${validation.error}`);
+    if (httpsOnly && validation.url.protocol !== 'https:') throw new Error('WEB_IMAGE_HTTPS_REQUIRED');
     redirectChain.push(validation.url.href);
     const response = await fetchImpl(validation.url.href, {
       method: 'GET',
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; MELITURGOS/1.0)',
-        Accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.2',
+        Accept: accept,
         'Accept-Language': 'fr,en-US;q=0.7,en;q=0.3',
         'Cache-Control': 'no-cache',
       },
@@ -149,4 +151,4 @@ function extractUrls(html) {
   return Array.from(urls);
 }
 
-export { validateUrl, fetchWebContent, extractUrls };
+export { validateUrl, fetchWebContent, extractUrls, fetchValidatedRedirectChain };

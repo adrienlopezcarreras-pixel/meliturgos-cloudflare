@@ -1,5 +1,5 @@
 // deployment trigger: ShardVault dashboard
-import { getShardVaultStatus, searchAutonomousShardVaultRepositories, runShardVaultCycle, setPreferredShardVaultEndpoint, activateValidatedShardVaultEndpoint, syncShardVaultCodeExternally, verifyShardVaultCodeReconstruction, storeCriticalCodeBundle, bootstrapIsolatedShardVaultSnapshot } from '../continuity/shardvault-runtime.js';
+import { getShardVaultStatus, searchAutonomousShardVaultRepositories, runShardVaultCycle, setPreferredShardVaultEndpoint, activateValidatedShardVaultEndpoint, syncShardVaultCodeExternally, verifyShardVaultCodeReconstruction, getVerifiedShardVaultCodeArchive, storeCriticalCodeBundle, bootstrapIsolatedShardVaultSnapshot } from '../continuity/shardvault-runtime.js';
 
 function esc(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
@@ -251,7 +251,21 @@ export async function handleShardVaultStatus(request,env){
   }
   if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/code-reconstruct'){
     const body=await request.json().catch(()=>({}));
-    const result=await verifyShardVaultCodeReconstruction(env,{dropIndexes:Array.isArray(body?.simulate_missing)?body.simulate_missing:[]});
+    const dropIndexes=Array.isArray(body?.simulate_missing)?body.simulate_missing:[];
+    if(body?.download===true){
+      const result=await getVerifiedShardVaultCodeArchive(env,{dropIndexes,checkLocalCopy:false});
+      if(!result.ok)return Response.json(result,{status:409,headers:{'cache-control':'no-store'}});
+      return new Response(result.bytes,{headers:{
+        'content-type':'application/gzip','cache-control':'no-store','x-content-type-options':'nosniff',
+        'content-disposition':`attachment; filename="mel-${result.source_sha}.tar.gz"`,
+        'x-mel-source-sha':String(result.source_sha),
+        'x-mel-archive-sha256':String(result.sha256),
+        'x-mel-archive-source':'external-shards',
+        'x-mel-local-copy-checked':'0',
+        'x-mel-dropped-shards':(result.verification?.dropped_indexes||[]).join(','),
+      }});
+    }
+    const result=await verifyShardVaultCodeReconstruction(env,{dropIndexes});
     return Response.json(result,{status:result.ok?200:409,headers:{'cache-control':'no-store'}});
   }
   if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/preference'){

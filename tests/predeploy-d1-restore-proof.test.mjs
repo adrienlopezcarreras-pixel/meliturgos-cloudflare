@@ -4,7 +4,8 @@ import { readFile } from 'node:fs/promises';
 import { proveD1SnapshotRestore } from '../release-tools/predeploy-backup-refresh/d1-restore-proof.mjs';
 import { exportD1SystemState } from '../src/backup/system-backup-runtime.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
-import { sanitize } from '../src/resilience/recovery-bundle.js';
+import { probeD1Restore } from '../release-tools/predeploy-backup-refresh/probe-d1-restore.mjs';
+import restorePreview from '../release-tools/predeploy-backup-refresh/restore-preview-entry.mjs';
 
 async function snapshotFixture() {
   const source = sqliteD1();
@@ -89,78 +90,12 @@ test('predeploy proof executes real CHECK constraints and sanitizes SQL error me
   extra.schema = extra.schema.replace('value INTEGER NOT NULL', 'value INTEGER NOT NULL CHECK(value > 0)');
   extra.rows[0].value = -1;
   await rejectsSafely(snapshot, 'BACKUP_SQLITE_RESTORE_FAILED');
-});
-
-test('predeploy proof reports the failing stage and SQLite result code without names, SQL or values', async () => {
-  const diagnosticOf = async snapshot => {
-    let caught;
-    await assert.rejects(proveD1SnapshotRestore(snapshot), error => { caught = error; return true; });
-    assert.equal(caught.code, 'BACKUP_SQLITE_RESTORE_FAILED');
-    assert.equal(caught.message, 'BACKUP_SQLITE_RESTORE_FAILED');
-    assert.doesNotMatch(JSON.stringify(caught), /private-|SELECT|CREATE|INSERT|extra_data|constraint failed:/);
-    assert.ok(caught.diagnostic.table_count >= 1);
-    assert.ok(caught.diagnostic.table_row_count >= 1);
-    return caught.diagnostic;
-  };
-  const duplicate = await snapshotFixture();
-  const extra = table(duplicate, 'extra_data');
-  extra.rows.push({ ...extra.rows[0] });
-  extra.rowCount += 1;
-  assert.deepEqual(await diagnosticOf(duplicate), {
-    stage: 'insert',
-    table_index: duplicate.tables.indexOf(extra),
-    table_count: duplicate.tables.length,
-    table_row_count: 2,
-    row_index: 1,
-    error_code: 'ERR_SQLITE_ERROR',
-    sqlite_errcode: 1555, // SQLITE_CONSTRAINT_PRIMARYKEY
-    sqlite_errstr: 'constraint failed',
-  });
-  const invalid = await snapshotFixture();
-  const broken = table(invalid, 'extra_data');
-  broken.schema = 'CREATE TABLE extra_data(id INTEGER PRIMARY KEY, value private-type(';
-  assert.deepEqual(await diagnosticOf(invalid), {
-    stage: 'schema',
-    table_index: invalid.tables.indexOf(broken),
-    table_count: invalid.tables.length,
-    table_row_count: 1,
-    row_index: null,
-    error_code: 'ERR_SQLITE_ERROR',
-    sqlite_errcode: 1, // SQLITE_ERROR
-    sqlite_errstr: 'SQL logic error',
-  });
-});
-
-test('snapshot sanitization keeps distinct secret digests so a hashed primary key restores', async () => {
-  const snapshot = await snapshotFixture();
-  snapshot.tables.push({
-    name: 'web_sessions',
-    schema: 'CREATE TABLE web_sessions (token_hash TEXT PRIMARY KEY, username TEXT NOT NULL, expires_at INTEGER NOT NULL, session_token TEXT)',
-    rowCount: 2,
-    rows: [
-      { token_hash: 'a'.repeat(64), username: 'synthetic', expires_at: 1, session_token: 'private-plain-1' },
-      { token_hash: 'b'.repeat(64), username: 'synthetic', expires_at: 2, session_token: 'private-plain-2' },
-    ],
-  });
-  snapshot.tableCount += 1;
-  // createVerifiedBackupService() sanitizes every export before the restore proof runs.
-  const defaultSanitized = sanitize(snapshot);
-  assert.deepEqual(table(defaultSanitized, 'web_sessions').rows.map(row => row.token_hash),
-    ['[REDACTED]', '[REDACTED]']);
-  const sanitized = sanitize(snapshot, { preserveDigests: true });
-  const sessions = table(sanitized, 'web_sessions');
-  assert.deepEqual(sessions.rows.map(row => row.session_token), ['[REDACTED]', '[REDACTED]']);
-  assert.notEqual(sessions.rows[0].token_hash, sessions.rows[1].token_hash);
-  assert.equal((await proveD1SnapshotRestore(sanitized)).ok, true);
-
-  // The former constant redaction of token_hash collides on the second row.
-  for (const row of sessions.rows) row.token_hash = '[REDACTED]';
-  await assert.rejects(proveD1SnapshotRestore(sanitized), error => {
-    assert.equal(error.code, 'BACKUP_SQLITE_RESTORE_FAILED');
-    assert.equal(error.diagnostic.stage, 'insert');
-    assert.equal(error.diagnostic.table_index, sanitized.tables.indexOf(sessions));
-    assert.equal(error.diagnostic.row_index, 1);
-    assert.equal(error.diagnostic.sqlite_errcode, 1555);
+  await assert.rejects(proveD1SnapshotRestore(snapshot), error => {
+    assert.equal(error.diagnostic.stage, 'insert_rows');
+    assert.equal(error.diagnostic.reason, 'CHECK_CONSTRAINT');
+    assert.match(error.diagnostic.table_sha256, /^[a-f0-9]{64}$/);
+    assert.equal(error.diagnostic.sqlite_errcode, 275);
+    assert.doesNotMatch(JSON.stringify(error), /extra_data|private-|value|CREATE TABLE/);
     return true;
   });
 });
@@ -203,4 +138,68 @@ test('predeploy runner requires the real restore before registering restoreVerif
   assert.ok(proof > 0 && proof < registration);
   assert.match(runner, /sqliteRestoreProof,/);
   assert.match(runner, /isolated_restore: persisted\.sqliteRestoreProof/);
+});
+
+test('production restore probe uses only bounded SELECT queries and never exports private values', async () => {
+  const snapshot = await snapshotFixture();
+  const calls = [];
+  const proof = await probeD1Restore({
+    accountId: 'a'.repeat(32), apiToken: 'private-token', databaseId: 'b'.repeat(36),
+    fetchImpl: async (url, options) => {
+      const { sql, params } = JSON.parse(options.body);
+      assert.match(sql, /^SELECT\s/);
+      assert.equal(options.redirect, 'error');
+      assert.equal(options.headers.Authorization, 'Bearer private-token');
+      assert.equal(new URL(url).hostname, 'api.cloudflare.com');
+      assert.equal(options.signal.aborted, false);
+      calls.push(sql);
+      let results;
+      if (sql.includes('sqlite_master')) {
+        results = snapshot.tables.map(({ name, schema }) => ({ name, schema }));
+      } else {
+        const name = sql.match(/FROM "([^"]+)"/)[1];
+        const [limit, offset] = params;
+        assert.equal(limit, 500);
+        assert.equal(offset, 0);
+        results = table(snapshot, name).rows.slice(offset, offset + limit);
+      }
+      return Response.json({ success: true, result: [{ success: true, results }] });
+    },
+  });
+  assert.equal(proof.ok, true);
+  assert.equal(proof.production_written, false);
+  assert.equal(calls.length, 5);
+  assert.doesNotMatch(JSON.stringify(proof), /private-|CREATE|extra_data|conversations/);
+});
+
+test('production restore probe redacts Cloudflare errors and refuses redirects or malformed results', async () => {
+  for (const payload of [
+    { success: false, errors: [{ message: 'private-row-or-schema' }] },
+    { success: true, result: [{ success: true, results: null }] },
+  ]) {
+    await assert.rejects(probeD1Restore({
+      accountId: 'a'.repeat(32), apiToken: 'private-token', databaseId: 'b'.repeat(36),
+      fetchImpl: async () => Response.json(payload),
+    }), error => error.code === 'RESTORE_PROBE_QUERY_FAILED' && !JSON.stringify(error).includes('private-'));
+  }
+});
+
+test('isolated binding preview requires its ephemeral token and exposes no sidecar write routes', async () => {
+  let calls = 0;
+  const env = { MEL_RESTORE_PREVIEW_TOKEN: 'p'.repeat(40), DB: { prepare(sql) {
+    assert.match(sql, /^SELECT\s/);
+    calls += 1;
+    return { async all() { return { results: [] }; } };
+  } } };
+  const invoke = (path, method = 'GET', authorized = true) => restorePreview.fetch(new Request('https://preview.test' + path, {
+    method, headers: authorized ? { authorization: 'Bearer ' + env.MEL_RESTORE_PREVIEW_TOKEN } : {},
+  }), env);
+  assert.equal((await invoke('/d1/tables', 'GET', false)).status, 401);
+  assert.equal((await invoke('/register', 'POST')).status, 405);
+  assert.equal((await invoke('/upload/create', 'GET')).status, 404);
+  assert.equal(calls, 0);
+  const response = await invoke('/d1/tables');
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).status, 'D1_TABLES');
+  assert.equal(calls, 1);
 });

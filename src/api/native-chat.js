@@ -23,6 +23,7 @@ import { formatPersonalProfileRecall, retrieveContext, retrievePersonalProfileCo
 import { isMelWorkKickoff, startMelWorkKickoff } from '../work/mel-work-kickoff.js';
 import { isSubstantialMelTask, requiresOperationalMelWork, findMelWorkReference, launchSubstantialMelTask, getSubstantialMelStatus } from '../work/mel-general-kickoff.js';
 import { isMaxModeMention } from '../evolution/chat-intent.js';
+import { isWebImageRequest } from '../media/web-image.js';
 import { enqueueOwnerDevelopmentRequest } from '../evolution/owner-development-queue.js';
 import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse, formatVerifiedAutonomyActivityResponse, formatVerifiedDevBridgeStatusResponse, formatVerifiedAutonomyRuntimeResponse, MAX_MODE_EXPLANATION } from './response-grounding.js';
 import { buildResponseQualityInstruction, finalizeEvidenceAlignedResponse, inferResponseMode } from './response-quality.js';
@@ -1592,6 +1593,7 @@ export async function handleNativeChat(request, env, options = {}) {
         return explicitCodeRead?.id === 'code.read' ? explicitCodeRead : (melWorkReadiness ? { id: 'self.state', input: {} } : null);
       })()
     : (melWorkReadiness ? { id: 'self.state', input: {} } : null)
+      || (isWebImageRequest(activeTaskText) ? { id: 'web.research', input: { query: activeTaskText, image_search: true }, execution_intent: 'WEB_IMAGE_SEARCH' } : null)
       || inferExplicitRegisteredCapability(activeTaskText, runtime)
       || inferredExecutionCapability
       || inferredSelfActivityCapability
@@ -1732,6 +1734,27 @@ export async function handleNativeChat(request, env, options = {}) {
         };
       }
     }
+  }
+
+  if (!releaseSmoke && capability?.execution_intent === 'WEB_IMAGE_SEARCH') {
+    const result = toolResults.find(row => row.capability === 'web.research');
+    const image = result?.result;
+    const ok = result?.status === 'SUCCEEDED' && image?.image_validated === true && /^https:\/\//.test(image.image_url || '');
+    const responseText = ok
+      ? `Voici la photographie.\n\n![Photographie](${image.image_url})\n\n[Source](${image.source_url})`
+      : 'La recherche n’a pas fourni de photographie vérifiable : ' + String(result?.error || 'WEB_IMAGE_NOT_FOUND') + '.';
+    let archiveSaved = false;
+    if (service) {
+      try {
+        await service.archiveMessage({ conversationId, deviceId, role: 'user', content: text, timestamp: Date.now(), provenance: userProvenance, metadata: userMetadata });
+        await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: responseText, timestamp: Date.now()+1, provenance: 'native-chat:web-image', capabilitiesUsed });
+        archiveSaved = true;
+      } catch {}
+    }
+    return Response.json({ ok, text: responseText, code: ok ? null : String(result?.error || 'WEB_IMAGE_NOT_FOUND'),
+      model: 'verified-web-image', provider: 'mel', response_mode: 'web-image',
+      capability_used: capabilitiesUsed, tool_results: toolResults, archive_saved: archiveSaved },
+      { status: ok ? 200 : 502, headers: { 'cache-control': 'no-store' } });
   }
 
   // Native tool use: when no deterministic route chose a capability, the model

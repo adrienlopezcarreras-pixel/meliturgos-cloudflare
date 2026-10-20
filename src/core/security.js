@@ -89,6 +89,7 @@ const RELEASE_SMOKE_ALLOWLIST = Object.freeze(new Map([
     '/api/gen2/migration/gen1-backfill',
     '/api/gen2/migration/chatgpt-memory-backfill',
     '/api/gen2/shardvault/search',
+    '/api/gen2/shardvault/code-reconstruct',
     '/api/gen2/web/research',
     '/api/gen2/connections/google/test',
     '/api/gen2/connections/microsoft/test',
@@ -128,6 +129,9 @@ const PARALLEL_PROOF_ALLOWLIST = Object.freeze(new Map([
     '/api/chat',
     // Live chat self-test: calls the real chat in-process, returns metrics only.
     '/api/internal/chat-selftest',
+    // Read-only reconstruction/download from authenticated external fragments.
+    // Management, upload, pause and activation routes remain owner-only.
+    '/api/gen2/shardvault/code-reconstruct',
     '/api/gen2/capabilities/execute',
     // Read-only/diagnostic connector probes used by the exact-SHA
     // post-release proof. Configuration mutation routes such as /save are

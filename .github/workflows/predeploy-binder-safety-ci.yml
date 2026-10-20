@@ -1,6 +1,13 @@
 name: Predeploy binder safety CI
 
 on:
+  workflow_dispatch:
+  push:
+    branches: ['candidate/codex-restore-proof-diagnostic']
+    paths:
+      - 'release-tools/predeploy-backup-refresh/**'
+      - 'tests/predeploy-d1-restore-proof.test.mjs'
+      - '.github/workflows/predeploy-binder-safety-ci.yml'
   pull_request:
     branches: [main]
     paths:
@@ -9,6 +16,8 @@ on:
       - '.github/workflows/predeploy-binder-safety-ci.yml'
       - '.github/workflows/deploy-cloudflare-release.yml'
       - 'release-tools/predeploy-backup-binder/worker.js'
+      - 'release-tools/predeploy-backup-refresh/**'
+      - 'tests/predeploy-d1-restore-proof.test.mjs'
 
 permissions:
   contents: read
@@ -20,14 +29,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '22'
       - name: Verify exact tested SHA
         shell: bash
-        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
       - name: Verify binder tests syntax
         run: |
           node --check tests/predeploy-backup-sidecar-unique-name.test.mjs
@@ -35,3 +44,72 @@ jobs:
       - name: Verify fail-closed backup gates and Cloudflare 1042 propagation
         run: |
           node --test tests/predeploy-backup-sidecar-unique-name.test.mjs tests/predeploy-backup-binder.test.mjs
+      - name: Verify isolated restore and safe diagnostics
+        run: node --test tests/predeploy-d1-restore-proof.test.mjs
+
+  production-readonly-restore:
+    if: github.event_name != 'pull_request' && github.actor == 'adrienlopezcarreras-pixel'
+    needs: predeploy-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: production-readonly-restore
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Restore a SELECT-only production export in disposable SQLite
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node release-tools/predeploy-backup-refresh/probe-d1-restore.mjs
+      - name: Install exact preview tooling
+        run: npm ci
+      - name: Compare the real D1 binding transport in an isolated read-only preview
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PREVIEW_NAME="mel-restore-readonly-preview-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          export PREVIEW_NAME
+          PREVIEW_CONFIG="${RUNNER_TEMP}/restore-readonly-preview.json"
+          export PREVIEW_CONFIG
+          TOKEN="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
+          echo "::add-mask::${TOKEN}"
+          export MEL_RESTORE_PREVIEW_TOKEN="$TOKEN"
+          node --input-type=module - <<'NODE'
+          import {readFileSync, writeFileSync} from 'node:fs';
+          import {resolve} from 'node:path';
+          const original=JSON.parse(readFileSync('release-tools/predeploy-backup-refresh/wrangler.jsonc','utf8'));
+          writeFileSync(process.env.PREVIEW_CONFIG,JSON.stringify({
+            name:process.env.PREVIEW_NAME,
+            main:resolve('release-tools/predeploy-backup-refresh/restore-preview-entry.mjs'),
+            compatibility_date:original.compatibility_date,
+            workers_dev:true,d1_databases:original.d1_databases,
+            vars:{MEL_RESTORE_PREVIEW_TOKEN:process.env.MEL_RESTORE_PREVIEW_TOKEN},
+          }));
+          NODE
+          cleanup() {
+            ./node_modules/.bin/wrangler delete --config "$PREVIEW_CONFIG" --force >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          ./node_modules/.bin/wrangler deploy --config "$PREVIEW_CONFIG" > "${RUNNER_TEMP}/restore-preview-deploy.log" 2>&1 || {
+            echo 'RESTORE_PROBE_PREVIEW_DEPLOY_FAILED'; exit 1;
+          }
+          PREVIEW_URL="$(grep -Eo 'https://[^[:space:]]+\.workers\.dev' "${RUNNER_TEMP}/restore-preview-deploy.log" | tail -1)"
+          test -n "$PREVIEW_URL"
+          READY=0
+          for ATTEMPT in $(seq 1 12); do
+            if curl -fsS --max-time 10 -H "authorization: Bearer ${TOKEN}" "${PREVIEW_URL}/health" >/dev/null; then READY=1; break; fi
+            sleep 2
+          done
+          test "$READY" = 1
+          MEL_RESTORE_READONLY_PREVIEW_URL="$PREVIEW_URL" node release-tools/predeploy-backup-refresh/probe-d1-restore.mjs

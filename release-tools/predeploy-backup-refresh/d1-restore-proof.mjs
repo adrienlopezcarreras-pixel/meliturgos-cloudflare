@@ -6,7 +6,6 @@ import { exportD1 } from './d1-export.mjs';
 
 const quote = value => '"' + String(value).replaceAll('"', '""') + '"';
 const fail = code => { throw Object.assign(new Error(code), { code }); };
-const SAFE_CODE = /^[A-Z][A-Z0-9_]{1,63}$/;
 const digest = value => createHash('sha256').update(value).digest('hex');
 
 function exportDigest(value) {
@@ -29,22 +28,6 @@ function binding(value) {
   fail('BACKUP_SQLITE_VALUE_UNSUPPORTED');
 }
 
-// Only fixed vocabularies leave this module: never SQLite messages, SQL, names or values.
-function safeDiagnostic(error, stage, tableIndex, tableCount, tableRowCount, rowIndex) {
-  const prefix = /^([A-Z][A-Z0-9_]{1,63})(?::|$)/.exec(String(error?.message || ''))?.[1] || null;
-  return {
-    stage,
-    table_index: Number.isInteger(tableIndex) ? tableIndex : null,
-    table_count: Number.isSafeInteger(tableCount) && tableCount >= 0 ? tableCount : null,
-    table_row_count: Number.isSafeInteger(tableRowCount) && tableRowCount >= 0 ? tableRowCount : null,
-    row_index: Number.isInteger(rowIndex) && rowIndex >= 0 ? rowIndex : null,
-    error_code: SAFE_CODE.test(error?.code || '') ? error.code : prefix,
-    sqlite_errcode: Number.isInteger(error?.errcode) ? error.errcode : null,
-    // sqlite3_errstr() is the generic text for the result code, e.g. "constraint failed".
-    sqlite_errstr: /^[a-z ]{1,80}$/i.test(error?.errstr || '') ? error.errstr : null,
-  };
-}
-
 function exportRow(row) {
   return Object.fromEntries(Object.entries(row).map(([key, value]) => [
     key, value instanceof Uint8Array ? Array.from(value) : value,
@@ -59,43 +42,34 @@ export async function proveD1SnapshotRestore(database) {
   // statement, so a second statement can never attach/read/write another file.
   const sqlite = new DatabaseSync(':memory:', { allowExtension: false });
   let stage = 'begin';
-  let tableIndex = null;
-  let tableRowCount = null;
-  let rowIndex = null;
+  let tableHash = null;
   try {
     sqlite.exec('PRAGMA foreign_keys=OFF; BEGIN');
-    stage = 'schema';
-    for (const [index, table] of database.tables.entries()) {
-      tableIndex = index;
-      tableRowCount = Array.isArray(table.rows) ? table.rows.length : null;
-      rowIndex = null;
+    for (const table of database.tables) {
+      stage = 'create_table';
+      tableHash = digest(String(table.name));
       if (!/^\s*CREATE\s+TABLE\b/i.test(table.schema || '')
           || !table.name || String(table.name).startsWith('sqlite_') || String(table.name).startsWith('_cf_')) {
         fail('BACKUP_SQLITE_SCHEMA_UNSUPPORTED');
       }
       sqlite.prepare(table.schema).run();
     }
-    stage = 'insert';
-    for (const [index, table] of database.tables.entries()) {
-      tableIndex = index;
-      tableRowCount = Array.isArray(table.rows) ? table.rows.length : null;
-      rowIndex = null;
+    for (const table of database.tables) {
+      stage = 'insert_rows';
+      tableHash = digest(String(table.name));
       const info = sqlite.prepare(`PRAGMA table_xinfo(${quote(table.name)})`).all();
       if (!info.length) fail('BACKUP_SQLITE_TABLE_MISSING');
       const writable = info.filter(column => column.hidden === 0).map(column => column.name);
       const columns = info.map(column => column.name);
       const statement = sqlite.prepare(`INSERT INTO ${quote(table.name)} (${writable.map(quote).join(',')}) VALUES (${writable.map(() => '?').join(',')})`);
-      for (const [index, row] of table.rows.entries()) {
-        rowIndex = index;
+      for (const row of table.rows) {
         if (!row || Object.keys(row).length !== columns.length
             || columns.some(column => !Object.hasOwn(row, column))) fail('BACKUP_SQLITE_ROW_COLUMNS_MISMATCH');
         statement.run(...writable.map(column => binding(row[column])));
       }
     }
-    tableIndex = null;
-    tableRowCount = null;
-    rowIndex = null;
     stage = 'commit';
+    tableHash = null;
     sqlite.exec('COMMIT; PRAGMA foreign_keys=ON');
     stage = 'foreign_key_check';
     if (sqlite.prepare('PRAGMA foreign_key_check').all().length) fail('BACKUP_SQLITE_FOREIGN_KEY_MISMATCH');
@@ -103,8 +77,8 @@ export async function proveD1SnapshotRestore(database) {
     const integrity = sqlite.prepare('PRAGMA integrity_check').all();
     if (integrity.length !== 1 || Object.values(integrity[0])[0] !== 'ok') fail('BACKUP_SQLITE_INTEGRITY_FAILED');
 
-    stage = 'export';
     // Reuse the exact bounded exporter used for the production snapshot.
+    stage = 'reexport';
     const restored = await exportD1(null, async (_sidecar, path) => {
       if (path === '/d1/tables') return {
         status: 'D1_TABLES',
@@ -138,7 +112,23 @@ export async function proveD1SnapshotRestore(database) {
   } catch (error) {
     // SQLite errors can include schema identifiers or private row contents.
     const code = /^BACKUP_SQLITE_[A-Z_]+$/.test(error?.code || '') ? error.code : 'BACKUP_SQLITE_RESTORE_FAILED';
-    throw Object.assign(new Error(code), { code, diagnostic: safeDiagnostic(error, stage, tableIndex, database.tables.length, tableRowCount, rowIndex) });
+    const reasons = [
+      [/no such column/i, 'UNKNOWN_COLUMN'],
+      [/no such function/i, 'UNKNOWN_FUNCTION'],
+      [/no such collation/i, 'UNKNOWN_COLLATION'],
+      [/syntax error/i, 'SQL_SYNTAX'],
+      [/UNIQUE constraint failed/i, 'UNIQUE_CONSTRAINT'],
+      [/CHECK constraint failed/i, 'CHECK_CONSTRAINT'],
+      [/NOT NULL constraint failed/i, 'NOT_NULL_CONSTRAINT'],
+      [/FOREIGN KEY constraint failed|foreign key mismatch/i, 'FOREIGN_KEY_CONSTRAINT'],
+      [/already exists/i, 'SCHEMA_COLLISION'],
+    ];
+    const reason = reasons.find(([pattern]) => pattern.test(String(error?.message || '')))?.[1] || 'UNCLASSIFIED';
+    const diagnostic = {
+      stage, reason, table_sha256: tableHash,
+      sqlite_errcode: Number.isSafeInteger(error?.errcode) ? error.errcode : null,
+    };
+    throw Object.assign(new Error(code), { code, diagnostic });
   } finally {
     sqlite.close();
   }

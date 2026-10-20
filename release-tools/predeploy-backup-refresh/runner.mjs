@@ -420,7 +420,7 @@ try {
     ok: false,
     status: 'PREDEPLOY_BACKUP_REFRESH_FAILED',
     code: String(error?.code || error?.message || error).slice(0, 500),
-    ...(error?.diagnostic ? { diagnostic: error.diagnostic } : {}),
+    ...(error?.diagnostic ? { restore_diagnostic: error.diagnostic } : {}),
   }));
   process.exitCode = 1;
 }

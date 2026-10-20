@@ -78,7 +78,9 @@ test('rich renderer shows an image, a sound, a video and a page, and keeps raw H
   assert.equal(dom.window.pwned, undefined);
   const images = [...host.querySelectorAll('img')];
   assert.equal(images.length, 1);
-  assert.equal(images[0].src, 'https://example.com/pape.jpg');
+  assert.equal(new URL(images[0].src).origin, 'https://mel.example');
+  assert.equal(new URL(images[0].src).pathname, '/api/media/web-image');
+  assert.equal(new URL(images[0].src).searchParams.get('url'), 'https://example.com/pape.jpg');
   assert.equal(images[0].alt, 'Le Vatican');
   assert.equal(host.querySelector('audio')?.src, 'https://example.com/note.mp3');
   assert.equal(host.querySelector('video')?.src, 'https://example.com/clip.mp4');
