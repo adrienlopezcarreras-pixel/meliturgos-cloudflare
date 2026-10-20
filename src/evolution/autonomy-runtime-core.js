@@ -508,35 +508,33 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     evolutionLoader,
   });
   let reopenedUnansweredRepair = false;
-  try {
-    const existing = await jobRepository.list();
-    const epoch = Number(activityEpoch) || 0;
-    for (const candidate of Array.isArray(existing) ? existing : []) {
-      if (epoch && Number(candidate?.created_at || 0) < epoch) continue;
-      const by = String(candidate?.requested_by || '');
-      if (by !== 'mel-autonomy' && !by.startsWith('owner-chat')) continue;
-      const decision = unansweredExhaustedRepair(candidate);
-      if (!decision) continue;
-      const result = candidate.result_json && typeof candidate.result_json === 'object' ? { ...candidate.result_json } : {};
-      delete result.implementation_proposal;
-      delete result.bridge_package;
-      delete result.bridge_preparation;
-      result.autonomy_blocked = false;
-      delete result.autonomy_block_reason;
-      result.repair_cycle = {
-        ...(result.repair_cycle || {}),
-        status: 'REQUESTED',
-        source: 'UNANSWERED_FAILURE',
-        presented_signatures: decision.nextPresented,
-        attempts: Number(result.repair_cycle?.attempts || 0),
-        max_attempts: MAX_OWNER_MAX_REPAIR_ATTEMPTS,
-        reopened_at: new Date().toISOString(),
-      };
-      await jobRepository.update(candidate.id, { status: 'TEACHER_APPROVED', error: null, result_json: result });
-      reopenedUnansweredRepair = true;
-      break;
-    }
-  } catch { /* listing failures stay inside the normal tick path */ }
+  const existing = await jobRepository.list();
+  const epoch = Number(activityEpoch) || 0;
+  for (const candidate of Array.isArray(existing) ? existing : []) {
+    if (epoch && Number(candidate?.created_at || 0) < epoch) continue;
+    const by = String(candidate?.requested_by || '');
+    if (by !== 'mel-autonomy' && !by.startsWith('owner-chat')) continue;
+    const decision = unansweredExhaustedRepair(candidate);
+    if (!decision) continue;
+    const result = candidate.result_json && typeof candidate.result_json === 'object' ? { ...candidate.result_json } : {};
+    delete result.implementation_proposal;
+    delete result.bridge_package;
+    delete result.bridge_preparation;
+    result.autonomy_blocked = false;
+    delete result.autonomy_block_reason;
+    result.repair_cycle = {
+      ...(result.repair_cycle || {}),
+      status: 'REQUESTED',
+      source: 'UNANSWERED_FAILURE',
+      presented_signatures: decision.nextPresented,
+      attempts: Number(result.repair_cycle?.attempts || 0),
+      max_attempts: MAX_OWNER_MAX_REPAIR_ATTEMPTS,
+      reopened_at: new Date().toISOString(),
+    };
+    await jobRepository.update(candidate.id, { status: 'TEACHER_APPROVED', error: null, result_json: result });
+    reopenedUnansweredRepair = true;
+    break;
+  }
   const stateBefore = await supervisor.state();
   const ensured = await supervisor.ensureNextJob();
   let job = ensured.job;
