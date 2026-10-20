@@ -89,6 +89,35 @@ function codeReader(env, fetchImpl, bridge) {
   };
 }
 
+const GOAL_TERMS = [
+  ['gmail', 'gmail'],
+  ['calendar', 'calendar'],
+  ['agenda', 'calendar'],
+  ['drive', 'drive'],
+  ['council', 'council'],
+  ['oauth', 'oauth'],
+];
+
+export function inspectionGoalTerms(job) {
+  const text = String(job?.goal || '').toLowerCase();
+  const terms = [];
+  for (const [needle, term] of GOAL_TERMS) {
+    if (text.includes(needle) && !terms.includes(term)) terms.push(term);
+  }
+  return terms.slice(0, 3);
+}
+
+function leadingMatchPaths(search, limit = 2) {
+  const out = [];
+  for (const match of Array.isArray(search?.matches) ? search.matches : []) {
+    const path = String(match?.path || '').trim();
+    if (!path || out.includes(path)) continue;
+    out.push(path);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 function uniquePaths(values) {
   const out = [];
   for (const value of values) {
@@ -187,7 +216,14 @@ async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) 
     'src/teachers/runtime-teacher-bridge.js',
     'src/roadmap/master-roadmap.js',
   ];
-  const paths = uniquePaths([...fromSearch, ...fromInspection, ...fallbacks]);
+  const goalPaths = [];
+  for (const term of inspectionGoalTerms(job)) {
+    try {
+      const extra = await reader.search({ query: term });
+      goalPaths.push(...leadingMatchPaths(extra));
+    } catch {}
+  }
+  const paths = uniquePaths([...goalPaths, ...fromSearch, ...fromInspection, ...fallbacks]);
   const files = [];
   for (const path of paths) {
     try {
@@ -207,7 +243,7 @@ async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) 
   return { ...config, candidate_sha: headAfter.sha, files, reuse_search: reuseSearch };
 }
 
-async function reusableProposal(env, existing, bridge, { fetchImpl = fetch } = {}) {
+async function reusableProposal(env, existing, bridge, { fetchImpl = fetch, job = null } = {}) {
   if (existing?.status !== 'READY') return null;
   if (!existing?.teacher_request_id || existing.teacher_request_id !== bridge.request.request_id) return null;
   if (!SHA40.test(String(existing?.candidate_sha || ''))) return null;
@@ -218,6 +254,9 @@ async function reusableProposal(env, existing, bridge, { fetchImpl = fetch } = {
   if (String(existing.candidate_branch || '') !== config.branch) return null;
   if (String(existing?.consolidation?.canonical_branch || '') !== config.branch) return null;
   if (!hasDistinctProviderAttempts(existing.providers_attempted)) return null;
+  const requiredTerms = inspectionGoalTerms(job);
+  const coveredTerms = Array.isArray(existing?.inspection?.goal_terms) ? existing.inspection.goal_terms : [];
+  if (requiredTerms.some((term) => !coveredTerms.includes(term))) return null;
 
   const head = await readApprovedHead(reader, bridge);
   if (String(existing.candidate_sha).toLowerCase() !== approvedSha) return null;
@@ -325,7 +364,7 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
   approvedCandidateSha(bridge);
   approvedCandidateBranch(bridge);
   const existing = current?.result_json?.implementation_proposal;
-  const reusable = await reusableProposal(env, existing, bridge, { fetchImpl });
+  const reusable = await reusableProposal(env, existing, bridge, { fetchImpl, job: current });
   if (reusable) return reusable;
 
   const code = await collectCodeContext(env, current, bridge, { fetchImpl });
@@ -429,6 +468,7 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
     candidate_sha: code.candidate_sha,
     roadmap_id: current.optional_context?.roadmap_id || null,
     inspected_files: code.files.map((file) => ({ path: file.path, sha: file.sha || '' })),
+    inspection: { goal_terms: inspectionGoalTerms(current) },
     providers_attempted: allProvidersAttempted.slice(0, 8),
     consolidation: {
       policy: 'SINGLE_CANONICAL_CANDIDATE',

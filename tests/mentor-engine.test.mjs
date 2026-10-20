@@ -278,6 +278,21 @@ test('mentor refuses a full rewrite of a long inspected file and a repeated miss
   }), error => error.code === 'MENTOR_NO_VALID_CODE_PROPOSAL' && error.failures[0].error === 'MENTOR_REPEATED_BROKEN_IMPORT');
 });
 
+test('mentor cannot invent a file that was not inspected', async () => {
+  const engine = new MentorEngine({
+    providerFactory: async () => [provider('inventor', {
+      summary: 'Crée un module google.',
+      changes: [{ path: 'src/evolution/google-tools.js', content: "import { google } from 'googleapis';\nexport const ready = true;\n", reason: 'nouveau' }],
+      tests: ['test:smoke'],
+    })],
+  });
+  await assert.rejects(() => engine.propose({
+    env: {},
+    goal: 'Prouver une lecture Gmail',
+    inspectedFiles: [{ path: 'src/connectors/gmail.js', content: 'export function list() { return []; }\n' }],
+  }), error => error.code === 'MENTOR_NO_VALID_CODE_PROPOSAL' && error.failures[0].error === 'MENTOR_UNINSPECTED_PATH');
+});
+
 test('mentor still refuses writing to inspection-only repository paths', async () => {
   const engine = new MentorEngine({
     providerFactory: async () => [provider('coder-bad-write', {
