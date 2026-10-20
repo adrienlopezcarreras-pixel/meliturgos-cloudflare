@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
-import { prepareApprovedImplementationProposal } from '../src/evolution/autonomy-implementation-planner.js';
+import { prepareApprovedImplementationProposal, inspectionGoalTerms } from '../src/evolution/autonomy-implementation-planner.js';
 
 const HEAD_SHA = '1111111111111111111111111111111111111111';
 const NEW_HEAD_SHA = '2222222222222222222222222222222222222222';
@@ -172,6 +172,36 @@ test('legacy READY proposal without consolidation metadata is regenerated instea
   assert.equal(refreshed.candidate_sha, HEAD_SHA);
   assert.equal(refreshed.consolidation.policy, 'SINGLE_CANONICAL_CANDIDATE');
   assert.ok(f.aiCalls.length >= 2);
+});
+
+test('a Gmail goal is replanned when the stored inspection never covered that capability', async () => {
+  const f = fixture();
+  const job = await approvedJob(f.repository);
+  await f.repository.update(job.id, { goal: '[MEL-FOUNDER-01] Prouver une lecture Gmail, Agenda et Drive' });
+  const current = await f.repository.get(job.id);
+  await f.repository.update(job.id, {
+    result_json: {
+      ...current.result_json,
+      implementation_proposal: {
+        status: 'READY',
+        teacher_request_id: 'approved-request',
+        candidate_branch: 'candidate/augmentio-core',
+        candidate_sha: HEAD_SHA,
+        providers_attempted: ['workers-ai:a', 'workers-ai:b'],
+        consolidation: { policy: 'SINGLE_CANONICAL_CANDIDATE', canonical_branch: 'candidate/augmentio-core' },
+        inspection: { goal_terms: [] },
+        selected: { provider: 'workers-ai', model: 'old', text: 'FICHIERS: src/roadmap/master-roadmap.js' },
+      },
+    },
+  });
+  const refreshed = await prepareApprovedImplementationProposal({
+    env: f.env,
+    repository: f.repository,
+    job: await f.repository.get(job.id),
+    fetchImpl: f.fetchImpl,
+  });
+  assert.notEqual(refreshed.reused, true);
+  assert.deepEqual(refreshed.inspection.goal_terms, ['gmail', 'calendar', 'drive']);
 });
 
 test('planner continues from the exact Teacher-approved SHA when branch head APIs are temporarily unavailable', async () => {

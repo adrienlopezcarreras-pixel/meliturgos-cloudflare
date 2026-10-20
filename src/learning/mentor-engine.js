@@ -232,6 +232,13 @@ function normalizeProposal(value, provenance = {}, inspectedFiles = [], previous
     const path = safePath(raw?.path);
     if (seen.has(path)) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
     const content = String(raw?.content ?? '');
+    const known = new Set((Array.isArray(inspectedFiles) ? inspectedFiles : []).map((file) => file.path));
+    if (!known.has(path)) {
+      const invented = [...content.matchAll(/(?:from\s+|import\s*\()['"]([^'"]+)['"]|require\(\s*['"]([^'"]+)['"]\s*\)/g)]
+        .map((match) => match[1] || match[2])
+        .filter((spec) => spec && !spec.startsWith('.') && !spec.startsWith('/') && !spec.startsWith('node:'));
+      if (invented.length) throw Object.assign(new Error(`MENTOR_UNINSPECTED_PATH:${path}`), { code: 'MENTOR_UNINSPECTED_PATH' });
+    }
     if (!content || content.length > MAX_CHANGE_CHARS || incompleteFile(content)) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
     seen.add(path);
     changes.push({ path, content, reason: bounded(raw?.reason || '', 1200) });
@@ -280,6 +287,7 @@ function buildRepairPrompt({ goal, files, raw, failure, mode }) {
     'Chaque change.content doit être le CONTENU COMPLET final du fichier. Aucun diff, aucun placeholder, aucune ellipse.',
     'Ne crée aucun secret, credential, token, .env, node_modules ou fichier hors dépôt.',
     'Un fichier inspecté de plus de 4000 caractères se modifie uniquement par edits. Un import déjà signalé comme introuvable ne doit pas revenir.',
+    'Ne propose pas un fichier qui n’a pas été inspecté. Modifie un fichier déjà lu.',
     'Ne prétends jamais qu’un test a réussi; propose seulement des tests autorisés.',
     'Reste strictement dans l’objectif et réutilise les composants existants avant toute création.',
     `OBJECTIF: ${bounded(goal, 12_000)}`,
@@ -299,6 +307,7 @@ function buildPrompt({ role, goal, files, lessons, experiences, previousAttempts
     'Règle absolue: un objet JSON valide, ou un fichier complet délimité. Pas de prose autour.',
     'JSON: {"summary":"...","changes":[{"path":"src/...","content":"CONTENU COMPLET DU FICHIER","reason":"..."}],"tests":["test:smoke"],"confidence":0.0,"lessons":["..."],"risks":["..."]}',
     'Pour un fichier inspecté déjà long, n’envoie pas le fichier entier. Envoie plutôt edits: [{"path":"src/...","find":"EXTRAIT EXACT PRÉSENT UNE SEULE FOIS","replace":"REMPLACEMENT"}].',
+    'Ne propose pas un fichier qui n’a pas été inspecté.',
     'Si le fichier est long, utilise plutôt:',
     'SUMMARY une phrase',
     'TESTS test:smoke',
