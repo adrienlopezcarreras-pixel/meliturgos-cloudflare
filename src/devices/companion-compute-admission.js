@@ -6,6 +6,24 @@ export const COMPANION_COMPUTE_PROFILES=Object.freeze({
  balanced:Object.freeze({cpu_percent:35,ram_mb:3072,gpu_percent:40,max_jobs:1}),
  performance:Object.freeze({cpu_percent:60,ram_mb:6144,gpu_percent:65,max_jobs:2})
 });
+const PROFILE_ORDER=['light','balanced','performance'];
+
+function profileFits(profile,freeRamMb){
+ const limits=COMPANION_COMPUTE_PROFILES[profile];
+ return !!limits&&Number.isFinite(freeRamMb)&&freeRamMb>=limits.ram_mb+1024;
+}
+
+// The saved profile is a ceiling. A machine with less free memory uses the
+// strongest profile that fits, instead of refusing the fallback outright.
+function strongestFittingProfile(requested,freeRamMb){
+ const start=PROFILE_ORDER.indexOf(requested);
+ if(start<0)return null;
+ for(let i=start;i>=0;i-=1){
+  if(profileFits(PROFILE_ORDER[i],freeRamMb))return PROFILE_ORDER[i];
+ }
+ return null;
+}
+
 export function evaluateOptionalCompute({enabled=false,profile='off',online=false,halted=false,
   onBattery=false,userBusy=false,freeRamMb=0,gpuAvailable=false,activeJobs=0}={}){
  const limits=COMPANION_COMPUTE_PROFILES[profile];
@@ -33,8 +51,18 @@ export function evaluateMeasuredOptionalCompute({telemetry,now=Date.now(),...req
     typeof gpu_available!=='boolean')
   return {allowed:false,reason:'COMPUTE_TELEMETRY_INVALID'};
  if(cpu_percent>=70)return {allowed:false,reason:'PC_CPU_BUSY'};
- return evaluateOptionalCompute({...request,onBattery:on_battery,userBusy:user_busy,
+ // Recent keyboard use is not a load. CPU, battery and free memory remain
+ // the refusals. Otherwise the fallback can never answer while the owner
+ // is the one asking.
+ const requested=['light','balanced','performance'].includes(request.profile)?request.profile:null;
+ let profile=request.profile;
+ if(requested){
+  profile=strongestFittingProfile(requested,free_ram_mb);
+  if(!profile)return {allowed:false,reason:'INSUFFICIENT_FREE_RAM',profile:requested,effective_profile:null};
+ }
+ const decision=evaluateOptionalCompute({...request,profile,onBattery:on_battery,userBusy:false,
    freeRamMb:free_ram_mb,gpuAvailable:gpu_available,activeJobs:active_jobs});
+ return {...decision,profile:requested||request.profile||'off',effective_profile:decision.allowed?profile:null};
 }
 
 /**
@@ -126,6 +154,7 @@ export function getOwnerCompanionComputeReadiness(device,{now=Date.now()}={}){
    allowed:decision.allowed===true,
    reason:decision.reason,
    profile:['light','balanced','performance'].includes(m.local_compute_profile)?m.local_compute_profile:'off',
+   effective_profile:decision.effective_profile||null,
    gpu_consent:m.local_compute_enabled===true&&m.local_compute_gpu_enabled===true,
    gpu_compute_proven:false, // Actual Ollama VRAM evidence is per completed request.
    telemetry_at:Number.isFinite(observedAt)&&observedAt>0?observedAt:null
