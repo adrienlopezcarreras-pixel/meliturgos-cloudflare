@@ -62,6 +62,8 @@ test('header buttons follow the real control state and never act during a releas
   assert.match(page, /'MAX en attente \(pause\)'/);
   assert.match(page, /max\.disabled=releasePause/);
   assert.match(page, /pause\.disabled=releasePause/);
+  assert.match(page, /NEW_RELEASE_AWAITING_OWNER_LAUNCH/);
+  assert.match(page, /!awaitingOwnerLaunch&&/);
   assert.match(page, /b\.disabled=autonomyControl\.paused===true/);
   assert.match(page, /setInterval\(\(\)=>\{if\(!document\.hidden\)loadAutonomy\(\)/);
 });
