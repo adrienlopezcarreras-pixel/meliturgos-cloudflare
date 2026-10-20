@@ -709,6 +709,8 @@ async function heartbeat(request,env,a){
   reconnecting:pcOnline&&now-supervisorAt>20000,
   offline:!pcOnline
  };
+ const engineVersion=safe(metadata.engine_version,80)||null;
+ const engineUpdateRequired=!versionAtLeast(engineVersion,CURRENT_COMPANION_ENGINE_VERSION);
  return json({
    ok:true,
    server_time:now,
@@ -717,11 +719,11 @@ async function heartbeat(request,env,a){
    local_compute_enabled:metadata.local_compute_enabled===true,
    local_compute_gpu_enabled:metadata.local_compute_gpu_enabled===true,
    local_compute_admission:{allowed:computeAdmission.allowed,reason:computeAdmission.reason},
-   engine_version:safe(metadata.engine_version,80)||null,
+   engine_version:engineVersion,
    engine_last_seen_at:engineDirectAt||null,
    supervisor_last_seen_at:supervisorAt||null,
    required_engine_version:MIN_SOVEREIGN_AI_ENGINE_VERSION,
-   engine_update_required:!versionAtLeast(safe(metadata.engine_version,80)||null,CURRENT_COMPANION_ENGINE_VERSION),
+   engine_update_required:engineUpdateRequired,
    engine_refresh_status:safe(metadata.engine_refresh_status,80)||null,
    engine_refresh_at:Number(metadata.engine_refresh_at||0)||null,
    engine_refresh_error:safe(metadata.engine_refresh_error,180)||null
