@@ -35,6 +35,8 @@ test('an exhausted job reopens only when its failure text was never presented', 
   };
   assert.equal(unansweredExhaustedRepair(job)?.action, 'REPAIR');
   job.result_json.repair_cycle.presented_signatures = [googleapis[0].error];
+  assert.equal(unansweredExhaustedRepair(job)?.gate, 'import-and-long-edit-v1');
+  job.result_json.repair_cycle.gate = 'import-and-long-edit-v1';
   assert.equal(unansweredExhaustedRepair(job), null);
 });
 
