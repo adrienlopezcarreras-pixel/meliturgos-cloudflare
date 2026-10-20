@@ -345,6 +345,7 @@ export class MentorEngine {
     const pool = createDefaultAugmentioPool(env);
     await pool.refreshHealth();
     const governor = new ZeroEuroGovernor({ maxCost: 0 });
+    // ChatGPT-GPT6 / MEL-MENTOR-FALLBACK: bounded model fallback (revert this PR to remove).
     // Bound the number of eligible models, but let the mentor fall back beyond
     // the first three when those providers fail or return invalid proposals.
     const cloud = pool.list({ capability: 'CODE' }).filter(provider => governor.allows(provider)).slice(0, 6);
