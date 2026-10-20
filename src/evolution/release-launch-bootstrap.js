@@ -916,7 +916,10 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   // A deployment may inherit RUNNING/MAX control state from the previous SHA.
   // Force the new release into PAUSED before any preparation. Only the normal
   // owner-authenticated Resume/MAX endpoint may approve and start this SHA.
-  const releaseControl = await setControl(env?.DB, {
+  // Sovereignty checks also run *after* the release in independent proof
+  // workflows. A read-only proof must never rewrite an owner handoff back to
+  // a pre-deploy pause. The main release has already called phase=pause.
+  const releaseControl = phase === 'sovereignty-proof' ? null : await setControl(env?.DB, {
     paused: true,
     max_autonomy: false,
     source: 'release-launch-bootstrap',
