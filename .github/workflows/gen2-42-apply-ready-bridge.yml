@@ -383,7 +383,7 @@ jobs:
             const tests=Array.isArray(current.tests)?[...current.tests]:[];
             tests.push({name:'candidate push',command:'git.push',passed:false,executed:false,error:'CANDIDATE_PUSH_NOT_FAST_FORWARD'});
             fs.writeFileSync('bridge-apply-result.json',JSON.stringify({...current,status:'REPAIR_REQUIRED',needs_repair:true,tests},null,2));
-            NODE
+          NODE
             echo "candidate_ready=false" >> "$GITHUB_OUTPUT"
             echo "candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
             echo "candidate_branch=$CANDIDATE_BRANCH" >> "$GITHUB_OUTPUT"
