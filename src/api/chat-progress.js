@@ -99,7 +99,9 @@ export async function withChatProgress(request, env, options, handler) {
       progress({ id: 'read', kind: 'step', label: 'Je lis ta demande et rassemble le contexte', status: 'running' });
       let readDone = false;
       const finishRead = () => { if (!readDone) { readDone = true; progress({ id: 'read', kind: 'step', label: 'Je lis ta demande et rassemble le contexte', status: 'done' }); } };
+      let heartbeatShown = false;
       const heartbeat = setInterval(() => {
+        heartbeatShown = true;
         progress({ id: 'heartbeat', kind: 'step', label: 'Je continue, un outil ou le modèle travaille encore', status: 'running' });
       }, CHAT_PROGRESS_HEARTBEAT_MS);
       try {
@@ -150,6 +152,7 @@ export async function withChatProgress(request, env, options, handler) {
         send({ type: 'error', code: String(error?.code || error?.message || 'CHAT_FAILED').slice(0, 120) });
       } finally {
         clearInterval(heartbeat);
+        if (heartbeatShown) progress({ id: 'heartbeat', kind: 'step', label: 'Cette réponse est terminée', status: 'done' });
         open = false;
         try { controller.close(); } catch {}
       }

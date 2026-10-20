@@ -608,22 +608,37 @@ function summarizeToolResult(result) {
   } catch { return { error: 'TOOL_RESULT_SERIALIZATION_FAILED' }; }
 }
 
-function withOfficialVisual(responseText, userText, toolResults) {
-  const policy = inferCurrentFactVerificationPolicy(userText);
-  if (!policy?.strict) return responseText;
+function asksForPicture(userText) {
   const asked = String(userText || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  if (!/\b(?:photo|image|portrait)\b/.test(asked.replace(/\bpapae\b/g, 'pape'))) return responseText;
+  return /\b(?:photo|image|portrait)\b/.test(asked.replace(/\bpapae\b/g, 'pape'));
+}
+
+function validatedPictureUrl(toolResults) {
   const evidence = (toolResults || []).find(row => row?.capability === 'web.research' && row?.status === 'SUCCEEDED');
   const sources = Array.isArray(evidence?.result?.sources) ? evidence.result.sources : [];
-  const image = sources.map(source => String(source?.image_url || '')).find(url => /^https:\/\//.test(url) && !/\.svg(?:$|\?)/i.test(url));
+  return sources.map(source => String(source?.image_url || '')).find(url => /^https:\/\//.test(url) && !/\.svg(?:$|\?)/i.test(url)) || '';
+}
+
+function claimsDeliveredPicture(text) {
+  return /\b(?:g[ée]n[ée]r\w*|voici la photo|voici l['’]image|appara[iî]tra ici|outil de g[ée]n[ée]ration)\b/i.test(String(text || ''));
+}
+
+function withOfficialVisual(responseText, userText, toolResults) {
+  if (!asksForPicture(userText)) return responseText;
+  const image = validatedPictureUrl(toolResults);
   let text = String(responseText || '').trim();
-  if (/\b(?:need to invoke|we need to|invoke the|invoquer l['’ ]?outil|web\.research tool)\b/i.test(text)) {
-    const title = String(sources.find(source => source?.title)?.title || '').replace(/\s+/g, ' ').trim().slice(0, 180);
-    text = title
-      ? `D’après la source consultée : ${title}.`
-      : 'La source a été consultée, mais le modèle n’a pas donné le fait.';
+  if (image) {
+    if (/\b(?:need to invoke|we need to|invoke the|invoquer l['’ ]?outil|web\.research tool)\b/i.test(text) || claimsDeliveredPicture(text)) {
+      const sources = (toolResults || []).find(row => row?.capability === 'web.research')?.result?.sources || [];
+      const title = String(sources.find(source => source?.title)?.title || '').replace(/\s+/g, ' ').trim().slice(0, 180);
+      text = title ? `Image trouvée. Source : ${title}.` : 'Image trouvée.';
+    }
+    if (!text.includes(image)) text = `${text}\n\n![Portrait](${image})`;
+    return text;
   }
-  if (image && !text.includes(image)) text = `${text}\n\n![Portrait](${image})`;
+  if (claimsDeliveredPicture(text)) {
+    return 'La photo n’a pas été obtenue. Aucune image affichable n’a été validée, et aucun fichier n’a été généré. Ce texte n’est pas une image.';
+  }
   return text;
 }
 
@@ -1716,6 +1731,18 @@ export async function handleNativeChat(request, env, options = {}) {
         }
       }
     }
+  } else if (capability?.id === 'autonomy.tick' && !releaseSmoke) {
+    const tickContext = nativeCapabilityContext(env, request, options);
+    if (typeof tickContext.waitUntil === 'function') {
+      tickContext.waitUntil(runtime.bus.execute('autonomy.tick', capability.input || {}, tickContext)
+        .catch(error => console.error('[MEL autonomy] chat tick detached', String(error?.code || error?.message || 'UNKNOWN'))));
+    }
+    toolResults.push({
+      capability: 'autonomy.tick',
+      status: 'QUEUED',
+      result: { ok: true, status: 'QUEUED', advanced: false, detached: true, engine: typeof tickContext.waitUntil === 'function' ? 'waitUntil' : 'scheduled' },
+    });
+    capabilitiesUsed.push('autonomy.tick');
   } else if (capability?.id) {
     try {
       const result = await runtime.bus.execute(String(capability.id), capability.input || {}, nativeCapabilityContext(env, request, options));
@@ -1885,10 +1912,13 @@ export async function handleNativeChat(request, env, options = {}) {
     ['autonomy.tick', 'autonomy.status'].includes(String(row.capability))
   ) || null;
   if (!releaseSmoke && autonomyRuntimeObservedRow) {
+    const queued = autonomyRuntimeObservedRow.status === 'QUEUED';
     const capabilitySucceeded = autonomyRuntimeObservedRow.status === 'SUCCEEDED';
     const runtimeResult = capabilitySucceeded && autonomyRuntimeObservedRow.result && typeof autonomyRuntimeObservedRow.result === 'object'
       ? autonomyRuntimeObservedRow.result
-      : {
+      : queued
+        ? { ok: true, status: 'QUEUED', advanced: false }
+        : {
           ok: false,
           status: 'RUNTIME_ERROR',
           advanced: false,
@@ -1898,7 +1928,9 @@ export async function handleNativeChat(request, env, options = {}) {
             block_reason: String(autonomyRuntimeObservedRow.error || 'AUTONOMY_RUNTIME_FAILED').slice(0, 180),
           },
         };
-    const responseText = capabilitySucceeded
+    const responseText = queued
+      ? 'Le cycle d’autonomie est pris en charge par le moteur persistant. Cette conversation n’attend pas sa fin. Le résultat sera visible dans l’activité réelle, pas dans ce message.'
+      : capabilitySucceeded
       ? formatVerifiedAutonomyRuntimeResponse(runtimeResult, {
           operation: autonomyRuntimeObservedRow.capability === 'autonomy.status' ? 'status' : 'tick',
           explainMax: isMaxModeMention(text),
@@ -2620,6 +2652,14 @@ export async function handleNativeChat(request, env, options = {}) {
         assessment:effectiveQualityAssessment,
       });
   const responseText = withOfficialVisual(qualityGuardedResponseText, activeTaskText, toolResults);
+  if (asksForPicture(activeTaskText) && !releaseSmoke) {
+    const delivered = /!\[[^\]]*\]\(https:\/\//.test(responseText);
+    toolResults.push({
+      capability: 'image.render',
+      status: delivered ? 'SUCCEEDED' : 'FAILED',
+      ...(delivered ? { result: { delivered: true } } : { error: 'IMAGE_NOT_DELIVERED' }),
+    });
+  }
   const responseGuarded = responseText !== qualityCandidateText;
   const automaticCouncilXp = automaticCouncilAccepted
     ? await persistCouncilRecoveryXp(env, {
