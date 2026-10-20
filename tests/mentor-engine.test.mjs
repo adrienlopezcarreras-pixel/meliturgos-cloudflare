@@ -293,6 +293,34 @@ test('mentor cannot invent a file that was not inspected', async () => {
   }), error => error.code === 'MENTOR_NO_VALID_CODE_PROPOSAL' && error.failures[0].error === 'MENTOR_UNINSPECTED_PATH');
 });
 
+test('a rejected uninspected file is not fed back; the repair edits the inspected file', async () => {
+  const calls = [];
+  const source = 'export function list() {\n  return [];\n}\n';
+  const engine = new MentorEngine({
+    providerFactory: async () => [sequenceProvider('editor', [
+      {
+        summary: 'Nouveau module.',
+        changes: [{ path: 'src/evolution/google-tools.js', content: "import { google } from 'googleapis';\n", reason: 'inventé' }],
+      },
+      {
+        summary: 'Lit la boîte avec le connecteur déjà inspecté.',
+        edits: [{ path: 'src/connectors/gmail.js', find: 'return [];', replace: 'return ["inbox"];' }],
+        tests: ['test:smoke'],
+      },
+    ], calls)],
+  });
+  const result = await engine.propose({
+    env: {},
+    goal: 'Prouver une lecture Gmail',
+    inspectedFiles: [{ path: 'src/connectors/gmail.js', content: source }],
+  });
+  assert.equal(result.proposal.changes[0].path, 'src/connectors/gmail.js');
+  assert.match(result.proposal.changes[0].content, /inbox/);
+  const repair = String(calls[1].input?.input || '');
+  assert.doesNotMatch(repair, /googleapis/);
+  assert.match(repair, /src\/connectors\/gmail\.js/);
+});
+
 test('mentor still refuses writing to inspection-only repository paths', async () => {
   const engine = new MentorEngine({
     providerFactory: async () => [provider('coder-bad-write', {
