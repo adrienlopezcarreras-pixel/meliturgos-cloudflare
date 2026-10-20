@@ -334,10 +334,34 @@ function buildPrompt({ role, goal, files, lessons, experiences, previousAttempts
   ].join('\n');
 }
 
+// ChatGPT-GPT6 / MEL-MENTOR-TIMEOUT: each provider call is bounded even
+// if its backend ignores AbortSignal; late results never block MAX.
+async function boundedMentorInvoke(provider, request, limitMs) {
+  const limit = Math.max(10, Math.min(30_000, Number(limitMs) || 25_000));
+  const abort = new AbortController();
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() => provider.invoke({ ...request, signal: abort.signal })),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          reject(Object.assign(new Error('MENTOR_PROVIDER_TIMEOUT'), { code: 'MENTOR_PROVIDER_TIMEOUT' }));
+          abort.abort();
+        }, limit);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export class MentorEngine {
-  constructor({ memory, providerFactory } = {}) {
+  constructor({ memory, providerFactory, invokeTimeoutMs = 25_000, repairTimeoutMs = 12_000 } = {}) {
     this.memory = memory || new MentorMemoryRepository(null);
     this.providerFactory = providerFactory;
+    // ChatGPT-GPT6 / MEL-MENTOR-TIMEOUT: deadlines below the 180-second MAX request.
+    this.invokeTimeoutMs = Math.max(10, Math.min(30_000, Number(invokeTimeoutMs) || 25_000));
+    this.repairTimeoutMs = Math.max(10, Math.min(30_000, Number(repairTimeoutMs) || 12_000));
   }
 
   async _providers(env) {
@@ -406,7 +430,7 @@ export class MentorEngine {
       const settled = await Promise.allSettled(wave.map((provider, index) => {
         const active = learned.activeAdapter;
         const lora = active?.base_model === provider.modelId ? active?.adapter?.id : null;
-        return provider.invoke({
+        return boundedMentorInvoke(provider, {
           input: buildPrompt({ role: roles[(offset + index) % roles.length], goal: objective, files, lessons: remembered, experiences, previousAttempts, mode }),
           context: {
             purpose: 'mel-autonomous-development',
@@ -415,7 +439,7 @@ export class MentorEngine {
             inference_settings: learned.inference,
             ...(lora ? { lora } : {}),
           },
-        });
+        }, this.invokeTimeoutMs);
       }));
 
       const repairInputs = [];
@@ -444,7 +468,7 @@ export class MentorEngine {
         const active = learned.activeAdapter;
         const repaired = await Promise.allSettled(repairInputs.map(({ provider, raw, failure }) => {
           const lora = active?.base_model === provider.modelId ? active?.adapter?.id : null;
-          return provider.invoke({
+          return boundedMentorInvoke(provider, {
             input: buildRepairPrompt({ goal: objective, files, raw, failure, mode }),
             context: {
               purpose: 'mel-autonomous-development-structured-repair',
@@ -453,7 +477,7 @@ export class MentorEngine {
               inference_settings: learned.inference,
               ...(lora ? { lora } : {}),
             },
-          });
+          }, this.repairTimeoutMs);
         }));
         repaired.forEach((result, index) => {
           const { provider } = repairInputs[index];
