@@ -566,29 +566,32 @@ test('mentor advances to a fourth model when the first three hang indefinitely',
   ]);
 });
 
-test('mentor bounds structured repair when a malformed provider hangs during retry', async () => {
-  let calls = 0;
-  const malformed = {
-    id: 'bad-then-hang', providerId: 'test', modelId: 'bad-then-hang',
+test('mentor bounds structured repair and advances after a hung repair wave', async () => {
+  const calls = [0, 0, 0];
+  const malformed = index => ({
+    id: 'bad-' + index, providerId: 'test', modelId: 'bad-' + index,
     invoke: async () => {
-      calls += 1;
-      return calls === 1 ? { text: '{invalid-json' } : new Promise(() => {});
+      calls[index] += 1;
+      return calls[index] === 1 ? { text: '{invalid-json' } : new Promise(() => {});
     },
-  };
+  });
   const good = provider('backup-good', {
     summary: 'Alternate model survives blocked structured repair.',
     edits: [{ path: 'src/example.js', find: 'false', replace: 'true' }],
     tests: ['test:smoke'],
   });
   const engine = new MentorEngine({
-    providerFactory: async () => [malformed, good],
+    providerFactory: async () => [malformed(0), malformed(1), malformed(2), good],
     invokeTimeoutMs: 15,
     repairTimeoutMs: 15,
   });
   const result = await engine.propose({
-    env: {}, goal: 'Repair a malformed response',
+    env: {}, goal: 'Recover from three malformed responses',
     inspectedFiles: [{ path: 'src/example.js', content: 'export const ready = false;\n' }],
   });
   assert.equal(result.council.selected_provider, 'backup-good');
-  assert.equal(calls, 1, 'valid alternate provider means no repair retry needed');
+  assert.equal(result.council.structured_repair_attempted, true);
+  assert.ok(result.council.rejected_proposals.some(x =>
+    x.stage === 'repair' && x.error === 'MENTOR_PROVIDER_TIMEOUT'));
+  assert.deepEqual(calls, [2, 2, 2]);
 });
