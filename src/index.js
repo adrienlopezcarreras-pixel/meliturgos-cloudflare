@@ -510,7 +510,9 @@ async function fetchResolvedRequest(request, env, ctx) {
       }
 
       if (path.startsWith('/api/gen2/autonomy/')) {
-        const autonomyResponse = await maybeHandleAutonomyApi(request, env);
+        const autonomyResponse = await maybeHandleAutonomyApi(request, env, {
+          waitUntil: ctx?.waitUntil ? ctx.waitUntil.bind(ctx) : null,
+        });
         if (autonomyResponse) return autonomyResponse;
       }
 
