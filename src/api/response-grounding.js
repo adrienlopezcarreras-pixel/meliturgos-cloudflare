@@ -278,11 +278,14 @@ export function formatVerifiedAutonomyRuntimeResponse(result, { fallback = '', o
   const events = Array.isArray(progress.events) ? progress.events : [];
   const activeJob = progress.job_id || result.job?.id || result.job_id || null;
   const jobStatus = progress.job_status || result.job?.status || result.job_status || null;
-  const releasePause = control.paused === true && (control.reason === 'predeploy-release-safety' || /^release-/.test(String(control.source || '')));
+  const awaitingOwnerLaunch = control.paused === true && control.reason === 'NEW_RELEASE_AWAITING_OWNER_LAUNCH';
+  const releasePause = control.paused === true && !awaitingOwnerLaunch && (control.reason === 'predeploy-release-safety' || /^release-/.test(String(control.source || '')));
   const maxText = control.max_autonomy === true ? 'MAX est activé'
     : control.paused === true && control.max_remembered === true ? 'MAX reste choisi et reprendra à la fin de la pause'
     : 'MAX est désactivé';
-  const pauseText = releasePause
+  const pauseText = awaitingOwnerLaunch
+    ? 'la release est terminée et attend que le propriétaire active MAX ou reprenne MEL'
+    : releasePause
     ? 'pause temporaire posée par la mise en production en cours (sécurité de release) ; elle est levée automatiquement quand toutes les vérifications de production passent'
     : control.paused === true ? 'le contrôle d’autonomie est en pause' + (control.reason ? ' (raison : ' + String(control.reason).slice(0, 80) + ')' : '')
     : 'le contrôle d’autonomie n’est pas en pause';
@@ -325,7 +328,9 @@ export function formatVerifiedAutonomyRuntimeResponse(result, { fallback = '', o
     lines.push('Le cycle n’a pas lancé de nouveau travail : le garde-fou de lancement bloque l’exécution.');
     lines.push('L’approbation de lancement ne correspond pas au SHA actuellement déployé. Il faut réconcilier puis approuver explicitement le SHA exact avant de reprendre l’exécution.');
   } else if (status === 'PAUSED' || (status === 'UNKNOWN' && control.paused === true)) {
-    lines.push(releasePause
+    lines.push(awaitingOwnerLaunch
+      ? 'Le cycle n’a exécuté aucune nouvelle tâche : la release est terminée et attend que le propriétaire active MAX.'
+      : releasePause
       ? 'Le cycle n’a exécuté aucune nouvelle tâche : une mise en production est en cours et met l’autonomie en pause le temps de ses vérifications.'
       : 'Le cycle n’a exécuté aucune nouvelle tâche : l’autonomie est en pause.');
   } else if (status === 'DEPLOYED_SHA_UNAVAILABLE') {
