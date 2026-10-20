@@ -334,16 +334,16 @@ test('final owner MAX handoff release shell is valid bash, including closed comm
   const end = source.indexOf('      - name: Re-enable MAX 100% after verified autonomous release', start);
   assert.ok(start >= 0 && end > start, 'owner handoff must precede MAX restoration');
   const step = source.slice(start, end);
-  const marker = '        run: |\\n';
+  const marker = '        run: |\n';
   const scriptStart = step.indexOf(marker);
   assert.ok(scriptStart > 0, 'handoff must use a real shell script');
-  const scriptLines = step.slice(scriptStart + marker.length).split('\\n');
+  const scriptLines = step.slice(scriptStart + marker.length).split('\n');
   const body = [];
   for (const line of scriptLines) {
     if (line.trim() && !line.startsWith('          ')) break;
     body.push(line.startsWith('          ') ? line.slice(10) : '');
   }
-  assert.match(body.join('\\n'), /owner-handoff/);
-  const syntax = spawnSync('bash', ['-n'], { input: body.join('\\n'), encoding: 'utf8' });
+  assert.match(body.join('\n'), /owner-handoff/);
+  const syntax = spawnSync('bash', ['-n'], { input: body.join('\n'), encoding: 'utf8' });
   assert.equal(syntax.status, 0, syntax.stderr || 'handoff script must parse as bash');
 });
