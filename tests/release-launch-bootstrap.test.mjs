@@ -1581,3 +1581,48 @@ test('release handoff API accepts proven progress with mixed backlog and rejects
     if (expected === 200) assert.equal(body.blocked_open_handoff_count, 2);
   }
 });
+
+test('final exact-SHA release handoff unlocks owner controls without starting MAX or weakening predeploy pause', async () => {
+  const sha = 'd'.repeat(40);
+  const calls = [];
+  const env = { MEL_LAUNCH_BOOTSTRAP_TOKEN: TOKEN, MEL_DEPLOYED_GIT_SHA: sha, DB: {} };
+  const deps = {
+    readReadiness: async () => ({ ok:true, launch_ready:true, candidate_sha:sha }),
+    setControl: async (_db, next) => { calls.push(next); return next; },
+  };
+  const request = (target, token=TOKEN) => new Request(
+    'https://mel.test/api/internal/release-launch-bootstrap?expected_sha=' + target, {
+      method:'POST', headers: { 'x-mel-launch-bootstrap':token, 'content-type':'application/json' },
+      body:JSON.stringify({phase:'owner-handoff'}),
+    }
+  );
+
+  const badSha = await maybeHandleReleaseLaunchBootstrap(request('c'.repeat(40)),env,deps);
+  assert.equal(badSha.status,409);
+  assert.equal((await badSha.json()).code,'OWNER_HANDOFF_SHA_MISMATCH');
+  assert.equal(calls.length,0);
+
+  const badToken = await maybeHandleReleaseLaunchBootstrap(request(sha,'bad'),env,deps);
+  assert.equal(badToken.status,401);
+  assert.equal(calls.length,0);
+
+  const unready = await maybeHandleReleaseLaunchBootstrap(request(sha),env,{
+    ...deps,readReadiness:async()=>({ok:true,launch_ready:false,candidate_sha:sha}),
+  });
+  assert.equal(unready.status,409);
+  assert.equal((await unready.json()).code,'OWNER_HANDOFF_READINESS_NOT_VERIFIED');
+  assert.equal(calls.length,0);
+
+  const ready = await maybeHandleReleaseLaunchBootstrap(request(sha),env,deps);
+  assert.equal(ready.status,200);
+  const body = await ready.json();
+  assert.equal(body.status,'OWNER_HANDOFF_READY');
+  assert.equal(body.paused,true);
+  assert.equal(body.max_autonomy,false);
+  assert.equal(body.owner_launch_required,true);
+  assert.equal(body.autonomy_started,false);
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].source,'owner-handoff-verified');
+  assert.equal(calls[0].reason,'OWNER_ENABLE_REQUIRED');
+  assert.equal(calls[0].launch_approved_sha,null);
+});
