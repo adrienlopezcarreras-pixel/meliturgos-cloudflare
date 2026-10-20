@@ -358,7 +358,38 @@ jobs:
           fi
           git commit -m "GEN2-42: apply approved bridge package $JOB_ID"
           NEW_SHA="$(git rev-parse HEAD)"
-          git push origin "HEAD:$CANDIDATE_BRANCH"
+          # Another executor may have pushed while tests ran. Replay this one
+          # commit on the new tip. Never force, never reset the remote branch.
+          PUSHED=0
+          for ATTEMPT in 1 2; do
+            git fetch origin "$CANDIDATE_BRANCH"
+            REMOTE_SHA="$(git rev-parse FETCH_HEAD)"
+            if ! git merge-base --is-ancestor "$REMOTE_SHA" HEAD; then
+              if ! git rebase --onto "$REMOTE_SHA" "$CANDIDATE_SHA" HEAD; then
+                git rebase --abort || true
+                break
+              fi
+              NEW_SHA="$(git rev-parse HEAD)"
+            fi
+            if git push origin "HEAD:$CANDIDATE_BRANCH"; then
+              PUSHED=1
+              break
+            fi
+          done
+          if [ "$PUSHED" != "1" ]; then
+            node - <<'NODE'
+            const fs=require('fs');
+            const current=fs.existsSync('bridge-apply-result.json')?JSON.parse(fs.readFileSync('bridge-apply-result.json','utf8')):{tests:[]};
+            const tests=Array.isArray(current.tests)?[...current.tests]:[];
+            tests.push({name:'candidate push',command:'git.push',passed:false,executed:false,error:'CANDIDATE_PUSH_NOT_FAST_FORWARD'});
+            fs.writeFileSync('bridge-apply-result.json',JSON.stringify({...current,status:'REPAIR_REQUIRED',needs_repair:true,tests},null,2));
+            NODE
+            echo "candidate_ready=false" >> "$GITHUB_OUTPUT"
+            echo "candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
+            echo "candidate_branch=$CANDIDATE_BRANCH" >> "$GITHUB_OUTPUT"
+            echo "no_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # A push made with the workflow token does not start other workflows:
           # run the full candidate suite explicitly on the exact new head.
           code="$(curl --silent --show-error --max-time 30 --request POST \
