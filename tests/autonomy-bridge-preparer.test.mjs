@@ -160,6 +160,39 @@ test('a failed bridge test invalidates the old package and creates one repair pa
   assert.equal(calls.length, 2);
 });
 
+test('a failure from a plan replaced after a candidate SHA change is not repaired by the re-approved plan', async () => {
+  const repository = await approvedRepository();
+  const calls = [];
+  const current = await repository.get('bridge-prep-job');
+  await repository.update(current.id, {
+    result_json: {
+      ...current.result_json,
+      teacher_bridge: { ...current.result_json.teacher_bridge, reviewed_at: '2026-10-20T21:04:46.196Z' },
+      dev_bridge: {
+        status: 'REPAIR_REQUIRED',
+        needs_repair: true,
+        candidate_sha: 'f'.repeat(40),
+        received_at: '2026-10-20T16:06:30.801Z',
+        tests: [{ name: 'syntax-and-imports', passed: false, exit_code: 1, error: 'Unresolved import in src/evolution/google-tools.js: googleapis' }],
+      },
+    },
+  });
+  const prepared = await prepareApprovedBridgePackage({
+    env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
+    repository,
+    job: await repository.get('bridge-prep-job'),
+    fetchImpl: fetchImpl(),
+    mentorEngine: mentorEngine(calls),
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].mode, 'implement');
+  assert.deepEqual(calls[0].previousAttempts, []);
+  assert.doesNotMatch(JSON.stringify(calls[0]), /google-tools/);
+  assert.equal(prepared.mentor.mode, 'implement');
+  const stored = await repository.get('bridge-prep-job');
+  assert.equal(stored.result_json.dev_bridge.tests[0].name, 'syntax-and-imports', 'the old failure stays in the journal');
+});
+
 test('bridge preparation continues from the exact approved SHA when GitHub HEAD APIs are unavailable', async () => {
   const repository = await approvedRepository();
   const calls = [];
