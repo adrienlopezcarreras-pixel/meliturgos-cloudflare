@@ -34,7 +34,7 @@ import { authorizeGitHubActionsOidcRequest } from '../security/github-actions-oi
 import { runMelMedia02LiveProof } from '../media/media-roadmap-proof.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
-const PHASES = new Set(['all', 'identity', 'pause', 'backup', 'code-sync', 'readiness', 'sovereignty-proof', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'connection-proof', 'media-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max', 'release-rollback-restore']);
+const PHASES = new Set(['all', 'identity', 'pause', 'owner-handoff', 'backup', 'code-sync', 'readiness', 'sovereignty-proof', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'connection-proof', 'media-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max', 'release-rollback-restore']);
 
 function exactDeployedSha(env = {}) {
   const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
@@ -871,6 +871,46 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       })).slice(0, 20),
       owner_authorized_bootstrap: true,
     }, { status: tick?.ok === false ? 409 : 200, headers: { 'cache-control': 'no-store' } });
+  }
+
+  // Release completion is distinct from the pre-deploy safety pause.
+  // Only the exact-SHA, token-authorized release workflow can mark the owner
+  // controls available again. This does NOT launch autonomy or grant MAX.
+  if (phase === 'owner-handoff') {
+    const deployedSha = exactDeployedSha(env);
+    const requestedSha = String(url.searchParams.get('expected_sha') || '').trim().toLowerCase();
+    if (!deployedSha || requestedSha !== deployedSha || !/^[a-f0-9]{40}$/.test(requestedSha)) {
+      return Response.json({ ok: false, code: 'OWNER_HANDOFF_SHA_MISMATCH', phase }, {
+        status: 409, headers: { 'cache-control': 'no-store' },
+      });
+    }
+    const readiness = safeReadiness(await readReadiness(env));
+    if (readiness.launch_ready !== true || readiness.candidate_sha !== deployedSha) {
+      return Response.json({ ok: false, code: 'OWNER_HANDOFF_READINESS_NOT_VERIFIED', phase }, {
+        status: 409, headers: { 'cache-control': 'no-store' },
+      });
+    }
+    const control = await setControl(env?.DB, {
+      paused: true,
+      max_autonomy: false,
+      source: 'owner-handoff-verified',
+      reason: 'OWNER_ENABLE_REQUIRED',
+      launch_approved_sha: null,
+      launch_approved_at: null,
+      launch_gate_digest: null,
+    });
+    const paused = control?.paused === true;
+    const maxDisabled = control?.max_autonomy === false;
+    return Response.json({
+      ok: paused && maxDisabled,
+      status: paused && maxDisabled ? 'OWNER_HANDOFF_READY' : 'OWNER_HANDOFF_CONTROL_FAILED',
+      phase,
+      paused,
+      max_autonomy: control?.max_autonomy === true,
+      owner_launch_required: true,
+      autonomy_started: false,
+      deployed_sha: deployedSha,
+    }, { status: paused && maxDisabled ? 200 : 409, headers: { 'cache-control': 'no-store' } });
   }
 
   // A deployment may inherit RUNNING/MAX control state from the previous SHA.
