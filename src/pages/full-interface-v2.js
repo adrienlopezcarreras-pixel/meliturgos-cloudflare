@@ -74,6 +74,7 @@ function apiErrorMessage(payload,status){
   if(code==='PIPEDREAM_CONNECT_TOKEN_FAILED'&&Number(payload?.upstream_status)===400)return 'Pipedream Connect Production n’est pas disponible pour ce projet. Utilise Development (gratuit) ou un plan Production.';
   if(code==='PIPEDREAM_AUTH_FAILED')return 'Identifiants Pipedream refusés. Vérifie le Client ID et le Client Secret.';
   if(code==='PIPEDREAM_NOT_CONFIGURED')return 'Pipedream n’est pas encore configuré.';
+  if(code==='AUTONOMY_LAUNCH_GATE_BLOCKED')return 'Activation refusée';
   if(code==='CHAT_DEADLINE_EXCEEDED'||(code==='CHAT_INFERENCE_FAILED'&&String(payload?.detail||'')==='CHAT_DEADLINE_EXCEEDED'))return 'MEL n’a pas pu terminer dans le délai (CHAT_DEADLINE_EXCEEDED). Le serveur s’est arrêté proprement : relance ou découpe la demande.';
   return code||('HTTP '+status);
 }
@@ -687,7 +688,12 @@ async function autonomyAction(button,url,body,label,feedback=qs('#mobileAutonomy
   button.disabled=true;button.textContent='…';if(feedback)feedback.textContent=label+'…';
   try{
     const d=await jfetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body||{})});
-    renderAutonomy(d?.state||d);await loadAutonomy();const st=d?.tick?.status||d?.tick?.job?.status||d?.control?.status||'';if(feedback)feedback.textContent=label+' : OK'+(st?' ('+st+')':'');if(qs('#desktopActivityPanel')&&!qs('#desktopActivityPanel').hidden)showActivity(qs('#desktopActivityBody'));return d;
+    renderAutonomy(d?.state||d);await loadAutonomy();
+    if(String(url).includes('/api/gen2/autonomy/max')){
+      const on=d?.control?.max_autonomy===true;
+      const text=!d?.control?'État inconnu, relecture nécessaire':d?.tick?.status==='ALREADY_ACTIVE'?'MAX déjà activé':on?'MAX activé':'MAX arrêté';
+      if(feedback)feedback.textContent=text;
+    }else{const st=d?.tick?.status||d?.tick?.job?.status||d?.control?.status||'';if(feedback)feedback.textContent=label+' : OK'+(st?' ('+st+')':'')}if(qs('#desktopActivityPanel')&&!qs('#desktopActivityPanel').hidden)showActivity(qs('#desktopActivityBody'));return d;
   }catch(e){if(feedback)feedback.textContent=label+' : '+e.message;throw e}
   finally{button.disabled=false;if(!['melFullMax','melFullStop','mobilePauseAutonomy'].includes(button.id))button.textContent=previous;renderAutonomy(autonomyControl)}
 }
