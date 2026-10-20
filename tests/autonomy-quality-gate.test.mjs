@@ -24,8 +24,12 @@ test('npm run check rejects a module whose import does not resolve', async () =>
 test('the cloud bridge uses one permanent ignore rule and never tracks generated evidence', async () => {
   const wf = await readFile(new URL('../.github/workflows/gen2-42-apply-ready-bridge.yml', import.meta.url), 'utf8');
   const ignore = await readFile(new URL('../.gitignore', import.meta.url), 'utf8');
-  assert.match(wf, /spawnSync\('npm',\['run','check'\]/);
+  assert.match(wf, /function commandEvidence\(args\)/);
+  assert.match(wf, /commandEvidence\(\['npm','run','check'\]\)/);
   assert.match(wf, /name:'syntax-and-imports'/);
+  assert.match(wf, /error:r\.status===0\?'':r\.error/);
+  assert.match(wf, /stderr:r\.status===0\?'':r\.stderr/);
+  assert.match(wf, /Unresolved import/);
   assert.match(ignore, /^\/bridge-apply-result\.json$/m);
   assert.doesNotMatch(wf, /git\/info\/exclude/);
   const tracked = spawnSync('git', ['ls-files', '--error-unmatch', 'bridge-apply-result.json'], {
