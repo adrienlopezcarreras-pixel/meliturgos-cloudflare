@@ -23,10 +23,19 @@ async function executorOnline(db, now) {
 
 export async function readyJobFromD1(db) {
   try {
-    return await db.prepare(`SELECT id, status FROM dev_jobs WHERE status='TEACHER_APPROVED'
-      AND json_extract(result_json,'$.bridge_preparation.status')='READY'
-      AND json_extract(result_json,'$.implementation_proposal.status')='READY'
-      ORDER BY updated_at ASC LIMIT 1`).first();
+    return await db.prepare(`SELECT id, status FROM dev_jobs
+      WHERE json_extract(result_json,'$.bridge_preparation.status')='READY'
+        AND json_extract(result_json,'$.implementation_proposal.status')='READY'
+        AND (
+          status='TEACHER_APPROVED'
+          OR (
+            status='READY_FOR_REVIEW'
+            AND json_extract(result_json,'$.autonomy_completion.candidate_sha') IS NULL
+            AND json_extract(result_json,'$.dev_bridge.changed') IS NOT 1
+          )
+        )
+      ORDER BY CASE status WHEN 'TEACHER_APPROVED' THEN 0 ELSE 1 END, updated_at ASC
+      LIMIT 1`).first();
   } catch { return null; }
 }
 
@@ -37,7 +46,7 @@ export async function maybeDispatchCloudBridge(env, tick, { now = Date.now(), re
   // The tick may stop before reporting the package (e.g. no free model for its
   // runtime proof), so the READY package is also looked up in D1 directly:
   // applying it needs no model at all.
-  let job = tick.bridge_preparation?.status === 'READY' && String(tick.job?.status || '').toUpperCase() === 'TEACHER_APPROVED' ? tick.job : null;
+  let job = tick.bridge_preparation?.status === 'READY' && ['TEACHER_APPROVED', 'READY_FOR_REVIEW'].includes(String(tick.job?.status || '').toUpperCase()) ? tick.job : null;
   if (!job) job = await readyJobFromD1(db);
   if (!job?.id) return { status: 'SKIPPED_NOT_READY' };
   if (await executorOnline(db, now)) return { status: 'SKIPPED_LOCAL_EXECUTOR_ONLINE' };
