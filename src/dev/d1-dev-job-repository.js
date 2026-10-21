@@ -38,9 +38,27 @@ function preparedPackage(job) {
   return job.tests_json.every((test) => test && typeof test.command === 'string');
 }
 
-function alreadyApplied(job) {
-  const completion = String(job?.result_json?.autonomy_completion?.candidate_sha || '');
-  return /^[a-f0-9]{40}$/i.test(completion) || job?.result_json?.dev_bridge?.changed === true;
+function alreadyPublished(job) {
+  return [job?.result_json?.autonomy_completion?.candidate_sha, job?.result_json?.dev_bridge?.candidate_sha]
+    .some(value => /^[a-f0-9]{40}$/i.test(String(value || '')));
+}
+
+// CODEX: a successful isolated PC edit is not a published canonical commit.
+// Only its correlated, tested original package may reach the existing cloud
+// publisher; never import arbitrary local diffs or silently retry failed work.
+function testedLocalPackage(job) {
+  const local = job?.result_json?.dev_bridge;
+  const preparation = job?.result_json?.bridge_preparation;
+  if (local?.mode !== 'STRUCTURED_MENTOR_WORK' || local.changed !== true
+      || local.needs_repair === true || local.validation_failure || local.production_touched !== false
+      || local.approved_base?.candidate_branch !== preparation?.candidate_branch
+      || local.approved_base?.candidate_sha !== preparation?.candidate_sha) return false;
+  const paths = (job.files_json || []).map(file => file.path).sort();
+  const applied = Array.isArray(local.applied_files) ? [...local.applied_files].sort() : [];
+  if (JSON.stringify(paths) !== JSON.stringify(applied)) return false;
+  return Array.isArray(local.tests) && local.tests.length > 0
+    && local.tests.every(test => test?.passed === true && test.exit_code === 0
+      && test.executed !== false && typeof test.command === 'string');
 }
 
 export function isPreparedDevBridgeJob(job) {
@@ -49,7 +67,9 @@ export function isPreparedDevBridgeJob(job) {
 
 /** A READY package that never reached the candidate branch. CI cannot exist yet. */
 export function isUnappliedReadyReviewJob(job) {
-  return String(job?.status || '').toUpperCase() === 'READY_FOR_REVIEW' && preparedPackage(job) && !alreadyApplied(job);
+  return String(job?.status || '').toUpperCase() === 'READY_FOR_REVIEW'
+    && preparedPackage(job) && !alreadyPublished(job)
+    && (job?.result_json?.dev_bridge?.changed !== true || testedLocalPackage(job));
 }
 
 export function isTeacherGatedDevJob(job) {

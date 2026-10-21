@@ -86,7 +86,16 @@ test('a READY package is dispatched even when the tick stopped before reporting 
   const db = fakeDb();
   const prepare = db.prepare.bind(db);
   db.prepare = sql => (/json_extract\(result_json,'\$\.bridge_preparation.status'\)='READY'/.test(sql)
-    ? { bind() { return this; }, async first() { return { id: 'job-d1', status: 'TEACHER_APPROVED' }; } }
+    ? { bind() { return this; }, async all() { return { results: [{
+      id: 'job-d1', status: 'TEACHER_APPROVED',
+      files_json: JSON.stringify([{ path: 'src/example.js', content: 'export const value=1;' }]),
+      tests_json: JSON.stringify([{ command: 'test:smoke' }]),
+      result_json: JSON.stringify({
+        teacher_bridge: { status: 'ANSWERED', request: { request_id: 'teacher-d1' }, review: { request_id: 'teacher-d1', verdict: 'APPROVE_PLAN', development_allowed: true } },
+        bridge_preparation: { status: 'READY', teacher_request_id: 'teacher-d1', candidate_branch: 'candidate/mel-clean-autonomy', candidate_sha: 'a'.repeat(40) },
+        implementation_proposal: { status: 'READY' },
+      }),
+    }] }; } }
     : prepare(sql));
   const queued = [];
   const out = await maybeDispatchCloudBridge({ DB: db }, { status: 'NO_PROGRESS', job: { id: 'job-d1', status: 'TEACHER_APPROVED' } }, { now: 5_000_000, relay: { async enqueue(j) { queued.push(j); return { id: 'r2' }; } } });
