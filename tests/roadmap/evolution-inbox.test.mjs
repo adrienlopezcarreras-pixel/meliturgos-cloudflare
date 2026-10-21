@@ -74,3 +74,21 @@ test('DONE_VERIFIED proof must be actual affirmative booleans, not truthy string
  assert.equal(verified.status,'DONE_VERIFIED');
  assert.equal(verified.evidence[0].ci_passed,true);
 });
+
+test('[GPT] approved existing capability may be verified without a code change',()=>{
+ let item=proposeEvolution([],{id:'EV-EXISTING-1',title:'Existing Gmail tool execution',origin:'audit'}).item;
+ item=transitionEvolution(transitionEvolution(item,'TRIAGED'),'APPROVED');
+ item=transitionEvolution(item,'TESTING');
+ assert.equal(item.status,'TESTING');
+ assert.throws(()=>transitionEvolution(item,'DONE_VERIFIED'),/EVOLUTION_MISSING_VERIFICATION/);
+ const proof={sha:'b'.repeat(40),ci_passed:true,real_test_passed:true,environment:'production',reference:'evidence/live-tool-run'};
+ const verified=transitionEvolution(item,'DONE_VERIFIED',{proof});
+ assert.equal(verified.status,'DONE_VERIFIED');
+ assert.deepEqual(verified.evidence,[proof]);
+});
+test('[GPT] in-progress implementation may skip redundant changes and enter testing',()=>{
+ let item=proposeEvolution([],{id:'EV-EXISTING-2',title:'Already operational calendar tool',origin:'mel'}).item;
+ for(const status of ['TRIAGED','APPROVED','IN_PROGRESS','TESTING']) item=transitionEvolution(item,status);
+ assert.equal(item.status,'TESTING');
+ assert.throws(()=>transitionEvolution(item,'DONE_VERIFIED',{proof:{sha:'b'.repeat(40)}}),/EVOLUTION_MISSING_VERIFICATION/);
+});
