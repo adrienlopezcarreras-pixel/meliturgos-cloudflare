@@ -24,6 +24,17 @@ import { COMPUTER_COMMAND_STATUS } from "./computer-command-status.js";
 import { androidMaintenancePcCommand } from "./android-maintenance-companion.js";
 import { androidStagePcCommand } from "./android-apk-stage-companion.js";
 import { readAndroidTriadActivityForCompanion } from "./triad-activity-readonly.js";
+import { D1GitHubActionRelayStore } from '../platform/github-action-relay.js';
+
+// [Codex] Cloud relay is independent from Companion/Node presence. Expose no
+// relay metadata, queued work, credentials or inferred execution success.
+export async function readCompanionRelayPresence(env, now = Date.now()) {
+ try {
+  const state = await new D1GitHubActionRelayStore(env.DB).health({ now });
+  const at = Number(state.last_seen_at);
+  return { status: state.online && at > 0 && at <= now ? 'ONLINE' : 'OFFLINE', last_seen_at: at > 0 && at <= now ? at : null, observed_at: now };
+ } catch { return { status: 'UNKNOWN', last_seen_at: null, observed_at: now }; }
+}
 
 export const COMPUTER_API_BASE="/api/computer/v1";
 export const COMPUTER_ROUTES=Object.freeze({
@@ -715,9 +726,11 @@ async function heartbeat(request,env,a){
  };
  const engineVersion=safe(metadata.engine_version,80)||null;
  const engineUpdateRequired=!versionAtLeast(engineVersion,CURRENT_COMPANION_ENGINE_VERSION);
+ const githubRelay=await readCompanionRelayPresence(env,now);
  return json({
    ok:true,
    server_time:now,
+   github_relay:githubRelay,
    presence,
    engine_online:engineOnline,
    local_compute_enabled:metadata.local_compute_enabled===true,
