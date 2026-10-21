@@ -12,13 +12,13 @@ test('Kaggle LoRA notebook stays observable, bounded and fails stalled backgroun
   assert.match(workflow,/TRAINING_BACKGROUND_STALLED/);
   assert.match(workflow,/TRAINING_BACKGROUND_PROCESS_GONE/);
   assert.match(workflow,/time\.sleep\(45\)/);
-  assert.match(workflow,/range\\(monitor_count\\)/);
+  assert.match(workflow,/range\(monitor_count\)/);
   assert.match(workflow,/monitor_budget_seconds/);
   assert.match(workflow,/KAGGLE_NOTEBOOK_MONITOR_BUDGET_INVALID/);
-  assert.doesNotMatch(workflow,/range\\(80\\)/);
+  assert.doesNotMatch(workflow,/range\(80\)/);
   assert.match(workflow,/MEL_BASE_MODEL_STAGE/);
-  assert.match(kernel,/def stage_base_model\\(source: Path\\) -> Path/);
-  assert.match(kernel,/base_model = stage_base_model\\(find_base_model\\(\\)\\)/);
+  assert.match(kernel,/def stage_base_model\(source: Path\) -> Path/);
+  assert.match(kernel,/base_model = stage_base_model\(find_base_model\(\)\)/);
   assert.match(kernel,/KAGGLE_BASE_MODEL_STAGING_INSUFFICIENT_DISK/);
   assert.match(kernel,/KAGGLE_BASE_MODEL_STAGE_COPY_INCOMPLETE/);
   assert.match(workflow,/kaggle kernels logs/);
