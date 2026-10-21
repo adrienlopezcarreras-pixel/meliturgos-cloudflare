@@ -119,6 +119,20 @@ try {
   if ($native) {
     $readView = $native.GetMethod('ReadDevExecutorView').Invoke($null,@())
     Assert ($readView['state'] -eq 'Arrêté') 'NATIVE_WINDOW_DID_NOT_READ_ENGINE_RECEIPT'
+    $window = [Activator]::CreateInstance($assembly.GetType('MainForm'), $true)
+    try {
+      $queue = New-Object 'Collections.Generic.Queue[Windows.Forms.Control]'
+      $queue.Enqueue($window)
+      $texts = New-Object 'Collections.Generic.List[string]'
+      while ($queue.Count) {
+        $control = $queue.Dequeue(); $texts.Add($control.Text)
+        foreach ($child in $control.Controls) { $queue.Enqueue($child) }
+      }
+      foreach ($text in @('Exécuteur de développement',"Démarrer l'exécuteur","Arrêter l'exécuteur","Redémarrer l'exécuteur")) {
+        Assert ($texts.Contains($text)) ('NATIVE_WINDOW_CONTROL_MISSING:' + $text)
+      }
+      Assert ($window.AutoScroll) 'NATIVE_WINDOW_TOOLS_NOT_ACCESSIBLE_ON_SMALL_SCREEN'
+    } finally { $window.Dispose() }
   }
   $script:CompanionConfirmedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
   $script:GithubRelay = @{ status='ONLINE' }

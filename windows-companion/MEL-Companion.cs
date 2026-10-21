@@ -1648,13 +1648,15 @@ class MainForm : Form
     {
         Text="MEL Companion — Windows";
         Icon=MelApp.MakeIcon();
-        ClientSize=new Size(S(1100),S(950));
-        MinimumSize=new Size(S(790),S(850));
+        var available=Screen.PrimaryScreen.WorkingArea;
+        ClientSize=new Size(Math.Min(S(1100),available.Width-40),Math.Min(S(950),available.Height-80));
+        MinimumSize=new Size(Math.Min(S(790),ClientSize.Width),Math.Min(S(650),ClientSize.Height));
         StartPosition=FormStartPosition.CenterScreen;
         AutoScaleMode=AutoScaleMode.None; // sizes are scaled explicitly with k
         Font=new Font("Segoe UI",10f);
         BackColor=background;ForeColor=text;DoubleBuffered=true;
-        AutoScroll=false;
+        AutoScroll=true;
+        AutoScrollMinSize=new Size(0,S(900));
 
         // Structural layout: proportional center, fixed minimum-height tool areas,
         // no absolute coordinates on the window and no competing edge anchors.
@@ -1718,7 +1720,7 @@ class MainForm : Form
         executorLayout.RowStyles.Add(Abs(40f));
         executor.Controls.Add(executorLayout);
         CellLabel(executorLayout,"Exécuteur de développement",11f,true,blue);
-        devExecutorDetails=CellLabel(executorLayout,"État : vérification…",9f,false,gray);
+        devExecutorDetails=CellLabel(executorLayout,"État : Démarrage · vérification du moteur…",9f,false,gray);
         var executorActions = new FlowLayoutPanel { Dock=DockStyle.Fill, WrapContents=false, Margin=new Padding(0) };
         executorLayout.Controls.Add(executorActions);
         executorActions.Controls.Add(ActionButton("Démarrer l'exécuteur",195,delegate{ControlDevExecutor("Start");},true));
@@ -1790,7 +1792,7 @@ class MainForm : Form
         triadPoll.Tick+=delegate{RefreshTriadActivity();};triadPoll.Start();
         devExecutorRender=new System.Windows.Forms.Timer{Interval=1000};
         devExecutorRender.Tick+=delegate{RefreshDevExecutor();};devExecutorRender.Start();
-        FormClosed+=delegate{devExecutorRender.Stop();devExecutorRender.Dispose();};
+        Disposed+=delegate{devExecutorRender.Stop();devExecutorRender.Dispose();};
         Shown+=delegate{BeginInvoke((MethodInvoker)delegate{
             RefreshAll();RefreshTriadActivity();
         });};
@@ -1814,7 +1816,7 @@ class MainForm : Form
     {
         var view=MelApp.ReadDevExecutorView();
         if(view==null) {
-            devExecutorDetails.Text="État : non confirmé · moteur arrêté ou heartbeat local expiré\r\nRelais GitHub Cloud : inconnu · le PC reste facultatif pour MAX";
+            devExecutorDetails.Text="État : Erreur · moteur arrêté ou heartbeat local expiré\r\nDépôt configuré : "+MelApp.ConfigString("dev_executor_repo")+"\r\nRelais GitHub Cloud : inconnu · le PC reste facultatif pour MAX";
             return;
         }
         try {
