@@ -15,6 +15,17 @@ export function isEvolutionDevelopmentIntent(text) {
   return action && target;
 }
 
+// GPT6 2026-10-21: an explicit instruction to execute a previously approved
+// autonomy job must advance the existing queue, not propose a new capability.
+export function inferApprovedAutonomyExecutionIntent(text) {
+  const value = String(text || '').trim();
+  if (!value) return null;
+  const approvedJob = /\b(?:travail|travaux|t[aâ]ches?|jobs?|missions?|lots?)\s+(?:(?:d[ée]j[aà]|pr[ée]alablement)\s+)?(?:approuv[ée]s?|valid[ée]s?|autoris[ée]s?)(?![a-zÀ-ÿ])/i.test(value);
+  const execute = /\b(?:effectue|ex[ée]cute|lance|d[ée]marre|reprends?|continue|avance|poursuis|traite|r[ée]cup[eè]re|encha[iî]ne)\b/i.test(value);
+  const autonomous = /\b(?:roadmap|max|autonomie|council|dev[- ]?bridge|dev[- ]?executor|mentor)\b|pont\s+(?:local\s+|de\s+)?d[ée]veloppement/i.test(value);
+  return approvedJob && execute && autonomous ? { id: 'autonomy.tick', input: {} } : null;
+}
+
 /** "mode MAX" / "MAX" (upper case) names MEL's autonomous self-development. */
 export function isMaxModeMention(text) {
   const value = String(text || '');
@@ -219,6 +230,8 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
     routeDeterministic(body, selfStateFirst, 'SELF_STATE');
   } else if (persistentKnowledgeFirst) {
     routeDeterministic(body, knowledgeFirst, 'KNOWLEDGE');
+  } else if (inferApprovedAutonomyExecutionIntent(text)) {
+    routeDeterministic(body, { id: 'autonomy.tick', input: {} }, 'AUTONOMY_CONTROL');
   } else if (isEvolutionDevelopmentIntent(text)) {
     body.capability = enqueueCapability(text, body, requestKey);
     body.intent_routing = { mode: 'deterministic', intent: 'DEVELOPMENT', confidence: 1 };
