@@ -1,0 +1,44 @@
+# GPT6 (2026-10-21): temporary read-only evidence for two existing MEL-FOUNDER-02 jobs.
+# No status update, claim, mutation, deployment, or secrets in logs.
+name: GPT6 FOUNDER-02 read-only D1 proof
+on:
+  push:
+    branches:
+      - gpt6/founder02-readonly-d1-20261021
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact dependencies
+        run: npm ci
+      - name: Query only the two approved mission diagnostics
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute DB --remote --json \
+            --command "SELECT id,status,updated_at,error,json_extract(result_json,'$.teacher_bridge.status') AS teacher_state,json_extract(result_json,'$.teacher_bridge.review.verdict') AS teacher_verdict,json_extract(result_json,'$.implementation_planning_diagnostic.status') AS impl_diagnostic_status,json_extract(result_json,'$.implementation_planning_diagnostic.code') AS impl_code,json_extract(result_json,'$.implementation_proposal.status') AS impl_status,json_extract(result_json,'$.bridge_preparation_diagnostic.status') AS bridge_diagnostic_status,json_extract(result_json,'$.bridge_preparation_diagnostic.code') AS bridge_code,json_extract(result_json,'$.bridge_preparation.status') AS bridge_package_status,json_extract(result_json,'$.bridge_preparation.candidate_sha') AS bridge_base_sha,json_extract(result_json,'$.dev_bridge.status') AS executor_state,json_array_length(COALESCE(files_json,'[]')) AS file_count,json_array_length(COALESCE(tests_json,'[]')) AS test_count FROM dev_jobs WHERE id IN ('mel-autonomy-mel-founder-02-e1792579058089-1','mel-autonomy-mel-founder-02-e1792579058089-2') ORDER BY id" > diag.raw.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const raw=JSON.parse(fs.readFileSync('diag.raw.json','utf8'));
+          const chunks=Array.isArray(raw)?raw:[raw];
+          const rows=chunks.flatMap(chunk=>Array.isArray(chunk?.results)?chunk.results:[]);
+          if(!rows.length) throw new Error('GPT6_FOUNDER_02_ROWS_NOT_FOUND');
+          for(const row of rows){
+            const allowed=['id','status','updated_at','error','teacher_state','teacher_verdict','impl_diagnostic_status','impl_code','impl_status','bridge_diagnostic_status','bridge_code','bridge_package_status','bridge_base_sha','executor_state','file_count','test_count'];
+            const safe=Object.fromEntries(allowed.map(k=>[k,row[k]??null]));
+            console.log('GPT6_FOUNDER_02_DIAGNOSTIC='+JSON.stringify(safe));
+          }
+          NODE
