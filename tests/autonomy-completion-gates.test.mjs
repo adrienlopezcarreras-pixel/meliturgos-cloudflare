@@ -230,3 +230,15 @@ test('VERIFY_EXISTING runs the plan production reads and gives only their outcom
     assert.match(seen[0], /gmail\.messages\.search : OK/);
   } finally { DB.close(); }
 });
+
+test('VERIFY_EXISTING closes only on successful production reads matching the objective', async () => {
+  const { requiredLiveChecks, liveProofGate } = await import('../src/evolution/verify-existing-live-checks.js');
+  const goal = 'Prouver en production une lecture Gmail, une lecture Agenda et une lecture Drive';
+  const required = requiredLiveChecks(goal, 'DECISION: VERIFY_EXISTING\nLIVE_CHECKS:');
+  assert.deepEqual(required, ['gmail.messages.search', 'calendar.events.read', 'drive.files.list'], 'the plan cannot drop a read the objective names');
+  const ok = id => ({ capability: id, ok: true });
+  assert.equal(liveProofGate(required, required.map(ok)).ok, true);
+  assert.equal(liveProofGate(required, [ok('gmail.messages.search'), ok('calendar.events.read')]).code, 'VERIFY_EXISTING_LIVE_CHECK_FAILED:drive.files.list:NOT_RUN');
+  assert.equal(liveProofGate(required, [...required.slice(0, 2).map(ok), { capability: 'drive.files.list', ok: false, code: 'GOOGLE_AUTH_REQUIRED' }]).code, 'VERIFY_EXISTING_LIVE_CHECK_FAILED:drive.files.list:GOOGLE_AUTH_REQUIRED');
+  assert.equal(liveProofGate([], []).code, 'VERIFY_EXISTING_NO_FUNCTIONAL_PROOF', 'a green CI alone never closes VERIFY_EXISTING');
+});
