@@ -1,0 +1,46 @@
+# GPT6 2026-10-21: One-shot, read-only MAX lease / FOUNDER job evidence.
+name: GPT6 MAX lease read-only evidence
+on:
+  push:
+    branches: [gpt6/readonly-max-lease-state-20261021]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout fixed sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Read lease and recent job status only
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute DB --remote --json --command "SELECT bridge_id,status,last_seen,json_extract(metadata_json,'$.acquired_at') as acquired_at,json_extract(metadata_json,'$.expires_at') as expires_at FROM dev_bridge_state WHERE bridge_id='runtime-lease:autonomy-heartbeat' OR bridge_id LIKE 'local-dev-%' ORDER BY last_seen DESC LIMIT 5" > lease.raw.json
+          npx wrangler d1 execute DB --remote --json --command "SELECT id,status,updated_at,json_extract(result_json,'$.teacher_bridge.status') as teacher_status,json_extract(result_json,'$.implementation_proposal.status') as implementation_status,json_extract(result_json,'$.implementation_planning_diagnostic.code') as implementation_code,json_extract(result_json,'$.bridge_preparation.status') as bridge_status,json_extract(result_json,'$.bridge_preparation_diagnostic.code') as bridge_code,json_extract(result_json,'$.dev_bridge.status') as executor_status,json_array_length(COALESCE(files_json,'[]')) as file_count,json_array_length(COALESCE(tests_json,'[]')) as test_count FROM dev_jobs WHERE (id LIKE 'mel-autonomy-mel-founder-%' OR status IN ('CLAIMED','READY_FOR_REVIEW')) ORDER BY updated_at DESC LIMIT 20" > jobs.raw.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          function rows(file){
+            const t=JSON.parse(fs.readFileSync(file,'utf8'));
+            return (Array.isArray(t)?t:[t]).flatMap(a=>Array.isArray(a.results)?a.results:[]);
+          }
+          const now=Date.now();
+          console.log('GPT6_LEASE_NOW_MS='+now);
+          for(const x of rows('lease.raw.json')){
+            // Owner identifiers and free-form metadata are deliberately excluded.
+            const safe={kind:x.bridge_id==='runtime-lease:autonomy-heartbeat'?'AUTONOMY_RUNTIME_LEASE':'LOCAL_BRIDGE',status:String(x.status||'').startsWith('LEASED:')?'LEASED':x.status||null,last_seen:x.last_seen,acquired_at:x.acquired_at,expires_at:x.expires_at,remaining_ms:Number(x.last_seen||0)-now};
+            console.log('GPT6_LEASE='+JSON.stringify(safe));
+          }
+          for(const x of rows('jobs.raw.json')){
+            console.log('GPT6_JOB='+JSON.stringify(x));
+          }
+          NODE
