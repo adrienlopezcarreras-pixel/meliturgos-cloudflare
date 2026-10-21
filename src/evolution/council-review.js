@@ -247,12 +247,11 @@ export async function reviewVerificationEvidence(env, { job, implementation, ciR
     await env.DB.prepare(`UPDATE dev_jobs SET result_json=json_set(COALESCE(result_json,'{}'),'$.council_review',json(?)), error=?, status=CASE WHEN status='TEACHER_APPROVED' THEN 'FAILED' ELSE status END, updated_at=? WHERE id=?`)
       .bind(JSON.stringify({ decision: result.decision, head, mode: 'VERIFY_EXISTING', objections, reviewed_at: now }), ('COUNCIL_REJECTED_VERIFY_EXISTING: ' + objections.join(' | ')).slice(0, 900), now, job.id)
       .run().catch(() => {});
-  } else if (result.decision === OWNER_APPROVAL_REQUIRED || result.decision === COUNCIL_UNAVAILABLE) {
-    // Waiting on the owner is a passive lane (READY_FOR_REVIEW); no reviewer at
-    // all sets the job aside (FAILED, retried later). Either way MEL moves on.
-    const waiting = result.decision === OWNER_APPROVAL_REQUIRED;
+  } else if (result.decision === OWNER_APPROVAL_REQUIRED) {
+    // [Codex] An unavailable Council leaves the active job resumable; the
+    // runtime records its bounded verification wait after this review.
     await env.DB.prepare(`UPDATE dev_jobs SET result_json=json_set(COALESCE(result_json,'{}'),'$.council_review',json(?)), error=?, status=CASE WHEN status='TEACHER_APPROVED' THEN ? ELSE status END, updated_at=? WHERE id=?`)
-      .bind(JSON.stringify({ decision: result.decision, head, mode: 'VERIFY_EXISTING', key, reviewed_at: now }), waiting ? null : COUNCIL_UNAVAILABLE, waiting ? 'READY_FOR_REVIEW' : 'FAILED', now, job.id)
+      .bind(JSON.stringify({ decision: result.decision, head, mode: 'VERIFY_EXISTING', key, reviewed_at: now }), null, 'READY_FOR_REVIEW', now, job.id)
       .run().catch(() => {});
   }
   return record;

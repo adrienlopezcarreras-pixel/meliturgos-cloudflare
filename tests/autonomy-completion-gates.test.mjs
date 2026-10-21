@@ -197,7 +197,22 @@ test('a VERIFY_EXISTING decision is completed once the Council approved its evid
     });
     assert.equal(result.completed.length, 1, JSON.stringify(result.rejected));
     assert.equal((await repository.get(JOB)).status, 'COMPLETED');
+    assert.equal((await repository.get(JOB)).result_json.verify_existing.objective_assessment, 'ALREADY_IMPLEMENTED_VERIFIED');
   } finally { DB.close(); }
+});
+
+test('an external completion cannot certify VERIFY_EXISTING without its real persisted Council decision', async () => {
+  const repository = await approvedRepository();
+  const job = await repository.get(JOB);
+  await repository.update(JOB, { result_json: { ...job.result_json, implementation_proposal: {
+    ...job.result_json.implementation_proposal, status: 'VERIFY_EXISTING', decision: 'VERIFY_EXISTING',
+  } } });
+  const result = await reconcileRuntimeCompletions({ repository,
+    env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH }, fetchImpl: fetchImplFor(),
+  });
+  assert.equal(result.completed.length, 0);
+  assert.equal(result.rejected[0].code, 'COMPLETION_VERIFICATION_COUNCIL_REQUIRED');
+  assert.equal((await repository.get(JOB)).status, 'TEACHER_APPROVED');
 });
 
 test('VERIFY_EXISTING runs the plan production reads and gives only their outcome to the Council', async () => {
