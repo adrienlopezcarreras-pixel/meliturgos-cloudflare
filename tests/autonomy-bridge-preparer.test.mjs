@@ -346,3 +346,29 @@ test('real MentorEngine rejection propagates exact failure codes without persist
     assert.equal(observations.count, 0);
   } finally { DB.close(); }
 });
+
+// CODEX: a long Mentor request cannot replace an executor-owned package.
+test('stale Mentor package cannot overwrite files or receipt after executor claim', async () => {
+  const db = sqliteD1();
+  try {
+    const repository = await approvedRepository(db);
+    const job = await repository.get('bridge-prep-job');
+    let entered;
+    const started = new Promise(resolve => { entered = resolve; });
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    const mentor = mentorEngine([]);
+    const propose = mentor.propose;
+    mentor.propose = async input => { entered(); await gate; return propose(input); };
+    const pending = prepareApprovedBridgePackage({ env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH }, repository, job, fetchImpl: fetchImpl(), mentorEngine: mentor });
+    await started;
+    const receipt = { ...job.result_json, dev_bridge: { status: 'FAILED', error: 'EXECUTOR_TEST_FAILED' } };
+    await repository.update(job.id, { status: 'FAILED', files_json: [{ path: 'src/owned.js', content: 'owned' }], result_json: receipt });
+    release();
+    await assert.rejects(pending, { code: 'JOB_UPDATE_CONFLICT' });
+    const persisted = await repository.get(job.id);
+    assert.equal(persisted.status, 'FAILED');
+    assert.deepEqual(persisted.result_json, receipt);
+    assert.deepEqual(persisted.files_json, [{ path: 'src/owned.js', content: 'owned' }]);
+  } finally { db.close(); }
+});

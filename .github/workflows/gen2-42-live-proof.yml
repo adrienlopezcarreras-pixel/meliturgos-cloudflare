@@ -79,7 +79,7 @@ jobs:
 
           # CODEX: correlate the claimed job with bounded durable ledger metadata.
           npx wrangler d1 execute DB --remote --json \
-            --command "SELECT seq,evolution_id,stage,status,actor,source_sha,branch,occurred_at,json_extract(evidence_json,'$.previous_status') AS previous_status,json_extract(evidence_json,'$.next_status') AS next_status,json_extract(evidence_json,'$.changed_fields') AS changed_fields,json_extract(evidence_json,'$.bridge_status') AS bridge_status,json_extract(evidence_json,'$.dev_bridge_status') AS bridge_result_status FROM evolution_ledger WHERE evolution_id='mel-autonomy-mel-founder-07-e1792579058089-3' ORDER BY seq DESC LIMIT 30" \
+            --command "SELECT seq,evolution_id,stage,status,actor,source_sha,branch,occurred_at,json_extract(evidence_json,'$.error') AS error,json_extract(evidence_json,'$.previous_status') AS previous_status,json_extract(evidence_json,'$.next_status') AS next_status,json_extract(evidence_json,'$.changed_fields') AS changed_fields,json_extract(evidence_json,'$.bridge_status') AS bridge_status,json_extract(evidence_json,'$.dev_bridge_status') AS bridge_result_status FROM evolution_ledger WHERE evolution_id='mel-autonomy-mel-founder-07-e1792579058089-3' ORDER BY seq DESC LIMIT 30" \
             > bridge-events.raw.json
 
           # CODEX: observe ownership and durable job transitions; never acquire,

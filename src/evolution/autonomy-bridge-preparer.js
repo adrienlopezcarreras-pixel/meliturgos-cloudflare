@@ -233,7 +233,7 @@ export async function prepareApprovedBridgePackage({
     tests_json: tests,
     patch_json: patch,
     result_json: result,
-  });
+  }, { expected: current });
   return updated.result_json.bridge_preparation;
 }
 

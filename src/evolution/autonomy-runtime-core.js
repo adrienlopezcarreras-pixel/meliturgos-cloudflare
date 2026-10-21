@@ -140,7 +140,7 @@ async function persistImplementationDiagnostic(repository, jobId, diagnostic) {
   };
   if (sameDiagnostic(result.implementation_planning_diagnostic, next)) return latest;
   result.implementation_planning_diagnostic = next;
-  return repository.update(jobId, { result_json: result });
+  return repository.update(jobId, { result_json: result }, { expected: latest });
 }
 
 async function requeueStaleTeacherApproval(repository, jobId, diagnosticCode) {
@@ -209,7 +209,7 @@ async function persistBridgePreparationDiagnostic(repository, jobId, diagnostic)
   };
   if (sameDiagnostic(result.bridge_preparation_diagnostic, next)) return latest;
   result.bridge_preparation_diagnostic = next;
-  return repository.update(jobId, { result_json: result });
+  return repository.update(jobId, { result_json: result }, { expected: latest });
 }
 
 function deployedInspectionSha(env = {}) {
