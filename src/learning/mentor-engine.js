@@ -7,6 +7,12 @@ import { sanitizeInferenceSettings } from './inference-adaptation.js';
 const MAX_FILES = 8;
 const MAX_FILE_CHARS = 45_000;
 const MAX_TOTAL_SOURCE_CHARS = 150_000;
+// Prompt budgets. Edits are applied on the complete inspected file; a model only
+// sees a bounded excerpt. The paired PC refuses any message above 12 000 chars
+// (SOVEREIGNTY_AI_MESSAGE_TOO_LARGE) and 150 000-char prompts time out in the cloud.
+const DEFAULT_PROMPT_CHARS = 40_000;
+const COMPANION_PROMPT_CHARS = 11_500;
+const MEMORY_PROMPT_CHARS = 3_000;
 const MAX_CHANGES = 10;
 const LONG_FILE_CHARS = 4000;
 const MAX_CHANGE_CHARS = 200_000;
@@ -153,8 +159,8 @@ function normalizeInspectedFiles(files = []) {
     if (out.length >= MAX_FILES || total >= MAX_TOTAL_SOURCE_CHARS) break;
     const path = safeInspectionPath(item?.path);
     const remaining = MAX_TOTAL_SOURCE_CHARS - total;
-    const content = bounded(item?.content ?? item?.result?.content ?? '', Math.min(MAX_FILE_CHARS, remaining));
-    total += content.length;
+    const content = bounded(item?.content ?? item?.result?.content ?? '', MAX_CHANGE_CHARS);
+    total += Math.min(content.length, MAX_FILE_CHARS, remaining);
     out.push({ path, content });
   }
   return out;
@@ -267,7 +273,29 @@ function scoreProposal(proposal) {
 }
 
 function sourceBlock(files) {
-  return files.map(file => `\n===== FILE ${file.path} =====\n${file.content}\n===== END ${file.path} =====`).join('\n');
+  return files.map(file => `\n===== FILE ${file.path} =====\n${file.excerpt ?? file.content}\n===== END ${file.path} =====`).join('\n');
+}
+
+function promptLimit(provider) {
+  const explicit = Number(provider?.maxInputChars);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  return provider?.providerId === 'local-companion-ai' ? COMPANION_PROMPT_CHARS : DEFAULT_PROMPT_CHARS;
+}
+
+// Fit the prompt to one provider: the frame is kept, sources share the rest.
+function promptWithinLimit(build, files, limit) {
+  const frame = build([]).length;
+  let budget = Math.max(0, Math.min(MAX_TOTAL_SOURCE_CHARS, limit - frame - 120 * files.length));
+  const excerpts = files.map((file, index) => {
+    const share = Math.min(MAX_FILE_CHARS, Math.floor(budget / (files.length - index)));
+    const visible = file.content.slice(0, share);
+    budget -= visible.length;
+    const excerpt = visible.length < file.content.length
+      ? `${visible}\n[EXTRAIT TRONQUÉ: ${file.content.length} caractères au total. Modifie ce fichier par edits avec un find copié de cet extrait.]`
+      : visible;
+    return { ...file, excerpt };
+  });
+  return bounded(build(excerpts), limit);
 }
 
 function buildRepairPrompt({ goal, files, raw, failure, mode }) {
@@ -326,10 +354,10 @@ function buildPrompt({ role, goal, files, lessons, experiences, previousAttempts
     'Privilégie une modification petite, cohérente et testable qui fait avancer réellement l’objectif.',
     'Un import doit déjà exister : chemin relatif présent dans SOURCES INSPECTÉES, ou dépendance déjà déclarée. N’invente pas un module absent (googleapis, un ../ qui n’existe pas).',
     'OBJECTIF UTILISATEUR:', bounded(goal, 12_000),
-    'LEÇONS MÉMORISÉES VALIDÉES/OPÉRATIONNELLES DU MENTOR:', JSON.stringify(lessons || []),
-    'EXPÉRIENCES VALIDÉES:', JSON.stringify(experiences?.validated || []),
-    'OBSERVATIONS ACQUISES NON VALIDÉES — HYPOTHÈSES/SIGNAUX UNIQUEMENT, NE JAMAIS LES TRAITER COMME DES FAITS:', JSON.stringify(experiences?.observations || []),
-    'TENTATIVES/ERREURS PRÉCÉDENTES:', JSON.stringify(previousAttempts || []),
+    'LEÇONS MÉMORISÉES VALIDÉES/OPÉRATIONNELLES DU MENTOR:', bounded(JSON.stringify(lessons || []), MEMORY_PROMPT_CHARS),
+    'EXPÉRIENCES VALIDÉES:', bounded(JSON.stringify(experiences?.validated || []), MEMORY_PROMPT_CHARS),
+    'OBSERVATIONS ACQUISES NON VALIDÉES — HYPOTHÈSES/SIGNAUX UNIQUEMENT, NE JAMAIS LES TRAITER COMME DES FAITS:', bounded(JSON.stringify(experiences?.observations || []), MEMORY_PROMPT_CHARS),
+    'TENTATIVES/ERREURS PRÉCÉDENTES:', bounded(JSON.stringify(previousAttempts || []), MEMORY_PROMPT_CHARS),
     'SOURCES INSPECTÉES:', sourceBlock(files),
   ].join('\n');
 }
@@ -431,7 +459,11 @@ export class MentorEngine {
         const active = learned.activeAdapter;
         const lora = active?.base_model === provider.modelId ? active?.adapter?.id : null;
         return boundedMentorInvoke(provider, {
-          input: buildPrompt({ role: roles[(offset + index) % roles.length], goal: objective, files, lessons: remembered, experiences, previousAttempts, mode }),
+          input: promptWithinLimit(
+            visible => buildPrompt({ role: roles[(offset + index) % roles.length], goal: objective, files: visible, lessons: remembered, experiences, previousAttempts, mode }),
+            files,
+            promptLimit(provider),
+          ),
           context: {
             purpose: 'mel-autonomous-development',
             job_id: jobId || null,
@@ -469,7 +501,11 @@ export class MentorEngine {
         const repaired = await Promise.allSettled(repairInputs.map(({ provider, raw, failure }) => {
           const lora = active?.base_model === provider.modelId ? active?.adapter?.id : null;
           return boundedMentorInvoke(provider, {
-            input: buildRepairPrompt({ goal: objective, files, raw, failure, mode }),
+            input: promptWithinLimit(
+              visible => buildRepairPrompt({ goal: objective, files: visible, raw: bounded(raw, Math.floor(promptLimit(provider) / 3)), failure, mode }),
+              files,
+              promptLimit(provider),
+            ),
             context: {
               purpose: 'mel-autonomous-development-structured-repair',
               job_id: jobId || null,
