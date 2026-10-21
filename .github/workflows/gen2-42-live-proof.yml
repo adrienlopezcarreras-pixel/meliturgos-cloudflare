@@ -72,6 +72,11 @@ jobs:
             --command "SELECT status,last_seen,json_extract(metadata_json,'$.paused') AS paused,json_extract(metadata_json,'$.max_autonomy') AS max_autonomy,json_extract(metadata_json,'$.launch_approved_sha') AS launch_approved_sha,json_extract(metadata_json,'$.launch_approved_at') AS launch_approved_at FROM dev_bridge_state WHERE bridge_id='mel-autonomy-control'" \
             > autonomy-control.raw.json
 
+          # CODEX: identify only metadata for the precise launch-review blocker.
+          npx wrangler d1 execute DB --remote --json \
+            --command "SELECT id,status,updated_at,error,json_extract(optional_context,'$.roadmap_id') AS roadmap_id FROM dev_jobs WHERE requested_by='mel-autonomy' AND status='FAILED' AND COALESCE(json_extract(optional_context,'$.roadmap_id'),'')='' ORDER BY updated_at DESC LIMIT 100" \
+            > unscoped-failures.raw.json
+
           # CODEX: observe ownership and durable job transitions; never acquire,
           # release, delete or renew a lease from this read-only diagnostic.
           for SAMPLE in 0 1 2; do
@@ -287,6 +292,7 @@ jobs:
               'generated_at': datetime.now(timezone.utc).isoformat(),
               'candidate_sha': os.environ.get('GITHUB_SHA'),
               'runtime_samples': runtime_samples,
+              'unscoped_failed_jobs': [safe_runtime_row(row) for row in load_rows('unscoped-failures.raw.json')],
               'proof_status': proof_status,
               'watch': {
                   'run_count': int(watch_state.get('run_count') or 0),
@@ -337,6 +343,7 @@ jobs:
                   'diagnostic_source_sha': os.environ.get('GITHUB_SHA'),
               },
               'runtime_samples': runtime_samples,
+              'unscoped_failed_jobs': [safe_runtime_row(row) for row in load_rows('unscoped-failures.raw.json')],
               'ecosystem_job_summaries': ecosystem_jobs[:40],
               'active_handoff_summaries': [
                   {
