@@ -47,10 +47,17 @@ try {
   Ensure-DevExecutor
   Assert ($null -eq $script:DevExecutorProcess) 'FIRST_LAUNCH_MUST_NOT_ENABLE'
   Show-MelTrayPanel
+  [Windows.Forms.Application]::DoEvents()
   Assert $script:MelPanel.Visible 'PANEL_NOT_MODELESS'
   $buttons = @($script:MelPanel.Controls | Where-Object { $_ -is [Windows.Forms.Button] })
   ($buttons | Where-Object Text -eq "Démarrer l'exécuteur").PerformClick()
-  Assert ($null -ne $script:DevExecutorProcess) 'START_BUTTON_NO_PROCESS'
+  if ($null -eq $script:DevExecutorProcess) {
+    $buttonCode = $script:DevExecutorCode
+    # Disposable fixture only: surface a swallowed UI exception to diagnose the
+    # actual failure, without ever reading a production secret or log.
+    try { Invoke-DevExecutorControl Start } catch { throw ('START_BUTTON_FAILED:' + $buttonCode + ':' + $_.Exception.Message) }
+    throw ('START_BUTTON_NO_PROCESS:' + $buttonCode + ':' + $script:DevExecutorCode)
+  }
   $firstPid = $script:DevExecutorProcess.Id
   $deadline = (Get-Date).AddSeconds(8)
   do { Start-Sleep -Milliseconds 150; $view = Get-DevExecutorDisplay } while ($view.state -ne 'En ligne' -and (Get-Date) -lt $deadline)
