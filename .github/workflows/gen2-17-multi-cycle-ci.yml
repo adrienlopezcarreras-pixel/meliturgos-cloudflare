@@ -60,6 +60,9 @@ jobs:
           tests/autonomy-runtime.test.mjs
           tests/autonomy-completion-gates.test.mjs
           tests/autonomy-supervisor.test.mjs
+          tests/autonomy-implementation-planner.test.mjs
+          tests/owner-chat-roadmap-id.test.mjs
+          tests/gen2/self-audit-supervisor.test.mjs
           tests/evolution-proof-runner.test.mjs
           tests/release-launch-bootstrap.test.mjs
           tests/gen2/github-actions-oidc.test.mjs
