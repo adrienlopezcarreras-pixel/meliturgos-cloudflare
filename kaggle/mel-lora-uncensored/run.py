@@ -148,6 +148,88 @@ def find_base_model() -> Path:
             return root
     raise SystemExit("KAGGLE_MISTRAL_BASE_MODEL_NOT_FOUND")
 
+def stage_base_model(source: Path) -> Path:
+    """Copy offline Mistral weights from Kaggle's mounted dataset to local disk.
+
+    GPT-6 / LORA-C004-20261021: mounted FP16 shards loaded at only 45% in
+    one hour. Keep the identical pinned weights and parent adapter.
+    """
+    destination = WORK / "mel-base-model-local"
+    if destination.exists():
+        shutil.rmtree(destination)
+
+    supported = {".safetensors", ".json", ".model", ".txt", ".tiktoken", ".vocab"}
+    files = sorted(
+        (p for p in source.rglob("*")
+         if p.is_file() and (p.suffix.lower() in supported or p.name.startswith("merges"))),
+        key=lambda p: str(p.relative_to(source)),
+    )
+    weights = [p for p in files if p.suffix.lower() == ".safetensors"]
+    if not weights or not (source / "config.json").is_file() or not (source / "tokenizer_config.json").is_file():
+        raise SystemExit("KAGGLE_BASE_MODEL_STAGE_SOURCE_INCOMPLETE")
+    index_path = source / "model.safetensors.index.json"
+    shards = set()
+    if index_path.is_file():
+        shards = set(json.loads(index_path.read_text(encoding="utf-8")).get("weight_map", {}).values())
+        if not shards or any(not (source / name).is_file() for name in shards):
+            raise SystemExit("KAGGLE_BASE_MODEL_STAGE_INDEX_INCOMPLETE")
+
+    required_bytes = sum(p.stat().st_size for p in files)
+    free_bytes = shutil.disk_usage(WORK).free
+    reserve_bytes = max(1024 ** 3, required_bytes // 10)
+    print(json.dumps({
+        "mel_base_model_stage": "PRECHECK",
+        "source": str(source),
+        "required_bytes": required_bytes,
+        "free_bytes": free_bytes,
+        "reserve_bytes": reserve_bytes,
+        "weight_shards": len(weights),
+    }), flush=True)
+    if required_bytes + reserve_bytes > free_bytes:
+        raise SystemExit("KAGGLE_BASE_MODEL_STAGING_INSUFFICIENT_DISK")
+
+    destination.mkdir(parents=True, exist_ok=False)
+    progress_step_bytes = 256 * 1024 * 1024
+    for item in files:
+        relative = item.relative_to(source)
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        expected = item.stat().st_size
+        print("MEL_BASE_MODEL_STAGE " + json.dumps({
+            "file": str(relative), "status": "COPYING", "expected_bytes": expected
+        }), flush=True)
+        copied = 0
+        next_report = progress_step_bytes
+        with item.open("rb") as src, target.open("wb") as dst:
+            while True:
+                block = src.read(8 * 1024 * 1024)
+                if not block:
+                    break
+                dst.write(block)
+                copied += len(block)
+                if copied >= next_report:
+                    print("MEL_BASE_MODEL_STAGE " + json.dumps({
+                        "file": str(relative), "status": "PROGRESS",
+                        "copied_bytes": copied, "expected_bytes": expected,
+                    }), flush=True)
+                    next_report = copied + progress_step_bytes
+        if copied != expected or target.stat().st_size != expected:
+            raise SystemExit("KAGGLE_BASE_MODEL_STAGE_COPY_INCOMPLETE:" + str(relative))
+        print("MEL_BASE_MODEL_STAGE " + json.dumps({
+            "file": str(relative), "status": "COMPLETE", "copied_bytes": copied
+        }), flush=True)
+    for shard in shards:
+        if not (destination / shard).is_file():
+            raise SystemExit("KAGGLE_BASE_MODEL_STAGE_SHARD_MISSING:" + shard)
+    print(json.dumps({
+        "mel_base_model_stage": "READY",
+        "path": str(destination),
+        "files": len(files),
+        "total_bytes": required_bytes,
+    }), flush=True)
+    return destination
+
+
 def require_kaggle_gpu():
     import os
     try:
@@ -433,7 +515,7 @@ def main():
 
     require_kaggle_gpu()
     ensure_dependencies()
-    base_model = find_base_model()
+    base_model = stage_base_model(find_base_model())
     print(json.dumps({
         "offline": True,
         "source_sha": TARGET_SHA,
