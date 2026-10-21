@@ -20,6 +20,7 @@ test('pipeline shows where a MAX job stands', () => {
   assert.equal(job.origin, 'veille des capacités');
   assert.equal(job.idle_minutes, 10);
   assert.equal(job.candidate.branch, 'candidate/mel-clean-autonomy');
+  assert.doesNotMatch(job.status_text, /code écrit puis paquet préparé/);
 });
 
 test('repeated identical ledger updates are folded', () => {

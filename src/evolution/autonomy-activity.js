@@ -57,7 +57,7 @@ const STATUS_TEXT = Object.freeze({
   QUEUED: 'En file : attend que le cycle minute le choisisse.',
   PLANNING: 'Plan en cours d’écriture par le conseil de modèles.',
   WAITING_TEACHER: 'Plan écrit, attend la validation (MAX la donne automatiquement).',
-  TEACHER_APPROVED: 'Plan validé ; code écrit puis paquet préparé pour le pont cloud.',
+  TEACHER_APPROVED: 'Plan approuvé ; implémentation ou vérification du code à confirmer.',
   CLAIMED: 'Pris en charge : exécuteur et application sur la candidate à confirmer.',
   APPLIED: 'Appliqué sur la candidate ; tests en cours.',
   TESTING: 'Tests de la candidate en cours.',
