@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { prepareApprovedImplementationProposal, inspectionGoalTerms } from '../src/evolution/autonomy-implementation-planner.js';
@@ -6,8 +7,8 @@ import { prepareApprovedImplementationProposal, inspectionGoalTerms } from '../s
 const HEAD_SHA = '1111111111111111111111111111111111111111';
 const NEW_HEAD_SHA = '2222222222222222222222222222222222222222';
 
-function fixture({ headSequence = [HEAD_SHA], headUnavailable = false } = {}) {
-  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+function fixture({ headSequence = [HEAD_SHA], headUnavailable = false, db = null } = {}) {
+  const repository = new D1DevJobRepository(db, { memoryStore: new Map() });
   const aiCalls = [];
   let headReads = 0;
   const env = {
@@ -401,4 +402,57 @@ test('GPT6: no model can certify unprovable VERIFY_EXISTING as a Bridge-ready pl
   const after = await f.repository.get(job.id);
   assert.equal(after.status, 'TEACHER_APPROVED');
   assert.equal(after.result_json.implementation_proposal, undefined);
+});
+
+// CODEX: reproduce a long model call overlapping a real D1 executor result.
+test('stale implementation cannot erase a claimed package or resurrect its failed executor result', async () => {
+  const db = sqliteD1();
+  try {
+    const f = fixture({ db });
+    const job = await approvedJob(f.repository);
+    let entered;
+    const started = new Promise(resolve => { entered = resolve; });
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    const run = f.env.AI.run;
+    f.env.AI.run = async (...args) => { entered(); await gate; return run(...args); };
+    const pending = prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl });
+    await started;
+    const ready = { ...job.result_json, bridge_preparation: { status: 'READY', teacher_request_id: 'approved-request' } };
+    await f.repository.update(job.id, { status: 'CLAIMED', result_json: ready });
+    const receipt = { ...ready, dev_bridge: { status: 'FAILED', error: 'REAL_TEST_FAILED', tests: [{ passed: false, exit_code: 1 }] } };
+    await f.repository.update(job.id, { status: 'FAILED', result_json: receipt });
+    release();
+    await assert.rejects(pending, { code: 'JOB_UPDATE_CONFLICT' });
+    const persisted = await f.repository.get(job.id);
+    assert.equal(persisted.status, 'FAILED');
+    assert.deepEqual(persisted.result_json, receipt);
+  } finally { db.close(); }
+});
+
+test('D1 update rejects a concurrent executor write between read and SQL update', async () => {
+  const db = sqliteD1();
+  try {
+    const repository = new D1DevJobRepository(db);
+    const job = await repository.create({ id: 'race-at-write', goal: 'isolated race proof' });
+    const prepare = db.prepare.bind(db);
+    let intercept = true;
+    db.prepare = sql => {
+      const statement = prepare(sql);
+      if (sql.startsWith('UPDATE dev_jobs SET updated_at=') && intercept) {
+        const run = statement.run.bind(statement);
+        statement.run = async () => {
+          intercept = false;
+          await prepare('UPDATE dev_jobs SET status=?,result_json=? WHERE id=?')
+            .bind('FAILED', JSON.stringify({ dev_bridge: { status: 'FAILED', error: 'EXECUTOR_FAILED' } }), job.id).run();
+          return run();
+        };
+      }
+      return statement;
+    };
+    await assert.rejects(repository.update(job.id, { status: 'CLAIMED', result_json: { diagnostic: 'stale' } }), { code: 'JOB_UPDATE_CONFLICT' });
+    const persisted = await repository.get(job.id);
+    assert.equal(persisted.status, 'FAILED');
+    assert.equal(persisted.result_json.dev_bridge.error, 'EXECUTOR_FAILED');
+  } finally { db.close(); }
 });

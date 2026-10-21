@@ -545,6 +545,6 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
 
   const result = current.result_json && typeof current.result_json === 'object' ? { ...current.result_json } : {};
   result.implementation_proposal = proposal;
-  const updated = await repository.update(current.id, { result_json: result });
+  const updated = await repository.update(current.id, { result_json: result }, { expected: current });
   return updated.result_json.implementation_proposal;
 }
