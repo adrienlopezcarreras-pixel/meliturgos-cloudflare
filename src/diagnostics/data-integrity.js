@@ -2,7 +2,9 @@ import { DB_SCHEMA_VERSION } from '../core/config.js';
 import { MIGRATIONS } from '../persistence/migrations.js';
 
 const MAX_SAMPLES = 10;
-const REQUIRED_TABLE_CONTRACT_VERSION = 19;
+// CODEX: migration 20 only reconciles one dev_jobs metadata record; the
+// reviewed table inventory below remains complete and unchanged.
+const REQUIRED_TABLE_CONTRACT_VERSION = 20;
 const REQUIRED_MIGRATION_TABLES = Object.freeze([
   'schema_migrations',
   'conversations',
