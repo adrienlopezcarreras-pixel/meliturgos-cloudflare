@@ -199,3 +199,34 @@ test('a VERIFY_EXISTING decision is completed once the Council approved its evid
     assert.equal((await repository.get(JOB)).status, 'COMPLETED');
   } finally { DB.close(); }
 });
+
+test('VERIFY_EXISTING runs the plan production reads and gives only their outcome to the Council', async () => {
+  const { requestedLiveChecks, runLiveChecks } = await import('../src/evolution/verify-existing-live-checks.js');
+  const plan = 'DECISION: VERIFY_EXISTING\nLIVE_CHECKS: gmail.messages.search, calendar.events.read, drive.files.list, gmail.messages.send';
+  assert.deepEqual(requestedLiveChecks(plan), ['gmail.messages.search', 'calendar.events.read', 'drive.files.list'], 'only read-only checks');
+  const executed = [];
+  const createRuntime = async () => ({ bus: { async execute(id, input) {
+    executed.push({ id, input });
+    if (id === 'drive.files.list') throw Object.assign(new Error('x'), { code: 'GOOGLE_AUTH_REQUIRED' });
+    return { messages: [{ subject: 'private-subject' }], events: [] };
+  } } });
+  const checks = await runLiveChecks({}, requestedLiveChecks(plan), { createRuntime });
+  assert.equal(executed.length, 3);
+  assert.equal(executed[0].input.limit, 1);
+  assert.deepEqual(checks.map(c => [c.capability, c.ok, c.code]), [
+    ['gmail.messages.search', true, null], ['calendar.events.read', true, null], ['drive.files.list', false, 'GOOGLE_AUTH_REQUIRED'],
+  ]);
+  assert.doesNotMatch(JSON.stringify(checks), /private-subject/);
+
+  const { reviewVerificationEvidence } = await import('../src/evolution/council-review.js');
+  const { sqliteD1 } = await import('./helpers/sqlite-d1.mjs');
+  const DB = sqliteD1();
+  try {
+    await DB.prepare('CREATE TABLE dev_bridge_state(bridge_id TEXT PRIMARY KEY, last_seen INTEGER, status TEXT, metadata_json TEXT)').run();
+    const seen = [];
+    const review = async (_env, input) => { seen.push(input.diff); return { decision: 'REJECTED', reviews: [] }; };
+    await reviewVerificationEvidence({ DB }, { job: { id: JOB, goal: 'x' }, implementation: { candidate_sha: SHA, selected: { text: plan } }, ciRunId: 4242, liveChecks: checks, review });
+    assert.match(seen[0], /drive\.files\.list : ÉCHEC GOOGLE_AUTH_REQUIRED/);
+    assert.match(seen[0], /gmail\.messages\.search : OK/);
+  } finally { DB.close(); }
+});

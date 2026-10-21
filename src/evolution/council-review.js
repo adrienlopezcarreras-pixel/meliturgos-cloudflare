@@ -211,7 +211,7 @@ export async function pendingOwnerCouncilApprovals(env) {
 // VERIFY_EXISTING: no diff exists, so the Council reviews MEL's no-code
 // evidence for the exact approved candidate SHA whose full-candidate-ci is green.
 // APPROVED is then completed by github-completion-reconciler; REJECTED fails the job.
-export async function reviewVerificationEvidence(env, { job, implementation, ciRunId, now = Date.now(), review = runCouncilReview } = {}) {
+export async function reviewVerificationEvidence(env, { job, implementation, ciRunId, liveChecks = [], now = Date.now(), review = runCouncilReview } = {}) {
   const head = String(implementation?.candidate_sha || '').toLowerCase();
   if (!env?.DB?.prepare || !job?.id || !/^[a-f0-9]{40}$/.test(head) || !Number(ciRunId)) return { decision: 'REVIEW_INPUT_INVALID' };
   const key = 'council-review:verify:' + job.id + ':' + head;
@@ -227,11 +227,15 @@ export async function reviewVerificationEvidence(env, { job, implementation, ciR
     `SHA candidat exact : ${head}`,
     `full-candidate-ci verte sur ce SHA : run ${Number(ciRunId)}`,
     `Fichiers inspectés : ${inspected.join(', ') || '(aucun)'}`,
+    'PREUVES FONCTIONNELLES EXÉCUTÉES EN PRODUCTION (lecture seule, résultat seulement) :',
+    liveChecks.length
+      ? liveChecks.map(c => `- ${c.capability} : ${c.ok ? 'OK' : 'ÉCHEC ' + (c.code || '')}${c.items != null ? ' (' + c.items + ' élément(s))' : ''}`).join('\n')
+      : '- AUCUNE. REJECT si l’objectif exige une preuve fonctionnelle en production.',
     'Décision et preuves de MEL :',
     String(implementation?.selected?.text || '').slice(0, 20_000),
   ].join('\n');
   const result = await review(env, { diff: evidence, goal: `${job.id} : ${String(job.goal || '')}`, timeoutMs: 45_000, now, attempts });
-  const record = { decision: result.decision, mode: 'VERIFY_EXISTING', head, base: head, jobs: [job.id], ci_run_id: Number(ciRunId), reviews: result.reviews, reviewed_at: now, attempts: attempts + 1 };
+  const record = { decision: result.decision, mode: 'VERIFY_EXISTING', head, base: head, jobs: [job.id], ci_run_id: Number(ciRunId), live_checks: liveChecks, reviews: result.reviews, reviewed_at: now, attempts: attempts + 1 };
   await env.DB.prepare(`INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?)
     ON CONFLICT(bridge_id) DO UPDATE SET last_seen=excluded.last_seen,status=excluded.status,metadata_json=excluded.metadata_json`)
     .bind(key, now, result.decision, JSON.stringify(record)).run().catch(() => {});
