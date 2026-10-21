@@ -1,3 +1,4 @@
+import { isReleaseAutonomyPause, rememberedReleaseMax } from '../../src/evolution/autonomy-control.js';
 const SHA40=/^[a-f0-9]{40}$/i;
 const SHA64=/^[a-f0-9]{64}$/i;
 const SYSTEM_BACKUP_PREFIX='backups/system/';
@@ -230,25 +231,32 @@ async function pauseAutonomyForRelease(db){
   ).bind(AUTONOMY_CONTROL_ID).first();
   const metadata=autonomyMetadata(current?.metadata_json);
   const now=Date.now();
-  const maxAutonomy=metadata?.max_autonomy===true||metadata?.owner_override===true||String(current?.status||'').toUpperCase()==='MAX_AUTONOMY';
+  const previous={...metadata,paused:String(current?.status||'').toUpperCase()==='PAUSED'||metadata.paused===true};
+  const protectedPause=previous.paused&&!isReleaseAutonomyPause(previous);
+  const maxAutonomy=!protectedPause&&(rememberedReleaseMax(previous)||metadata?.max_autonomy===true||metadata?.owner_override===true||String(current?.status||'').toUpperCase()==='MAX_AUTONOMY');
   const next={
     ...metadata,
     paused:true,
-    max_autonomy:maxAutonomy,
-    owner_override:maxAutonomy,
+    max_autonomy:false,
+    max_remembered:maxAutonomy,
+    owner_override:false,
     status:'PAUSED',
     updated_at:now,
-    source:'release-predeploy-binder',
-    reason:'predeploy-release-safety',
+    source:protectedPause?previous.source:'release-predeploy-binder',
+    reason:protectedPause?previous.reason:'predeploy-release-safety',
   };
-  await db.prepare(`
+  const written=await db.prepare(`
     INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json)
     VALUES(?,?,?,?)
     ON CONFLICT(bridge_id) DO UPDATE SET
       last_seen=excluded.last_seen,
       status=excluded.status,
       metadata_json=excluded.metadata_json
-  `).bind(AUTONOMY_CONTROL_ID,now,'PAUSED',JSON.stringify(next)).run();
+    WHERE dev_bridge_state.metadata_json=? AND dev_bridge_state.last_seen=?
+  `).bind(AUTONOMY_CONTROL_ID,now,'PAUSED',JSON.stringify(next),current?.metadata_json??'',current?.last_seen??0).run();
+  if(Number(written?.meta?.changes??written?.changes??-1)===0){
+    throw new Error('PREDEPLOY_AUTONOMY_CONTROL_CHANGED');
+  }
   const stored=await db.prepare(
     'SELECT status,metadata_json FROM dev_bridge_state WHERE bridge_id=?'
   ).bind(AUTONOMY_CONTROL_ID).first();
@@ -260,6 +268,7 @@ async function pauseAutonomyForRelease(db){
     paused:true,
     status:'PAUSED',
     max_autonomy:storedMeta?.max_autonomy===true,
+    max_remembered:storedMeta?.max_remembered===true,
     source:'release-predeploy-binder',
   };
 }

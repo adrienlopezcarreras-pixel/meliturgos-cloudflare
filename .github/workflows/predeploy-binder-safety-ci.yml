@@ -9,6 +9,10 @@ on:
       - '.github/workflows/predeploy-binder-safety-ci.yml'
       - '.github/workflows/deploy-cloudflare-release.yml'
       - 'release-tools/predeploy-backup-binder/worker.js'
+      - 'src/evolution/autonomy-control.js'
+      - 'src/evolution/release-launch-bootstrap.js'
+      - 'src/evolution/autonomy-api.js'
+      - 'tests/release-max-recovery.test.mjs'
 
 permissions:
   contents: read
@@ -35,3 +39,13 @@ jobs:
       - name: Verify fail-closed backup gates and Cloudflare 1042 propagation
         run: |
           node --test tests/predeploy-backup-sidecar-unique-name.test.mjs tests/predeploy-backup-binder.test.mjs
+
+      - name: Verify cancellation recovery, owner pause and exact-SHA restore safety
+        run: >-
+          node --test tests/release-max-recovery.test.mjs
+          tests/autonomy-control.test.mjs tests/release-launch-bootstrap.test.mjs
+          tests/release-predeploy-backup-reuse.test.mjs tests/autonomy-runtime-lease.test.mjs
+          tests/release-outcome-ledger.test.mjs tests/release-outcome-reconcile.test.mjs
+          tests/max-mode-self-knowledge.test.mjs tests/autonomy-activity-detail.test.mjs
+      - name: Verify embedded release proof shell
+        run: node scripts/check-release-proof-shell.mjs

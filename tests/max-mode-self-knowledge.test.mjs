@@ -102,10 +102,12 @@ test('a READY package is dispatched even when the tick stopped before reporting 
   assert.equal(queued[0].inputs.job_id, 'job-d1');
 });
 
-test('a release pause is explained, and the chosen MAX is said to come back', () => {
+test('a release pause preserves MAX choice without promising recovery of an unverified release', () => {
   const text = formatVerifiedAutonomyRuntimeResponse({ status: 'PAUSED', control: { paused: true, max_autonomy: false, max_remembered: true, reason: 'predeploy-release-safety', source: 'release-predeploy-binder' } }, { operation: 'tick' });
-  assert.match(text, /mise en production est en cours/);
-  assert.match(text, /MAX reste choisi et reprendra/);
+  assert.match(text, /actif ou interrompu doit être vérifié/);
+  const status = formatVerifiedAutonomyRuntimeResponse({status:'PAUSED',control:{paused:true,max_remembered:true,reason:'predeploy-release-safety',source:'release-predeploy-binder'}},{operation:'status'});
+  assert.match(status, /MAX reste choisi/);
+  assert.doesNotMatch(status, /reprendra à la fin/);
   assert.doesNotMatch(text, /MAX est désactivé/);
 });
 

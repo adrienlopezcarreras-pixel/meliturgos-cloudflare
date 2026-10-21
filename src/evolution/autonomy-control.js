@@ -2,10 +2,24 @@ import { migrate } from '../persistence/migrations.js';
 
 const CONTROL_ID = 'mel-autonomy-control';
 
+export function isReleaseAutonomyPause(control) {
+  return control?.paused === true
+    && ['release-predeploy-binder', 'release-launch-bootstrap'].includes(control.source)
+    && ['predeploy-release-safety', 'NEW_RELEASE_AWAITING_OWNER_LAUNCH'].includes(control.reason);
+}
+
+// A release suspends execution, not the owner's choice. Owner/safety stops
+// clear that choice; rollback is a safety stop, never an automatic resume.
+export function rememberedReleaseMax(control) {
+  return (control?.paused !== true && control?.max_autonomy === true)
+    || (isReleaseAutonomyPause(control) && control?.max_remembered === true);
+}
+
 function defaultControl({ paused = false, source = 'default', reason = null } = {}) {
   return {
     paused: paused === true,
     max_autonomy: false,
+    max_remembered: false,
     owner_override: false,
     status: paused === true ? 'PAUSED' : 'RUNNING',
     updated_at: null,
@@ -54,7 +68,7 @@ export async function getAutonomyControl(db, { memoryState = null } = {}) {
     max_autonomy: maxAutonomy,
     owner_override: maxAutonomy,
     // MAX chosen by the owner, kept while a pause (e.g. a release) is in force.
-    max_remembered: storedMaxAutonomy,
+    max_remembered: metadata.max_remembered === true || storedMaxAutonomy,
     status: paused ? 'PAUSED' : (maxAutonomy ? 'MAX_AUTONOMY' : 'RUNNING'),
     updated_at: metadata.updated_at ?? row.last_seen ?? null,
     source: metadata.source || 'runtime',
@@ -75,6 +89,7 @@ export async function setAutonomyControl(db, {
   launch_approved_at,
   launch_gate_digest,
   memoryState = null,
+  expected_updated_at,
 } = {}) {
   if (!db && !memoryState) {
     throw Object.assign(new Error('AUTONOMY_CONTROL_DB_REQUIRED'), {
@@ -84,6 +99,11 @@ export async function setAutonomyControl(db, {
   }
 
   const current = await getAutonomyControl(db, { memoryState });
+  if (expected_updated_at !== undefined && current.updated_at !== expected_updated_at) {
+    throw Object.assign(new Error('AUTONOMY_CONTROL_CHANGED'), { code: 'AUTONOMY_CONTROL_CHANGED', status: 409 });
+  }
+  const releasePause = paused === true && ['release-predeploy-binder', 'release-launch-bootstrap'].includes(source);
+  const protectedPause = releasePause && current.paused === true && !isReleaseAutonomyPause(current);
   const nextPaused = typeof paused === 'boolean' ? paused : current.paused === true;
   const requestedMax = typeof max_autonomy === 'boolean'
     ? max_autonomy
@@ -92,11 +112,12 @@ export async function setAutonomyControl(db, {
   const next = {
     paused: nextPaused,
     max_autonomy: nextMax,
+    max_remembered: nextMax || (releasePause && !protectedPause && rememberedReleaseMax(current)),
     owner_override: nextMax,
     status: nextPaused ? 'PAUSED' : (nextMax ? 'MAX_AUTONOMY' : 'RUNNING'),
-    updated_at: Date.now(),
-    source: String(source || 'owner-ui').slice(0, 100),
-    reason: reason === undefined ? (current.reason || null) : (reason ? String(reason).slice(0, 500) : null),
+    updated_at: Math.max(Date.now(), Number(current.updated_at || 0) + 1),
+    source: protectedPause ? current.source : String(source || 'owner-ui').slice(0, 100),
+    reason: protectedPause ? current.reason : reason === undefined ? (current.reason || null) : (reason ? String(reason).slice(0, 500) : null),
     launch_approved_sha: launch_approved_sha === undefined
       ? (current.launch_approved_sha || null)
       : (/^[a-f0-9]{40}$/i.test(String(launch_approved_sha || '')) ? String(launch_approved_sha).toLowerCase() : null),
@@ -109,6 +130,19 @@ export async function setAutonomyControl(db, {
   if (!db) {
     memoryState.control = { ...next };
     return { ...next };
+  }
+
+  if (expected_updated_at !== undefined || (releasePause && current.updated_at !== null)) {
+    const result = await db.prepare(`UPDATE dev_bridge_state
+      SET last_seen=?,status=?,metadata_json=?
+      WHERE bridge_id=? AND last_seen=? AND status=?
+        AND json_extract(metadata_json,'$.source')=?`)
+      .bind(next.updated_at, next.status, JSON.stringify(next), CONTROL_ID,
+        expected_updated_at ?? current.updated_at, current.status, current.source).run();
+    if (Number(result?.meta?.changes ?? result?.changes ?? 0) !== 1) {
+      throw Object.assign(new Error('AUTONOMY_CONTROL_CHANGED'), { code: 'AUTONOMY_CONTROL_CHANGED', status: 409 });
+    }
+    return next;
   }
 
   await db.prepare(`

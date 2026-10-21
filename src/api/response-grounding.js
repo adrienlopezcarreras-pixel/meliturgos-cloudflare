@@ -281,12 +281,12 @@ export function formatVerifiedAutonomyRuntimeResponse(result, { fallback = '', o
   const awaitingOwnerLaunch = control.paused === true && control.reason === 'NEW_RELEASE_AWAITING_OWNER_LAUNCH';
   const releasePause = control.paused === true && !awaitingOwnerLaunch && (control.reason === 'predeploy-release-safety' || /^release-/.test(String(control.source || '')));
   const maxText = control.max_autonomy === true ? 'MAX est activé'
-    : control.paused === true && control.max_remembered === true ? 'MAX reste choisi et reprendra à la fin de la pause'
+    : control.paused === true && control.max_remembered === true ? 'MAX reste choisi ; sa reprise exige la validation complète de la release'
     : 'MAX est désactivé';
   const pauseText = awaitingOwnerLaunch
     ? 'la release est terminée et attend que le propriétaire active MAX ou reprenne MEL'
     : releasePause
-    ? 'pause temporaire posée par la mise en production en cours (sécurité de release) ; elle est levée automatiquement quand toutes les vérifications de production passent'
+    ? 'pause de sécurité de release ; une interruption conserve la pause, la reprise exige toutes les vérifications de production'
     : control.paused === true ? 'le contrôle d’autonomie est en pause' + (control.reason ? ' (raison : ' + String(control.reason).slice(0, 80) + ')' : '')
     : 'le contrôle d’autonomie n’est pas en pause';
   const lines = [];
@@ -331,7 +331,7 @@ export function formatVerifiedAutonomyRuntimeResponse(result, { fallback = '', o
     lines.push(awaitingOwnerLaunch
       ? 'Le cycle n’a exécuté aucune nouvelle tâche : la release est terminée et attend que le propriétaire active MAX.'
       : releasePause
-      ? 'Le cycle n’a exécuté aucune nouvelle tâche : une mise en production est en cours et met l’autonomie en pause le temps de ses vérifications.'
+      ? 'Le cycle n’a exécuté aucune nouvelle tâche : une pause de release est en place ; son état actif ou interrompu doit être vérifié avant toute reprise.'
       : 'Le cycle n’a exécuté aucune nouvelle tâche : l’autonomie est en pause.');
   } else if (status === 'DEPLOYED_SHA_UNAVAILABLE') {
     lines.push('Le cycle est bloqué : le runtime ne peut pas établir l’identité SHA exacte du déploiement. Aucune nouvelle tâche n’est déclarée exécutée.');

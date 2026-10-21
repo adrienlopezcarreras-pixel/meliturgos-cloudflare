@@ -391,14 +391,15 @@ jobs:
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
           CODE="$(curl --silent --show-error --max-time 30             --output predeploy-autonomy-control.json             --write-out '%{http_code}'             "${BASE_URL}/api/gen2/autonomy/control" || true)"
           test "${CODE}" = "200"
-          node - <<'NODE'
-          const fs=require('fs');
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import { rememberedReleaseMax } from './src/evolution/autonomy-control.js';
           const d=JSON.parse(fs.readFileSync('predeploy-autonomy-control.json','utf8'));
           if(d?.ok!==true) throw new Error('PREDEPLOY_AUTONOMY_CONTROL_NOT_OK');
           if(typeof d?.paused!=='boolean' || typeof d?.max_autonomy!=='boolean') throw new Error('PREDEPLOY_AUTONOMY_CONTROL_INVALID');
           const paused=d.paused===true;
           const reportedMax=d.max_autonomy===true;
-          const maxAutonomy=paused?false:reportedMax;
+          const maxAutonomy=rememberedReleaseMax(d);
           if(paused&&reportedMax){
             console.log('Legacy contradictory autonomy control normalized fail-safe: PAUSED=true, MAX=false.');
           }
@@ -2493,6 +2494,25 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Read durable MAX choice after verified production proofs
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 30 \
+            'https://meliturgos.adrien-lopezcarreras.workers.dev/api/gen2/autonomy/control' \
+            --output verified-release-autonomy-control.json
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import { rememberedReleaseMax } from './src/evolution/autonomy-control.js';
+          const control=JSON.parse(fs.readFileSync('verified-release-autonomy-control.json','utf8'));
+          if(control.ok!==true || typeof control.paused!=='boolean' || typeof control.max_autonomy!=='boolean')
+            throw new Error('VERIFIED_RELEASE_CONTROL_UNAVAILABLE');
+          // Read the newly deployed schema too: the previous Worker may not
+          // expose remembered MAX even though D1 retained it before cancellation.
+          fs.appendFileSync(process.env.GITHUB_ENV,'PREVIOUS_MAX_AUTONOMY='+String(rememberedReleaseMax(control))+'\n');
+          NODE
+
       # A routine release must not silently switch off an autonomy the owner had
       # running: MAX on before a push deploy is restored after the same verified
       # checks. An owner pause stays a pause.
@@ -2523,6 +2543,7 @@ jobs:
           NODE
 
       - name: Re-enable MAX 100% after verified autonomous release
+        id: restore_max
         if: success() && (env.OWNER_MAX_AUTORELEASE == 'true' || env.PREVIOUS_MAX_AUTONOMY == 'true')
         shell: bash
         env:
@@ -2542,15 +2563,28 @@ jobs:
               --data '{"phase":"gen2-42-owner-max"}' \
               --output owner-max-autorelease.json \
               --write-out '%{http_code}' \
-              "$BASE_URL/api/internal/release-launch-bootstrap" || true)"
+              "$BASE_URL/api/internal/release-launch-bootstrap?release_restore=true" || true)"
             if [ "$CODE" = "200" ]; then READY=1; break; fi
             sleep 3
           done
           test "$READY" = "1"
-          node -e 'const d=require("./owner-max-autorelease.json");if(d?.ok!==true||d?.max_autonomy!==true||d?.paused===true)throw new Error("OWNER_MAX_AUTORELEASE_RESTART_FAILED");console.log("MAX 100% restored after verified release.")'
+          node - <<'NODE'
+          const fs=require('fs');
+          const d=require('./owner-max-autorelease.json');
+          if(d?.ok!==true) throw new Error('OWNER_MAX_AUTORELEASE_RESTART_FAILED');
+          if(d.restore_skipped===true){
+            if(d.autonomy_started!==false) throw new Error('OWNER_CONTROL_NOT_PRESERVED');
+            fs.appendFileSync(process.env.GITHUB_OUTPUT,'restored=false\n');
+            console.log('Later owner/safety control preserved; no autonomy kick.');
+          } else {
+            if(d.max_autonomy!==true||d.paused===true) throw new Error('OWNER_MAX_AUTORELEASE_RESTART_FAILED');
+            fs.appendFileSync(process.env.GITHUB_OUTPUT,'restored=true\n');
+            console.log('MAX restored after verified release.');
+          }
+          NODE
 
       - name: Kick event-driven autonomy chain after MAX restore
-        if: success() && (env.OWNER_MAX_AUTORELEASE == 'true' || env.PREVIOUS_MAX_AUTONOMY == 'true')
+        if: success() && steps.restore_max.outputs.restored == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

@@ -172,6 +172,10 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
       owner_override: control.owner_override === true,
       status: control.status,
       updated_at: control.updated_at,
+      max_remembered: control.max_remembered === true,
+      source: control.source,
+      reason: control.reason,
+      launch_approved_sha: control.launch_approved_sha,
     }, { headers: { 'cache-control': 'no-store' } });
   }
 
