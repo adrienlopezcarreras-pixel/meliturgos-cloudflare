@@ -1,5 +1,6 @@
 ﻿# [Codex] Real Windows processes/config/WinForms; disposable repository and
 # local fixture only. Does not contact MEL, claim jobs or use owner secrets.
+param([string]$NativeAssembly)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -28,9 +29,20 @@ const timer=setInterval(()=>{
 $start = $source.IndexOf('$script:DevExecutorProcess = $null')
 $end = $source.IndexOf('function Send-Heartbeat', $start)
 Invoke-Expression $source.Substring($start, $end-$start)
-$panel = $ast.FindAll({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Show-MelTrayPanel' }, $false)[0]
-Invoke-Expression $panel.Extent.Text
+foreach ($name in @('Show-MelTrayPanel','Update-DevExecutorPanel')) {
+  $panel = $ast.FindAll({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $false)[0]
+  Invoke-Expression $panel.Extent.Text
+}
 $external = $null
+$native = $null
+if ($NativeAssembly) {
+  $assembly = [Reflection.Assembly]::LoadFile($NativeAssembly)
+  $native = $assembly.GetType('MelApp')
+  $native.GetField('MelDir').SetValue($null, $root)
+  $native.GetField('ConfigPath').SetValue($null, $ConfigPath)
+  $native.GetField('CompanionProcess').SetValue($null, [Diagnostics.Process]::GetCurrentProcess())
+  Assert ($native.GetMethod('ValidDevExecutorRepo').Invoke($null,@($repo))) 'NATIVE_REPO_VALIDATION_FAILED'
+}
 try {
   Ensure-DevExecutor
   Assert ($null -eq $script:DevExecutorProcess) 'FIRST_LAUNCH_MUST_NOT_ENABLE'
@@ -73,6 +85,34 @@ try {
   $saved = Get-Content -Raw $ConfigPath | ConvertFrom-Json
   Assert ($saved.dev_executor_enabled -eq $false) 'DISABLE_NOT_PERSISTED'
   Assert ($saved.token_protected -eq 'opaque-test-value' -and $saved.unrelated.nested -eq 42) 'CONFIG_FIELDS_LOST'
+  $request = @{ action='Start'; repo=$repo; request_id=[Guid]::NewGuid().ToString('N'); engine_pid=$PID; issued_at=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
+  if ($native) {
+    $native.GetMethod('RequestDevExecutor').Invoke($null,@('Start',$repo))
+    $request = Get-Content -Raw (Join-Path $MelDir 'dev-executor-request.json') | ConvertFrom-Json
+  } else { [IO.File]::WriteAllText((Join-Path $MelDir 'dev-executor-request.json'), ($request | ConvertTo-Json)) }
+  Receive-DevExecutorControl
+  Assert ($null -ne $script:DevExecutorProcess) 'NATIVE_WINDOW_REQUEST_DID_NOT_START'
+  $nativePid = $script:DevExecutorProcess.Id
+  $request.action = 'Restart'
+  [IO.File]::WriteAllText((Join-Path $MelDir 'dev-executor-request.json'), ($request | ConvertTo-Json))
+  Receive-DevExecutorControl
+  Assert ($script:DevExecutorProcess.Id -eq $nativePid) 'DUPLICATE_REQUEST_EXECUTED_AGAIN'
+  $request.request_id = [Guid]::NewGuid().ToString('N'); $request.action = 'Stop'
+  [IO.File]::WriteAllText((Join-Path $MelDir 'dev-executor-request.json'), ($request | ConvertTo-Json))
+  Receive-DevExecutorControl
+  Assert ($null -eq $script:DevExecutorProcess) 'NATIVE_WINDOW_REQUEST_DID_NOT_STOP'
+  $request.request_id = [Guid]::NewGuid().ToString('N'); $request.action = 'Start'; $request.engine_pid = 1
+  [IO.File]::WriteAllText((Join-Path $MelDir 'dev-executor-request.json'), ($request | ConvertTo-Json))
+  Receive-DevExecutorControl
+  Assert ($null -eq $script:DevExecutorProcess) 'STALE_ENGINE_REQUEST_EXECUTED'
+  $script:DevExecutorCode = 'DISABLED'
+  Publish-DevExecutorView
+  $nativeView = Get-Content -Raw (Join-Path $MelDir 'dev-executor-view.json') | ConvertFrom-Json
+  Assert ($nativeView.engine_pid -eq $PID -and $nativeView.state -eq 'Arrêté') 'NATIVE_WINDOW_VIEW_INVALID'
+  if ($native) {
+    $readView = $native.GetMethod('ReadDevExecutorView').Invoke($null,@())
+    Assert ($readView['state'] -eq 'Arrêté') 'NATIVE_WINDOW_DID_NOT_READ_ENGINE_RECEIPT'
+  }
   $script:CompanionConfirmedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
   $script:GithubRelay = @{ status='ONLINE' }
   $view = Get-DevExecutorDisplay
