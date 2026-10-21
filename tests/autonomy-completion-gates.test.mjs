@@ -114,3 +114,88 @@ test('correlated MEL proposal plus exact successful full-candidate-ci evidence c
   assert.equal(stored.result_json.autonomy_completion.mel_implementation.providers_attempted, 2);
   assert.equal(stored.result_json.autonomy_completion.mel_implementation.selected_model, 'a');
 });
+
+// Council-approved completion: no hand-written Teacher record exists, the
+// Council approved the exact candidate SHA and full-candidate-ci is green on it.
+async function councilDb(decision, extra = {}) {
+  const { sqliteD1 } = await import('./helpers/sqlite-d1.mjs');
+  const db = sqliteD1();
+  await db.prepare('CREATE TABLE dev_bridge_state(bridge_id TEXT PRIMARY KEY, last_seen INTEGER, status TEXT, metadata_json TEXT)').run();
+  await db.prepare('INSERT INTO dev_bridge_state VALUES(?,?,?,?)')
+    .bind(`council-review:${SHA}`, 1, decision, JSON.stringify({ decision, head: SHA, jobs: [JOB], reviewed_at: 1, ...extra })).run();
+  return db;
+}
+
+function councilFetch({ green = true } = {}) {
+  return async (url) => {
+    const target = String(url);
+    if (target.includes('teacher-bridge/completions.jsonl')) return new Response('not found', { status: 404 });
+    if (target.includes('/actions/workflows/full-candidate-ci.yml/runs')) {
+      return Response.json({ workflow_runs: green ? [{ id: 4242, head_sha: SHA, head_branch: BRANCH, status: 'completed', conclusion: 'success' }] : [] });
+    }
+    return fetchImplFor()(url);
+  };
+}
+
+test('a Council-approved SHA with green full-candidate-ci completes the job without a manual Teacher record', async () => {
+  const repository = await approvedRepository();
+  const DB = await councilDb('APPROVED');
+  try {
+    const result = await reconcileRuntimeCompletions({
+      repository,
+      env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH, DB },
+      fetchImpl: councilFetch(),
+    });
+    assert.equal(result.completed.length, 1, JSON.stringify(result.rejected));
+    const stored = await repository.get(JOB);
+    assert.equal(stored.status, 'COMPLETED');
+    assert.equal(stored.result_json.autonomy_completion.ci.run_id, 4242);
+  } finally { DB.close(); }
+});
+
+test('Council approval alone, a rejected review, or a non-green CI never completes a job', async () => {
+  for (const [decision, green] of [['APPROVED', false], ['REJECTED', true]]) {
+    const repository = await approvedRepository();
+    const DB = await councilDb(decision);
+    try {
+      const result = await reconcileRuntimeCompletions({
+        repository,
+        env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH, DB },
+        fetchImpl: councilFetch({ green }),
+      });
+      assert.equal(result.completed.length, 0);
+      assert.equal((await repository.get(JOB)).status, 'TEACHER_APPROVED');
+    } finally { DB.close(); }
+  }
+});
+
+test('a VERIFY_EXISTING decision is completed once the Council approved its evidence on a green SHA', async () => {
+  const repository = await approvedRepository();
+  const job = await repository.get(JOB);
+  await repository.update(JOB, {
+    result_json: { ...job.result_json, implementation_proposal: { ...job.result_json.implementation_proposal, status: 'VERIFY_EXISTING', decision: 'VERIFY_EXISTING' } },
+  });
+  const { reviewVerificationEvidence } = await import('../src/evolution/council-review.js');
+  const { sqliteD1 } = await import('./helpers/sqlite-d1.mjs');
+  const DB = sqliteD1();
+  await DB.prepare('CREATE TABLE dev_bridge_state(bridge_id TEXT PRIMARY KEY, last_seen INTEGER, status TEXT, metadata_json TEXT)').run();
+  try {
+    const calls = [];
+    const review = async (_env, input) => { calls.push(input); return { decision: 'APPROVED', reviews: [] }; };
+    const current = await repository.get(JOB);
+    const implementation = { ...current.result_json.implementation_proposal, candidate_sha: SHA };
+    const first = await reviewVerificationEvidence({ DB }, { job: current, implementation, ciRunId: 4242, review });
+    assert.equal(first.decision, 'APPROVED');
+    assert.match(calls[0].diff, /AUCUN DIFF/);
+    const again = await reviewVerificationEvidence({ DB }, { job: current, implementation, ciRunId: 4242, review });
+    assert.equal(again.cached, true);
+    assert.equal(calls.length, 1, 'an approved verification is not re-reviewed every minute');
+    const result = await reconcileRuntimeCompletions({
+      repository,
+      env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH, DB },
+      fetchImpl: councilFetch(),
+    });
+    assert.equal(result.completed.length, 1, JSON.stringify(result.rejected));
+    assert.equal((await repository.get(JOB)).status, 'COMPLETED');
+  } finally { DB.close(); }
+});
