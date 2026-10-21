@@ -6,8 +6,11 @@
 // After each tick MEL now queues that workflow herself through the existing
 // GitHub Action relay (dispatch only; the workflow proves itself with OIDC).
 // At most one dispatch per job every 30 minutes.
+// CODEX: an already-tested local package also uses this same publisher until
+// its canonical GitHub commit exists; the online PC is not asked to redo it.
 
 import { D1GitHubActionRelayStore } from '../platform/github-action-relay.js';
+import { isPreparedDevBridgeJob, isUnappliedReadyReviewJob } from '../dev/d1-dev-job-repository.js';
 
 export const CLOUD_BRIDGE_WORKFLOW = 'gen2-42-apply-ready-bridge.yml';
 const REDISPATCH_MS = 30 * 60 * 1000;
@@ -25,19 +28,26 @@ async function executorOnline(db, now) {
 
 export async function readyJobFromD1(db) {
   try {
-    return await db.prepare(`SELECT id, status, json_extract(result_json,'$.bridge_preparation.created_at') AS package_created_at FROM dev_jobs
+    const rows = (await db.prepare(`SELECT id,status,result_json,files_json,tests_json FROM dev_jobs
       WHERE json_extract(result_json,'$.bridge_preparation.status')='READY'
         AND json_extract(result_json,'$.implementation_proposal.status')='READY'
-        AND (
-          status='TEACHER_APPROVED'
-          OR (
-            status='READY_FOR_REVIEW'
-            AND json_extract(result_json,'$.autonomy_completion.candidate_sha') IS NULL
-            AND json_extract(result_json,'$.dev_bridge.changed') IS NOT 1
-          )
-        )
+        AND status IN ('TEACHER_APPROVED','READY_FOR_REVIEW')
       ORDER BY CASE status WHEN 'TEACHER_APPROVED' THEN 0 ELSE 1 END, updated_at ASC
-      LIMIT 1`).first();
+      LIMIT 100`).all()).results || [];
+    for (const row of rows) {
+      try {
+        const job = { ...row,
+          result_json: typeof row.result_json === 'string' ? JSON.parse(row.result_json) : row.result_json,
+          files_json: typeof row.files_json === 'string' ? JSON.parse(row.files_json) : row.files_json,
+          tests_json: typeof row.tests_json === 'string' ? JSON.parse(row.tests_json) : row.tests_json,
+        };
+        // CODEX: dispatch and atomic claim share one eligibility predicate.
+        if (isPreparedDevBridgeJob(job) || isUnappliedReadyReviewJob(job)) {
+          return { id: job.id, status: job.status, package_created_at: job.result_json.bridge_preparation.created_at };
+        }
+      } catch { /* Malformed metadata cannot authorize a publication. */ }
+    }
+    return null;
   } catch { return null; }
 }
 
@@ -66,7 +76,8 @@ export async function maybeDispatchCloudBridge(env, tick, { now = Date.now(), re
   // mechanism will protect execution while the cloud relay restores progress.
   // Without a trustworthy package timestamp, keep the conservative behavior.
   const packageAt = await packageCreatedMs(db, job);
-  if (await executorOnline(db, now) && (!packageAt || now - packageAt < LOCAL_CLAIM_GRACE_MS)) {
+  if (String(job.status || '').toUpperCase() !== 'READY_FOR_REVIEW'
+      && await executorOnline(db, now) && (!packageAt || now - packageAt < LOCAL_CLAIM_GRACE_MS)) {
     return { status: 'SKIPPED_LOCAL_EXECUTOR_ONLINE' };
   }
   const key = 'cloud-bridge-dispatch:' + String(job.id).slice(0, 160);
