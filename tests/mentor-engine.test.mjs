@@ -76,6 +76,35 @@ test('mentor applies one unique edit onto the inspected file instead of requirin
   assert.equal(result.proposal.changes[0].content, 'export function read() {\n  return "new";\n}\n');
 });
 
+test('mentor fits each provider prompt budget and edits the complete long file, not the excerpt', async () => {
+  const tail = Array.from({ length: 4000 }, (_, i) => `export const keep${i} = ${i};`).join('\n');
+  const source = `export function read() {\n  return "old";\n}\n${tail}\n`;
+  assert.ok(source.length > 100_000);
+  const calls = [];
+  const edit = {
+    summary: 'Remplace la valeur lue.',
+    edits: [{ path: 'src/native-chat.js', find: 'return "old";', replace: 'return "new";' }],
+    tests: ['test:smoke'],
+    confidence: 0.8,
+  };
+  const pc = { ...sequenceProvider('pc', [edit], calls), providerId: 'local-companion-ai' };
+  const cloud = sequenceProvider('cloud', [new Error('provider down')], calls);
+  const engine = new MentorEngine({ providerFactory: async () => [cloud, pc] });
+  const result = await engine.propose({
+    env: {},
+    goal: 'Changer la valeur lue',
+    inspectedFiles: [{ path: 'src/native-chat.js', content: source }],
+  });
+  const prompt = call => String(call.input?.input ?? call.input);
+  // The paired PC rejects any message above 12 000 chars (SOVEREIGNTY_AI_MESSAGE_TOO_LARGE).
+  assert.ok(prompt(calls.find(call => call.id === 'pc')).length <= 12_000);
+  assert.ok(prompt(calls.find(call => call.id === 'cloud')).length <= 40_000);
+  assert.match(prompt(calls.find(call => call.id === 'pc')), /EXTRAIT TRONQUÉ/);
+  const [change] = result.proposal.changes;
+  assert.equal(change.content.length, source.length, 'the rest of the file is preserved');
+  assert.ok(change.content.includes('return "new";') && change.content.endsWith(`keep3999 = 3999;\n`));
+});
+
 test('mentor rejects an edit that is not unique in the inspected file', async () => {
   const engine = new MentorEngine({
     providerFactory: async () => [provider('editor', {
