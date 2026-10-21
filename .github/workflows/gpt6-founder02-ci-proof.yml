@@ -27,4 +27,6 @@ jobs:
           node --check tests/autonomy-implementation-planner.test.mjs
           node --check tests/autonomy-completion-gates.test.mjs
       - name: Real FOUNDER-02 no-code proof regression suites
+        env:
+          MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS: '1'
         run: node --test tests/autonomy-implementation-planner.test.mjs tests/autonomy-completion-gates.test.mjs tests/autonomy-runtime.test.mjs
