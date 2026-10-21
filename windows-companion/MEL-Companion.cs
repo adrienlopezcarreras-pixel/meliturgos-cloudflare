@@ -543,15 +543,29 @@ static class MelApp
     {
         try
         {
-            if (CompanionProcess != null && !CompanionProcess.HasExited)
-            {
-                CompanionProcess.Kill();
-                CompanionProcess.WaitForExit(1500);
-            }
+            if (!StopCompanionTree()) return;
         }
         catch { }
         CompanionProcess = null;
         StartCompanion();
+    }
+
+    // [Codex] A supervised Node/test child must not survive a deliberate
+    // engine restart/exit. Target only the engine process owned by this EXE.
+    public static bool StopCompanionTree()
+    {
+        try {
+            if (CompanionProcess == null || CompanionProcess.HasExited) return true;
+            var stop = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory,"taskkill.exe"));
+            stop.Arguments = "/PID " + CompanionProcess.Id + " /T /F";
+            stop.UseShellExecute=false; stop.CreateNoWindow=true;
+            using (var killer=Process.Start(stop)) {
+                if(killer==null || !killer.WaitForExit(5000)) { LastEngineStartError="ENGINE_STOP_UNCONFIRMED"; return false; }
+            }
+            if(!CompanionProcess.WaitForExit(3000)) { LastEngineStartError="ENGINE_STOP_UNCONFIRMED"; return false; }
+            CompanionProcess.Dispose(); CompanionProcess=null;
+            return true;
+        } catch { LastEngineStartError="ENGINE_STOP_UNCONFIRMED"; return false; }
     }
 
     public static void InstallFiles(bool startup)
@@ -1134,7 +1148,7 @@ static class MelApp
         Exiting = true;
         if (Tray != null) { Tray.Visible = false; Tray.Dispose(); }
         try { if (HotKey != null) { HotKey.Dispose(); HotKey = null; } } catch { }
-        try { if (CompanionProcess != null && !CompanionProcess.HasExited) CompanionProcess.Kill(); } catch { }
+        StopCompanionTree();
         Application.Exit();
     }
 
@@ -1142,7 +1156,7 @@ static class MelApp
     {
         if (MessageBox.Show("Retirer MEL Companion de cet ordinateur ?", "MEL Companion", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
         ConfigureStartup(false); Exiting = true; if (Tray != null) Tray.Visible = false;
-        try { if (CompanionProcess != null && !CompanionProcess.HasExited) CompanionProcess.Kill(); } catch { }
+        StopCompanionTree();
         var cmd = Path.Combine(Path.GetTempPath(), "mel-remove-" + Guid.NewGuid().ToString("N") + ".cmd");
         File.WriteAllText(cmd, "@echo off\r\ntimeout /t 2 /nobreak >nul\r\nrmdir /s /q \"" + MelDir + "\"\r\ndel \"%~f0\"\r\n", Encoding.ASCII);
         Process.Start(new ProcessStartInfo(cmd){UseShellExecute=true,WindowStyle=ProcessWindowStyle.Hidden}); Application.Exit();

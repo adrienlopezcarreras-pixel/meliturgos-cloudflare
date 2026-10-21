@@ -34,7 +34,8 @@ jobs:
         shell: powershell
         run: |
           $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-          & $csc /nologo /target:winexe /out:"$env:RUNNER_TEMP\MEL-Companion-controls.exe" /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll /reference:System.Security.dll windows-companion/MEL-Companion.cs
+          $sourcePath = (Resolve-Path 'windows-companion\MEL-Companion.cs').Path
+          & $csc /nologo /target:winexe /out:"$env:RUNNER_TEMP\MEL-Companion-controls.exe" /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll /reference:System.Security.dll $sourcePath
           if ($LASTEXITCODE -ne 0) { throw 'COMPANION_NATIVE_COMPILE_FAILED' }
       - name: Dev Executor controls with real Windows Node processes
         shell: powershell

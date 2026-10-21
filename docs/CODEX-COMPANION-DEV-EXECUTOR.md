@@ -1,6 +1,7 @@
 # [Codex] Contrôle local du Dev Executor
 
-Ouvrir « Companion MEL » depuis l’icône de notification. La section
+Ouvrir MEL Companion Windows, ou « Companion MEL » depuis l’icône de notification
+du moteur historique. Les deux interfaces pilotent le même superviseur. La section
 « Exécuteur de développement » affiche le dépôt, l’état du processus et le
 dernier heartbeat confirmé par MEL. Démarrer, Arrêter et Redémarrer agissent
 sur l’exécuteur existant ; aucune commande PowerShell n’est nécessaire.
@@ -25,8 +26,12 @@ Le mutex local, la propriété du processus et le port exclusif évitent les
 doubles exécutions. Les opérations Git, la validation des paquets et les
 autorisations cloud/locales existantes sont conservées. Un arrêt local utilise
 un signal sur fichier privé puis une terminaison bornée de l’arbre possédé.
+La fenêtre native transmet uniquement Start/Stop/Restart au moteur existant,
+avec identifiant, PID cible et expiration ; une demande rejouée est ignorée.
 L’exécuteur cesse également de recevoir de nouveaux travaux lorsque son
 Companion parent disparaît. Aucun ordre shell n’est ajouté aux commandes cloud.
+L’arrêt ou le redémarrage volontaire du moteur natif termine aussi son arbre
+de processus possédé ; les autres Node.js ne sont jamais ciblés par leur nom.
 
 La fenêtre reste non modale : l’ouvrir ne suspend ni heartbeat ni supervision.
 Son timer ne fait que rafraîchir les libellés. Un processus sans confirmation
