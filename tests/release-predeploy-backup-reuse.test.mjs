@@ -117,7 +117,9 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.match(refreshBlock, /mel-predeploy-backup-refresh/);
   assert.match(refreshBlock, /MEL_BACKUP_ENCRYPTION_KEY_B64: \$\{\{ secrets\.MEL_BACKUP_ENCRYPTION_KEY_B64 \}\}/);
   assert.match(refreshBlock, /MEL_BACKUP_ENCRYPTION_KEY_ID: \$\{\{ secrets\.MEL_BACKUP_ENCRYPTION_KEY_ID \}\}/);
-  assert.match(refreshBlock, /CURRENT_PRODUCTION_RELEASE_SHA_NOT_FOUND/);
+  assert.ok(source.indexOf('Read actual production identity before backup') < refresh);
+  assert.match(source, /node scripts\/read-production-provenance\.mjs/);
+  assert.match(refreshBlock, /CURRENT_PRODUCTION_SHA:-/);
   assert.match(refreshBlock, /timeout 180s npx wrangler deploy --config/);
   const refreshCleanupArm = refreshBlock.indexOf('REFRESH_CREATED=1', refreshBlock.indexOf('Arm cleanup before deploy'));
   const refreshDeploy = refreshBlock.indexOf('if ! timeout 180s npx wrangler deploy');

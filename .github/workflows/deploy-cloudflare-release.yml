@@ -192,6 +192,26 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       # Bound the disposable encrypted-backup stage; trap cleanup remains fail-closed.
+      - name: Read actual production identity before backup
+        timeout-minutes: 5
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          # Codex: observe current code, including cancelled post-deploy runs.
+          node scripts/read-production-provenance.mjs > predeploy-production-provenance.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync('predeploy-production-provenance.json','utf8'));
+          fs.appendFileSync(process.env.GITHUB_ENV,
+            'CURRENT_PRODUCTION_SHA='+p.deployed_sha+'\n'
+            +'PREVIOUS_DEPLOYED_SHA='+p.deployed_sha+'\n'
+            +'PREVIOUS_CLOUDFLARE_VERSION_ID='+p.cloudflare_version_id+'\n');
+          console.log(JSON.stringify(p));
+          NODE
+
       - name: Refresh current production backup through ephemeral worker
         timeout-minutes: 40
         shell: bash
@@ -206,26 +226,9 @@ jobs:
           test -n "${MEL_BACKUP_ENCRYPTION_KEY_B64:-}"
           test -n "${MEL_BACKUP_ENCRYPTION_KEY_ID:-}"
 
-          curl --silent --show-error --fail-with-body --max-time 60 \
-            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
-            --header "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?branch=release%2Fmel-hardware-v0.1.0&status=success&per_page=100" \
-            > successful-release-runs.json
-          CURRENT_PRODUCTION_SHA="$(node - <<'NODE'
-          const fs=require('fs');
-          const d=JSON.parse(fs.readFileSync('successful-release-runs.json','utf8'));
-          const rows=(d.workflow_runs||[]).filter(row =>
-            row?.name==='deploy-cloudflare-release' &&
-            row?.conclusion==='success' &&
-            /^[0-9a-f]{40}$/i.test(String(row?.head_sha||''))
-          );
-          if(!rows.length) throw new Error('CURRENT_PRODUCTION_RELEASE_SHA_NOT_FOUND');
-          process.stdout.write(String(rows[0].head_sha).toLowerCase());
-          NODE
-          )"
-          [[ "${CURRENT_PRODUCTION_SHA}" =~ ^[0-9a-f]{40}$ ]]
-          echo "Current canonical production release SHA: ${CURRENT_PRODUCTION_SHA}"
-          echo "PREVIOUS_DEPLOYED_SHA=${CURRENT_PRODUCTION_SHA}" >> "$GITHUB_ENV"
+          # Codex: the preceding read-only observation is the SHA authority.
+          [[ "${CURRENT_PRODUCTION_SHA:-}" =~ ^[0-9a-f]{40}$ ]]
+          test "${PREVIOUS_DEPLOYED_SHA}" = "${CURRENT_PRODUCTION_SHA}"
 
           REFRESH_NAME="mel-pd-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           REFRESH_CONFIG="release-tools/predeploy-backup-refresh/wrangler.run.jsonc"
@@ -367,24 +370,17 @@ jobs:
             -H "Content-Type: application/json" \
             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/meliturgos/deployments" \
             > predeploy-deployments.json
-          PREVIOUS_VERSION_ID="$(node - <<'NODE'
-          const fs=require('fs');
-          const raw=JSON.parse(fs.readFileSync('predeploy-deployments.json','utf8'));
-          if(raw?.success===false) throw new Error('PREDEPLOY_DEPLOYMENTS_READ_FAILED');
-          const root=raw?.result ?? raw;
-          const deployments=Array.isArray(root)?root:(Array.isArray(root?.deployments)?root.deployments:[root]);
-          let found='';
-          for(const deployment of deployments){
-            const versions=Array.isArray(deployment?.versions)?deployment.versions:[];
-            if(versions.length===1 && Number(versions[0]?.percentage)===100 && versions[0]?.version_id){
-              found=String(versions[0].version_id);
-              break;
-            }
-          }
-          if(!found) throw new Error('PREVIOUS_STABLE_VERSION_NOT_FOUND');
-          process.stdout.write(found);
+          PREVIOUS_VERSION_ID="$(node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import { stableProductionVersionId } from './scripts/read-production-provenance.mjs';
+          process.stdout.write(stableProductionVersionId(JSON.parse(fs.readFileSync('predeploy-deployments.json','utf8'))));
           NODE
           )"
+          # Codex: do not overwrite the observed target after a concurrent change.
+          if [ "$PREVIOUS_VERSION_ID" != "${PREVIOUS_CLOUDFLARE_VERSION_ID}" ]; then
+            echo "PREVIOUS_PRODUCTION_VERSION_CHANGED"
+            exit 55
+          fi
           test -n "$PREVIOUS_VERSION_ID"
           echo "PREVIOUS_CLOUDFLARE_VERSION_ID=$PREVIOUS_VERSION_ID" >> "$GITHUB_ENV"
 
