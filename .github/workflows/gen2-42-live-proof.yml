@@ -74,7 +74,7 @@ jobs:
 
           # CODEX: identify only metadata for the precise launch-review blocker.
           npx wrangler d1 execute DB --remote --json \
-            --command "SELECT id,status,updated_at,error,json_extract(optional_context,'$.roadmap_id') AS roadmap_id FROM dev_jobs WHERE requested_by='mel-autonomy' AND status='FAILED' AND COALESCE(json_extract(optional_context,'$.roadmap_id'),'')='' ORDER BY updated_at DESC LIMIT 100" \
+            --command "SELECT id,status,updated_at,error,json_extract(optional_context,'$.roadmap_id') AS roadmap_id,CASE WHEN id='self-audit-supervisor-69221d23ba79d5725729497cbb19f87f' AND requested_by='mel-autonomy' AND status='FAILED' AND json_valid(optional_context) AND json_extract(optional_context,'$.source')='self-audit-supervisor' AND COALESCE(json_extract(optional_context,'$.roadmap_id'),'')='' AND json_extract(optional_context,'$.request_key') LIKE 'self-audit:%' AND json_extract(optional_context,'$.candidate_branch_only')=1 AND json_extract(optional_context,'$.zero_added_cost')=1 AND goal LIKE '[MEL-SELF-AUDIT] %' THEN 1 ELSE 0 END AS reviewed_self_audit_scope_match FROM dev_jobs WHERE requested_by='mel-autonomy' AND status='FAILED' AND COALESCE(json_extract(optional_context,'$.roadmap_id'),'')='' ORDER BY updated_at DESC LIMIT 100" \
             > unscoped-failures.raw.json
 
           # CODEX: observe ownership and durable job transitions; never acquire,
@@ -130,7 +130,7 @@ jobs:
                   'id', 'created_at', 'updated_at', 'error', 'roadmap_id', 'teacher_status',
                   'teacher_request_id', 'teacher_verdict', 'council_status', 'implementation_decision',
                   'implementation_status', 'implementation_code', 'bridge_status', 'bridge_code',
-                  'completion_status', 'candidate_sha', 'ci_run_id',
+                  'completion_status', 'candidate_sha', 'ci_run_id', 'reviewed_self_audit_scope_match',
               }
               result = {}
               for key, value in row.items():
