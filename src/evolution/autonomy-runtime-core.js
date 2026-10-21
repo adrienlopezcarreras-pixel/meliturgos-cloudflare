@@ -717,6 +717,13 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       }
     }
 
+    // [GPT] A no-code verification decision must never enter Mentor/Dev Bridge.
+    // Await independently collected live test evidence and Council review;
+    // neither this plan nor a Teacher approval may certify DONE_VERIFIED.
+    if (implementation?.status === 'VERIFY_EXISTING') {
+      bridgePreparation = { status: 'AWAITING_LIVE_EVIDENCE', candidate_sha: implementation.candidate_sha, candidate_branch: implementation.candidate_branch, files: [], tests: [] };
+    }
+
     if (implementation?.status === 'READY' && job && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED') {
       try {
         bridgePreparation = await prepareApprovedBridgePackage({
