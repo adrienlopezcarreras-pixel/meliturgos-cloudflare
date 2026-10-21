@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   inferAutonomyControlIntent,
+  inferApprovedAutonomyExecutionIntent,
   inferCodeIntegrityIntent,
   inferOpenWorkIntent,
   inferModuleProposalIntent,
@@ -166,4 +167,43 @@ test('new deterministic read-only routes are injected without semantic/provider 
     assert.equal(body.capability.id, capabilityId, text);
     assert.deepEqual(body.intent_routing, { mode: 'deterministic', intent, confidence: 1 }, text);
   }
+});
+
+test('GPT6: execute previously approved bridge work as autonomy tick, without a new development job', async () => {
+  const messages = [
+    'Exécute maintenant le travail déjà approuvé de ta roadmap via le Dev Bridge.',
+    "MEL, ton pont de développement Windows est désormais installé, actif et authentifié auprès de Cloudflare. Effectue un premier cycle réel de développement à partir d'un travail approuvé de ta roadmap. Utilise le Dev Bridge pour récupérer le travail, créer une branche candidate isolée, exécuter les tests et transmettre les résultats au Council. Ne fusionne ni ne déploie automatiquement ce premier essai. Fournis la preuve de l'exécution, l'état des tests et la référence de la branche candidate. En cas de blocage, remonte le code d'erreur exact.",
+  ];
+  for (const text of messages) {
+    assert.deepEqual(inferApprovedAutonomyExecutionIntent(text), { id: 'autonomy.tick', input: {} }, text);
+    const request = new Request('https://mel.example/api/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text, conversation_id: 'approved-bridge-test' }),
+    });
+    const body = await (await injectEvolutionPreflightCapability(request)).json();
+    assert.deepEqual(body.capability, { id: 'autonomy.tick', input: {} }, text);
+    assert.deepEqual(body.intent_routing, { mode: 'deterministic', intent: 'AUTONOMY_CONTROL', confidence: 1 }, text);
+  }
+});
+
+test('GPT6: do not steal new code work, status questions, or generic chat', async () => {
+  const newWork = [
+    'Développe une nouvelle compétence qui utilise le Dev Bridge et le Council.',
+    'Modifie le code du Dev Bridge et ajoute de nouveaux tests.',
+  ];
+  for (const text of newWork) {
+    assert.equal(inferApprovedAutonomyExecutionIntent(text), null, text);
+    const request = new Request('https://mel.example/api/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    const body = await (await injectEvolutionPreflightCapability(request)).json();
+    assert.equal(body.capability?.id, 'evolution.enqueue', text);
+  }
+  for (const text of [
+    'Quel est le statut du travail approuvé de la roadmap ?',
+    'Raconte-moi une histoire de voyage.',
+  ]) assert.equal(inferApprovedAutonomyExecutionIntent(text), null, text);
 });
