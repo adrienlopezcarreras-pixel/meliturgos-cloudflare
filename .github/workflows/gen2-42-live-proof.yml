@@ -49,7 +49,7 @@ jobs:
         run: npm ci
 
       - name: Run GEN2-42 targeted contract tests
-        run: node --test tests/gen2/capability-watch-production-proof.test.mjs tests/gen2/capability-watch.test.mjs tests/gen2/preview-watch-http-sanitizer.test.mjs
+        run: node --test tests/gen2/capability-watch-production-proof.test.mjs tests/gen2/capability-watch.test.mjs tests/gen2/preview-watch-http-sanitizer.test.mjs tests/gen2/autonomy-runtime-observation-safety.test.mjs
 
       - name: Read production capability watch state
         if: github.event_name != 'pull_request'
@@ -120,8 +120,17 @@ jobs:
           # CODEX: publish only explicit runtime metadata, never goal, plan,
           # proposal contents, tokens or arbitrary raw JSON from D1.
           def safe_runtime_row(row):
+              allowed = {
+                  'db_now_ms', 'bridge_id', 'status', 'last_seen', 'acquired_at', 'expires_at',
+                  'id', 'created_at', 'updated_at', 'error', 'roadmap_id', 'teacher_status',
+                  'teacher_request_id', 'teacher_verdict', 'council_status', 'implementation_decision',
+                  'implementation_status', 'implementation_code', 'bridge_status', 'bridge_code',
+                  'completion_status', 'candidate_sha', 'ci_run_id',
+              }
               result = {}
               for key, value in row.items():
+                  if key not in allowed:
+                      continue
                   if value is None or isinstance(value, (int, float, bool)):
                       result[key] = value
                   elif re.fullmatch(r'[A-Za-z0-9_.:/@-]{1,200}', str(value)):
