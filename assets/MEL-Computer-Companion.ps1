@@ -314,7 +314,7 @@ function Resolve-DevExecutorRepo([string]$Repo) {
 function Read-DevExecutorReceipt {
   if (-not $script:DevExecutorProcess -or $script:DevExecutorProcess.HasExited -or -not $script:DevExecutorControl) { return $null }
   try {
-    $receipt = Get-Content -Raw -LiteralPath (Join-Path $script:DevExecutorControl 'status.json') | ConvertFrom-Json
+    $receipt = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $script:DevExecutorControl 'status.json') | ConvertFrom-Json
     if ([int]$receipt.pid -ne $script:DevExecutorProcess.Id -or [string]$receipt.session -cne $script:DevExecutorSession -or
         [string]$receipt.repo -ine $script:DevExecutorRepo) { return $null }
     if ([long]$receipt.heartbeat_at -gt $script:DevExecutorLastHeartbeat) { $script:DevExecutorLastHeartbeat = [long]$receipt.heartbeat_at }
@@ -429,7 +429,7 @@ function Invoke-DevExecutorControl([ValidateSet('Start','Stop','Restart')][strin
     Set-DevExecutorConfiguration $false
     Stop-DevExecutor; $script:DevExecutorCode = 'DISABLED'; return
   }
-  $saved = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Json
+  $saved = Get-Content -Raw -Encoding UTF8 -LiteralPath $ConfigPath | ConvertFrom-Json
   $repo = [string]$saved.dev_executor_repo
   if ($SelectedRepo) { $repo = Resolve-DevExecutorRepo $SelectedRepo }
   try { $repo = Resolve-DevExecutorRepo $repo } catch {
@@ -454,7 +454,7 @@ function Receive-DevExecutorControl {
   $processing = $requestFile + '.' + [Guid]::NewGuid().ToString('N')
   try {
     [IO.File]::Move($requestFile, $processing)
-    $request = Get-Content -Raw -LiteralPath $processing | ConvertFrom-Json
+    $request = Get-Content -Raw -Encoding UTF8 -LiteralPath $processing | ConvertFrom-Json
     $age = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - [long]$request.issued_at
     if ([string]$request.request_id -notmatch '^[a-f0-9]{32}$' -or [int]$request.engine_pid -ne $PID -or
         $age -lt 0 -or $age -gt 60000 -or [string]$request.action -notin @('Start','Stop','Restart')) { throw 'LOCAL_CONTROL_INVALID' }

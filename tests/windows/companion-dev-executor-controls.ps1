@@ -12,7 +12,7 @@ Assert ($errors.Count -eq 0) 'PARSE_FAILED'
 $root = Join-Path ([IO.Path]::GetTempPath()) ('mel executor ' + [Guid]::NewGuid().ToString('N'))
 [void][IO.Directory]::CreateDirectory($root)
 $MelDir = $root; $ConfigPath = Join-Path $root 'computer.json'; $Server = 'https://example.invalid'
-$repo = Join-Path $root 'repository with spaces'
+$repo = Join-Path $root 'repository é with spaces'
 [void][IO.Directory]::CreateDirectory((Join-Path $repo 'scripts'))
 [void][IO.Directory]::CreateDirectory((Join-Path $repo '.git'))
 $fixture = @'
@@ -62,7 +62,7 @@ try {
   $deadline = (Get-Date).AddSeconds(8)
   do { Start-Sleep -Milliseconds 150; $view = Get-DevExecutorDisplay } while ($view.state -ne 'En ligne' -and (Get-Date) -lt $deadline)
   Assert ($view.state -eq 'En ligne') 'CLOUD_RECEIPT_NOT_DISPLAYED'
-  Assert ((Get-Content -Raw $ConfigPath | ConvertFrom-Json).dev_executor_enabled -eq $true) 'ACTIVATION_NOT_PERSISTED'
+  Assert ((Get-Content -Raw -Encoding UTF8 $ConfigPath | ConvertFrom-Json).dev_executor_enabled -eq $true) 'ACTIVATION_NOT_PERSISTED'
   Ensure-DevExecutor; Ensure-DevExecutor
   Assert ($script:DevExecutorProcess.Id -eq $firstPid) 'DUPLICATE_PROCESS'
   Assert (@(Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like ('*' + $repo + '*') }).Count -eq 1) 'MULTIPLE_NODE_PROCESSES'
@@ -89,13 +89,13 @@ try {
   ($buttons | Where-Object Text -eq "Arrêter l'exécuteur").PerformClick()
   Ensure-DevExecutor
   Assert ($null -eq $script:DevExecutorProcess) 'VOLUNTARY_STOP_RESTARTED'
-  $saved = Get-Content -Raw $ConfigPath | ConvertFrom-Json
+  $saved = Get-Content -Raw -Encoding UTF8 $ConfigPath | ConvertFrom-Json
   Assert ($saved.dev_executor_enabled -eq $false) 'DISABLE_NOT_PERSISTED'
   Assert ($saved.token_protected -eq 'opaque-test-value' -and $saved.unrelated.nested -eq 42) 'CONFIG_FIELDS_LOST'
   $request = @{ action='Start'; repo=$repo; request_id=[Guid]::NewGuid().ToString('N'); engine_pid=$PID; issued_at=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
   if ($native) {
     $native.GetMethod('RequestDevExecutor').Invoke($null,[string[]]@('Start',$repo))
-    $request = Get-Content -Raw (Join-Path $MelDir 'dev-executor-request.json') | ConvertFrom-Json
+    $request = Get-Content -Raw -Encoding UTF8 (Join-Path $MelDir 'dev-executor-request.json') | ConvertFrom-Json
   } else { [IO.File]::WriteAllText((Join-Path $MelDir 'dev-executor-request.json'), ($request | ConvertTo-Json)) }
   Receive-DevExecutorControl
   Assert ($null -ne $script:DevExecutorProcess) 'NATIVE_WINDOW_REQUEST_DID_NOT_START'
@@ -114,7 +114,7 @@ try {
   Assert ($null -eq $script:DevExecutorProcess) 'STALE_ENGINE_REQUEST_EXECUTED'
   $script:DevExecutorCode = 'DISABLED'
   Publish-DevExecutorView
-  $nativeView = Get-Content -Raw (Join-Path $MelDir 'dev-executor-view.json') | ConvertFrom-Json
+  $nativeView = Get-Content -Raw -Encoding UTF8 (Join-Path $MelDir 'dev-executor-view.json') | ConvertFrom-Json
   Assert ($nativeView.engine_pid -eq $PID -and $nativeView.state -eq 'Arrêté') 'NATIVE_WINDOW_VIEW_INVALID'
   if ($native) {
     $readView = $native.GetMethod('ReadDevExecutorView').Invoke($null,@())
