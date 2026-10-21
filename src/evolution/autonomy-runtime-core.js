@@ -139,6 +139,24 @@ export function providerDeferral(code, now = Date.now()) {
     ? { code: value, observed_at: now, retry_after: now + 5 * 60_000 } : null;
 }
 
+// [Codex] Missing evidence is a resumable wait, never a failed implementation
+// or permission to generate an unnecessary patch. Reuse the scheduler's
+// existing bounded deferral and CAS; never revive terminal/concurrent work.
+export async function persistVerificationWait(repository, jobId, { code, liveChecks = [], ciRunId = null, candidateSha = null, now = Date.now() } = {}) {
+  const latest = await repository.get(jobId);
+  if (latest?.status !== 'TEACHER_APPROVED') return latest;
+  const diagnostic = /^[A-Za-z0-9_.:-]{1,160}$/.test(String(code || '')) ? code : 'VERIFY_EXISTING_EVIDENCE_REQUIRED';
+  return repository.update(jobId, { result_json: {
+    ...latest.result_json,
+    verify_existing: {
+      status: 'WAITING_VERIFICATION', objective_assessment: 'ALREADY_IMPLEMENTED_UNVERIFIED',
+      code: diagnostic, live_checks: liveChecks, ci_run_id: ciRunId,
+      candidate_sha: candidateSha, observed_at: new Date(now).toISOString(),
+    },
+    autonomy_deferral: { code: diagnostic, observed_at: now, retry_after: now + 5 * 60_000 },
+  } }, { expected: latest });
+}
+
 async function persistImplementationDiagnostic(repository, jobId, diagnostic) {
   const latest = await repository.get(jobId);
   if (!latest) return null;
@@ -759,15 +777,13 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       const required = requiredLiveChecks(job?.goal, implementation?.selected?.text);
       const liveChecks = ciRunId ? await runLiveChecks(env, required).catch(() => []) : [];
       const gate = ciRunId ? liveProofGate(required, liveChecks) : { ok: false, code: 'FULL_CANDIDATE_CI_REQUIRED' };
-      if (ciRunId && !gate.ok && job) {
-        // No proof matching the objective: "already done" is refused. The job
-        // is set aside with the exact failed read; MEL moves on and the
-        // roadmap item comes back later.
-        const latest = await jobRepository.get(job.id);
-        const result = { ...(latest?.result_json || {}), verify_existing: { status: 'REJECTED', code: gate.code, live_checks: liveChecks, ci_run_id: ciRunId, observed_at: new Date().toISOString() } };
-        await jobRepository.update(job.id, { status: 'FAILED', error: gate.code, result_json: result });
-      }
       const council = gate.ok && job ? await reviewVerificationEvidence(env, { job, implementation, ciRunId, liveChecks }).catch(() => null) : null;
+      if (job && (!gate.ok || !council || ['COUNCIL_UNAVAILABLE', 'INSUFFICIENT_REVIEWERS', 'REVIEW_INPUT_INVALID'].includes(council.decision))) {
+        await persistVerificationWait(jobRepository, job.id, {
+          code: !gate.ok ? gate.code : (council?.decision || 'COUNCIL_REVIEW_UNAVAILABLE'),
+          liveChecks, ciRunId, candidateSha: implementation.candidate_sha,
+        });
+      }
       bridgePreparation = {
         status: council?.decision === 'APPROVED' ? 'VERIFIED_BY_COUNCIL' : 'AWAITING_LIVE_EVIDENCE',
         code: !gate.ok ? gate.code : (council?.decision || 'COUNCIL_REVIEW_UNAVAILABLE'),
@@ -824,6 +840,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   const activeCount = Array.isArray(state?.active) ? state.active.length : 0;
   const workRemaining = autonomyWorkRemaining(state);
   const waitingExternal = finalJobStatus === 'WAITING_TEACHER'
+    || bridgePreparation?.status === 'AWAITING_LIVE_EVIDENCE'
     || String(ensured?.external_progress?.status || '').length > 0;
   const blockReason = teacher?.status === 'NOT_READY' ? teacher.code : bridgePreparation?.status === 'NOT_READY'
     ? (bridgePreparation.code || 'BRIDGE_PREPARATION_NOT_READY')
@@ -832,7 +849,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       : runtimeProof?.status === 'NOT_VERIFIED'
         ? (runtimeProof.code || 'RUNTIME_WORK_DAG_PROOF_NOT_VERIFIED')
         : waitingExternal
-          ? (ensured?.external_progress?.status || 'WAITING_EXTERNAL_PROGRESS')
+          ? (bridgePreparation?.status === 'AWAITING_LIVE_EVIDENCE' ? bridgePreparation.code : (ensured?.external_progress?.status || 'WAITING_EXTERNAL_PROGRESS'))
           : autonomyQueueReadBlocker(state);
   const advanced = autonomyTickAdvanced(progressEvents);
 

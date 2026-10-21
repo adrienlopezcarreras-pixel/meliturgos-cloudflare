@@ -503,6 +503,9 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
   const proposal = {
     status: classifyImplementationDecision(selectedText) === 'VERIFY_EXISTING' ? 'VERIFY_EXISTING' : 'READY',
     decision: classifyImplementationDecision(selectedText),
+    // [Codex] A plan never constitutes verified implementation evidence.
+    objective_assessment: classifyImplementationDecision(selectedText) === 'VERIFY_EXISTING'
+      ? 'ALREADY_IMPLEMENTED_UNVERIFIED' : 'DEVELOPMENT_REQUIRED',
     schema: 'mel.approved-implementation-proposal',
     version: 2,
     created_at: new Date().toISOString(),

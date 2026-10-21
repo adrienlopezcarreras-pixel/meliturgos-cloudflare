@@ -454,6 +454,10 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
       rejected.push({ job_id: job.id, request_id: record.request_id, code: 'COMPLETION_MEL_IMPLEMENTATION_PROPOSAL_REQUIRED' });
       continue;
     }
+    if (proposal.decision === 'VERIFY_EXISTING' && record.source !== 'council-approved') {
+      rejected.push({ job_id: job.id, request_id: record.request_id, code: 'COMPLETION_VERIFICATION_COUNCIL_REQUIRED' });
+      continue;
+    }
 
     try {
       const ci = await verifyCompletionEvidence(record, env, { fetchImpl });
@@ -476,6 +480,15 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
         ci,
         completed_at: new Date().toISOString(),
       };
+      // [Codex] Only the existing correlated Council/exact-CI completion gate
+      // may promote a no-code assessment; neither planner nor wait can do so.
+      if (proposal.decision === 'VERIFY_EXISTING') {
+        result.verify_existing = {
+          ...result.verify_existing,
+          status: 'VERIFIED', objective_assessment: 'ALREADY_IMPLEMENTED_VERIFIED',
+          candidate_sha: record.candidate_sha, ci_run_id: record.ci_run_id,
+        };
+      }
       const updated = await repository.update(job.id, {
         status: 'COMPLETED',
         tests_json: record.tests,
