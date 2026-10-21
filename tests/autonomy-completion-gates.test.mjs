@@ -242,3 +242,19 @@ test('VERIFY_EXISTING closes only on successful production reads matching the ob
   assert.equal(liveProofGate(required, [...required.slice(0, 2).map(ok), { capability: 'drive.files.list', ok: false, code: 'GOOGLE_AUTH_REQUIRED' }]).code, 'VERIFY_EXISTING_LIVE_CHECK_FAILED:drive.files.list:GOOGLE_AUTH_REQUIRED');
   assert.equal(liveProofGate([], []).code, 'VERIFY_EXISTING_NO_FUNCTIONAL_PROOF', 'a green CI alone never closes VERIFY_EXISTING');
 });
+
+test('GPT6: no-code live checks must be related to the actual objective', async () => {
+  const { hasObjectiveBoundVerificationChecks } = await import('../src/evolution/verify-existing-live-checks.js');
+  assert.equal(hasObjectiveBoundVerificationChecks(
+    '[MEL-FOUNDER-02] Persistance durable MAX entre ticks et libération du lease',
+    'DECISION: VERIFY_EXISTING\nLIVE_CHECKS: gmail.messages.search, calendar.events.read, drive.files.list',
+  ), false);
+  assert.equal(hasObjectiveBoundVerificationChecks(
+    'Prouver une lecture Gmail',
+    'DECISION: VERIFY_EXISTING\nLIVE_CHECKS: gmail.messages.search',
+  ), true);
+  assert.equal(hasObjectiveBoundVerificationChecks(
+    'Prouver une lecture Gmail',
+    'DECISION: VERIFY_EXISTING\nLIVE_CHECKS: drive.files.list',
+  ), false);
+});

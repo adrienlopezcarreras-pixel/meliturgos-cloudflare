@@ -1,4 +1,5 @@
 import { createGitHubCodeReader } from '../capabilities/github-code-capabilities.js';
+import { hasObjectiveBoundVerificationChecks } from './verify-existing-live-checks.js';
 import { hasDistinctProviderAttempts } from './autonomy-provider-attempts.js';
 import { Augmentio } from '../augmentio/augmentio.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
@@ -13,6 +14,21 @@ export function classifyImplementationDecision(plan) {
   return /^DECISION:\s*VERIFY_EXISTING\s*$/im.test(String(plan || ''))
     ? 'VERIFY_EXISTING' : 'IMPLEMENT';
 }
+// GPT6: a no-code verdict must have objective-relevant functional checks.
+// Otherwise it can only stall in VERIFY_EXISTING_NO_FUNCTIONAL_PROOF after
+// Teacher approval, without ever preparing a Dev Bridge package.
+export function requireProvableImplementationDecision(goal, candidateText) {
+  const text = assertPlanQualityContract(candidateText);
+  if (classifyImplementationDecision(text) === 'VERIFY_EXISTING'
+      && !hasObjectiveBoundVerificationChecks(goal, text)) {
+    const error = new Error('IMPLEMENTATION_UNPROVABLE_VERIFY_EXISTING');
+    error.code = 'IMPLEMENTATION_UNPROVABLE_VERIFY_EXISTING';
+    error.missing_sections = ['OBJECTIVE_BOUND_FUNCTIONAL_PROOF'];
+    throw error;
+  }
+  return text;
+}
+
 const QUALITY_SECTIONS = Object.freeze([
   ['FICHIERS', /FICHIERS\s*:/i],
   ['CHANGEMENTS', /CHANGEMENTS\s*:/i],
@@ -259,6 +275,7 @@ async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) 
 
 async function reusableProposal(env, existing, bridge, { fetchImpl = fetch, job = null } = {}) {
   if (!['READY', 'VERIFY_EXISTING'].includes(existing?.status)) return null;
+  if (existing.status === 'VERIFY_EXISTING' && !hasObjectiveBoundVerificationChecks(job?.goal, existing?.selected?.text)) return null;
   if (!existing?.teacher_request_id || existing.teacher_request_id !== bridge.request.request_id) return null;
   if (!SHA40.test(String(existing?.candidate_sha || ''))) return null;
   if (existing?.consolidation?.policy !== 'SINGLE_CANONICAL_CANDIDATE') return null;
@@ -289,6 +306,7 @@ function qualityRepairPrompt(job, bridge, code, candidates, missingSections = []
     'Tu répares un plan d\'implémentation MELITURGOS déjà approuvé par le Teacher.',
     'Ne change pas l’objectif, ne déploie rien, ne crée aucune seconde branche candidate.',
     'Fusionne uniquement les éléments utiles des candidats ci-dessous et rends un plan strictement conforme.',
+    'Si OBJECTIVE_BOUND_FUNCTIONAL_PROOF est manquant, ne prétends pas que Gmail/Agenda/Drive prouvent un objectif sans rapport : produis un plan DECISION: IMPLEMENT pour une correction ou des tests fonctionnels réellement manquants, en réutilisant l’existant. Ne déclare jamais DONE sans preuves.',
     'Réponds obligatoirement avec exactement ces sections non vides: FICHIERS, CHANGEMENTS, REUTILISATION, TESTS, RISQUES, ROLLBACK, CRITERES_DE_FIN.',
     `SECTIONS_MANQUANTES_DETECTEES: ${Array.isArray(missingSections) && missingSections.length ? missingSections.join(', ') : 'inconnues'}`,
     `OBJECTIF: ${String(job?.goal || '').slice(0, 2500)}`,
@@ -344,6 +362,7 @@ function planningPrompt(job, bridge, code) {
     'Le plan a déjà reçu une approbation Teacher. Tu ne déploies rien et tu ne modifies aucun compte.',
     'Détermine d’abord si l’objectif est déjà satisfait dans la version existante. Si oui, commence une ligne exacte DECISION: VERIFY_EXISTING, ne propose aucun changement, et donne les tests réels à exécuter ainsi que les preuves manquantes. Cela ne valide PAS l’objectif.',
     'Avec DECISION: VERIFY_EXISTING, ajoute une ligne exacte LIVE_CHECKS: suivie des lectures réelles à exécuter en production parmi gmail.messages.search, calendar.events.read, drive.files.list (vide si aucune ne prouve l’objectif).',
+    'DECISION: VERIFY_EXISTING est interdite si aucune de ces lectures n’est fonctionnellement liée à l’objectif. Une réussite Gmail/Agenda/Drive ne prouve pas la persistance MAX ou la libération du lease. Dans ce cas, propose le plus petit plan DECISION: IMPLEMENT avec changements ou tests manquants ; ne duplique aucune capacité.',
     'Si des changements sont réellement nécessaires, commence une ligne exacte DECISION: IMPLEMENT et conçois le plus petit changement réversible sur la SEULE branche candidate canonique indiquée ci-dessous.',
     'Interdiction de créer ou proposer une deuxième branche candidate, une deuxième roadmap, un second orchestrateur ou un module parallèle qui duplique une capacité existante.',
     'Réutilise l’existant avant toute création. Si un nouveau fichier est réellement nécessaire, justifie explicitement pourquoi aucun composant existant ne peut porter le changement.',
@@ -412,11 +431,11 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
   let qualityError = null;
   for (const candidate of rankedCandidates) {
     try {
-      selectedText = assertPlanQualityContract(candidate?.text);
+      selectedText = requireProvableImplementationDecision(current.goal, candidate?.text);
       selectedCandidate = candidate;
       break;
     } catch (error) {
-      if (error?.code !== 'IMPLEMENTATION_QUALITY_CONTRACT_MISSING') throw error;
+      if (!['IMPLEMENTATION_QUALITY_CONTRACT_MISSING', 'IMPLEMENTATION_UNPROVABLE_VERIFY_EXISTING'].includes(error?.code)) throw error;
       qualityError = error;
     }
   }
@@ -441,11 +460,11 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
       : (repairFanout?.best ? [repairFanout.best] : []);
     for (const candidate of repairedCandidates) {
       try {
-        selectedText = assertPlanQualityContract(candidate?.text);
+        selectedText = requireProvableImplementationDecision(current.goal, candidate?.text);
         selectedCandidate = candidate;
         break;
       } catch (error) {
-        if (error?.code !== 'IMPLEMENTATION_QUALITY_CONTRACT_MISSING') throw error;
+        if (!['IMPLEMENTATION_QUALITY_CONTRACT_MISSING', 'IMPLEMENTATION_UNPROVABLE_VERIFY_EXISTING'].includes(error?.code)) throw error;
         qualityError = error;
       }
     }
@@ -456,7 +475,14 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
       ...rankedCandidates,
       ...((Array.isArray(repairFanout?.candidates) ? repairFanout.candidates : [])),
     ];
-    selectedText = deterministicQualityScaffold(current, code, scaffoldCandidates);
+    const eligible = scaffoldCandidates.filter(candidate =>
+      classifyImplementationDecision(candidate?.text) !== 'VERIFY_EXISTING'
+      || hasObjectiveBoundVerificationChecks(current.goal, candidate?.text)
+    );
+    if (!eligible.length && qualityError?.code === 'IMPLEMENTATION_UNPROVABLE_VERIFY_EXISTING') {
+      throw qualityError; // No invented code, no unsupported DONE, no fake Bridge package.
+    }
+    selectedText = requireProvableImplementationDecision(current.goal, deterministicQualityScaffold(current, code, eligible));
     selectedCandidate = {
       provider: 'mel',
       model: 'deterministic-quality-scaffold-v1',
