@@ -447,7 +447,7 @@ test('mentor accepts every complete delimited file with CRLF without changing in
   const result = await engine.propose({
     env: {},
     goal: 'Propose two complete files',
-    inspectedFiles: [{ path: 'src/first.js', content: 'export const first = false;\n' }],
+    inspectedFiles: [{ path: 'src/first.js', content: 'export const first = false;\n' }, { path: 'src/second.js', content: 'export const second = false;\n' }],
   });
 
   assert.deepEqual(result.proposal.changes.map(({ path, content }) => ({ path, content })), [
@@ -467,7 +467,7 @@ test('mentor rejects the entire delimited proposal when a later file is truncate
     () => engine.propose({
       env: {},
       goal: 'Reject an incomplete multi-file implementation',
-      inspectedFiles: [{ path: 'src/first.js', content: 'export const first = false;\n' }],
+      inspectedFiles: [{ path: 'src/first.js', content: 'export const first = false;\n' }, { path: 'src/second.js', content: 'export const second = false;\n' }],
     }),
     error => {
       assert.equal(error.code, 'MENTOR_NO_VALID_CODE_PROPOSAL');
@@ -492,7 +492,7 @@ test('mentor repairs an incomplete multi-file response before accepting the full
   const result = await engine.propose({
     env: {},
     goal: 'Repair a truncated proposal as a whole',
-    inspectedFiles: [{ path: 'src/first.js', content: 'export const first = false;\n' }],
+    inspectedFiles: [{ path: 'src/first.js', content: 'export const first = false;\n' }, { path: 'src/second.js', content: 'export const second = false;\n' }],
   });
 
   assert.equal(result.council.selected_from_repair, true);
@@ -631,7 +631,7 @@ test('mentor prompt contains a bounded inspected excerpt and one patch format', 
   const calls = [];
   const prefix = 'export const target = false;\n';
   const hidden = 'export const SECRET_TAIL_SENTINEL = 12345;\n';
-  const source = prefix + 'export const repeated = 0;\n'.repeat(350) + hidden;
+  const source = prefix + '// inspected filler, preserved by the edit\n'.repeat(350) + hidden;
   const model = sequenceProvider('patch-author', [{
     summary: 'A small real inspected change',
     edits: [{ path: 'src/example.js', find: 'export const target = false;', replace: 'export const target = true;' }],

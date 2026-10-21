@@ -1,3 +1,4 @@
+import { assertMentorCodeContract } from './mentor-code-contract.js';
 import { createMentorCompanionFallback } from './mentor-companion-provider.js';
 import { MentorMemoryRepository } from './mentor-memory.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
@@ -108,7 +109,10 @@ function escapeRawJsonStrings(text) {
   return out;
 }
 
-function incompleteFile(content) {
+function incompleteFile(content, inspectedSource = '') {
+  // A real sanitizer already contains this literal in work-dag.js. Preserve
+  // that inspected literal; an actual omitted-code marker is still refused.
+  content = content.replace(/(['"])\[TRUNCATED\]\1/gi, literal => inspectedSource.includes(literal) ? "''" : literal);
   return /(?:\/\/|\*|\#)\s*\.\.\.\s*(?:existing|reste|rest of|inchangé|unchanged)/i.test(content)
     || /\[(?:truncated|contenu omis|à compléter)\]/i.test(content)
     || /^diff --git /m.test(content)
@@ -159,14 +163,15 @@ function normalizeInspectedFiles(files = []) {
     if (out.length >= MAX_FILES || total >= MAX_TOTAL_SOURCE_CHARS) break;
     const path = safeInspectionPath(item?.path);
     const remaining = MAX_TOTAL_SOURCE_CHARS - total;
-    const content = bounded(item?.content ?? item?.result?.content ?? '', MAX_CHANGE_CHARS);
+    const content = String(item?.content ?? item?.result?.content ?? '');
+    if (content.length > MAX_CHANGE_CHARS) throw Object.assign(new Error('MENTOR_SOURCE_TOO_LARGE'), { code: 'MENTOR_SOURCE_TOO_LARGE' });
     total += Math.min(content.length, MAX_FILE_CHARS, remaining);
     out.push({ path, content });
   }
   return out;
 }
 
-function applyInspectedEdits(edits, inspectedFiles) {
+function applyInspectedEdits(edits, inspectedFiles, repairReferences = [], visibleFiles = inspectedFiles) {
   if (!Array.isArray(edits) || !edits.length) return [];
   if (edits.length > MAX_CHANGES) throw Object.assign(new Error('MENTOR_INVALID_CHANGE:change-limit'), { code: 'MENTOR_INVALID_CHANGE' });
   const byPath = new Map((Array.isArray(inspectedFiles) ? inspectedFiles : []).map(file => [file.path, String(file.content || '')]));
@@ -175,6 +180,9 @@ function applyInspectedEdits(edits, inspectedFiles) {
     const path = safePath(edit?.path);
     if (!byPath.has(path)) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
     const find = String(edit?.find ?? '');
+    if (!visibleFiles.some(file => file.path === path && file.content.includes(find))) {
+      throw Object.assign(new Error('MENTOR_UNINSPECTED_EDIT'), { code: 'MENTOR_UNINSPECTED_EDIT' });
+    }
     const replace = String(edit?.replace ?? '');
     if (!find || find.length > 8000 || replace.length > MAX_CHANGE_CHARS) {
       throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
@@ -185,7 +193,7 @@ function applyInspectedEdits(edits, inspectedFiles) {
       throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
     }
     const content = source.slice(0, at) + replace + source.slice(at + find.length);
-    if (!content || content.length > MAX_CHANGE_CHARS || incompleteFile(content)) {
+    if (!content || content.length > MAX_CHANGE_CHARS || incompleteFile(content, source + (repairReferences.find(file => file.path === path)?.content || ''))) {
       throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
     }
     byPath.set(path, content);
@@ -209,11 +217,13 @@ function stillImports(content, specifier) {
   return new RegExp(`(?:from\\s+|import\\s*\\()['"]${escaped}['"]|require\\(\\s*['"]${escaped}['"]\\s*\\)`).test(String(content || ''));
 }
 
-function assertAcceptedChange(change, inspectedFiles, forbidden) {
+function assertAcceptedChange(change, inspectedFiles, forbidden, appliedEdit = false) {
   const inspected = (Array.isArray(inspectedFiles) ? inspectedFiles : []).find((file) => file.path === change.path);
-  if ((inspected?.content || '').length > LONG_FILE_CHARS && change.reason !== 'Modification appliquée sur le fichier inspecté') {
+  if (!inspected) throw Object.assign(new Error('MENTOR_UNINSPECTED_PATH'), { code: 'MENTOR_UNINSPECTED_PATH' });
+  if ((inspected.content || '').length > LONG_FILE_CHARS && !appliedEdit) {
     throw Object.assign(new Error(`MENTOR_LONG_FILE_REQUIRES_EDIT:${change.path}`), { code: 'MENTOR_LONG_FILE_REQUIRES_EDIT' });
   }
+  assertMentorCodeContract(change.path, inspected.content, change.content);
   for (const specifier of forbidden) {
     if (stillImports(change.content, specifier)) {
       throw Object.assign(new Error(`MENTOR_REPEATED_BROKEN_IMPORT:${specifier}`), { code: 'MENTOR_REPEATED_BROKEN_IMPORT' });
@@ -221,7 +231,7 @@ function assertAcceptedChange(change, inspectedFiles, forbidden) {
   }
 }
 
-function normalizeProposal(value, provenance = {}, inspectedFiles = [], previousAttempts = []) {
+function normalizeProposal(value, provenance = {}, inspectedFiles = [], previousAttempts = [], repairReferences = [], visibleFiles = inspectedFiles) {
   const forbidden = forbiddenImportSpecifiers(previousAttempts);
   const parsed = parseJsonCandidate(value);
   const rawChanges = Array.isArray(parsed.changes)
@@ -229,7 +239,7 @@ function normalizeProposal(value, provenance = {}, inspectedFiles = [], previous
     : (parsed.path && parsed.content != null ? [parsed] : []);
   let changes;
   if (!rawChanges.length) {
-    changes = applyInspectedEdits(parsed.edits, inspectedFiles);
+    changes = applyInspectedEdits(parsed.edits, inspectedFiles, repairReferences, visibleFiles);
     if (!changes.length) throw Object.assign(new Error('MENTOR_CHANGES_REQUIRED'), { code: 'MENTOR_CHANGES_REQUIRED' });
   } else {
   if (rawChanges.length > MAX_CHANGES) throw Object.assign(new Error('MENTOR_INVALID_CHANGE:change-limit'), { code: 'MENTOR_INVALID_CHANGE' });
@@ -246,7 +256,7 @@ function normalizeProposal(value, provenance = {}, inspectedFiles = [], previous
         .filter((spec) => spec && !spec.startsWith('.') && !spec.startsWith('/') && !spec.startsWith('node:'));
       if (invented.length) throw Object.assign(new Error(`MENTOR_UNINSPECTED_PATH:${path}`), { code: 'MENTOR_UNINSPECTED_PATH' });
     }
-    if (!content || content.length > MAX_CHANGE_CHARS || incompleteFile(content)) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
+    if (!content || content.length > MAX_CHANGE_CHARS || incompleteFile(content, inspectedFiles.find(file => file.path === path)?.content || '')) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
     seen.add(path);
     changes.push({ path, content, reason: bounded(raw?.reason || '', 1200) });
   }
@@ -254,7 +264,18 @@ function normalizeProposal(value, provenance = {}, inspectedFiles = [], previous
   }
   const tests = [...new Set((Array.isArray(parsed.tests) ? parsed.tests : []).map(String).filter(name => ALLOWED_TESTS.has(name)))].slice(0, 4);
   if (!tests.length) tests.push('test:smoke');
-  for (const change of changes) assertAcceptedChange(change, inspectedFiles, forbidden);
+  for (const change of changes) {
+    if (!visibleFiles.some(file => file.path === change.path)) throw Object.assign(new Error('MENTOR_UNINSPECTED_PATH'), { code: 'MENTOR_UNINSPECTED_PATH' });
+    assertAcceptedChange(change, inspectedFiles, forbidden, !rawChanges.length);
+    const inspected = inspectedFiles.find(file => file.path === change.path);
+    if (rawChanges.length && inspected && !visibleFiles.some(file => file.path === change.path && file.content.includes(inspected.content))) {
+      throw Object.assign(new Error('MENTOR_UNINSPECTED_EDIT'), { code: 'MENTOR_UNINSPECTED_EDIT' });
+    }
+  }
+  for (const change of changes) {
+    const reference = repairReferences.find(file => file.path === change.path);
+    if (reference) assertMentorCodeContract(change.path, reference.content, change.content);
+  }
   const confidence = Math.max(0, Math.min(1, Number(parsed.confidence) || 0.5));
   const lessons = (Array.isArray(parsed.lessons) ? parsed.lessons : []).map(x => bounded(x, 1200)).filter(Boolean).slice(0, 8);
   return {
@@ -297,7 +318,7 @@ function promptLimit(provider) {
 }
 
 // Fit the prompt to one provider: the frame is kept, sources share the rest.
-function promptWithinLimit(build, files, limit) {
+function promptWithinLimit(build, files, limit, visibleScope = []) {
   const frame = build([]).length;
   let budget = Math.max(0, Math.min(MAX_TOTAL_SOURCE_CHARS, limit - frame - 120 * files.length));
   const excerpts = files.map((file, index) => {
@@ -309,10 +330,14 @@ function promptWithinLimit(build, files, limit) {
       : visible;
     return { ...file, excerpt };
   });
-  return bounded(build(excerpts), limit);
+  const input = bounded(build(excerpts), limit);
+  for (const file of excerpts.slice(0, 6)) {
+    if (input.includes(sourceBlock([file]))) visibleScope.push({ path: file.path, content: String(file.excerpt ?? file.content).slice(0, 4500) });
+  }
+  return input;
 }
 
-function buildRepairPrompt({ goal, files, raw, failure, mode }) {
+function buildRepairPrompt({ goal, files, raw, failure, mode, reference = '' }) {
   const uninspected = /MENTOR_UNINSPECTED_PATH/.test(String(failure || ''));
   const allowed = (Array.isArray(files) ? files : []).slice(0, 6).map(file => file.path).filter(Boolean).join(', ');
   return [
@@ -328,12 +353,13 @@ function buildRepairPrompt({ goal, files, raw, failure, mode }) {
     'ERREUR_DE_VALIDATION: ' + bounded(failure || 'INVALID_PROPOSAL', 120),
     uninspected ? 'L’ancien chemin non inspecté est interdit; repars d’un extrait inspecté.' : 'RÉPONSE_INVALIDE_À_RÉPARER:',
     uninspected ? '' : bounded(raw || '', 2500),
-    'SOURCES_INSPECTÉES:',
+    reference,
+    'SOURCES_INSPECTÉES (base candidate actuelle; appliquer edits ici):',
     sourceBlock(files),
   ].filter(Boolean).join('\n');
 }
 
-function buildPrompt({ role, goal, files, lessons, experiences, previousAttempts, mode }) {
+function buildPrompt({ role, goal, files, lessons, experiences, previousAttempts, mode, reference = '' }) {
   const allowed = (Array.isArray(files) ? files : []).slice(0, 6).map(file => file.path).filter(Boolean).join(', ');
   return [
     'Tu es le mentor code de MELITURGOS. Réponds uniquement par un objet JSON valide, sans markdown ni explication.',
@@ -350,7 +376,8 @@ function buildPrompt({ role, goal, files, lessons, experiences, previousAttempts
     'EXPÉRIENCES_VALIDÉES: ' + bounded(JSON.stringify(experiences?.validated || []), 1800),
     'OBSERVATIONS ACQUISES NON VALIDÉES — HYPOTHÈSES UNIQUEMENT, NE JAMAIS LES TRAITER COMME DES FAITS: ' + bounded(JSON.stringify(experiences?.observations || []), 1200),
     'ERREURS_PRÉCÉDENTES: ' + bounded(JSON.stringify(previousAttempts || []), 1800),
-    'SOURCES_INSPECTÉES:',
+    reference,
+    'SOURCES_INSPECTÉES (base candidate actuelle; appliquer edits ici):',
     sourceBlock(files),
   ].join('\n');
 }
@@ -421,11 +448,17 @@ export class MentorEngine {
     return this.memory.experienceContext(goal, options);
   }
 
-  async propose({ env, jobId, goal, inspectedFiles = [], previousAttempts = [], mode = 'implement' } = {}) {
+  async propose({ env, jobId, goal, inspectedFiles = [], previousAttempts = [], mode = 'implement', repairReferences = [] } = {}) {
     const objective = bounded(goal, 12_000).trim();
     if (!objective) throw Object.assign(new Error('MENTOR_GOAL_REQUIRED'), { code: 'MENTOR_GOAL_REQUIRED', status: 400 });
     const files = normalizeInspectedFiles(inspectedFiles);
     if (!files.length) throw Object.assign(new Error('MENTOR_INSPECTION_REQUIRED'), { code: 'MENTOR_INSPECTION_REQUIRED', status: 422 });
+    const references = normalizeInspectedFiles(repairReferences).filter(reference => files.some(file => file.path === reference.path));
+    const referenceFor = provider => {
+      if (!references.length) return '';
+      const budget = Math.floor(promptLimit(provider) * 0.45 / references.length);
+      return 'RÉPARATION: références historiques lues au SHA de base du paquet défectueux. Préserver leurs exports et contrats, examiner les changements candidats utiles; ne pas recopier aveuglément.\n' + references.map(file => 'REFERENCE ' + file.path + '\n' + file.content.slice(0, budget) + (file.content.length > budget ? '\n[REFERENCE TRONQUÉE]' : '')).join('\n');
+    };
     const learned = await this._learnedRuntime();
     const [remembered, experiences] = await Promise.all([
       this.memory.context(objective, { limit: learned.inference.memory_results }),
@@ -451,11 +484,13 @@ export class MentorEngine {
       const settled = await Promise.allSettled(wave.map((provider, index) => {
         const active = learned.activeAdapter;
         const lora = active?.base_model === provider.modelId ? active?.adapter?.id : null;
+        const visibleScope = [];
         return boundedMentorInvoke(provider, {
           input: promptWithinLimit(
-            visible => buildPrompt({ role: roles[(offset + index) % roles.length], goal: objective, files: visible, lessons: remembered, experiences, previousAttempts, mode }),
+            visible => buildPrompt({ role: roles[(offset + index) % roles.length], goal: objective, files: visible, lessons: remembered, experiences, previousAttempts, mode, reference: referenceFor(provider) }),
             files,
             promptLimit(provider),
+            visibleScope,
           ),
           context: {
             purpose: 'mel-autonomous-development',
@@ -464,7 +499,7 @@ export class MentorEngine {
             inference_settings: learned.inference,
             ...(lora ? { lora } : {}),
           },
-        }, this.invokeTimeoutMs);
+        }, this.invokeTimeoutMs).then(output => ({ output, visibleScope }));
       }));
 
       const repairInputs = [];
@@ -477,9 +512,10 @@ export class MentorEngine {
           // provider instead of issuing the same failed inference twice.
           return;
         }
-        const raw = result.value?.text ?? result.value;
+        const output = result.value.output;
+        const raw = output?.text ?? output;
         try {
-          const proposal = normalizeProposal(raw, result.value?.provenance || { provider: provider.providerId, model: provider.modelId }, files, previousAttempts);
+          const proposal = normalizeProposal(raw, output?.provenance || { provider: provider.providerId, model: provider.modelId }, files, previousAttempts, references, result.value.visibleScope);
           proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: false });
         } catch (error) {
           const failure = mentorFailureCode(error, 'MENTOR_PROPOSAL_INVALID');
@@ -493,11 +529,13 @@ export class MentorEngine {
         const active = learned.activeAdapter;
         const repaired = await Promise.allSettled(repairInputs.map(({ provider, raw, failure }) => {
           const lora = active?.base_model === provider.modelId ? active?.adapter?.id : null;
+          const visibleScope = [];
           return boundedMentorInvoke(provider, {
             input: promptWithinLimit(
-              visible => buildRepairPrompt({ goal: objective, files: visible, raw: bounded(raw, Math.floor(promptLimit(provider) / 3)), failure, mode }),
+              visible => buildRepairPrompt({ goal: objective, files: visible, raw: bounded(raw, Math.floor(promptLimit(provider) / 3)), failure, mode, reference: referenceFor(provider) }),
               files,
               promptLimit(provider),
+              visibleScope,
             ),
             context: {
               purpose: 'mel-autonomous-development-structured-repair',
@@ -506,7 +544,7 @@ export class MentorEngine {
               inference_settings: learned.inference,
               ...(lora ? { lora } : {}),
             },
-          }, this.repairTimeoutMs);
+          }, this.repairTimeoutMs).then(output => ({ output, visibleScope }));
         }));
         repaired.forEach((result, index) => {
           const { provider } = repairInputs[index];
@@ -520,10 +558,12 @@ export class MentorEngine {
           }
           try {
             const proposal = normalizeProposal(
-              result.value?.text ?? result.value,
-              result.value?.provenance || { provider: provider.providerId, model: provider.modelId },
+              result.value.output?.text ?? result.value.output,
+              result.value.output?.provenance || { provider: provider.providerId, model: provider.modelId },
               files,
               previousAttempts,
+              references,
+              result.value.visibleScope,
             );
             proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: true });
             repairValidProposals += 1;

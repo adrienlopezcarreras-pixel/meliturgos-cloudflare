@@ -4,6 +4,14 @@ on:
   pull_request:
     paths:
       - 'src/learning/mentor-engine.js'
+      - 'src/learning/mentor-code-contract.js'
+      - 'src/evolution/autonomy-bridge-preparer.js'
+      - 'src/teachers/github-completion-reconciler.js'
+      - 'src/dev/d1-dev-job-repository.js'
+      - 'tests/mentor-candidate-safety.test.mjs'
+      - 'tests/autonomy-bridge-preparer.test.mjs'
+      - 'tests/fixtures/mentor/**'
+      - 'package*.json'
       - 'src/learning/mentor-companion-provider.js'
       - 'tests/mentor-engine.test.mjs'
       - 'tests/mentor-companion-provider.test.mjs'
@@ -31,4 +39,4 @@ jobs:
           node --check tests/mentor-engine.test.mjs
           node --check tests/mentor-companion-provider.test.mjs
       - name: Isolated mentor regressions
-        run: node --test tests/mentor-engine.test.mjs tests/mentor-companion-provider.test.mjs
+        run: node --test tests/mentor-engine.test.mjs tests/mentor-companion-provider.test.mjs tests/mentor-candidate-safety.test.mjs tests/autonomy-bridge-preparer.test.mjs
