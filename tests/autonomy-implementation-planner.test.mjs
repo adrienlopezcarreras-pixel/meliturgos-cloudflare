@@ -332,3 +332,42 @@ test('planner refuses work without an exact correlated Teacher approval', async 
     (error) => error?.code === 'TEACHER_APPROVAL_REQUIRED',
   );
 });
+
+test('GPT6: Teacher-approved self-audit repair uses source evidence without inventing a roadmap entry', async () => {
+  const f = fixture();
+  const job = await approvedJob(f.repository);
+  const contextual = await f.repository.update(job.id, {
+    goal: '[MEL-SELF-AUDIT] Corriger une anomalie détectée automatiquement',
+    optional_context: {
+      source: 'self-audit-supervisor',
+      priority: 'P0',
+      roadmap_id: null,
+      inspection_queries: ['lora-heartbeat'],
+    },
+  });
+  const proposal = await prepareApprovedImplementationProposal({
+    env: f.env, repository: f.repository, job: contextual, fetchImpl: f.fetchImpl,
+  });
+  assert.equal(proposal.status, 'READY');
+  assert.equal(proposal.roadmap_id, null, 'source-based repair must not masquerade as a roadmap item');
+  assert.equal(proposal.consolidation.reuse_search.query, 'self-audit-supervisor');
+  assert.ok(proposal.inspected_files.some(file => file.path === 'src/diagnostics/self-audit-supervisor.js'));
+  assert.equal(proposal.candidate_sha, HEAD_SHA);
+  assert.equal(proposal.teacher_request_id, 'approved-request');
+  assert.ok(f.aiCalls.length >= 2);
+});
+
+test('GPT6: unrelated non-roadmap jobs are still rejected after Teacher approval', async () => {
+  const f = fixture();
+  const job = await approvedJob(f.repository);
+  const unrelated = await f.repository.update(job.id, {
+    optional_context: { source: 'ecosystem-watch', roadmap_id: null },
+  });
+  await assert.rejects(
+    () => prepareApprovedImplementationProposal({
+      env: f.env, repository: f.repository, job: unrelated, fetchImpl: f.fetchImpl,
+    }),
+    error => error?.code === 'IMPLEMENTATION_ROADMAP_ID_REQUIRED',
+  );
+  assert.equal(f.aiCalls.length, 0);
+});
