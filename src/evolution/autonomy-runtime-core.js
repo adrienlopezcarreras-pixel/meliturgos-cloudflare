@@ -7,7 +7,9 @@ import { createTeacherReviewRequest } from '../teachers/teacher-request.js';
 import { queueRuntimeTeacherRequest } from '../teachers/runtime-teacher-bridge.js';
 import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-mirror.js';
 import { reconcileRuntimeTeacherReplies } from '../teachers/github-reply-reconciler.js';
-import { reconcileRuntimeCompletions } from '../teachers/github-completion-reconciler.js';
+import { reconcileRuntimeCompletions, findGreenFullCandidateRun } from '../teachers/github-completion-reconciler.js';
+import { reviewVerificationEvidence } from './council-review.js';
+import { requiredLiveChecks, runLiveChecks, liveProofGate } from './verify-existing-live-checks.js';
 import { runRuntimeWorkDagResumeProof } from './autonomy-proof.js';
 import { prepareApprovedImplementationProposal } from './autonomy-implementation-planner.js';
 import { prepareApprovedBridgePackage } from './autonomy-bridge-preparer.js';
@@ -715,6 +717,38 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         await persistImplementationDiagnostic(jobRepository, job.id, implementation);
         job = await jobRepository.get(job.id);
       }
+    }
+
+    // [GPT] A no-code verification decision must never enter Mentor/Dev Bridge.
+    // Await independently collected live test evidence and Council review;
+    // neither this plan nor a Teacher approval may certify DONE_VERIFIED.
+    if (implementation?.status === 'VERIFY_EXISTING') {
+      // Evidence is the green full-candidate-ci on the exact approved SHA; the
+      // Council judges it, and only the completion reconciler marks COMPLETED.
+      const ciRunId = await findGreenFullCandidateRun(env, implementation.candidate_sha, { fetchImpl }).catch(() => null);
+      const required = requiredLiveChecks(job?.goal, implementation?.selected?.text);
+      const liveChecks = ciRunId ? await runLiveChecks(env, required).catch(() => []) : [];
+      const gate = ciRunId ? liveProofGate(required, liveChecks) : { ok: false, code: 'FULL_CANDIDATE_CI_REQUIRED' };
+      if (ciRunId && !gate.ok && job) {
+        // No proof matching the objective: "already done" is refused. The job
+        // is set aside with the exact failed read; MEL moves on and the
+        // roadmap item comes back later.
+        const latest = await jobRepository.get(job.id);
+        const result = { ...(latest?.result_json || {}), verify_existing: { status: 'REJECTED', code: gate.code, live_checks: liveChecks, ci_run_id: ciRunId, observed_at: new Date().toISOString() } };
+        await jobRepository.update(job.id, { status: 'FAILED', error: gate.code, result_json: result });
+      }
+      const council = gate.ok && job ? await reviewVerificationEvidence(env, { job, implementation, ciRunId, liveChecks }).catch(() => null) : null;
+      bridgePreparation = {
+        status: council?.decision === 'APPROVED' ? 'VERIFIED_BY_COUNCIL' : 'AWAITING_LIVE_EVIDENCE',
+        code: !gate.ok ? gate.code : (council?.decision || 'COUNCIL_REVIEW_UNAVAILABLE'),
+        live_checks: liveChecks,
+        candidate_sha: implementation.candidate_sha,
+        candidate_branch: implementation.candidate_branch,
+        ci_run_id: ciRunId || null,
+        files: [],
+        tests: [],
+      };
+      job = job ? await jobRepository.get(job.id) : job;
     }
 
     if (implementation?.status === 'READY' && job && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED') {

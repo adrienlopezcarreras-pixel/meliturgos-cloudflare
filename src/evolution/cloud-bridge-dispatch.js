@@ -12,6 +12,8 @@ import { D1GitHubActionRelayStore } from '../platform/github-action-relay.js';
 export const CLOUD_BRIDGE_WORKFLOW = 'gen2-42-apply-ready-bridge.yml';
 const REDISPATCH_MS = 30 * 60 * 1000;
 const EXECUTOR_ONLINE_MS = 60_000;
+// [GPT] Heartbeat proves presence, not that the Companion claimed this exact package.
+const LOCAL_CLAIM_GRACE_MS = 3 * 60 * 1000;
 
 async function executorOnline(db, now) {
   try {
@@ -59,10 +61,16 @@ export async function maybeDispatchCloudBridge(env, tick, { now = Date.now(), re
   let job = tick.bridge_preparation?.status === 'READY' && ['TEACHER_APPROVED', 'READY_FOR_REVIEW'].includes(String(tick.job?.status || '').toUpperCase()) ? tick.job : null;
   if (!job) job = await readyJobFromD1(db);
   if (!job?.id) return { status: 'SKIPPED_NOT_READY' };
-  if (await executorOnline(db, now)) return { status: 'SKIPPED_LOCAL_EXECUTOR_ONLINE' };
+  // [GPT] Give an online local Companion first chance to claim the ready package.
+  // If it remains unclaimed past the grace period, the existing atomic claim
+  // mechanism will protect execution while the cloud relay restores progress.
+  // Without a trustworthy package timestamp, keep the conservative behavior.
+  const packageAt = await packageCreatedMs(db, job);
+  if (await executorOnline(db, now) && (!packageAt || now - packageAt < LOCAL_CLAIM_GRACE_MS)) {
+    return { status: 'SKIPPED_LOCAL_EXECUTOR_ONLINE' };
+  }
   const key = 'cloud-bridge-dispatch:' + String(job.id).slice(0, 160);
   const last = await db.prepare('SELECT last_seen FROM dev_bridge_state WHERE bridge_id=?').bind(key).first().catch(() => null);
-  const packageAt = await packageCreatedMs(db, job);
   // The same unchanged package is not sent twice inside 30 minutes.
   // A package created after that dispatch is a new repair and must go out.
   if (last && packageAt <= Number(last.last_seen || 0) && now - Number(last.last_seen || 0) < REDISPATCH_MS) return { status: 'SKIPPED_RECENTLY_DISPATCHED' };

@@ -7,6 +7,12 @@ const MAX_FILES = 5;
 const MAX_EXCERPT = 3500;
 const MAX_PLAN_TEXT = 12000;
 const SHA40 = /^[0-9a-f]{40}$/i;
+
+// [GPT] An explicit no-code decision is a request for evidence, never a completion certificate.
+export function classifyImplementationDecision(plan) {
+  return /^DECISION:\s*VERIFY_EXISTING\s*$/im.test(String(plan || ''))
+    ? 'VERIFY_EXISTING' : 'IMPLEMENT';
+}
 const QUALITY_SECTIONS = Object.freeze([
   ['FICHIERS', /FICHIERS\s*:/i],
   ['CHANGEMENTS', /CHANGEMENTS\s*:/i],
@@ -244,7 +250,7 @@ async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) 
 }
 
 async function reusableProposal(env, existing, bridge, { fetchImpl = fetch, job = null } = {}) {
-  if (existing?.status !== 'READY') return null;
+  if (!['READY', 'VERIFY_EXISTING'].includes(existing?.status)) return null;
   if (!existing?.teacher_request_id || existing.teacher_request_id !== bridge.request.request_id) return null;
   if (!SHA40.test(String(existing?.candidate_sha || ''))) return null;
   if (existing?.consolidation?.policy !== 'SINGLE_CANONICAL_CANDIDATE') return null;
@@ -328,7 +334,9 @@ function planningPrompt(job, bridge, code) {
   return [
     'Tu es un ingénieur participant au développement supervisé de MELITURGOS.',
     'Le plan a déjà reçu une approbation Teacher. Tu ne déploies rien et tu ne modifies aucun compte.',
-    'Conçois le plus petit changement réversible sur la SEULE branche candidate canonique indiquée ci-dessous.',
+    'Détermine d’abord si l’objectif est déjà satisfait dans la version existante. Si oui, commence une ligne exacte DECISION: VERIFY_EXISTING, ne propose aucun changement, et donne les tests réels à exécuter ainsi que les preuves manquantes. Cela ne valide PAS l’objectif.',
+    'Avec DECISION: VERIFY_EXISTING, ajoute une ligne exacte LIVE_CHECKS: suivie des lectures réelles à exécuter en production parmi gmail.messages.search, calendar.events.read, drive.files.list (vide si aucune ne prouve l’objectif).',
+    'Si des changements sont réellement nécessaires, commence une ligne exacte DECISION: IMPLEMENT et conçois le plus petit changement réversible sur la SEULE branche candidate canonique indiquée ci-dessous.',
     'Interdiction de créer ou proposer une deuxième branche candidate, une deuxième roadmap, un second orchestrateur ou un module parallèle qui duplique une capacité existante.',
     'Réutilise l’existant avant toute création. Si un nouveau fichier est réellement nécessaire, justifie explicitement pourquoi aucun composant existant ne peut porter le changement.',
     'Aucun secret, aucun DNS, aucune facturation, aucune migration D1 destructive.',
@@ -459,7 +467,8 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
   }
 
   const proposal = {
-    status: 'READY',
+    status: classifyImplementationDecision(selectedText) === 'VERIFY_EXISTING' ? 'VERIFY_EXISTING' : 'READY',
+    decision: classifyImplementationDecision(selectedText),
     schema: 'mel.approved-implementation-proposal',
     version: 2,
     created_at: new Date().toISOString(),
@@ -495,7 +504,9 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
     })),
     production_touched: false,
     candidate_write_performed: false,
-    next: 'EXTERNAL_TEACHER_APPLY_SMALLEST_CANDIDATE_DIFF_AND_VERIFY_FULL_CI',
+    next: classifyImplementationDecision(selectedText) === 'VERIFY_EXISTING'
+      ? 'RUN_REAL_TESTS_COLLECT_EVIDENCE_AND_REQUEST_COUNCIL_REVIEW'
+      : 'EXTERNAL_TEACHER_APPLY_SMALLEST_CANDIDATE_DIFF_AND_VERIFY_FULL_CI',
   };
 
   const result = current.result_json && typeof current.result_json === 'object' ? { ...current.result_json } : {};

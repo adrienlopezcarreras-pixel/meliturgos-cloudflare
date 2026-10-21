@@ -121,3 +121,31 @@ test('MAX status answers name the real job, its waiting step and the guard state
   assert.match(text, /Dernier pont cloud demandé .* 12:30 UTC/);
   assert.match(MEL_REAL_CAPABILITIES, /N’invente jamais de fonction, d’endpoint, de flag/);
 });
+
+test('[GPT] online Companion heartbeat does not indefinitely hide an unclaimed READY package', async () => {
+  const now = 20_000_000;
+  const db = fakeDb({
+    primary: { last_seen: now - 2_000, status: 'ONLINE' },
+    package: { package_created_at: new Date(now - 240_000).toISOString() },
+  });
+  const queued = [];
+  const output = await maybeDispatchCloudBridge({ DB: db }, readyTick, {
+    now,
+    relay: { async enqueue(job) { queued.push(job); return { id: 'gpt-companion-fallback' }; } },
+  });
+  assert.equal(output.status, 'DISPATCH_QUEUED');
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].inputs.job_id, 'job-1');
+});
+
+test('[GPT] recent READY package still belongs to online Companion', async () => {
+  const now = 20_000_000;
+  const db = fakeDb({
+    primary: { last_seen: now - 2_000, status: 'ONLINE' },
+    package: { package_created_at: new Date(now - 30_000).toISOString() },
+  });
+  const output = await maybeDispatchCloudBridge({ DB: db }, readyTick, {
+    now, relay: { async enqueue() { throw new Error('unexpected relay'); } },
+  });
+  assert.equal(output.status, 'SKIPPED_LOCAL_EXECUTOR_ONLINE');
+});

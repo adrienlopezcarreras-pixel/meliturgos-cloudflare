@@ -1,3 +1,4 @@
+import { approveCouncilReviewByOwner, pendingOwnerCouncilApprovals } from './council-review.js';
 import { requireAuth } from '../core/security.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { AutonomySupervisor, isSupervisedAutonomyJob } from './autonomy-supervisor.js';
@@ -158,7 +159,8 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
   const isSovereignty = url.pathname === '/api/gen2/autonomy/sovereignty';
   const isActivity = url.pathname === '/api/gen2/autonomy/activity';
   const isActivityReset = url.pathname === '/api/gen2/autonomy/activity/reset';
-  if (!isPublicControl && !isState && !isActivity && !isActivityReset && !isTick && !isPause && !isResume && !isMax && !isLaunchReadiness && !isLaunchPrepare && !isSovereignty) return null;
+  const isCouncilOwner = url.pathname === '/api/gen2/autonomy/council-owner-approval';
+  if (!isPublicControl && !isState && !isActivity && !isActivityReset && !isCouncilOwner && !isTick && !isPause && !isResume && !isMax && !isLaunchReadiness && !isLaunchPrepare && !isSovereignty) return null;
 
   if (isPublicControl) {
     if (request.method !== 'GET') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'GET' } });
@@ -190,6 +192,15 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
     if (request.method !== 'POST') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'POST' } });
     const reset = await resetAutonomyActivityList(env.DB);
     return Response.json({ ok: true, reset, activity: await buildAutonomyActivity(env, { repository }) }, { headers: { 'cache-control': 'no-store' } });
+  }
+
+  // A PC-only Council approval waits for the owner (owner rule 21/10/2026).
+  if (isCouncilOwner) {
+    if (request.method === 'GET') return Response.json({ ok: true, pending: await pendingOwnerCouncilApprovals(env) }, { headers: { 'cache-control': 'no-store' } });
+    if (request.method !== 'POST') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'GET, POST' } });
+    const body = await request.json().catch(() => ({}));
+    const result = await approveCouncilReviewByOwner(env, body?.key);
+    return Response.json(result, { status: result.ok ? 200 : 409, headers: { 'cache-control': 'no-store' } });
   }
 
   if (isSovereignty) {
