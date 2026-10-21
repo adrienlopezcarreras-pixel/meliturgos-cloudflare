@@ -2,12 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-test('runtime tick dispatches cloud bridge only from a READY package when local executor is offline', async () => {
+test('runtime tick dispatches READY work to cloud without local executor admission', async () => {
   const source = await readFile(new URL('../../.github/workflows/gen2-42-runtime-tick.yml', import.meta.url), 'utf8');
   assert.match(source, /bridge_preparation_ready/);
-  assert.match(source, /bridge_executor/);
+  assert.doesNotMatch(source, /\[ \"\$ONLINE\" = \"true\" \]/);
+  assert.doesNotMatch(source, /MAX_BLOCKED_WAITING_EXTERNAL_WITHOUT_EXECUTOR/);
   assert.match(source, /gen2-42-apply-ready-bridge\.yml\/dispatches/);
-  assert.match(source, /CLOUD_BRIDGE_FALLBACK_DISPATCHED/);
+  assert.match(source, /CLOUD_BRIDGE_DISPATCHED/);
   assert.match(source, /actions:\s*write/);
 });
 

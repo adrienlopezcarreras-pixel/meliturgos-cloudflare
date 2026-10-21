@@ -6,6 +6,7 @@
 import { authorizeGitHubActionsOidcRequest } from '../security/github-actions-oidc.js';
 import { standardRegistry } from '../models/ModelRegistry.js';
 import { createMentorCompanionFallback } from '../learning/mentor-companion-provider.js';
+import { companionFallbackAuthorized } from './cloud-bridge-dispatch.js';
 
 const HEALTH_KEY = 'council-model-health';
 const HEALTH_STALE_MS = 20 * 60 * 1000;
@@ -170,6 +171,8 @@ export async function runCouncilReview(env, { diff, goal = '', models = null, ti
   // the count so two replies cannot approve a larger asked set.
   const decision = decide(live.length >= MIN_ANSWERS ? live : reviews);
   if (decision !== 'INSUFFICIENT_REVIEWERS' || Number(attempts || 0) + 1 < PC_AFTER_ATTEMPTS) return { decision, reviews };
+  // CODEX: exhausted online retries are not permission to contact Windows.
+  if (!companionFallbackAuthorized(env)) return { decision: COUNCIL_UNAVAILABLE, reviews };
   const pc = typeof companion === 'function' ? await companion(env).catch(() => null) : null;
   if (!pc || typeof pc.invoke !== 'function') return { decision: COUNCIL_UNAVAILABLE, reviews };
   const pcReview = await askCompanion(pc, user, Math.min(timeoutMs, 60_000));

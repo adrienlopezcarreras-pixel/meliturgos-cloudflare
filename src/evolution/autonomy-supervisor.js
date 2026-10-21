@@ -59,7 +59,13 @@ function isWaitingTeacher(job) {
   return String(job?.status || '').toUpperCase() === 'WAITING_TEACHER';
 }
 
+// CODEX: a durable, bounded provider delay is passive, not a global MAX lock.
+function providerDeferred(job) {
+  return Number(job?.result_json?.autonomy_deferral?.retry_after || 0) > Date.now();
+}
+
 function isPassiveRuntimeJob(job) {
+  if (providerDeferred(job)) return true;
   const status = String(job?.status || '').toUpperCase();
   if (status === 'WAITING_TEACHER') return true;
   // Once a correlated, approved Bridge package is CLAIMED, execution belongs
@@ -75,6 +81,7 @@ function isPassiveRuntimeJob(job) {
 }
 
 function hasLiveExternalProgress(job) {
+  if (providerDeferred(job)) return true;
   const status = String(job?.status || '').toUpperCase();
   if (status === 'WAITING_TEACHER') {
     return job?.result_json?.teacher_bridge?.status === 'WAITING_TEACHER';
@@ -283,7 +290,7 @@ export class AutonomySupervisor {
       // CLAIMED preflight path and race the Dev Bridge. Keep it visible in the
       // repository, but give the core no job to mutate until Bridge reports a
       // new persisted state.
-      if (passiveOwner && isClaimedPreparedDevBridgeJob(passiveOwner)) {
+      if (passiveOwner && (isClaimedPreparedDevBridgeJob(passiveOwner) || providerDeferred(passiveOwner))) {
         return {
           created: false,
           job: null,
@@ -291,7 +298,7 @@ export class AutonomySupervisor {
           complete: false,
           external_progress: {
             job_id: passiveOwner.id,
-            status: 'BRIDGE_EXECUTION_IN_PROGRESS',
+            status: providerDeferred(passiveOwner) ? 'DEFERRED_PROVIDER_RETRY_PENDING' : 'BRIDGE_EXECUTION_IN_PROGRESS',
           },
         };
       }

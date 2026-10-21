@@ -125,8 +125,18 @@ function sameDiagnostic(previous, next) {
 }
 
 function safeDiagnosticCode(error, fallback = 'IMPLEMENTATION_PLANNING_FAILED') {
-  const raw = String(error?.code || fallback).toUpperCase();
+  // CODEX: this existing adapter throws a TypeError without .code. Admit only
+  // its known constant, never arbitrary provider messages or private details.
+  const knownMessage = error?.message === 'WORKERS_AI_BINDING_UNAVAILABLE' ? error.message : null;
+  const raw = String(error?.code || knownMessage || fallback).toUpperCase();
   return /^[A-Z0-9_:-]{1,120}$/.test(raw) ? raw : fallback;
+}
+
+// CODEX: preserve nonterminal work and let independent roadmap work proceed.
+export function providerDeferral(code, now = Date.now()) {
+  const value = String(code || '');
+  return /^(?:WORKERS_AI_BINDING_UNAVAILABLE|NO_ZERO_COST|MENTOR_NO_ZERO_COST|NO_ELIGIBLE|MODEL_UNAVAILABLE|COUNCIL_(?:UNAVAILABLE|NOT_ENOUGH|REQUIRED_ROLE|MEL_SYNTHESIS|PROVIDER_NOT_FOUND))/.test(value)
+    ? { code: value, observed_at: now, retry_after: now + 5 * 60_000 } : null;
 }
 
 async function persistImplementationDiagnostic(repository, jobId, diagnostic) {
@@ -138,8 +148,12 @@ async function persistImplementationDiagnostic(repository, jobId, diagnostic) {
     code: diagnostic.status === 'READY' ? null : safeDiagnosticCode({ code: diagnostic.code }),
     observed_at: new Date().toISOString(),
   };
-  if (sameDiagnostic(result.implementation_planning_diagnostic, next)) return latest;
+  if (sameDiagnostic(result.implementation_planning_diagnostic, next)
+      && (!providerDeferral(next.code) || Number(result.autonomy_deferral?.retry_after) > Date.now())) return latest;
   result.implementation_planning_diagnostic = next;
+  const deferred = providerDeferral(next.code);
+  if (deferred) result.autonomy_deferral = deferred;
+  else if (next.status === 'READY') delete result.autonomy_deferral;
   return repository.update(jobId, { result_json: result }, { expected: latest });
 }
 
@@ -207,8 +221,12 @@ async function persistBridgePreparationDiagnostic(repository, jobId, diagnostic)
     mentor_failure_codes: failures,
     observed_at: new Date().toISOString(),
   };
-  if (sameDiagnostic(result.bridge_preparation_diagnostic, next)) return latest;
+  if (sameDiagnostic(result.bridge_preparation_diagnostic, next)
+      && (!providerDeferral(next.code) || Number(result.autonomy_deferral?.retry_after) > Date.now())) return latest;
   result.bridge_preparation_diagnostic = next;
+  const deferred = providerDeferral(next.code);
+  if (deferred) result.autonomy_deferral = deferred;
+  else if (next.status === 'READY') delete result.autonomy_deferral;
   return repository.update(jobId, { result_json: result }, { expected: latest });
 }
 
@@ -671,8 +689,20 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   }
 
   if (job && ['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE', 'READY_FOR_REVIEW'].includes(String(job.status || '').toUpperCase())) {
-    teacher = await prepareAutonomyTeacherRequest({ env, repository: jobRepository, job, fetchImpl });
-    job = await jobRepository.get(job.id);
+    try {
+      teacher = await prepareAutonomyTeacherRequest({ env, repository: jobRepository, job, fetchImpl });
+      job = await jobRepository.get(job.id);
+    } catch (error) {
+      const code = safeDiagnosticCode(error);
+      const deferred = providerDeferral(code);
+      if (!deferred) throw error;
+      const latest = await jobRepository.get(job.id);
+      if (latest && !['FAILED', 'CANCELLED', 'COMPLETED'].includes(String(latest.status))) {
+        await jobRepository.update(job.id, { result_json: { ...latest.result_json, autonomy_deferral: deferred } }, { expected: latest });
+      }
+      teacher = { status: 'NOT_READY', code };
+      job = null;
+    }
   }
 
   if (job && droppedTeacherApproval(job)) {
@@ -795,7 +825,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   const workRemaining = autonomyWorkRemaining(state);
   const waitingExternal = finalJobStatus === 'WAITING_TEACHER'
     || String(ensured?.external_progress?.status || '').length > 0;
-  const blockReason = bridgePreparation?.status === 'NOT_READY'
+  const blockReason = teacher?.status === 'NOT_READY' ? teacher.code : bridgePreparation?.status === 'NOT_READY'
     ? (bridgePreparation.code || 'BRIDGE_PREPARATION_NOT_READY')
     : implementation?.status === 'NOT_READY'
       ? (implementation.code || 'IMPLEMENTATION_NOT_READY')

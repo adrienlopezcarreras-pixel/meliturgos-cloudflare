@@ -71,7 +71,7 @@ test('silent free models are replaced until three real answers exist', async () 
 
 test('online models first; after 10 short reviews the PC alone, then the owner', async () => {
   const { PC_AFTER_ATTEMPTS, approveCouncilReviewByOwner } = await import('../src/evolution/council-review.js');
-  const down = { AI: { async run() { throw new Error('MODEL_UNAVAILABLE'); } } };
+  const down = { MEL_COMPANION_FALLBACK_ALLOWED: 'true', AI: { async run() { throw new Error('MODEL_UNAVAILABLE'); } } };
   const asked = [];
   const pc = async () => ({ async invoke({ input }) { asked.push(input); return { text: '{"verdict":"APPROVE","summary":"relu sur le PC, correct et testé"}' }; } });
   assert.equal((await runCouncilReview(down, { diff: '+x', attempts: 0, companion: pc })).decision, 'INSUFFICIENT_REVIEWERS');

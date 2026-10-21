@@ -12,6 +12,7 @@ import { queueRuntimeTeacherRequest, applyRuntimeTeacherReply } from '../teacher
 import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-mirror.js';
 import { mirrorOwnerChatTeacherRequestToGitHub } from '../teachers/owner-chat-teacher-mirror.js';
 import { reconcileRuntimeCompletions } from '../teachers/github-completion-reconciler.js';
+import { localBridgeFallbackAllowed } from '../evolution/cloud-bridge-dispatch.js';
 
 function boundedInspection(value) {
   requireValue(value && value.status === 'COMPLETE' && Array.isArray(value.evidence) && value.evidence.length > 0, 'CODE_INSPECTION_REQUIRED', 422);
@@ -302,6 +303,14 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
 
     if (path === '/api/dev-bridge/claim' && request.method === 'POST') {
       const requestedJobId = String(body?.job_id || '').trim();
+      // CODEX: local bearer authentication is not autonomous execution consent.
+      // Keep cloud OIDC and the shared atomic claim unchanged. A PC may only
+      // claim an exact package after a scoped cloud failure and owner opt-in.
+      if (!oidcBridge) {
+        const localJob = requestedJobId ? await repo.get(requestedJobId) : null;
+        if (!await localBridgeFallbackAllowed(env, localJob)) return Response.json(
+          { job: null, code: 'LOCAL_FALLBACK_NOT_AUTHORIZED_OR_CLOUD_AVAILABLE' }, { status: 409 });
+      }
       const job = requestedJobId && typeof repo.claimPrepared === 'function'
         ? await repo.claimPrepared(requestedJobId)
         : await repo.claim();

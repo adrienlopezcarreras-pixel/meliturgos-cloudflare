@@ -62,11 +62,10 @@ test('MEL queues her own cloud bridge when a change is ready and the PC is offli
   assert.equal(db.writes[0].args[0], 'cloud-bridge-dispatch:job-1');
 });
 
-test('no dispatch when not ready, PC online, or dispatched recently', async () => {
+test('no dispatch when not ready or dispatched recently', async () => {
   const relay = { async enqueue() { throw new Error('must not enqueue'); } };
   const now = 10_000_000;
   assert.equal((await maybeDispatchCloudBridge({ DB: fakeDb() }, { job: { id: 'j', status: 'WAITING_TEACHER' } }, { now, relay })).status, 'SKIPPED_NOT_READY');
-  assert.equal((await maybeDispatchCloudBridge({ DB: fakeDb({ primary: { last_seen: now - 5_000, status: 'ONLINE' } }) }, readyTick, { now, relay })).status, 'SKIPPED_LOCAL_EXECUTOR_ONLINE');
   assert.equal((await maybeDispatchCloudBridge({ DB: fakeDb({ 'cloud-bridge-dispatch:job-1': { last_seen: now - 60_000 } }) }, readyTick, { now, relay })).status, 'SKIPPED_RECENTLY_DISPATCHED');
 });
 
@@ -147,14 +146,14 @@ test('[GPT] online Companion heartbeat does not indefinitely hide an unclaimed R
   assert.equal(queued[0].inputs.job_id, 'job-1');
 });
 
-test('[GPT] recent READY package still belongs to online Companion', async () => {
+test('[CODEX] recent READY package goes to cloud even with an online Companion', async () => {
   const now = 20_000_000;
   const db = fakeDb({
     primary: { last_seen: now - 2_000, status: 'ONLINE' },
     package: { package_created_at: new Date(now - 30_000).toISOString() },
   });
   const output = await maybeDispatchCloudBridge({ DB: db }, readyTick, {
-    now, relay: { async enqueue() { throw new Error('unexpected relay'); } },
+    now, relay: { async enqueue() { return { id: 'cloud-first-relay' }; } },
   });
-  assert.equal(output.status, 'SKIPPED_LOCAL_EXECUTOR_ONLINE');
+  assert.equal(output.status, 'DISPATCH_QUEUED');
 });
