@@ -297,7 +297,8 @@ function codeConfig(env = {}) {
 }
 
 function requestedInspectionPaths(job) {
-  return (Array.isArray(job?.optional_context?.inspection_paths) ? job.optional_context.inspection_paths : [])
+  return [...(job?.result_json?.dev_bridge?.needs_repair === true && Array.isArray(job?.result_json?.candidate_ci_failure?.files) ? job.result_json.candidate_ci_failure.files : []),
+    ...(Array.isArray(job?.optional_context?.inspection_paths) ? job.optional_context.inspection_paths : [])]
     .map(path => String(path || '').trim())
     .filter(path => path && path.length <= 240 && !path.startsWith('/') && !path.split('/').includes('..') && /^[a-zA-Z0-9_./-]+$/.test(path))
     .slice(0, 12);

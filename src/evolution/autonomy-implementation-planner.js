@@ -253,7 +253,10 @@ async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) 
       goalPaths.push(...leadingMatchPaths(extra));
     } catch {}
   }
-  const paths = uniquePaths([...goalPaths, ...fromSearch, ...fromInspection, ...fallbacks]);
+  const repairPaths = job?.result_json?.dev_bridge?.needs_repair === true
+    && Array.isArray(job?.result_json?.candidate_ci_failure?.files)
+    ? job.result_json.candidate_ci_failure.files.filter(path => fromInspection.includes(path)) : [];
+  const paths = uniquePaths([...repairPaths, ...goalPaths, ...fromSearch, ...fromInspection, ...fallbacks]);
   const files = [];
   for (const path of paths) {
     try {

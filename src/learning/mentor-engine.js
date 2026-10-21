@@ -237,6 +237,7 @@ function normalizeProposal(value, provenance = {}, inspectedFiles = [], previous
   const rawChanges = Array.isArray(parsed.changes)
     ? parsed.changes
     : (parsed.path && parsed.content != null ? [parsed] : []);
+  if (rawChanges.length && Array.isArray(parsed.edits) && parsed.edits.length) throw Object.assign(new Error('MENTOR_INVALID_CHANGE'), { code: 'MENTOR_INVALID_CHANGE' });
   let changes;
   if (!rawChanges.length) {
     changes = applyInspectedEdits(parsed.edits, inspectedFiles, repairReferences, visibleFiles);

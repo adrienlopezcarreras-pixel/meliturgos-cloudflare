@@ -567,7 +567,7 @@ export async function reconcileFailedCandidateRuns({ repository, env = {}, fetch
         dev_bridge_history: [...(job.result_json.dev_bridge_history || []), bridge].slice(-20),
         dev_bridge: { ...bridge, status: 'REPAIR_REQUIRED', needs_repair: true, tests, received_at: receivedAt },
         candidate_ci_failure: { run_id: run.id, failed_candidate_sha: sha, candidate_sha: head.sha, base_sha: prep.candidate_sha,
-          teacher_request_id: teacher.request.request_id, observed_at: receivedAt },
+          teacher_request_id: teacher.request.request_id, files: (Array.isArray(prep.files) ? prep.files : []).filter(path => typeof path === 'string').slice(0, 8), observed_at: receivedAt },
       };
       const updated = await repository.update(job.id, { status: 'REPAIR_REQUIRED', result_json: result }, { expected: job });
       if (updated.status === 'REPAIR_REQUIRED') repaired.push({ job_id: job.id, run_id: run.id });
