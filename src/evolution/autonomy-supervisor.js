@@ -80,17 +80,7 @@ function isPassiveRuntimeJob(job) {
   return status === 'READY_FOR_REVIEW' && job?.result_json?.dev_bridge?.needs_repair !== true;
 }
 
-// Garde-fou pour éviter les réponses vides dans media.image.analyze
-function hasEmptyAIResponse(job) {
-  const result = job?.result_json;
-  if (!result || typeof result !== 'object') return false;
-  const media = result.media;
-  if (!media || typeof media !== 'object') return false;
-  const analyze = media.image?.analyze;
-  if (!analyze || typeof analyze !== 'object') return false;
-  const { text, error } = analyze;
-  return (!text || text.trim() === '') && (!error || error === 'EMPTY_WORKERS_AI_RESPONSE');
-}
+
 
 function hasLiveExternalProgress(job) {
   if (providerDeferred(job)) return true;
