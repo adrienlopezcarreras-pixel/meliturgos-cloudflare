@@ -175,3 +175,13 @@ test('the seventh inspected file is not writable when the prompt exposed only si
     .propose({ env: {}, goal: 'Match validation to provider inspection', inspectedFiles: files }),
   error => error.failures.every(row => row.error === 'MENTOR_UNINSPECTED_EDIT'));
 });
+
+test('the subsequent four-line runtime stub cannot replace the inspected autonomy engine', async () => {
+  const runtimePath = 'src/evolution/autonomy-runtime.js';
+  const source = await readFile(new URL('../src/evolution/autonomy-runtime.js', import.meta.url), 'utf8');
+  const stub = 'export async function getTeacherResponses() {\n  // Implémentation de la fonction pour récupérer les réponses Teacher\n  // ...\n}';
+  assert.throws(() => assertMentorCodeContract(runtimePath, source, stub), /MENTOR_EXPORT_CONTRACT_REMOVED/);
+  await assert.rejects(engineFor({ changes: [{ path: runtimePath, content: stub, reason: 'Modification appliquée sur le fichier inspecté' }] })
+    .propose({ env: {}, goal: 'Preserve existing autonomy controls', inspectedFiles: [{ path: runtimePath, content: source }] }),
+  error => error.failures.every(row => row.error === 'MENTOR_LONG_FILE_REQUIRES_EDIT'));
+});
