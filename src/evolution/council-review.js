@@ -5,11 +5,22 @@
 
 import { authorizeGitHubActionsOidcRequest } from '../security/github-actions-oidc.js';
 import { standardRegistry } from '../models/ModelRegistry.js';
+import { createMentorCompanionFallback } from '../learning/mentor-companion-provider.js';
 
 const HEALTH_KEY = 'council-model-health';
 const HEALTH_STALE_MS = 20 * 60 * 1000;
 const MIN_ANSWERS = 3;
 const MAX_DIFF = 48_000;
+// The paired PC refuses any message above 12 000 chars (SOVEREIGNTY_AI_MESSAGE_TOO_LARGE).
+const COMPANION_INPUT_CHARS = 11_500;
+const COMPANION_MODEL = 'companion-local-ai';
+// Owner rule 21/10/2026: online models are asked first; after 10 reviews short
+// of a quorum the paired PC is asked alone. PC approval still needs the owner;
+// no PC means the work is set aside and MEL moves on. MEL never stops.
+export const PC_AFTER_ATTEMPTS = 10;
+export const OWNER_APPROVAL_REQUIRED = 'OWNER_APPROVAL_REQUIRED';
+export const COUNCIL_UNAVAILABLE = 'COUNCIL_UNAVAILABLE';
+const RETRYABLE = new Set(['INSUFFICIENT_REVIEWERS', COUNCIL_UNAVAILABLE]);
 
 const SYSTEM = [
   'Tu es relecteur senior du code de MEL (Cloudflare Worker JavaScript ESM, D1, Workers AI ; firmware ESP-IDF C++ ; appli Android Kotlin).',
@@ -124,7 +135,26 @@ async function askModels(env, models, user, timeoutMs) {
   }));
 }
 
-export async function runCouncilReview(env, { diff, goal = '', models = null, timeoutMs = 120_000, now = Date.now() } = {}) {
+// Owner-consented PC model (Companion local AI), same adapter as the Mentor fallback.
+async function askCompanion(adapter, user, timeoutMs) {
+  let timer;
+  try {
+    const input = (SYSTEM + '\n\n' + user).slice(0, COMPANION_INPUT_CHARS);
+    const out = await Promise.race([
+      adapter.invoke({ input, context: { purpose: 'mel-council-review' } }),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('REVIEW_TIMEOUT')), timeoutMs); }),
+    ]);
+    const text = out?.text ?? out?.response ?? out;
+    const parsed = parseVerdict(typeof text === 'string' ? text : JSON.stringify(text));
+    return { model: COMPANION_MODEL, ...(parsed || { verdict: null, error: 'UNPARSEABLE_REVIEW' }) };
+  } catch (error) {
+    return { model: COMPANION_MODEL, verdict: null, error: String(error?.message || error).slice(0, 160) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function runCouncilReview(env, { diff, goal = '', models = null, timeoutMs = 120_000, now = Date.now(), attempts = 0, companion = createMentorCompanionFallback } = {}) {
   const user = 'Objectif annoncé : ' + String(goal || '(non fourni)').slice(0, 1500) + '\n\nDIFF :\n' + String(diff || '').slice(0, MAX_DIFF);
   const health = await readModelHealth(env);
   const catalog = Array.isArray(models) && models.length ? models : orderCouncilModels(freeCouncilCatalog(env), health, now);
@@ -138,19 +168,57 @@ export async function runCouncilReview(env, { diff, goal = '', models = null, ti
   await writeModelHealth(env, nextHealth, now);
   // Three real answers decide alone. Fewer than that, the silences stay in
   // the count so two replies cannot approve a larger asked set.
-  return { decision: decide(live.length >= MIN_ANSWERS ? live : reviews), reviews };
+  const decision = decide(live.length >= MIN_ANSWERS ? live : reviews);
+  if (decision !== 'INSUFFICIENT_REVIEWERS' || Number(attempts || 0) + 1 < PC_AFTER_ATTEMPTS) return { decision, reviews };
+  const pc = typeof companion === 'function' ? await companion(env).catch(() => null) : null;
+  if (!pc || typeof pc.invoke !== 'function') return { decision: COUNCIL_UNAVAILABLE, reviews };
+  const pcReview = await askCompanion(pc, user, Math.min(timeoutMs, 60_000));
+  reviews.push(pcReview);
+  if (!answered(pcReview)) return { decision: COUNCIL_UNAVAILABLE, reviews };
+  return { decision: pcReview.verdict === 'APPROVE' ? OWNER_APPROVAL_REQUIRED : 'REJECTED', reviews };
+}
+
+function priorAttempts(prior) {
+  return RETRYABLE.has(prior?.decision) ? Number(prior.attempts || 0) : 0;
+}
+
+/** Owner validation of a PC-only approval; nothing else can turn it into APPROVED. */
+export async function approveCouncilReviewByOwner(env, key, { now = Date.now() } = {}) {
+  const id = String(key || '');
+  if (!env?.DB?.prepare || !/^council-review:[A-Za-z0-9_.:-]{40,240}$/.test(id)) return { ok: false, code: 'COUNCIL_REVIEW_KEY_INVALID' };
+  const row = await env.DB.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?').bind(id).first().catch(() => null);
+  let record = null;
+  try { record = JSON.parse(row?.metadata_json || 'null'); } catch {}
+  if (record?.decision !== OWNER_APPROVAL_REQUIRED) return { ok: false, code: 'COUNCIL_OWNER_APPROVAL_NOT_PENDING' };
+  const approved = { ...record, decision: 'APPROVED', owner_approved_at: now };
+  await env.DB.prepare('UPDATE dev_bridge_state SET status=?, last_seen=?, metadata_json=? WHERE bridge_id=?')
+    .bind('APPROVED', now, JSON.stringify(approved), id).run();
+  return { ok: true, key: id, record: approved };
+}
+
+export async function pendingOwnerCouncilApprovals(env) {
+  if (!env?.DB?.prepare) return [];
+  const rows = await env.DB.prepare("SELECT bridge_id, metadata_json FROM dev_bridge_state WHERE bridge_id LIKE 'council-review:%' AND status=? ORDER BY last_seen DESC LIMIT 20")
+    .bind(OWNER_APPROVAL_REQUIRED).all().catch(() => null);
+  return (Array.isArray(rows?.results) ? rows.results : []).map((row) => {
+    let record = {};
+    try { record = JSON.parse(row.metadata_json || '{}'); } catch {}
+    const pc = (record.reviews || []).find(review => review?.model === COMPANION_MODEL) || {};
+    return { key: row.bridge_id, head: record.head || null, jobs: record.jobs || [], mode: record.mode || 'promotion', summary: String(pc.summary || '').slice(0, 400), reviewed_at: record.reviewed_at || null };
+  });
 }
 
 // VERIFY_EXISTING: no diff exists, so the Council reviews MEL's no-code
 // evidence for the exact approved candidate SHA whose full-candidate-ci is green.
 // APPROVED is then completed by github-completion-reconciler; REJECTED fails the job.
-export async function reviewVerificationEvidence(env, { job, implementation, ciRunId, now = Date.now(), review = runCouncilReview } = {}) {
+export async function reviewVerificationEvidence(env, { job, implementation, ciRunId, liveChecks = [], now = Date.now(), review = runCouncilReview } = {}) {
   const head = String(implementation?.candidate_sha || '').toLowerCase();
   if (!env?.DB?.prepare || !job?.id || !/^[a-f0-9]{40}$/.test(head) || !Number(ciRunId)) return { decision: 'REVIEW_INPUT_INVALID' };
   const key = 'council-review:verify:' + job.id + ':' + head;
   const cached = await env.DB.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?').bind(key).first().catch(() => null);
+  let attempts = 0;
   if (cached?.metadata_json) {
-    try { const prior = JSON.parse(cached.metadata_json); if (prior.decision !== 'INSUFFICIENT_REVIEWERS') return { cached: true, ...prior }; } catch {}
+    try { const prior = JSON.parse(cached.metadata_json); if (!RETRYABLE.has(prior.decision)) return { cached: true, ...prior }; attempts = priorAttempts(prior); } catch {}
   }
   const inspected = (Array.isArray(implementation?.inspected_files) ? implementation.inspected_files : []).map(row => row?.path).filter(Boolean).slice(0, 8);
   const evidence = [
@@ -159,11 +227,15 @@ export async function reviewVerificationEvidence(env, { job, implementation, ciR
     `SHA candidat exact : ${head}`,
     `full-candidate-ci verte sur ce SHA : run ${Number(ciRunId)}`,
     `Fichiers inspectés : ${inspected.join(', ') || '(aucun)'}`,
+    'PREUVES FONCTIONNELLES EXÉCUTÉES EN PRODUCTION (lecture seule, résultat seulement) :',
+    liveChecks.length
+      ? liveChecks.map(c => `- ${c.capability} : ${c.ok ? 'OK' : 'ÉCHEC ' + (c.code || '')}${c.items != null ? ' (' + c.items + ' élément(s))' : ''}`).join('\n')
+      : '- AUCUNE. REJECT si l’objectif exige une preuve fonctionnelle en production.',
     'Décision et preuves de MEL :',
     String(implementation?.selected?.text || '').slice(0, 20_000),
   ].join('\n');
-  const result = await review(env, { diff: evidence, goal: `${job.id} : ${String(job.goal || '')}`, timeoutMs: 45_000, now });
-  const record = { decision: result.decision, mode: 'VERIFY_EXISTING', head, base: head, jobs: [job.id], ci_run_id: Number(ciRunId), reviews: result.reviews, reviewed_at: now };
+  const result = await review(env, { diff: evidence, goal: `${job.id} : ${String(job.goal || '')}`, timeoutMs: 45_000, now, attempts });
+  const record = { decision: result.decision, mode: 'VERIFY_EXISTING', head, base: head, jobs: [job.id], ci_run_id: Number(ciRunId), live_checks: liveChecks, reviews: result.reviews, reviewed_at: now, attempts: attempts + 1 };
   await env.DB.prepare(`INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?)
     ON CONFLICT(bridge_id) DO UPDATE SET last_seen=excluded.last_seen,status=excluded.status,metadata_json=excluded.metadata_json`)
     .bind(key, now, result.decision, JSON.stringify(record)).run().catch(() => {});
@@ -171,6 +243,13 @@ export async function reviewVerificationEvidence(env, { job, implementation, ciR
     const objections = result.reviews.filter(r => r.verdict === 'REJECT').flatMap(r => (r.blocking || []).map(b => String(r.model || '').split('/').pop() + ' : ' + b)).slice(0, 12);
     await env.DB.prepare(`UPDATE dev_jobs SET result_json=json_set(COALESCE(result_json,'{}'),'$.council_review',json(?)), error=?, status=CASE WHEN status='TEACHER_APPROVED' THEN 'FAILED' ELSE status END, updated_at=? WHERE id=?`)
       .bind(JSON.stringify({ decision: result.decision, head, mode: 'VERIFY_EXISTING', objections, reviewed_at: now }), ('COUNCIL_REJECTED_VERIFY_EXISTING: ' + objections.join(' | ')).slice(0, 900), now, job.id)
+      .run().catch(() => {});
+  } else if (result.decision === OWNER_APPROVAL_REQUIRED || result.decision === COUNCIL_UNAVAILABLE) {
+    // Waiting on the owner is a passive lane (READY_FOR_REVIEW); no reviewer at
+    // all sets the job aside (FAILED, retried later). Either way MEL moves on.
+    const waiting = result.decision === OWNER_APPROVAL_REQUIRED;
+    await env.DB.prepare(`UPDATE dev_jobs SET result_json=json_set(COALESCE(result_json,'{}'),'$.council_review',json(?)), error=?, status=CASE WHEN status='TEACHER_APPROVED' THEN ? ELSE status END, updated_at=? WHERE id=?`)
+      .bind(JSON.stringify({ decision: result.decision, head, mode: 'VERIFY_EXISTING', key, reviewed_at: now }), waiting ? null : COUNCIL_UNAVAILABLE, waiting ? 'READY_FOR_REVIEW' : 'FAILED', now, job.id)
       .run().catch(() => {});
   }
   return record;
@@ -187,8 +266,9 @@ export async function handleCouncilReviewRequest(request, env, { now = Date.now(
   if (!/^[a-f0-9]{40}$/.test(head) || !String(body.diff || '').trim()) return Response.json({ ok: false, code: 'COUNCIL_REVIEW_INPUT_INVALID' }, { status: 400 });
   const key = 'council-review:' + head;
   const cached = await env.DB.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?').bind(key).first().catch(() => null);
+  let attempts = 0;
   if (cached?.metadata_json) {
-    try { const prior = JSON.parse(cached.metadata_json); if (prior.decision !== 'INSUFFICIENT_REVIEWERS') return Response.json({ ok: true, cached: true, ...prior }); } catch {}
+    try { const prior = JSON.parse(cached.metadata_json); if (!RETRYABLE.has(prior.decision)) return Response.json({ ok: true, cached: true, ...prior }); attempts = priorAttempts(prior); } catch {}
   }
   const jobs = [...String(body.log || '').matchAll(/apply approved bridge package ([A-Za-z0-9_.:-]+)/g)].map(m => m[1]).slice(0, 10);
   let goal = '';
@@ -196,12 +276,12 @@ export async function handleCouncilReviewRequest(request, env, { now = Date.now(
     const row = await env.DB.prepare('SELECT goal FROM dev_jobs WHERE id=?').bind(id).first().catch(() => null);
     if (row?.goal) goal += (goal ? '\n' : '') + id + ' : ' + row.goal;
   }
-  const result = await review(env, { diff: body.diff, goal });
-  const record = { decision: result.decision, head, base: String(body.base || '').slice(0, 40), jobs, reviews: result.reviews, reviewed_at: now };
+  const result = await review(env, { diff: body.diff, goal, attempts });
+  const record = { decision: result.decision, head, base: String(body.base || '').slice(0, 40), jobs, reviews: result.reviews, reviewed_at: now, attempts: attempts + 1 };
   await env.DB.prepare(`INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?)
     ON CONFLICT(bridge_id) DO UPDATE SET last_seen=excluded.last_seen,status=excluded.status,metadata_json=excluded.metadata_json`)
     .bind(key, now, result.decision, JSON.stringify(record)).run().catch(() => {});
-  if (result.decision === 'REJECTED' || result.decision === 'INSUFFICIENT_REVIEWERS') {
+  if (result.decision === 'REJECTED' || RETRYABLE.has(result.decision) || result.decision === OWNER_APPROVAL_REQUIRED) {
     const objections = result.reviews.filter(r => r.verdict === 'REJECT').flatMap(r => (r.blocking || []).map(b => r.model.split('/').pop() + ' : ' + b)).slice(0, 12);
     const unavailable = result.reviews.filter(r => !r.verdict).map(r => String(r.model || '').split('/').pop() + ' : ' + (r.error || 'NO_VERDICT')).slice(0, 8);
     const repair = result.decision === 'REJECTED';

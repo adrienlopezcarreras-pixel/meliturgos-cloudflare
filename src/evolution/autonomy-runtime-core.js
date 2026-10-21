@@ -9,6 +9,7 @@ import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-
 import { reconcileRuntimeTeacherReplies } from '../teachers/github-reply-reconciler.js';
 import { reconcileRuntimeCompletions, findGreenFullCandidateRun } from '../teachers/github-completion-reconciler.js';
 import { reviewVerificationEvidence } from './council-review.js';
+import { requestedLiveChecks, runLiveChecks } from './verify-existing-live-checks.js';
 import { runRuntimeWorkDagResumeProof } from './autonomy-proof.js';
 import { prepareApprovedImplementationProposal } from './autonomy-implementation-planner.js';
 import { prepareApprovedBridgePackage } from './autonomy-bridge-preparer.js';
@@ -725,7 +726,8 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       // Evidence is the green full-candidate-ci on the exact approved SHA; the
       // Council judges it, and only the completion reconciler marks COMPLETED.
       const ciRunId = await findGreenFullCandidateRun(env, implementation.candidate_sha, { fetchImpl }).catch(() => null);
-      const council = ciRunId && job ? await reviewVerificationEvidence(env, { job, implementation, ciRunId }).catch(() => null) : null;
+      const liveChecks = ciRunId ? await runLiveChecks(env, requestedLiveChecks(implementation?.selected?.text)).catch(() => []) : [];
+      const council = ciRunId && job ? await reviewVerificationEvidence(env, { job, implementation, ciRunId, liveChecks }).catch(() => null) : null;
       bridgePreparation = {
         status: council?.decision === 'APPROVED' ? 'VERIFIED_BY_COUNCIL' : 'AWAITING_LIVE_EVIDENCE',
         code: !ciRunId ? 'FULL_CANDIDATE_CI_REQUIRED' : (council?.decision || 'COUNCIL_REVIEW_UNAVAILABLE'),
