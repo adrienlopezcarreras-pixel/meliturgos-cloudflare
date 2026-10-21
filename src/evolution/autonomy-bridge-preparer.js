@@ -3,7 +3,8 @@ import { createMentorEngine } from '../learning/mentor-engine.js';
 
 const SHA40 = /^[0-9a-f]{40}$/i;
 const MAX_FILES = 8;
-const MAX_SOURCE = 45_000;
+// Complete file: Mentor edits are applied on it; only the prompt is excerpted.
+const MAX_SOURCE = 200_000;
 const ALLOWED_TESTS = new Set(['test', 'test:mel', 'test:integration', 'test:acceptance', 'test:smoke', 'test:mvp', 'test:routes']);
 
 function requireTeacherApproved(job) {
@@ -232,7 +233,7 @@ export async function prepareApprovedBridgePackage({
     tests_json: tests,
     patch_json: patch,
     result_json: result,
-  });
+  }, { expected: current });
   return updated.result_json.bridge_preparation;
 }
 

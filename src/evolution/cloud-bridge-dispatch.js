@@ -1,41 +1,54 @@
-// MEL starts her own cloud bridge.
-//
-// When a change is approved and its package is READY while the PC executor is
-// offline, the cloud workflow that applies it used to wait for an hourly GitHub
-// tick (often skipped, or refused while MEL's own minute tick held the lease).
-// After each tick MEL now queues that workflow herself through the existing
-// GitHub Action relay (dispatch only; the workflow proves itself with OIDC).
-// At most one dispatch per job every 30 minutes.
+// CODEX: approved READY work uses the existing cloud relay as its normal path.
+// Windows presence never delays dispatch. Queue receipts are not execution
+// proofs; the shared atomic D1 claim arbitrates every actual executor.
+// Tested local returns still reuse this publisher until their real GitHub
+// candidate commit exists, without asking the PC to redo its work.
 
 import { D1GitHubActionRelayStore } from '../platform/github-action-relay.js';
+import { isPreparedDevBridgeJob, isUnappliedReadyReviewJob } from '../dev/d1-dev-job-repository.js';
 
 export const CLOUD_BRIDGE_WORKFLOW = 'gen2-42-apply-ready-bridge.yml';
 const REDISPATCH_MS = 30 * 60 * 1000;
-const EXECUTOR_ONLINE_MS = 60_000;
+// CODEX: presence of a PC is neither scheduling priority nor owner consent.
+export function companionFallbackAuthorized(env = {}) {
+  return env.MEL_COMPANION_FALLBACK_ALLOWED === true || env.MEL_COMPANION_FALLBACK_ALLOWED === 'true';
+}
 
-async function executorOnline(db, now) {
-  try {
-    const row = await db.prepare("SELECT last_seen,status FROM dev_bridge_state WHERE bridge_id='primary' LIMIT 1").first();
-    const age = now - Number(row?.last_seen || 0);
-    return Boolean(row) && age >= 0 && age < EXECUTOR_ONLINE_MS && String(row.status || '').toUpperCase() === 'ONLINE';
-  } catch { return false; }
+export async function localBridgeFallbackAllowed(env, job, { now = Date.now() } = {}) {
+  if (!companionFallbackAuthorized(env) || !job?.id || !env?.DB?.prepare) return false;
+  const row = await env.DB.prepare('SELECT status,last_seen,metadata_json FROM dev_bridge_state WHERE bridge_id=?')
+    .bind('cloud-bridge-dispatch:' + String(job.id).slice(0, 160)).first().catch(() => null);
+  let metadata;
+  try { metadata = JSON.parse(row?.metadata_json || '{}'); } catch { return false; }
+  const prep = job?.result_json?.bridge_preparation;
+  return row?.status === 'CLOUD_UNAVAILABLE' && now >= Number(row.last_seen)
+    && now - Number(row.last_seen) < REDISPATCH_MS
+    && Boolean(prep?.created_at && prep?.candidate_sha)
+    && metadata.package_created_at === prep.created_at && metadata.candidate_sha === prep.candidate_sha;
 }
 
 export async function readyJobFromD1(db) {
   try {
-    return await db.prepare(`SELECT id, status, json_extract(result_json,'$.bridge_preparation.created_at') AS package_created_at FROM dev_jobs
+    const rows = (await db.prepare(`SELECT id,status,result_json,files_json,tests_json FROM dev_jobs
       WHERE json_extract(result_json,'$.bridge_preparation.status')='READY'
         AND json_extract(result_json,'$.implementation_proposal.status')='READY'
-        AND (
-          status='TEACHER_APPROVED'
-          OR (
-            status='READY_FOR_REVIEW'
-            AND json_extract(result_json,'$.autonomy_completion.candidate_sha') IS NULL
-            AND json_extract(result_json,'$.dev_bridge.changed') IS NOT 1
-          )
-        )
+        AND status IN ('TEACHER_APPROVED','READY_FOR_REVIEW')
       ORDER BY CASE status WHEN 'TEACHER_APPROVED' THEN 0 ELSE 1 END, updated_at ASC
-      LIMIT 1`).first();
+      LIMIT 100`).all()).results || [];
+    for (const row of rows) {
+      try {
+        const job = { ...row,
+          result_json: typeof row.result_json === 'string' ? JSON.parse(row.result_json) : row.result_json,
+          files_json: typeof row.files_json === 'string' ? JSON.parse(row.files_json) : row.files_json,
+          tests_json: typeof row.tests_json === 'string' ? JSON.parse(row.tests_json) : row.tests_json,
+        };
+        // CODEX: dispatch and atomic claim share one eligibility predicate.
+        if (isPreparedDevBridgeJob(job) || isUnappliedReadyReviewJob(job)) {
+          return { id: job.id, status: job.status, package_created_at: job.result_json.bridge_preparation.created_at, candidate_sha: job.result_json.bridge_preparation.candidate_sha };
+        }
+      } catch { /* Malformed metadata cannot authorize a publication. */ }
+    }
+    return null;
   } catch { return null; }
 }
 
@@ -49,6 +62,15 @@ async function packageCreatedMs(db, job) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+async function recordCloudUnavailable(db, job, key, now, code) {
+  await db.prepare(`INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?)
+    ON CONFLICT(bridge_id) DO UPDATE SET last_seen=excluded.last_seen,status=excluded.status,metadata_json=excluded.metadata_json`)
+    .bind(key, now, 'CLOUD_UNAVAILABLE', JSON.stringify({ job_id: job.id,
+      package_created_at: job.package_created_at || job.result_json?.bridge_preparation?.created_at || null,
+      candidate_sha: job.candidate_sha || job.result_json?.bridge_preparation?.candidate_sha || null, code })).run();
+  return { status: 'CLOUD_UNAVAILABLE', code, job_id: job.id };
+}
+
 export async function maybeDispatchCloudBridge(env, tick, { now = Date.now(), relay = null } = {}) {
   const db = env?.DB;
   if (!db?.prepare) return { status: 'SKIPPED_NO_TICK' };
@@ -59,17 +81,35 @@ export async function maybeDispatchCloudBridge(env, tick, { now = Date.now(), re
   let job = tick.bridge_preparation?.status === 'READY' && ['TEACHER_APPROVED', 'READY_FOR_REVIEW'].includes(String(tick.job?.status || '').toUpperCase()) ? tick.job : null;
   if (!job) job = await readyJobFromD1(db);
   if (!job?.id) return { status: 'SKIPPED_NOT_READY' };
-  if (await executorOnline(db, now)) return { status: 'SKIPPED_LOCAL_EXECUTOR_ONLINE' };
-  const key = 'cloud-bridge-dispatch:' + String(job.id).slice(0, 160);
-  const last = await db.prepare('SELECT last_seen FROM dev_bridge_state WHERE bridge_id=?').bind(key).first().catch(() => null);
+  // CODEX: no local heartbeat read or grace period before cloud execution.
   const packageAt = await packageCreatedMs(db, job);
+  const key = 'cloud-bridge-dispatch:' + String(job.id).slice(0, 160);
+  const last = await db.prepare('SELECT last_seen,status,metadata_json FROM dev_bridge_state WHERE bridge_id=?').bind(key).first().catch(() => null);
+  const store = relay || new D1GitHubActionRelayStore(db);
+  let metadata = {};
+  try { metadata = JSON.parse(last?.metadata_json || '{}'); } catch { /* no fallback authority */ }
+  // CODEX: transport completion is not execution. A durable failed dispatch
+  // may authorize optional fallback only for the unchanged original package.
+  if (last?.status === 'QUEUED' && metadata.relay_job_id && typeof store.get === 'function'
+      && metadata.package_created_at === (job.package_created_at || job.result_json?.bridge_preparation?.created_at)
+      && metadata.candidate_sha === (job.candidate_sha || job.result_json?.bridge_preparation?.candidate_sha)) {
+    const prior = await store.get(metadata.relay_job_id).catch(() => null);
+    if (prior?.status === 'FAILED') return recordCloudUnavailable(db, job, key, now, 'CLOUD_RELAY_DISPATCH_FAILED');
+  }
   // The same unchanged package is not sent twice inside 30 minutes.
   // A package created after that dispatch is a new repair and must go out.
   if (last && packageAt <= Number(last.last_seen || 0) && now - Number(last.last_seen || 0) < REDISPATCH_MS) return { status: 'SKIPPED_RECENTLY_DISPATCHED' };
-  const store = relay || new D1GitHubActionRelayStore(db);
-  const queued = await store.enqueue({ workflow: CLOUD_BRIDGE_WORKFLOW, ref: 'main', inputs: { job_id: String(job.id), chain_depth: '0' }, now });
+  let queued;
+  try {
+    queued = await store.enqueue({ workflow: CLOUD_BRIDGE_WORKFLOW, ref: 'main', inputs: { job_id: String(job.id), chain_depth: '0' }, now });
+    if (!queued?.id) throw new Error('CLOUD_RELAY_RECEIPT_MISSING');
+  } catch {
+    return recordCloudUnavailable(db, job, key, now, 'CLOUD_RELAY_ENQUEUE_FAILED');
+  }
   await db.prepare(`INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?)
     ON CONFLICT(bridge_id) DO UPDATE SET last_seen=excluded.last_seen,status=excluded.status,metadata_json=excluded.metadata_json`)
-    .bind(key, now, 'DISPATCHED', JSON.stringify({ relay_job_id: queued?.id || null, job_id: job.id })).run();
+    .bind(key, now, 'QUEUED', JSON.stringify({ relay_job_id: queued.id, job_id: job.id,
+      package_created_at: job.package_created_at || job.result_json?.bridge_preparation?.created_at || null,
+      candidate_sha: job.candidate_sha || job.result_json?.bridge_preparation?.candidate_sha || null })).run();
   return { status: 'DISPATCH_QUEUED', relay_job_id: queued?.id || null };
 }

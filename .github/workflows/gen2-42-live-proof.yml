@@ -49,7 +49,7 @@ jobs:
         run: npm ci
 
       - name: Run GEN2-42 targeted contract tests
-        run: node --test tests/gen2/capability-watch-production-proof.test.mjs tests/gen2/capability-watch.test.mjs tests/gen2/preview-watch-http-sanitizer.test.mjs
+        run: node --test tests/gen2/capability-watch-production-proof.test.mjs tests/gen2/capability-watch.test.mjs tests/gen2/preview-watch-http-sanitizer.test.mjs tests/gen2/autonomy-runtime-observation-safety.test.mjs
 
       - name: Read production capability watch state
         if: github.event_name != 'pull_request'
@@ -71,6 +71,28 @@ jobs:
           npx wrangler d1 execute DB --remote --json \
             --command "SELECT status,last_seen,json_extract(metadata_json,'$.paused') AS paused,json_extract(metadata_json,'$.max_autonomy') AS max_autonomy,json_extract(metadata_json,'$.launch_approved_sha') AS launch_approved_sha,json_extract(metadata_json,'$.launch_approved_at') AS launch_approved_at FROM dev_bridge_state WHERE bridge_id='mel-autonomy-control'" \
             > autonomy-control.raw.json
+
+          # CODEX: identify only metadata for the precise launch-review blocker.
+          npx wrangler d1 execute DB --remote --json \
+            --command "SELECT id,status,updated_at,error,json_extract(optional_context,'$.roadmap_id') AS roadmap_id,CASE WHEN id='self-audit-supervisor-69221d23ba79d5725729497cbb19f87f' AND requested_by='mel-autonomy' AND status='FAILED' AND json_valid(optional_context) AND json_extract(optional_context,'$.source')='self-audit-supervisor' AND COALESCE(json_extract(optional_context,'$.roadmap_id'),'')='' AND json_extract(optional_context,'$.request_key') LIKE 'self-audit:%' AND json_extract(optional_context,'$.candidate_branch_only')=1 AND json_extract(optional_context,'$.zero_added_cost')=1 AND goal LIKE '[MEL-SELF-AUDIT] %' THEN 1 ELSE 0 END AS reviewed_self_audit_scope_match FROM dev_jobs WHERE requested_by='mel-autonomy' AND status='FAILED' AND COALESCE(json_extract(optional_context,'$.roadmap_id'),'')='' ORDER BY updated_at DESC LIMIT 100" \
+            > unscoped-failures.raw.json
+
+          # CODEX: correlate the claimed job with bounded durable ledger metadata.
+          npx wrangler d1 execute DB --remote --json \
+            --command "SELECT seq,evolution_id,stage,status,actor,source_sha,branch,occurred_at,json_extract(evidence_json,'$.error') AS error,json_extract(evidence_json,'$.previous_status') AS previous_status,json_extract(evidence_json,'$.next_status') AS next_status,json_extract(evidence_json,'$.changed_fields') AS changed_fields,json_extract(evidence_json,'$.bridge_status') AS bridge_status,json_extract(evidence_json,'$.dev_bridge_status') AS bridge_result_status FROM evolution_ledger WHERE evolution_id='mel-autonomy-mel-founder-07-e1792579058089-3' ORDER BY seq DESC LIMIT 30" \
+            > bridge-events.raw.json
+
+          # CODEX: observe ownership and durable job transitions; never acquire,
+          # release, delete or renew a lease from this read-only diagnostic.
+          for SAMPLE in 0 1 2; do
+            npx wrangler d1 execute DB --remote --json \
+              --command "SELECT CAST(strftime('%s','now') AS INTEGER)*1000 AS db_now_ms,bridge_id,status,last_seen,json_extract(metadata_json,'$.acquired_at') AS acquired_at,json_extract(metadata_json,'$.expires_at') AS expires_at FROM dev_bridge_state WHERE bridge_id IN ('runtime-lease:autonomy-heartbeat','primary') ORDER BY bridge_id" \
+              > "runtime-lease-${SAMPLE}.raw.json"
+            npx wrangler d1 execute DB --remote --json \
+              --command "SELECT id,status,created_at,updated_at,error,json_extract(optional_context,'$.roadmap_id') AS roadmap_id,json_extract(result_json,'$.teacher_bridge.status') AS teacher_status,json_extract(result_json,'$.teacher_bridge.request.request_id') AS teacher_request_id,json_extract(result_json,'$.teacher_bridge.review.verdict') AS teacher_verdict,json_extract(plan_json,'$.preflight.council.status') AS council_status,json_extract(result_json,'$.implementation_proposal.decision') AS implementation_decision,json_extract(result_json,'$.implementation_proposal.status') AS implementation_status,json_extract(result_json,'$.implementation_planning_diagnostic.code') AS implementation_code,json_extract(result_json,'$.bridge_preparation.status') AS bridge_status,json_extract(result_json,'$.bridge_preparation_diagnostic.code') AS bridge_code,json_extract(result_json,'$.autonomy_completion.status') AS completion_status,json_extract(result_json,'$.autonomy_completion.candidate_sha') AS candidate_sha,json_extract(result_json,'$.autonomy_completion.ci.run_id') AS ci_run_id,json_extract(result_json,'$.dev_bridge.mode') AS bridge_result_mode,json_extract(result_json,'$.dev_bridge.status') AS bridge_result_status,json_extract(result_json,'$.dev_bridge.changed') AS bridge_changed,json_extract(result_json,'$.dev_bridge.needs_repair') AS bridge_needs_repair,json_extract(result_json,'$.dev_bridge.validation_failure') AS bridge_validation_failure,json_extract(result_json,'$.dev_bridge.candidate_sha') AS bridge_candidate_sha,json_extract(result_json,'$.dev_bridge.approved_base.candidate_sha') AS local_base_sha,json_extract(result_json,'$.dev_bridge.local_candidate_branch') AS local_candidate_branch,json_extract(result_json,'$.dev_bridge.applied_files') AS local_applied_files,json_array_length(json_extract(result_json,'$.dev_bridge.tests')) AS bridge_tests_count,(SELECT COUNT(*) FROM json_each(COALESCE(json_extract(result_json,'$.dev_bridge.tests'),'[]')) t WHERE json_extract(t.value,'$.passed')=1 AND json_extract(t.value,'$.exit_code')=0) AS bridge_tests_passed,json_array_length(json_extract(result_json,'$.dev_bridge_history')) AS bridge_history_count,json_extract(result_json,'$.repair_cycle.status') AS repair_status,json_extract(result_json,'$.repair_cycle.attempts') AS repair_attempts,json_extract(result_json,'$.runtime_retry.attempts') AS runtime_retry_attempts,json_extract(result_json,'$.runtime_retry.last_error') AS runtime_retry_code,json_extract(patch_json,'$.dev_bridge_received_at') AS bridge_result_received_at,json_extract(result_json,'$.verify_existing.live_checks[0].capability') AS live_check_0_capability,json_extract(result_json,'$.verify_existing.live_checks[0].ok') AS live_check_0_ok,json_extract(result_json,'$.verify_existing.live_checks[0].code') AS live_check_0_code,json_extract(result_json,'$.verify_existing.live_checks[1].capability') AS live_check_1_capability,json_extract(result_json,'$.verify_existing.live_checks[1].ok') AS live_check_1_ok,json_extract(result_json,'$.verify_existing.live_checks[1].code') AS live_check_1_code,json_extract(result_json,'$.verify_existing.live_checks[2].capability') AS live_check_2_capability,json_extract(result_json,'$.verify_existing.live_checks[2].ok') AS live_check_2_ok,json_extract(result_json,'$.verify_existing.live_checks[2].code') AS live_check_2_code FROM dev_jobs WHERE requested_by='mel-autonomy' ORDER BY updated_at DESC LIMIT 30" \
+              > "runtime-jobs-${SAMPLE}.raw.json"
+            if [ "$SAMPLE" != 2 ]; then sleep 40; fi
+          done
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -83,6 +105,7 @@ jobs:
           python - <<'PY'
           import json
           import os
+          import re
           from pathlib import Path
           from datetime import datetime, timezone
 
@@ -103,6 +126,59 @@ jobs:
           failure_rows = load_rows('failed-jobs.raw.json')
           control_rows = load_rows('autonomy-control.raw.json')
           control_row = control_rows[0] if control_rows else {}
+
+          # CODEX: publish only explicit runtime metadata, never goal, plan,
+          # proposal contents, tokens or arbitrary raw JSON from D1.
+          def safe_runtime_row(row):
+              allowed = {
+                  'db_now_ms', 'bridge_id', 'status', 'last_seen', 'acquired_at', 'expires_at',
+                  'id', 'created_at', 'updated_at', 'error', 'roadmap_id', 'teacher_status',
+                  'teacher_request_id', 'teacher_verdict', 'council_status', 'implementation_decision',
+                  'implementation_status', 'implementation_code', 'bridge_status', 'bridge_code',
+                  'completion_status', 'candidate_sha', 'ci_run_id', 'reviewed_self_audit_scope_match',
+                  'bridge_result_mode', 'bridge_result_status', 'bridge_changed', 'bridge_needs_repair',
+                  'bridge_validation_failure', 'bridge_candidate_sha', 'local_base_sha', 'local_candidate_branch',
+                  'local_applied_files', 'bridge_tests_count', 'bridge_tests_passed', 'bridge_history_count',
+                  'repair_status', 'repair_attempts', 'runtime_retry_attempts', 'runtime_retry_code', 'bridge_result_received_at',
+                  'live_check_0_capability', 'live_check_0_ok', 'live_check_0_code', 'live_check_1_capability', 'live_check_1_ok', 'live_check_1_code', 'live_check_2_capability', 'live_check_2_ok', 'live_check_2_code',
+                  'seq', 'evolution_id', 'stage', 'actor', 'source_sha', 'branch', 'occurred_at', 'previous_status', 'next_status', 'changed_fields',
+              }
+              result = {}
+              for key, value in row.items():
+                  if key not in allowed:
+                      continue
+                  # CODEX: only bounded repository paths; never test output or file contents.
+                  if key in ('local_applied_files', 'changed_fields'):
+                      if value is None:
+                          result[key] = None
+                          continue
+                      try:
+                          paths = json.loads(value) if isinstance(value, str) else value
+                          valid = isinstance(paths, list) and len(paths) <= (10 if key == 'local_applied_files' else 20) and all(
+                              isinstance(path, str) and re.fullmatch(r'[A-Za-z0-9_./-]{1,240}', path)
+                              and not path.startswith('/') and '..' not in path.split('/') for path in paths)
+                          result[key] = paths if valid else 'DETAIL_WITHHELD'
+                      except (ValueError, TypeError):
+                          result[key] = 'DETAIL_WITHHELD'
+                      continue
+                  if value is None or isinstance(value, (int, float, bool)):
+                      result[key] = value
+                  elif re.fullmatch(r'[A-Za-z0-9_.:/@-]{1,200}', str(value)):
+                      result[key] = str(value)
+                  else:
+                      result[key] = 'DETAIL_WITHHELD'
+              return result
+
+          runtime_samples = [
+              {
+                  'sample': sample,
+                  'leases_and_bridge': [safe_runtime_row(row) for row in load_rows(f'runtime-lease-{sample}.raw.json')],
+                  'jobs': [safe_runtime_row(row) for row in load_rows(f'runtime-jobs-{sample}.raw.json')],
+              }
+              for sample in range(3)
+          ]
+
+          bridge_events = [safe_runtime_row(row) for row in load_rows('bridge-events.raw.json')]
 
           watch_by_id = {str(row.get('id')): row for row in watch_rows}
           watch_state = {}
@@ -242,6 +318,9 @@ jobs:
               'schema': 'mel.gen2-42-live-proof/v1',
               'generated_at': datetime.now(timezone.utc).isoformat(),
               'candidate_sha': os.environ.get('GITHUB_SHA'),
+              'runtime_samples': runtime_samples,
+              'bridge_events': bridge_events,
+              'unscoped_failed_jobs': [safe_runtime_row(row) for row in load_rows('unscoped-failures.raw.json')],
               'proof_status': proof_status,
               'watch': {
                   'run_count': int(watch_state.get('run_count') or 0),
@@ -289,8 +368,11 @@ jobs:
                   'max_autonomy': control_row.get('max_autonomy'),
                   'launch_approved_sha': control_row.get('launch_approved_sha'),
                   'launch_approved_at': control_row.get('launch_approved_at'),
-                  'deployed_sha': os.environ.get('MEL_DEPLOYED_GIT_SHA') or os.environ.get('GITHUB_SHA'),
+                  'diagnostic_source_sha': os.environ.get('GITHUB_SHA'),
               },
+              'runtime_samples': runtime_samples,
+              'bridge_events': bridge_events,
+              'unscoped_failed_jobs': [safe_runtime_row(row) for row in load_rows('unscoped-failures.raw.json')],
               'ecosystem_job_summaries': ecosystem_jobs[:40],
               'active_handoff_summaries': [
                   {
@@ -329,6 +411,22 @@ jobs:
                       for row in failure_rows[:10]:
                           h.write(f'- {row.get("error")}: {row.get("count")}\n')
           PY
+
+      - name: Observe actual served production identity without mutation
+        if: github.event_name != 'pull_request'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/read-production-provenance.mjs > production-provenance.json
+
+      - name: Upload observed production identity
+        if: always() && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: production-provenance-${{ github.sha }}
+          path: production-provenance.json
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Upload sanitized proof
         if: github.event_name != 'pull_request'

@@ -14,7 +14,8 @@ test('Professor → Worker job → CapabilityBus bridge → approval → candida
   assert.ok(b.bus.describe('code.read'));
   assert.ok((await b.bus.execute('code.read',{path:'package.json'},ctx)).content.includes('mel:dev-bridge'));
   r=await devRuntime(new Request('http://x/api/dev-bridge/claim',{method:'POST',headers:{authorization:'Bearer e2e-token'},body:'{}'}),env,{repository});
-  const job=await r.json();
+  assert.equal(r.status,409,'local claim requires scoped cloud failure and opt-in');
+  const job=await repository.claim(); // Test the existing isolated executor after cloud admission.
   const outerBranch=await b.currentBranch();
   const outerHead=await b.currentHead();
   const c=await b.bus.execute('dev.create_candidate',{job_id:job.job_id},ctx);

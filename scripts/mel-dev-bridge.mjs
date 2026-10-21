@@ -62,7 +62,8 @@ export class RemoteWorkerClient {
     throw wrapped;
   }
   heartbeat() { return this.request('/api/dev-bridge/heartbeat', { status: 'ONLINE' }); }
-  claim() { return this.request('/api/dev-bridge/claim'); }
+  // CODEX: optional owner-PC fallback is scoped to an explicitly selected job.
+  claim() { return this.request('/api/dev-bridge/claim', { job_id: process.env.MEL_DEV_BRIDGE_JOB_ID || '' }); }
   result(payload) { return this.request('/api/dev-bridge/result', payload); }
 }
 

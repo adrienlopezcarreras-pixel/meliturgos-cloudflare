@@ -176,3 +176,9 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 - `mentor-complete-proposal-validation-20261019` — valider toute l’enveloppe multi-fichier, ses chemins uniques et ses limites avant de préparer le paquet Teacher ; réparation bornée et aucune persistance partielle. Preuves locales du vrai MentorEngine et de son paquet SQLite, sans certification production.
 
 - `zero-cost-evidence-renewal-without-redeploy-20261019` — renouveler les preuves zéro coût dans D1 avec le validateur et l’expiration stricts inchangés; heartbeat et relay existants demandent une preuve neuve dédupliquée; aucune promotion de version depuis le workflow secondaire.
+
+- `codex-local-bridge-publication-evidence-20261021` — un retour local testé ne vaut pas publication GitHub; conserver sa preuve et réutiliser le publisher, le paquet Teacher et la prise atomique existants jusqu’au SHA candidat réel. Régression locale réelle, production encore à prouver.
+
+- `codex-source-scoped-autonomy-admission-20261021` — rattacher chaque producteur autonome à son item canonique; réconcilier un oubli historique uniquement sur provenance vérifiée, conserver les états terminaux et maintenir le refus des autres échecs sans périmètre.
+
+- `codex-cloud-first-owner-fallback-20261021` — cloud prioritaire sans attente de heartbeat personnel; secours explicite et preuve bornée du paquet; attribution atomique, report persistant et preuve réelle distincte du dispatch.

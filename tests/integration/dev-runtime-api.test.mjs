@@ -20,7 +20,8 @@ test('Professor job lifecycle reaches explicit approval through bridge API', asy
   const j = await r.json();
   assert.equal(r.status, 201);
   r = await runtime.call(new Request('http://x/api/dev-bridge/claim', { method: 'POST', headers: auth, body: '{}' }));
-  const c = await r.json();
+  assert.equal(r.status, 409, 'a local bearer cannot take normal cloud work');
+  const c = await runtime.repository.claim(); // Existing repository claim exercised by the cloud lane.
   assert.equal(c.job_id, j.job_id);
   r = await runtime.call(new Request('http://x/api/dev-bridge/result', { method: 'POST', headers: auth, body: JSON.stringify({ job_id: j.job_id, status: 'READY_FOR_REVIEW', tests: [{ passed: true }], diff_summary: 'fixture' }) }));
   assert.equal((await r.json()).status, 'READY_FOR_REVIEW');

@@ -7,7 +7,9 @@ import { createTeacherReviewRequest } from '../teachers/teacher-request.js';
 import { queueRuntimeTeacherRequest } from '../teachers/runtime-teacher-bridge.js';
 import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-mirror.js';
 import { reconcileRuntimeTeacherReplies } from '../teachers/github-reply-reconciler.js';
-import { reconcileRuntimeCompletions } from '../teachers/github-completion-reconciler.js';
+import { reconcileRuntimeCompletions, findGreenFullCandidateRun } from '../teachers/github-completion-reconciler.js';
+import { reviewVerificationEvidence } from './council-review.js';
+import { requiredLiveChecks, runLiveChecks, liveProofGate } from './verify-existing-live-checks.js';
 import { runRuntimeWorkDagResumeProof } from './autonomy-proof.js';
 import { prepareApprovedImplementationProposal } from './autonomy-implementation-planner.js';
 import { prepareApprovedBridgePackage } from './autonomy-bridge-preparer.js';
@@ -123,8 +125,36 @@ function sameDiagnostic(previous, next) {
 }
 
 function safeDiagnosticCode(error, fallback = 'IMPLEMENTATION_PLANNING_FAILED') {
-  const raw = String(error?.code || fallback).toUpperCase();
+  // CODEX: this existing adapter throws a TypeError without .code. Admit only
+  // its known constant, never arbitrary provider messages or private details.
+  const knownMessage = error?.message === 'WORKERS_AI_BINDING_UNAVAILABLE' ? error.message : null;
+  const raw = String(error?.code || knownMessage || fallback).toUpperCase();
   return /^[A-Z0-9_:-]{1,120}$/.test(raw) ? raw : fallback;
+}
+
+// CODEX: preserve nonterminal work and let independent roadmap work proceed.
+export function providerDeferral(code, now = Date.now()) {
+  const value = String(code || '');
+  return /^(?:WORKERS_AI_BINDING_UNAVAILABLE|NO_ZERO_COST|MENTOR_NO_ZERO_COST|NO_ELIGIBLE|MODEL_UNAVAILABLE|COUNCIL_(?:UNAVAILABLE|NOT_ENOUGH|REQUIRED_ROLE|MEL_SYNTHESIS|PROVIDER_NOT_FOUND))/.test(value)
+    ? { code: value, observed_at: now, retry_after: now + 5 * 60_000 } : null;
+}
+
+// [Codex] Missing evidence is a resumable wait, never a failed implementation
+// or permission to generate an unnecessary patch. Reuse the scheduler's
+// existing bounded deferral and CAS; never revive terminal/concurrent work.
+export async function persistVerificationWait(repository, jobId, { code, liveChecks = [], ciRunId = null, candidateSha = null, now = Date.now() } = {}) {
+  const latest = await repository.get(jobId);
+  if (latest?.status !== 'TEACHER_APPROVED') return latest;
+  const diagnostic = /^[A-Za-z0-9_.:-]{1,160}$/.test(String(code || '')) ? code : 'VERIFY_EXISTING_EVIDENCE_REQUIRED';
+  return repository.update(jobId, { result_json: {
+    ...latest.result_json,
+    verify_existing: {
+      status: 'WAITING_VERIFICATION', objective_assessment: 'ALREADY_IMPLEMENTED_UNVERIFIED',
+      code: diagnostic, live_checks: liveChecks, ci_run_id: ciRunId,
+      candidate_sha: candidateSha, observed_at: new Date(now).toISOString(),
+    },
+    autonomy_deferral: { code: diagnostic, observed_at: now, retry_after: now + 5 * 60_000 },
+  } }, { expected: latest });
 }
 
 async function persistImplementationDiagnostic(repository, jobId, diagnostic) {
@@ -136,9 +166,13 @@ async function persistImplementationDiagnostic(repository, jobId, diagnostic) {
     code: diagnostic.status === 'READY' ? null : safeDiagnosticCode({ code: diagnostic.code }),
     observed_at: new Date().toISOString(),
   };
-  if (sameDiagnostic(result.implementation_planning_diagnostic, next)) return latest;
+  if (sameDiagnostic(result.implementation_planning_diagnostic, next)
+      && (!providerDeferral(next.code) || Number(result.autonomy_deferral?.retry_after) > Date.now())) return latest;
   result.implementation_planning_diagnostic = next;
-  return repository.update(jobId, { result_json: result });
+  const deferred = providerDeferral(next.code);
+  if (deferred) result.autonomy_deferral = deferred;
+  else if (next.status === 'READY') delete result.autonomy_deferral;
+  return repository.update(jobId, { result_json: result }, { expected: latest });
 }
 
 async function requeueStaleTeacherApproval(repository, jobId, diagnosticCode) {
@@ -205,9 +239,13 @@ async function persistBridgePreparationDiagnostic(repository, jobId, diagnostic)
     mentor_failure_codes: failures,
     observed_at: new Date().toISOString(),
   };
-  if (sameDiagnostic(result.bridge_preparation_diagnostic, next)) return latest;
+  if (sameDiagnostic(result.bridge_preparation_diagnostic, next)
+      && (!providerDeferral(next.code) || Number(result.autonomy_deferral?.retry_after) > Date.now())) return latest;
   result.bridge_preparation_diagnostic = next;
-  return repository.update(jobId, { result_json: result });
+  const deferred = providerDeferral(next.code);
+  if (deferred) result.autonomy_deferral = deferred;
+  else if (next.status === 'READY') delete result.autonomy_deferral;
+  return repository.update(jobId, { result_json: result }, { expected: latest });
 }
 
 function deployedInspectionSha(env = {}) {
@@ -669,8 +707,20 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   }
 
   if (job && ['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE', 'READY_FOR_REVIEW'].includes(String(job.status || '').toUpperCase())) {
-    teacher = await prepareAutonomyTeacherRequest({ env, repository: jobRepository, job, fetchImpl });
-    job = await jobRepository.get(job.id);
+    try {
+      teacher = await prepareAutonomyTeacherRequest({ env, repository: jobRepository, job, fetchImpl });
+      job = await jobRepository.get(job.id);
+    } catch (error) {
+      const code = safeDiagnosticCode(error);
+      const deferred = providerDeferral(code);
+      if (!deferred) throw error;
+      const latest = await jobRepository.get(job.id);
+      if (latest && !['FAILED', 'CANCELLED', 'COMPLETED'].includes(String(latest.status))) {
+        await jobRepository.update(job.id, { result_json: { ...latest.result_json, autonomy_deferral: deferred } }, { expected: latest });
+      }
+      teacher = { status: 'NOT_READY', code };
+      job = null;
+    }
   }
 
   if (job && droppedTeacherApproval(job)) {
@@ -717,6 +767,36 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       }
     }
 
+    // [GPT] A no-code verification decision must never enter Mentor/Dev Bridge.
+    // Await independently collected live test evidence and Council review;
+    // neither this plan nor a Teacher approval may certify DONE_VERIFIED.
+    if (implementation?.status === 'VERIFY_EXISTING') {
+      // Evidence is the green full-candidate-ci on the exact approved SHA; the
+      // Council judges it, and only the completion reconciler marks COMPLETED.
+      const ciRunId = await findGreenFullCandidateRun(env, implementation.candidate_sha, { fetchImpl }).catch(() => null);
+      const required = requiredLiveChecks(job?.goal, implementation?.selected?.text);
+      const liveChecks = ciRunId ? await runLiveChecks(env, required).catch(() => []) : [];
+      const gate = ciRunId ? liveProofGate(required, liveChecks) : { ok: false, code: 'FULL_CANDIDATE_CI_REQUIRED' };
+      const council = gate.ok && job ? await reviewVerificationEvidence(env, { job, implementation, ciRunId, liveChecks }).catch(() => null) : null;
+      if (job && (!gate.ok || !council || ['COUNCIL_UNAVAILABLE', 'INSUFFICIENT_REVIEWERS', 'REVIEW_INPUT_INVALID'].includes(council.decision))) {
+        await persistVerificationWait(jobRepository, job.id, {
+          code: !gate.ok ? gate.code : (council?.decision || 'COUNCIL_REVIEW_UNAVAILABLE'),
+          liveChecks, ciRunId, candidateSha: implementation.candidate_sha,
+        });
+      }
+      bridgePreparation = {
+        status: council?.decision === 'APPROVED' ? 'VERIFIED_BY_COUNCIL' : 'AWAITING_LIVE_EVIDENCE',
+        code: !gate.ok ? gate.code : (council?.decision || 'COUNCIL_REVIEW_UNAVAILABLE'),
+        live_checks: liveChecks,
+        candidate_sha: implementation.candidate_sha,
+        candidate_branch: implementation.candidate_branch,
+        ci_run_id: ciRunId || null,
+        files: [],
+        tests: [],
+      };
+      job = job ? await jobRepository.get(job.id) : job;
+    }
+
     if (implementation?.status === 'READY' && job && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED') {
       try {
         bridgePreparation = await prepareApprovedBridgePackage({
@@ -760,15 +840,16 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   const activeCount = Array.isArray(state?.active) ? state.active.length : 0;
   const workRemaining = autonomyWorkRemaining(state);
   const waitingExternal = finalJobStatus === 'WAITING_TEACHER'
+    || bridgePreparation?.status === 'AWAITING_LIVE_EVIDENCE'
     || String(ensured?.external_progress?.status || '').length > 0;
-  const blockReason = bridgePreparation?.status === 'NOT_READY'
+  const blockReason = teacher?.status === 'NOT_READY' ? teacher.code : bridgePreparation?.status === 'NOT_READY'
     ? (bridgePreparation.code || 'BRIDGE_PREPARATION_NOT_READY')
     : implementation?.status === 'NOT_READY'
       ? (implementation.code || 'IMPLEMENTATION_NOT_READY')
       : runtimeProof?.status === 'NOT_VERIFIED'
         ? (runtimeProof.code || 'RUNTIME_WORK_DAG_PROOF_NOT_VERIFIED')
         : waitingExternal
-          ? (ensured?.external_progress?.status || 'WAITING_EXTERNAL_PROGRESS')
+          ? (bridgePreparation?.status === 'AWAITING_LIVE_EVIDENCE' ? bridgePreparation.code : (ensured?.external_progress?.status || 'WAITING_EXTERNAL_PROGRESS'))
           : autonomyQueueReadBlocker(state);
   const advanced = autonomyTickAdvanced(progressEvents);
 

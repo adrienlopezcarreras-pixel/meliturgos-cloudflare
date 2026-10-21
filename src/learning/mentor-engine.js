@@ -7,6 +7,12 @@ import { sanitizeInferenceSettings } from './inference-adaptation.js';
 const MAX_FILES = 8;
 const MAX_FILE_CHARS = 45_000;
 const MAX_TOTAL_SOURCE_CHARS = 150_000;
+// Prompt budgets. Edits are applied on the complete inspected file; a model only
+// sees a bounded excerpt. The paired PC refuses any message above 12 000 chars
+// (SOVEREIGNTY_AI_MESSAGE_TOO_LARGE) and 150 000-char prompts time out in the cloud.
+const DEFAULT_PROMPT_CHARS = 40_000;
+const COMPANION_PROMPT_CHARS = 11_500;
+const MEMORY_PROMPT_CHARS = 3_000;
 const MAX_CHANGES = 10;
 const LONG_FILE_CHARS = 4000;
 const MAX_CHANGE_CHARS = 200_000;
@@ -153,8 +159,8 @@ function normalizeInspectedFiles(files = []) {
     if (out.length >= MAX_FILES || total >= MAX_TOTAL_SOURCE_CHARS) break;
     const path = safeInspectionPath(item?.path);
     const remaining = MAX_TOTAL_SOURCE_CHARS - total;
-    const content = bounded(item?.content ?? item?.result?.content ?? '', Math.min(MAX_FILE_CHARS, remaining));
-    total += content.length;
+    const content = bounded(item?.content ?? item?.result?.content ?? '', MAX_CHANGE_CHARS);
+    total += Math.min(content.length, MAX_FILE_CHARS, remaining);
     out.push({ path, content });
   }
   return out;
@@ -266,24 +272,44 @@ function scoreProposal(proposal) {
   return proposal.confidence * 10 + Math.min(5, proposal.changes.length) * 2 + Math.min(3, proposal.tests.length) + Math.min(2, proposal.lessons.length * 0.5);
 }
 
-// ChatGPT-GPT6 / MEL-MENTOR-SCOPE: bounded, faithful source excerpts.
-// The inspected full text remains available to applyInspectedEdits; truncation
-// here only controls inference context. Never fabricate a file or edit.
+// Reuse #2329's six-file excerpts while honoring the provider-specific
+// excerpt already computed by promptWithinLimit. Full inspected text stays
+// untouched for exact edit validation, including files above 45k characters.
 function sourceBlock(files) {
-  const maxSourceFiles = 6;
-  const maxSourceChars = 4500;
-  return (Array.isArray(files) ? files : []).slice(0, maxSourceFiles).map(file => {
+  return (Array.isArray(files) ? files : []).slice(0, 6).map(file => {
     const source = String(file.content || '');
-    const excerpt = source.slice(0, maxSourceChars);
+    const visible = String(file.excerpt ?? source).slice(0, 4500);
     return [
       '===== FILE ' + file.path + ' =====',
-      excerpt,
-      ...(source.length > excerpt.length
-        ? ['[EXTRAIT PARTIEL: ne modifier que les lignes effectivement visibles ci-dessus]']
+      visible,
+      ...(visible.length < source.length
+        ? ['[EXTRAIT PARTIEL / EXTRAIT TRONQUÉ: ne modifier que les lignes effectivement visibles ci-dessus]']
         : []),
       '===== END ' + file.path + ' =====',
     ].join('\n');
   }).join('\n');
+}
+
+function promptLimit(provider) {
+  const explicit = Number(provider?.maxInputChars);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  return provider?.providerId === 'local-companion-ai' ? COMPANION_PROMPT_CHARS : DEFAULT_PROMPT_CHARS;
+}
+
+// Fit the prompt to one provider: the frame is kept, sources share the rest.
+function promptWithinLimit(build, files, limit) {
+  const frame = build([]).length;
+  let budget = Math.max(0, Math.min(MAX_TOTAL_SOURCE_CHARS, limit - frame - 120 * files.length));
+  const excerpts = files.map((file, index) => {
+    const share = Math.min(MAX_FILE_CHARS, Math.floor(budget / (files.length - index)));
+    const visible = file.content.slice(0, share);
+    budget -= visible.length;
+    const excerpt = visible.length < file.content.length
+      ? `${visible}\n[EXTRAIT TRONQUÉ: ${file.content.length} caractères au total. Modifie ce fichier par edits avec un find copié de cet extrait.]`
+      : visible;
+    return { ...file, excerpt };
+  });
+  return bounded(build(excerpts), limit);
 }
 
 function buildRepairPrompt({ goal, files, raw, failure, mode }) {
@@ -426,7 +452,11 @@ export class MentorEngine {
         const active = learned.activeAdapter;
         const lora = active?.base_model === provider.modelId ? active?.adapter?.id : null;
         return boundedMentorInvoke(provider, {
-          input: buildPrompt({ role: roles[(offset + index) % roles.length], goal: objective, files, lessons: remembered, experiences, previousAttempts, mode }),
+          input: promptWithinLimit(
+            visible => buildPrompt({ role: roles[(offset + index) % roles.length], goal: objective, files: visible, lessons: remembered, experiences, previousAttempts, mode }),
+            files,
+            promptLimit(provider),
+          ),
           context: {
             purpose: 'mel-autonomous-development',
             job_id: jobId || null,
@@ -464,7 +494,11 @@ export class MentorEngine {
         const repaired = await Promise.allSettled(repairInputs.map(({ provider, raw, failure }) => {
           const lora = active?.base_model === provider.modelId ? active?.adapter?.id : null;
           return boundedMentorInvoke(provider, {
-            input: buildRepairPrompt({ goal: objective, files, raw, failure, mode }),
+            input: promptWithinLimit(
+              visible => buildRepairPrompt({ goal: objective, files: visible, raw: bounded(raw, Math.floor(promptLimit(provider) / 3)), failure, mode }),
+              files,
+              promptLimit(provider),
+            ),
             context: {
               purpose: 'mel-autonomous-development-structured-repair',
               job_id: jobId || null,

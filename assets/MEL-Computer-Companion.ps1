@@ -221,6 +221,49 @@ function Active-Window {
   } catch { return "" }
 }
 
+# Local MEL development executor (owner opt-in in computer.json):
+# GPT6 2026-10-21: isolated supervision of the existing local development bridge.
+#   "dev_executor_enabled": true, "dev_executor_repo": "C:\\chemin\\vers\\meliturgos-cloudflare"
+# The Companion starts and supervises the existing scripts/mel-dev-bridge.mjs,
+# which claims approved packages, applies them, runs tests and reports results.
+# Its secret stays in the repo's .dev.vars and is never read here.
+$script:DevExecutorProcess = $null
+$script:DevExecutorLastStart = Get-Date "2000-01-01"
+$script:DevExecutorCode = "DISABLED"
+
+function Stop-DevExecutor {
+  if ($script:DevExecutorProcess -and -not $script:DevExecutorProcess.HasExited) {
+    try { $script:DevExecutorProcess.Kill() } catch {}
+  }
+  $script:DevExecutorProcess = $null
+}
+
+function Ensure-DevExecutor {
+  $enabled = $false
+  $repo = ""
+  try {
+    $localConfig = Get-Content -Raw -Encoding UTF8 -LiteralPath $ConfigPath | ConvertFrom-Json
+    $enabled = $localConfig.dev_executor_enabled -eq $true
+    $repo = [string]$localConfig.dev_executor_repo
+  } catch { $enabled = $false }
+  if (-not $enabled) { Stop-DevExecutor; $script:DevExecutorCode = "DISABLED"; return }
+  if ($script:DevExecutorProcess -and -not $script:DevExecutorProcess.HasExited) { $script:DevExecutorCode = "RUNNING"; return }
+  if (-not $repo -or -not (Test-Path -LiteralPath (Join-Path $repo "scripts\mel-dev-bridge.mjs"))) { $script:DevExecutorCode = "REPO_MISSING"; return }
+  if (-not (Test-Path -LiteralPath (Join-Path $repo ".dev.vars"))) { $script:DevExecutorCode = "TOKEN_FILE_MISSING"; return }
+  $node = Get-Command node -ErrorAction SilentlyContinue
+  if (-not $node) { $script:DevExecutorCode = "NODE_MISSING"; return }
+  if (((Get-Date) - $script:DevExecutorLastStart).TotalSeconds -lt 30) { $script:DevExecutorCode = "RESTART_BACKOFF"; return }
+  $script:DevExecutorLastStart = Get-Date
+  try {
+    $script:DevExecutorProcess = Start-Process -FilePath $node.Source -ArgumentList @("scripts/mel-dev-bridge.mjs") `
+      -WorkingDirectory $repo -WindowStyle Hidden -PassThru `
+      -RedirectStandardOutput (Join-Path $MelDir "dev-executor.log") -RedirectStandardError (Join-Path $MelDir "dev-executor.err.log")
+    $script:DevExecutorCode = "STARTED"
+  } catch {
+    $script:DevExecutorProcess = $null
+    $script:DevExecutorCode = "START_FAILED"
+  }
+}
 function Send-Heartbeat {
   # Advertise the currently persisted owner switch, not its startup value.
   $remoteEnabled = $false
@@ -248,6 +291,7 @@ function Send-Heartbeat {
     user = $env:USERNAME
     screen = @{ x=$bounds.X; y=$bounds.Y; width=$bounds.Width; height=$bounds.Height }
     active_window = (Active-Window)
+    dev_executor = @{ status = [string]$script:DevExecutorCode }
   }
   if ($null -eq $script:HeartbeatFailures) { $script:HeartbeatFailures = 0 }
   $diag = @{ last_error_code = [string]$script:HeartbeatLastError; http_ms = 0; engine_process_running = $true; consecutive_failures = [int]$script:HeartbeatFailures }
@@ -3204,6 +3248,7 @@ while (-not $script:MelExitRequested) {
   if (-not $Headless) { [System.Windows.Forms.Application]::DoEvents() }
   try {
     if (((Get-Date) - $lastHeartbeat).TotalSeconds -ge 10) {
+      try { Ensure-DevExecutor } catch { $script:DevExecutorCode = "SUPERVISION_FAILED" }
       Send-Heartbeat
       $lastHeartbeat = Get-Date
     }
@@ -3223,6 +3268,7 @@ while (-not $script:MelExitRequested) {
   }
   Start-Sleep -Milliseconds 1200
 }
+Stop-DevExecutor
 if ($trayResources) {
   try { $trayResources.notify.Visible = $false } catch {}
   try { $trayResources.notify.Dispose() } catch {}

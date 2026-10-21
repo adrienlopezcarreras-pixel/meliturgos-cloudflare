@@ -201,6 +201,33 @@ test('cloud autonomy heartbeat consumes the matching canonical GitHub Teacher re
   assert.equal(resumed.job.status, 'TEACHER_APPROVED');
 });
 
+test('[Codex] actual runtime keeps an existing Gmail objective waiting when exact full CI is absent, without Mentor code generation', async () => {
+  const fixture = runtimeFixture();
+  const roadmap = [{ id: 'MEL-FOUNDER-01', title: 'Prouver une lecture Gmail', status: 'IN_PROGRESS', next: 'lecture Gmail en production', priority: 'P0' }];
+  const options = { roadmap, repository: fixture.repository, fetchImpl: fixture.fetchImpl };
+  const first = await runAutonomyRuntimeTickRaw(fixture.env, options);
+  assert.ok(first.teacher?.request_id);
+  fixture.setReplies(JSON.stringify({ kind: 'TEACHER_REPLY', request_id: first.teacher.request_id,
+    target_sha: CANDIDATE_HEAD_SHA, verdict: 'APPROVE_PLAN', feedback: 'Vérifier l’existant sans nouveau code.' }));
+  fixture.env.AI.run = async () => ({ response: [
+    'DECISION: VERIFY_EXISTING', 'LIVE_CHECKS: gmail.messages.search',
+    'FICHIERS: src/capabilities/google-workspace-capabilities.js', 'CHANGEMENTS: aucun, capacité existante',
+    'REUTILISATION: CapabilityBus canonique', 'TESTS: lecture Gmail réelle et CI exacte',
+    'RISQUES: preuve absente', 'ROLLBACK: aucun changement', 'CRITERES_DE_FIN: preuve réelle puis Council',
+  ].join('\n') });
+  const result = await runAutonomyRuntimeTickRaw(fixture.env, options);
+  assert.equal(result.implementation.status, 'VERIFY_EXISTING');
+  assert.equal(result.bridge_preparation.status, 'AWAITING_LIVE_EVIDENCE');
+  const stored = await fixture.repository.get(first.job.id);
+  assert.equal(stored.result_json.implementation_proposal.objective_assessment, 'ALREADY_IMPLEMENTED_UNVERIFIED');
+  assert.equal(stored.status, 'TEACHER_APPROVED');
+  assert.equal(stored.result_json.verify_existing.code, 'FULL_CANDIDATE_CI_REQUIRED');
+  assert.equal(stored.result_json.bridge_preparation, undefined);
+  assert.equal(stored.result_json.autonomy_completion, undefined);
+  assert.equal(stored.files_json.length, 0);
+  assert.equal(result.progress.waiting_external, true);
+});
+
 test('stale Teacher approval is archived and requeued for a fresh Council and exact-SHA review', async () => {
   const fixture = runtimeFixture();
   const first = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });

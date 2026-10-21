@@ -38,9 +38,27 @@ function preparedPackage(job) {
   return job.tests_json.every((test) => test && typeof test.command === 'string');
 }
 
-function alreadyApplied(job) {
-  const completion = String(job?.result_json?.autonomy_completion?.candidate_sha || '');
-  return /^[a-f0-9]{40}$/i.test(completion) || job?.result_json?.dev_bridge?.changed === true;
+function alreadyPublished(job) {
+  return [job?.result_json?.autonomy_completion?.candidate_sha, job?.result_json?.dev_bridge?.candidate_sha]
+    .some(value => /^[a-f0-9]{40}$/i.test(String(value || '')));
+}
+
+// CODEX: a successful isolated PC edit is not a published canonical commit.
+// Only its correlated, tested original package may reach the existing cloud
+// publisher; never import arbitrary local diffs or silently retry failed work.
+function testedLocalPackage(job) {
+  const local = job?.result_json?.dev_bridge;
+  const preparation = job?.result_json?.bridge_preparation;
+  if (local?.mode !== 'STRUCTURED_MENTOR_WORK' || local.changed !== true
+      || local.needs_repair === true || local.validation_failure || local.production_touched !== false
+      || local.approved_base?.candidate_branch !== preparation?.candidate_branch
+      || local.approved_base?.candidate_sha !== preparation?.candidate_sha) return false;
+  const paths = (job.files_json || []).map(file => file.path).sort();
+  const applied = Array.isArray(local.applied_files) ? [...local.applied_files].sort() : [];
+  if (JSON.stringify(paths) !== JSON.stringify(applied)) return false;
+  return Array.isArray(local.tests) && local.tests.length > 0
+    && local.tests.every(test => test?.passed === true && test.exit_code === 0
+      && test.executed !== false && typeof test.command === 'string');
 }
 
 export function isPreparedDevBridgeJob(job) {
@@ -49,7 +67,9 @@ export function isPreparedDevBridgeJob(job) {
 
 /** A READY package that never reached the candidate branch. CI cannot exist yet. */
 export function isUnappliedReadyReviewJob(job) {
-  return String(job?.status || '').toUpperCase() === 'READY_FOR_REVIEW' && preparedPackage(job) && !alreadyApplied(job);
+  return String(job?.status || '').toUpperCase() === 'READY_FOR_REVIEW'
+    && preparedPackage(job) && !alreadyPublished(job)
+    && (job?.result_json?.dev_bridge?.changed !== true || testedLocalPackage(job));
 }
 
 export function isTeacherGatedDevJob(job) {
@@ -176,18 +196,30 @@ export class D1DevJobRepository {
       : [...this.memory.values()];
   }
 
-  async update(id, patch) {
+  async update(id, patch, { expected = null } = {}) {
     await this.init();
     const j = await this.get(id);
     if (!j) throw Object.assign(new Error('JOB_NOT_FOUND'), { code: 'JOB_NOT_FOUND' });
-    const n = { ...j, ...patch, updated_at: Date.now() };
+    // A cancelled job stays cancelled: a tick that read it before "Vider la
+    // liste" must not write it back to life (CANCELLED -> COUNCIL_COMPLETE).
+    if (String(j.status || '').toUpperCase() === 'CANCELLED') return j;
+    // CODEX: fence asynchronous writers against claims/results committed since
+    // their read. Never silently retry a stale full-row patch against new state.
+    const snapshot = expected || j;
+    const conflict = () => Object.assign(new Error('JOB_UPDATE_CONFLICT'), { code: 'JOB_UPDATE_CONFLICT' });
+    if (snapshot.id !== id || snapshot.updated_at !== j.updated_at
+        || snapshot.status !== j.status
+        || JSON.stringify(snapshot.result_json) !== JSON.stringify(j.result_json)
+        || JSON.stringify(snapshot.plan_json) !== JSON.stringify(j.plan_json)) throw conflict();
+    const n = { ...j, ...patch, updated_at: Math.max(Date.now(), Number(j.updated_at || 0) + 1) };
     if (!this.db) {
       this.memory.set(id, n);
       return n;
     }
-    await this.db.prepare('UPDATE dev_jobs SET updated_at=?,status=?,plan_json=?,files_json=?,patch_json=?,tests_json=?,result_json=?,candidate_branch=?,approval_status=?,error=? WHERE id=?')
-      .bind(n.updated_at, n.status, JSON.stringify(n.plan_json), JSON.stringify(n.files_json || []), JSON.stringify(n.patch_json), JSON.stringify(n.tests_json || []), JSON.stringify(n.result_json), n.candidate_branch, n.approval_status, n.error, id)
+    const write = await this.db.prepare('UPDATE dev_jobs SET updated_at=?,status=?,plan_json=?,files_json=?,patch_json=?,tests_json=?,result_json=?,candidate_branch=?,approval_status=?,error=? WHERE id=? AND (status IS NULL OR status<>\'CANCELLED\') AND updated_at=? AND status IS ? AND COALESCE(result_json,\'null\')=? AND COALESCE(plan_json,\'null\')=?')
+      .bind(n.updated_at, n.status, JSON.stringify(n.plan_json), JSON.stringify(n.files_json || []), JSON.stringify(n.patch_json), JSON.stringify(n.tests_json || []), JSON.stringify(n.result_json), n.candidate_branch, n.approval_status, n.error, id, j.updated_at, j.status, JSON.stringify(j.result_json), JSON.stringify(j.plan_json))
       .run();
+    if (write.meta?.changes === 0) throw conflict();
     const updated = await this.get(id);
     const changedFields = Object.keys(patch || {}).filter(key => !['updated_at'].includes(key)).sort();
     await this.recordEvolution(updated, 'JOB_UPDATED', {

@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { prepareApprovedImplementationProposal, inspectionGoalTerms } from '../src/evolution/autonomy-implementation-planner.js';
@@ -6,8 +7,8 @@ import { prepareApprovedImplementationProposal, inspectionGoalTerms } from '../s
 const HEAD_SHA = '1111111111111111111111111111111111111111';
 const NEW_HEAD_SHA = '2222222222222222222222222222222222222222';
 
-function fixture({ headSequence = [HEAD_SHA], headUnavailable = false } = {}) {
-  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+function fixture({ headSequence = [HEAD_SHA], headUnavailable = false, db = null } = {}) {
+  const repository = new D1DevJobRepository(db, { memoryStore: new Map() });
   const aiCalls = [];
   let headReads = 0;
   const env = {
@@ -331,4 +332,127 @@ test('planner refuses work without an exact correlated Teacher approval', async 
     () => prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl }),
     (error) => error?.code === 'TEACHER_APPROVAL_REQUIRED',
   );
+});
+
+test('GPT6: Teacher-approved self-audit repair uses source evidence without inventing a roadmap entry', async () => {
+  const f = fixture();
+  const job = await approvedJob(f.repository);
+  const contextual = await f.repository.update(job.id, {
+    goal: '[MEL-SELF-AUDIT] Corriger une anomalie détectée automatiquement',
+    optional_context: {
+      source: 'self-audit-supervisor',
+      priority: 'P0',
+      roadmap_id: null,
+      inspection_queries: ['lora-heartbeat'],
+    },
+  });
+  const proposal = await prepareApprovedImplementationProposal({
+    env: f.env, repository: f.repository, job: contextual, fetchImpl: f.fetchImpl,
+  });
+  assert.equal(proposal.status, 'READY');
+  assert.equal(proposal.roadmap_id, null, 'source-based repair must not masquerade as a roadmap item');
+  assert.equal(proposal.consolidation.reuse_search.query, 'self-audit-supervisor');
+  assert.ok(proposal.inspected_files.some(file => file.path === 'src/diagnostics/self-audit-supervisor.js'));
+  assert.equal(proposal.candidate_sha, HEAD_SHA);
+  assert.equal(proposal.teacher_request_id, 'approved-request');
+  assert.ok(f.aiCalls.length >= 2);
+});
+
+test('GPT6: unrelated non-roadmap jobs are still rejected after Teacher approval', async () => {
+  const f = fixture();
+  const job = await approvedJob(f.repository);
+  const unrelated = await f.repository.update(job.id, {
+    optional_context: { source: 'ecosystem-watch', roadmap_id: null },
+  });
+  await assert.rejects(
+    () => prepareApprovedImplementationProposal({
+      env: f.env, repository: f.repository, job: unrelated, fetchImpl: f.fetchImpl,
+    }),
+    error => error?.code === 'IMPLEMENTATION_ROADMAP_ID_REQUIRED',
+  );
+  assert.equal(f.aiCalls.length, 0);
+});
+
+test('GPT6: unsupported no-code verdict for FOUNDER lease persistence is repaired into implementation', async () => {
+  const f = fixture();
+  const bad = 'DECISION: VERIFY_EXISTING\nLIVE_CHECKS: gmail.messages.search, calendar.events.read, drive.files.list\nFICHIERS: src/evolution/autonomy-runtime.js\nCHANGEMENTS: aucun code nécessaire\nREUTILISATION: composants existants\nTESTS: vérification passive\nRISQUES: inconnus\nROLLBACK: aucun\nCRITERES_DE_FIN: preuves réelles';
+  const good = 'DECISION: IMPLEMENT\nFICHIERS: src/evolution/autonomy-runtime.js\nCHANGEMENTS: ajouter des tests fonctionnels ciblés pour l’écriture durable et la libération du lease\nREUTILISATION: conserver le runtime existant\nTESTS: node --test tests/autonomy-runtime.test.mjs\nRISQUES: concurrence\nROLLBACK: revert de la branche candidate\nCRITERES_DE_FIN: tests ciblés et CI verts';
+  f.env.AI.run = async (model, input) => {
+    f.aiCalls.push(model);
+    return { response: JSON.stringify(input).includes('OBJECTIVE_BOUND_FUNCTIONAL_PROOF') ? good : bad };
+  };
+  const job = await approvedJob(f.repository);
+  const proposal = await prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl });
+  assert.equal(proposal.status, 'READY');
+  assert.equal(proposal.decision, 'IMPLEMENT');
+  assert.equal(proposal.consolidation.quality_repair_attempted, true);
+  assert.match(proposal.selected.text, /CHANGEMENTS:/);
+  assert.equal((await f.repository.get(job.id)).status, 'TEACHER_APPROVED');
+});
+
+test('GPT6: no model can certify unprovable VERIFY_EXISTING as a Bridge-ready plan', async () => {
+  const f = fixture();
+  const bad = 'DECISION: VERIFY_EXISTING\nLIVE_CHECKS: gmail.messages.search\nFICHIERS: src/evolution/autonomy-runtime.js\nCHANGEMENTS: rien\nREUTILISATION: existant\nTESTS: à faire\nRISQUES: doute\nROLLBACK: aucune\nCRITERES_DE_FIN: plus tard';
+  f.env.AI.run = async (model) => { f.aiCalls.push(model); return { response: bad }; };
+  const job = await approvedJob(f.repository);
+  await assert.rejects(
+    () => prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl }),
+    error => error?.code === 'IMPLEMENTATION_UNPROVABLE_VERIFY_EXISTING',
+  );
+  const after = await f.repository.get(job.id);
+  assert.equal(after.status, 'TEACHER_APPROVED');
+  assert.equal(after.result_json.implementation_proposal, undefined);
+});
+
+// CODEX: reproduce a long model call overlapping a real D1 executor result.
+test('stale implementation cannot erase a claimed package or resurrect its failed executor result', async () => {
+  const db = sqliteD1();
+  try {
+    const f = fixture({ db });
+    const job = await approvedJob(f.repository);
+    let entered;
+    const started = new Promise(resolve => { entered = resolve; });
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    const run = f.env.AI.run;
+    f.env.AI.run = async (...args) => { entered(); await gate; return run(...args); };
+    const pending = prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl });
+    await started;
+    const ready = { ...job.result_json, bridge_preparation: { status: 'READY', teacher_request_id: 'approved-request' } };
+    await f.repository.update(job.id, { status: 'CLAIMED', result_json: ready });
+    const receipt = { ...ready, dev_bridge: { status: 'FAILED', error: 'REAL_TEST_FAILED', tests: [{ passed: false, exit_code: 1 }] } };
+    await f.repository.update(job.id, { status: 'FAILED', result_json: receipt });
+    release();
+    await assert.rejects(pending, { code: 'JOB_UPDATE_CONFLICT' });
+    const persisted = await f.repository.get(job.id);
+    assert.equal(persisted.status, 'FAILED');
+    assert.deepEqual(persisted.result_json, receipt);
+  } finally { db.close(); }
+});
+
+test('D1 update rejects a concurrent executor write between read and SQL update', async () => {
+  const db = sqliteD1();
+  try {
+    const repository = new D1DevJobRepository(db);
+    const job = await repository.create({ id: 'race-at-write', goal: 'isolated race proof' });
+    const prepare = db.prepare.bind(db);
+    let intercept = true;
+    db.prepare = sql => {
+      const statement = prepare(sql);
+      if (sql.startsWith('UPDATE dev_jobs SET updated_at=') && intercept) {
+        const run = statement.run.bind(statement);
+        statement.run = async () => {
+          intercept = false;
+          await prepare('UPDATE dev_jobs SET status=?,result_json=? WHERE id=?')
+            .bind('FAILED', JSON.stringify({ dev_bridge: { status: 'FAILED', error: 'EXECUTOR_FAILED' } }), job.id).run();
+          return run();
+        };
+      }
+      return statement;
+    };
+    await assert.rejects(repository.update(job.id, { status: 'CLAIMED', result_json: { diagnostic: 'stale' } }), { code: 'JOB_UPDATE_CONFLICT' });
+    const persisted = await repository.get(job.id);
+    assert.equal(persisted.status, 'FAILED');
+    assert.equal(persisted.result_json.dev_bridge.error, 'EXECUTOR_FAILED');
+  } finally { db.close(); }
 });

@@ -68,3 +68,30 @@ test('silent free models are replaced until three real answers exist', async () 
   assert.equal(result.reviews.filter(review => review.verdict === 'APPROVE').length, 3);
   assert.ok(result.reviews.some(review => review.error === 'DOWN'));
 });
+
+test('online models first; after 10 short reviews the PC alone, then the owner', async () => {
+  const { PC_AFTER_ATTEMPTS, approveCouncilReviewByOwner } = await import('../src/evolution/council-review.js');
+  const down = { MEL_COMPANION_FALLBACK_ALLOWED: 'true', AI: { async run() { throw new Error('MODEL_UNAVAILABLE'); } } };
+  const asked = [];
+  const pc = async () => ({ async invoke({ input }) { asked.push(input); return { text: '{"verdict":"APPROVE","summary":"relu sur le PC, correct et testé"}' }; } });
+  assert.equal((await runCouncilReview(down, { diff: '+x', attempts: 0, companion: pc })).decision, 'INSUFFICIENT_REVIEWERS');
+  assert.equal(asked.length, 0, 'the PC is not asked before 10 attempts');
+  const last = await runCouncilReview(down, { diff: '+x'.repeat(30_000), attempts: PC_AFTER_ATTEMPTS - 1, companion: pc });
+  assert.equal(last.decision, 'OWNER_APPROVAL_REQUIRED');
+  assert.ok(asked[0].length <= 12_000, 'the Companion refuses messages above 12 000 chars');
+  assert.equal((await runCouncilReview(down, { diff: '+x', attempts: 20, companion: async () => null })).decision, 'COUNCIL_UNAVAILABLE');
+  const reject = async () => ({ async invoke() { return { text: '{"verdict":"REJECT","blocking":["non testé"]}' }; } });
+  assert.equal((await runCouncilReview(down, { diff: '+x', attempts: 20, companion: reject })).decision, 'REJECTED');
+
+  const { sqliteD1 } = await import('./helpers/sqlite-d1.mjs');
+  const DB = sqliteD1();
+  try {
+    await DB.prepare('CREATE TABLE dev_bridge_state(bridge_id TEXT PRIMARY KEY, last_seen INTEGER, status TEXT, metadata_json TEXT)').run();
+    const key = 'council-review:' + 'a'.repeat(40);
+    await DB.prepare('INSERT INTO dev_bridge_state VALUES(?,?,?,?)').bind(key, 1, 'OWNER_APPROVAL_REQUIRED', JSON.stringify({ decision: 'OWNER_APPROVAL_REQUIRED', head: 'a'.repeat(40), jobs: ['j'] })).run();
+    assert.equal((await approveCouncilReviewByOwner({ DB }, key)).ok, true);
+    const row = await DB.prepare('SELECT status FROM dev_bridge_state WHERE bridge_id=?').bind(key).first();
+    assert.equal(row.status, 'APPROVED');
+    assert.equal((await approveCouncilReviewByOwner({ DB }, key)).code, 'COUNCIL_OWNER_APPROVAL_NOT_PENDING', 'only a pending PC approval can be validated');
+  } finally { DB.close(); }
+});

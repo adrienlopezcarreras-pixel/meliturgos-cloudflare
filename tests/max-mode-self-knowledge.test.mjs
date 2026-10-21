@@ -62,11 +62,10 @@ test('MEL queues her own cloud bridge when a change is ready and the PC is offli
   assert.equal(db.writes[0].args[0], 'cloud-bridge-dispatch:job-1');
 });
 
-test('no dispatch when not ready, PC online, or dispatched recently', async () => {
+test('no dispatch when not ready or dispatched recently', async () => {
   const relay = { async enqueue() { throw new Error('must not enqueue'); } };
   const now = 10_000_000;
   assert.equal((await maybeDispatchCloudBridge({ DB: fakeDb() }, { job: { id: 'j', status: 'WAITING_TEACHER' } }, { now, relay })).status, 'SKIPPED_NOT_READY');
-  assert.equal((await maybeDispatchCloudBridge({ DB: fakeDb({ primary: { last_seen: now - 5_000, status: 'ONLINE' } }) }, readyTick, { now, relay })).status, 'SKIPPED_LOCAL_EXECUTOR_ONLINE');
   assert.equal((await maybeDispatchCloudBridge({ DB: fakeDb({ 'cloud-bridge-dispatch:job-1': { last_seen: now - 60_000 } }) }, readyTick, { now, relay })).status, 'SKIPPED_RECENTLY_DISPATCHED');
 });
 
@@ -86,7 +85,16 @@ test('a READY package is dispatched even when the tick stopped before reporting 
   const db = fakeDb();
   const prepare = db.prepare.bind(db);
   db.prepare = sql => (/json_extract\(result_json,'\$\.bridge_preparation.status'\)='READY'/.test(sql)
-    ? { bind() { return this; }, async first() { return { id: 'job-d1', status: 'TEACHER_APPROVED' }; } }
+    ? { bind() { return this; }, async all() { return { results: [{
+      id: 'job-d1', status: 'TEACHER_APPROVED',
+      files_json: JSON.stringify([{ path: 'src/example.js', content: 'export const value=1;' }]),
+      tests_json: JSON.stringify([{ command: 'test:smoke' }]),
+      result_json: JSON.stringify({
+        teacher_bridge: { status: 'ANSWERED', request: { request_id: 'teacher-d1' }, review: { request_id: 'teacher-d1', verdict: 'APPROVE_PLAN', development_allowed: true } },
+        bridge_preparation: { status: 'READY', teacher_request_id: 'teacher-d1', candidate_branch: 'candidate/mel-clean-autonomy', candidate_sha: 'a'.repeat(40) },
+        implementation_proposal: { status: 'READY' },
+      }),
+    }] }; } }
     : prepare(sql));
   const queued = [];
   const out = await maybeDispatchCloudBridge({ DB: db }, { status: 'NO_PROGRESS', job: { id: 'job-d1', status: 'TEACHER_APPROVED' } }, { now: 5_000_000, relay: { async enqueue(j) { queued.push(j); return { id: 'r2' }; } } });
@@ -120,4 +128,32 @@ test('MAX status answers name the real job, its waiting step and the guard state
   assert.match(text, /Étape en attente : Appliqué sur la candidate/);
   assert.match(text, /Dernier pont cloud demandé .* 12:30 UTC/);
   assert.match(MEL_REAL_CAPABILITIES, /N’invente jamais de fonction, d’endpoint, de flag/);
+});
+
+test('[GPT] online Companion heartbeat does not indefinitely hide an unclaimed READY package', async () => {
+  const now = 20_000_000;
+  const db = fakeDb({
+    primary: { last_seen: now - 2_000, status: 'ONLINE' },
+    package: { package_created_at: new Date(now - 240_000).toISOString() },
+  });
+  const queued = [];
+  const output = await maybeDispatchCloudBridge({ DB: db }, readyTick, {
+    now,
+    relay: { async enqueue(job) { queued.push(job); return { id: 'gpt-companion-fallback' }; } },
+  });
+  assert.equal(output.status, 'DISPATCH_QUEUED');
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].inputs.job_id, 'job-1');
+});
+
+test('[CODEX] recent READY package goes to cloud even with an online Companion', async () => {
+  const now = 20_000_000;
+  const db = fakeDb({
+    primary: { last_seen: now - 2_000, status: 'ONLINE' },
+    package: { package_created_at: new Date(now - 30_000).toISOString() },
+  });
+  const output = await maybeDispatchCloudBridge({ DB: db }, readyTick, {
+    now, relay: { async enqueue() { return { id: 'cloud-first-relay' }; } },
+  });
+  assert.equal(output.status, 'DISPATCH_QUEUED');
 });
