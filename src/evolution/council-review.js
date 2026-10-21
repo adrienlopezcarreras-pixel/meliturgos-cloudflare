@@ -141,6 +141,41 @@ export async function runCouncilReview(env, { diff, goal = '', models = null, ti
   return { decision: decide(live.length >= MIN_ANSWERS ? live : reviews), reviews };
 }
 
+// VERIFY_EXISTING: no diff exists, so the Council reviews MEL's no-code
+// evidence for the exact approved candidate SHA whose full-candidate-ci is green.
+// APPROVED is then completed by github-completion-reconciler; REJECTED fails the job.
+export async function reviewVerificationEvidence(env, { job, implementation, ciRunId, now = Date.now(), review = runCouncilReview } = {}) {
+  const head = String(implementation?.candidate_sha || '').toLowerCase();
+  if (!env?.DB?.prepare || !job?.id || !/^[a-f0-9]{40}$/.test(head) || !Number(ciRunId)) return { decision: 'REVIEW_INPUT_INVALID' };
+  const key = 'council-review:verify:' + job.id + ':' + head;
+  const cached = await env.DB.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?').bind(key).first().catch(() => null);
+  if (cached?.metadata_json) {
+    try { const prior = JSON.parse(cached.metadata_json); if (prior.decision !== 'INSUFFICIENT_REVIEWERS') return { cached: true, ...prior }; } catch {}
+  }
+  const inspected = (Array.isArray(implementation?.inspected_files) ? implementation.inspected_files : []).map(row => row?.path).filter(Boolean).slice(0, 8);
+  const evidence = [
+    'AUCUN DIFF : MEL affirme que l’objectif est déjà satisfait par la version existante, sans modifier le code.',
+    'Juge si les preuves ci-dessous démontrent réellement l’objectif. REJECT si une preuve manque ou si un changement est nécessaire.',
+    `SHA candidat exact : ${head}`,
+    `full-candidate-ci verte sur ce SHA : run ${Number(ciRunId)}`,
+    `Fichiers inspectés : ${inspected.join(', ') || '(aucun)'}`,
+    'Décision et preuves de MEL :',
+    String(implementation?.selected?.text || '').slice(0, 20_000),
+  ].join('\n');
+  const result = await review(env, { diff: evidence, goal: `${job.id} : ${String(job.goal || '')}`, timeoutMs: 45_000, now });
+  const record = { decision: result.decision, mode: 'VERIFY_EXISTING', head, base: head, jobs: [job.id], ci_run_id: Number(ciRunId), reviews: result.reviews, reviewed_at: now };
+  await env.DB.prepare(`INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?)
+    ON CONFLICT(bridge_id) DO UPDATE SET last_seen=excluded.last_seen,status=excluded.status,metadata_json=excluded.metadata_json`)
+    .bind(key, now, result.decision, JSON.stringify(record)).run().catch(() => {});
+  if (result.decision === 'REJECTED') {
+    const objections = result.reviews.filter(r => r.verdict === 'REJECT').flatMap(r => (r.blocking || []).map(b => String(r.model || '').split('/').pop() + ' : ' + b)).slice(0, 12);
+    await env.DB.prepare(`UPDATE dev_jobs SET result_json=json_set(COALESCE(result_json,'{}'),'$.council_review',json(?)), error=?, status=CASE WHEN status='TEACHER_APPROVED' THEN 'FAILED' ELSE status END, updated_at=? WHERE id=?`)
+      .bind(JSON.stringify({ decision: result.decision, head, mode: 'VERIFY_EXISTING', objections, reviewed_at: now }), ('COUNCIL_REJECTED_VERIFY_EXISTING: ' + objections.join(' | ')).slice(0, 900), now, job.id)
+      .run().catch(() => {});
+  }
+  return record;
+}
+
 export async function handleCouncilReviewRequest(request, env, { now = Date.now(), review = runCouncilReview } = {}) {
   const oidc = await authorizeGitHubActionsOidcRequest(request, env, {
     allowedWorkflows: ['mel-candidate-promotion.yml'],

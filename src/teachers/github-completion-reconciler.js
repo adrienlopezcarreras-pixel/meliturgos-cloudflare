@@ -153,9 +153,71 @@ export async function fetchCompletionRecords(env = {}, { fetchImpl = fetch } = {
   return parseCompletionJsonl(await response.text());
 }
 
+/** Green full-candidate-ci run on an exact candidate SHA, or null. */
+export async function findGreenFullCandidateRun(env = {}, sha, { fetchImpl = fetch } = {}) {
+  const { repository, branch } = repoAndBranch(env);
+  const head = String(sha || '').toLowerCase();
+  if (!SHA_RE.test(head)) return null;
+  const page = await fetchJson(fetchImpl, `https://api.github.com/repos/${encodePath(repository)}/actions/workflows/full-candidate-ci.yml/runs?head_sha=${head}&per_page=10`);
+  const run = (Array.isArray(page?.workflow_runs) ? page.workflow_runs : [])
+    .find((row) => row?.head_sha === head && row?.head_branch === branch && row?.status === 'completed' && row?.conclusion === 'success');
+  return run ? Number(run.id) : null;
+}
+
+// Completion without a hand-written Teacher record: the Council approved this
+// exact candidate SHA (promotion diff, or VERIFY_EXISTING evidence) and the
+// SHA has a green full-candidate-ci run, re-checked by verifyCompletionEvidence().
+export async function approvedCouncilReviews(env = {}) {
+  if (!env?.DB?.prepare) return [];
+  const rows = await env.DB.prepare(
+    "SELECT metadata_json FROM dev_bridge_state WHERE bridge_id LIKE 'council-review:%' AND status='APPROVED' ORDER BY last_seen DESC LIMIT 20"
+  ).all().catch(() => null);
+  const reviews = [];
+  for (const row of Array.isArray(rows?.results) ? rows.results : []) {
+    try {
+      const review = JSON.parse(row?.metadata_json || '{}');
+      if (review?.decision === 'APPROVED' && SHA_RE.test(String(review.head || ''))) reviews.push(review);
+    } catch {}
+  }
+  return reviews;
+}
+
+export async function councilApprovedCompletionRecords(env = {}, jobsById = new Map(), reviews = [], { fetchImpl = fetch } = {}) {
+  const { branch } = repoAndBranch(env);
+  const runs = new Map();
+  const records = [];
+  for (const review of reviews) {
+    const head = String(review.head).toLowerCase();
+    for (const jobId of Array.isArray(review.jobs) ? review.jobs : []) {
+      const job = jobsById.get(String(jobId));
+      if (!job || String(job.status || '').toUpperCase() === 'COMPLETED') continue;
+      const requestId = String(job.result_json?.teacher_bridge?.request?.request_id || '');
+      if (!requestId) continue;
+      if (!runs.has(head)) runs.set(head, await findGreenFullCandidateRun(env, head, { fetchImpl }).catch(() => null));
+      const ciRunId = runs.get(head);
+      if (!ciRunId) continue;
+      records.push({
+        kind: COMPLETION_KIND,
+        status: 'COMPLETED',
+        source: 'council-approved',
+        job_id: job.id,
+        request_id: requestId,
+        candidate_sha: head,
+        candidate_branch: branch,
+        ci_run_id: ciRunId,
+        tests: [{ name: 'full-candidate-ci', passed: true }],
+        summary: `Council ${review.mode || 'promotion'} APPROVED; full-candidate-ci ${ciRunId} green.`,
+        learning_handoffs: [],
+        created_at: new Date(Number(review.reviewed_at) || Date.now()).toISOString(),
+      });
+    }
+  }
+  return records;
+}
+
 function validateMelImplementationProposal(job, record) {
   const proposal = job?.result_json?.implementation_proposal;
-  if (!proposal || proposal.status !== 'READY') return null;
+  if (!proposal || !['READY', 'VERIFY_EXISTING'].includes(proposal.status)) return null;
   if (String(proposal.teacher_request_id || '') !== record.request_id) return null;
   if (String(proposal.candidate_branch || '') !== record.candidate_branch) return null;
   if (!hasDistinctProviderAttempts(proposal.providers_attempted)) return null;
@@ -365,11 +427,14 @@ async function recordVerifiedCompletionLesson(env, job, record, proposal, ci, be
 
 export async function reconcileRuntimeCompletions({ repository, env = {}, fetchImpl = fetch, benchmarkEvaluator = null, benchmarkModelId = '' } = {}) {
   if (!repository) throw Object.assign(new Error('COMPLETION_JOB_REPOSITORY_REQUIRED'), { code: 'COMPLETION_JOB_REPOSITORY_REQUIRED' });
-  const records = await fetchCompletionRecords(env, { fetchImpl });
-  if (!records.length) return { ok: true, records: 0, completed: [], rejected: [] };
+  const teacherRecords = await fetchCompletionRecords(env, { fetchImpl });
+  const reviews = await approvedCouncilReviews(env);
+  if (!teacherRecords.length && !reviews.length) return { ok: true, records: 0, completed: [], rejected: [] };
 
   const jobs = await repository.list();
   const byId = new Map(jobs.map((job) => [job.id, job]));
+  const records = [...teacherRecords, ...await councilApprovedCompletionRecords(env, byId, reviews, { fetchImpl })];
+  if (!records.length) return { ok: true, records: 0, completed: [], rejected: [] };
   const completed = [];
   const rejected = [];
 

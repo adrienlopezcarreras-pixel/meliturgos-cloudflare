@@ -7,7 +7,8 @@ import { createTeacherReviewRequest } from '../teachers/teacher-request.js';
 import { queueRuntimeTeacherRequest } from '../teachers/runtime-teacher-bridge.js';
 import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-mirror.js';
 import { reconcileRuntimeTeacherReplies } from '../teachers/github-reply-reconciler.js';
-import { reconcileRuntimeCompletions } from '../teachers/github-completion-reconciler.js';
+import { reconcileRuntimeCompletions, findGreenFullCandidateRun } from '../teachers/github-completion-reconciler.js';
+import { reviewVerificationEvidence } from './council-review.js';
 import { runRuntimeWorkDagResumeProof } from './autonomy-proof.js';
 import { prepareApprovedImplementationProposal } from './autonomy-implementation-planner.js';
 import { prepareApprovedBridgePackage } from './autonomy-bridge-preparer.js';
@@ -721,7 +722,20 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     // Await independently collected live test evidence and Council review;
     // neither this plan nor a Teacher approval may certify DONE_VERIFIED.
     if (implementation?.status === 'VERIFY_EXISTING') {
-      bridgePreparation = { status: 'AWAITING_LIVE_EVIDENCE', candidate_sha: implementation.candidate_sha, candidate_branch: implementation.candidate_branch, files: [], tests: [] };
+      // Evidence is the green full-candidate-ci on the exact approved SHA; the
+      // Council judges it, and only the completion reconciler marks COMPLETED.
+      const ciRunId = await findGreenFullCandidateRun(env, implementation.candidate_sha, { fetchImpl }).catch(() => null);
+      const council = ciRunId && job ? await reviewVerificationEvidence(env, { job, implementation, ciRunId }).catch(() => null) : null;
+      bridgePreparation = {
+        status: council?.decision === 'APPROVED' ? 'VERIFIED_BY_COUNCIL' : 'AWAITING_LIVE_EVIDENCE',
+        code: !ciRunId ? 'FULL_CANDIDATE_CI_REQUIRED' : (council?.decision || 'COUNCIL_REVIEW_UNAVAILABLE'),
+        candidate_sha: implementation.candidate_sha,
+        candidate_branch: implementation.candidate_branch,
+        ci_run_id: ciRunId || null,
+        files: [],
+        tests: [],
+      };
+      job = job ? await jobRepository.get(job.id) : job;
     }
 
     if (implementation?.status === 'READY' && job && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED') {
