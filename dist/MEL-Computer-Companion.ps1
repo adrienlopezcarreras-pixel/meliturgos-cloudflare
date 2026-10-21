@@ -494,6 +494,13 @@ function Send-Heartbeat {
     }
   } catch { $localComputeEnabled = $false; $localGpuEnabled = $false }
   $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+  $executorView = Get-DevExecutorDisplay
+  $executorStatus = 'UNAVAILABLE'
+  switch ($executorView.state) {
+    'En ligne' { $executorStatus = 'RUNNING' }
+    'Démarrage' { $executorStatus = 'STARTING' }
+    'Arrêté' { $executorStatus = 'DISABLED' }
+  }
   $body = @{
     engine_version = $Version
     engine_heartbeat_at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
@@ -504,7 +511,7 @@ function Send-Heartbeat {
     user = $env:USERNAME
     screen = @{ x=$bounds.X; y=$bounds.Y; width=$bounds.Width; height=$bounds.Height }
     active_window = (Active-Window)
-    dev_executor = @{ status = [string]$script:DevExecutorCode }
+    dev_executor = @{ status = $executorStatus; heartbeat_at = $script:DevExecutorLastHeartbeat }
   }
   if ($null -eq $script:HeartbeatFailures) { $script:HeartbeatFailures = 0 }
   $diag = @{ last_error_code = [string]$script:HeartbeatLastError; http_ms = 0; engine_process_running = $true; consecutive_failures = [int]$script:HeartbeatFailures }
