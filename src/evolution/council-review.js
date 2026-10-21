@@ -5,11 +5,15 @@
 
 import { authorizeGitHubActionsOidcRequest } from '../security/github-actions-oidc.js';
 import { standardRegistry } from '../models/ModelRegistry.js';
+import { createMentorCompanionFallback } from '../learning/mentor-companion-provider.js';
 
 const HEALTH_KEY = 'council-model-health';
 const HEALTH_STALE_MS = 20 * 60 * 1000;
 const MIN_ANSWERS = 3;
 const MAX_DIFF = 48_000;
+// The paired PC refuses any message above 12 000 chars (SOVEREIGNTY_AI_MESSAGE_TOO_LARGE).
+const COMPANION_INPUT_CHARS = 11_500;
+const COMPANION_MODEL = 'companion-local-ai';
 
 const SYSTEM = [
   'Tu es relecteur senior du code de MEL (Cloudflare Worker JavaScript ESM, D1, Workers AI ; firmware ESP-IDF C++ ; appli Android Kotlin).',
@@ -124,13 +128,38 @@ async function askModels(env, models, user, timeoutMs) {
   }));
 }
 
-export async function runCouncilReview(env, { diff, goal = '', models = null, timeoutMs = 120_000, now = Date.now() } = {}) {
+// When online models leave the Council short of answers, the owner-consented
+// PC model (Companion local AI) is asked as one more reviewer. It is one vote:
+// the quorum rules of decide() are unchanged.
+async function askCompanion(adapter, user, timeoutMs) {
+  let timer;
+  try {
+    const input = (SYSTEM + '\n\n' + user).slice(0, COMPANION_INPUT_CHARS);
+    const out = await Promise.race([
+      adapter.invoke({ input, context: { purpose: 'mel-council-review' } }),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('REVIEW_TIMEOUT')), timeoutMs); }),
+    ]);
+    const text = out?.text ?? out?.response ?? out;
+    const parsed = parseVerdict(typeof text === 'string' ? text : JSON.stringify(text));
+    return { model: COMPANION_MODEL, ...(parsed || { verdict: null, error: 'UNPARSEABLE_REVIEW' }) };
+  } catch (error) {
+    return { model: COMPANION_MODEL, verdict: null, error: String(error?.message || error).slice(0, 160) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function runCouncilReview(env, { diff, goal = '', models = null, timeoutMs = 120_000, now = Date.now(), companion = createMentorCompanionFallback } = {}) {
   const user = 'Objectif annoncé : ' + String(goal || '(non fourni)').slice(0, 1500) + '\n\nDIFF :\n' + String(diff || '').slice(0, MAX_DIFF);
   const health = await readModelHealth(env);
   const catalog = Array.isArray(models) && models.length ? models : orderCouncilModels(freeCouncilCatalog(env), health, now);
   const reviews = [];
   for (let index = 0; index < catalog.length && reviews.filter(answered).length < MIN_ANSWERS; index += 4) {
     reviews.push(...await askModels(env, catalog.slice(index, index + 4), user, timeoutMs));
+  }
+  if (reviews.filter(answered).length < MIN_ANSWERS && typeof companion === 'function') {
+    const pc = await companion(env).catch(() => null);
+    if (pc && typeof pc.invoke === 'function') reviews.push(await askCompanion(pc, user, Math.min(timeoutMs, 60_000)));
   }
   const live = reviews.filter(answered);
   const nextHealth = { ...health };

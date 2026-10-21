@@ -68,3 +68,25 @@ test('silent free models are replaced until three real answers exist', async () 
   assert.equal(result.reviews.filter(review => review.verdict === 'APPROVE').length, 3);
   assert.ok(result.reviews.some(review => review.error === 'DOWN'));
 });
+
+test('the Council asks the paired PC model when online models leave it short of answers', async () => {
+  const env = { AI: { async run(model) {
+    if (model.includes('gpt-oss')) return { response: '{"verdict":"APPROVE","summary":"changement testé et branché"}' };
+    throw new Error('MODEL_UNAVAILABLE');
+  } } };
+  const inputs = [];
+  const companion = async () => ({ async invoke({ input }) {
+    inputs.push(input);
+    return { text: '{"verdict":"APPROVE","summary":"relu sur le PC, correct et testé"}' };
+  } });
+  const result = await runCouncilReview(env, { diff: '+x'.repeat(30_000), companion });
+  assert.equal(inputs.length, 1);
+  assert.ok(inputs[0].length <= 12_000, 'the Companion refuses messages above 12 000 chars');
+  assert.ok(result.reviews.some(review => review.model === 'companion-local-ai' && review.verdict === 'APPROVE'));
+  assert.notEqual(result.decision, 'APPROVED', 'one cloud vote plus the PC is not a majority of every model asked');
+
+  const unused = [];
+  const healthy = { AI: { async run() { return { response: '{"verdict":"APPROVE","summary":"changement testé et branché"}' }; } } };
+  await runCouncilReview(healthy, { diff: '+x', companion: async () => { unused.push(1); return null; } });
+  assert.equal(unused.length, 0, 'online models answered: the PC is not asked');
+});
