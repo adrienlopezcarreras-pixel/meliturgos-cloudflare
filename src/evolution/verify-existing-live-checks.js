@@ -19,6 +19,18 @@ const GOAL_CHECKS = [
   [/\bdrive\b/i, 'drive.files.list'],
 ];
 
+/**
+ * A generic successful read (Gmail/Agenda/Drive) is not functional evidence
+ * for an unrelated roadmap objective such as MEL-FOUNDER-02 lease persistence.
+ * Do not admit a no-code decision unless real goal-derived reads exist.
+ * Additional plan reads may not substitute unrelated success for those reads.
+ */
+export function hasObjectiveBoundVerificationChecks(goal, planText) {
+  const relevant = GOAL_CHECKS.filter(([pattern]) => pattern.test(String(goal || ''))).map(([, id]) => id);
+  if (!relevant.length) return false;
+  return requestedLiveChecks(planText).every((id) => relevant.includes(id));
+}
+
 /** Objective-derived checks plus the plan's LIVE_CHECKS line. */
 export function requiredLiveChecks(goal, planText) {
   const fromGoal = GOAL_CHECKS.filter(([pattern]) => pattern.test(String(goal || ''))).map(([, id]) => id);
