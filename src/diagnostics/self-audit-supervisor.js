@@ -488,6 +488,8 @@ async function maybeQueueRepair({
       requestKey: `self-audit:${fingerprint}`,
       requestedBy: 'mel-autonomy',
       source: 'self-audit-supervisor',
+      // CODEX: preserve the existing roadmap retry boundary for repair jobs.
+      roadmapId: 'MEL-AUDIT-01',
       priority: 'P0',
       extensionKind: 'module',
       allowBlockedExisting: true,

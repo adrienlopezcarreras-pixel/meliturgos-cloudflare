@@ -381,6 +381,24 @@ export const MIGRATIONS = [
   { version: 19, name: 'evolution_case_insensitive_owner_ids', run: async db => {
     await enforceEvolutionIdCaseIndex(db);
   }},
+  // CODEX: repair the one source-identified historical job that blocked release
+  // 39614925711. Preserve its FAILED state, error, result and original timestamps;
+  // unknown autonomous failures must still fail the unchanged launch gate.
+  { version: 20, name: 'codex_self_audit_known_roadmap_scope', run: async db => {
+    await db.prepare(`UPDATE dev_jobs
+      SET optional_context=json_set(optional_context,
+        '$.roadmap_id','MEL-AUDIT-01',
+        '$.roadmap_scope_reconciliation',json('{"source":"CODEX","migration":20,"reason":"SELF_AUDIT_CREATOR_OMITTED_KNOWN_SCOPE","previous_roadmap_id":null}'))
+      WHERE id='self-audit-supervisor-69221d23ba79d5725729497cbb19f87f'
+        AND requested_by='mel-autonomy' AND status='FAILED'
+        AND json_valid(optional_context)
+        AND json_extract(optional_context,'$.source')='self-audit-supervisor'
+        AND COALESCE(json_extract(optional_context,'$.roadmap_id'),'')=''
+        AND json_extract(optional_context,'$.request_key') LIKE 'self-audit:%'
+        AND json_extract(optional_context,'$.candidate_branch_only')=1
+        AND json_extract(optional_context,'$.zero_added_cost')=1
+        AND goal LIKE '[MEL-SELF-AUDIT] %'`).run();
+  }},
 ];
 
 export async function migrate(db, targetVersion = DB_SCHEMA_VERSION) {

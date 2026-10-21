@@ -279,6 +279,7 @@ test('two consecutive anomalies trigger Council and one idempotent MAX repair ha
       queued += 1;
       assert.equal(input.requestedBy, 'mel-autonomy');
       assert.equal(input.source, 'self-audit-supervisor');
+      assert.equal(input.roadmapId, 'MEL-AUDIT-01', 'CODEX: repair jobs must remain bounded by their canonical roadmap scope');
       return { job_id: 'repair-job', status: 'WAITING_TEACHER' };
     },
   });
