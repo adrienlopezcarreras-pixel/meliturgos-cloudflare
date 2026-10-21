@@ -1,0 +1,30 @@
+# GPT6 2026-10-21: isolated CI proof for PR #2343, no secrets or production mutation.
+name: GPT6 FOUNDER-02 verification CI
+on:
+  push:
+    branches:
+      - gpt6/founder02-ci-proof-20261021
+permissions:
+  contents: read
+jobs:
+  targeted:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install pinned dependencies
+        run: npm ci
+      - name: Syntax gates
+        run: |
+          node --check src/evolution/autonomy-implementation-planner.js
+          node --check src/evolution/verify-existing-live-checks.js
+          node --check tests/autonomy-implementation-planner.test.mjs
+          node --check tests/autonomy-completion-gates.test.mjs
+      - name: Real FOUNDER-02 no-code proof regression suites
+        run: node --test tests/autonomy-implementation-planner.test.mjs tests/autonomy-completion-gates.test.mjs tests/autonomy-runtime.test.mjs
