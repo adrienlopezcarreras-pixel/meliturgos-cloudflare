@@ -5,6 +5,9 @@ on:
     paths:
       - "src/pages/full-interface-v2.js"
       - "src/evolution/autonomy-activity.js"
+      - "src/evolution/autonomy-runtime-core.js"
+      - "src/teachers/github-completion-reconciler.js"
+      - "tests/full-candidate-ci-lookup.test.mjs"
       - "tests/autonomy-activity-detail.test.mjs"
       - "src/pages/mvp-interface-v3.js"
       - "src/pages/mvp-runtime.js"
@@ -56,7 +59,9 @@ jobs:
         run: >-
           node --test tests/autonomy-activity-detail.test.mjs
           tests/autonomy-claimed-bridge.test.mjs tests/autonomy-runtime-epoch.test.mjs
-          tests/dev-job-cancelled-not-revived.test.mjs
+          tests/dev-job-cancelled-not-revived.test.mjs tests/full-candidate-ci-lookup.test.mjs
+          tests/autonomy-runtime.test.mjs tests/autonomy-verification-wait.test.mjs
+          tests/autonomy-completion-gates.test.mjs tests/autonomy-completion-mentor-learning.test.mjs
       - name: Full test suite
         shell: bash
         run: |

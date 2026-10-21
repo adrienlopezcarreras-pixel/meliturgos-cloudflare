@@ -99,21 +99,29 @@ export function parseCompletionJsonl(text) {
   return completions;
 }
 
-async function fetchJson(fetchImpl, url) {
-  const response = await fetchImpl(url, {
+async function fetchJson(fetchImpl, url, env = {}) {
+  let response;
+  try { response = await fetchImpl(url, {
     headers: {
       accept: 'application/vnd.github+json',
       'user-agent': 'meliturgos-completion-reconciler',
       'x-github-api-version': '2022-11-28',
+      ...(env.MEL_GITHUB_TOKEN ? { authorization: 'Bearer ' + String(env.MEL_GITHUB_TOKEN) } : {}),
     },
-  });
+    redirect: 'error',
+    signal: AbortSignal.timeout(20_000),
+  }); } catch {
+    throw Object.assign(new Error('COMPLETION_GITHUB_TRANSPORT_FAILED'), { code: 'COMPLETION_GITHUB_TRANSPORT_FAILED' });
+  }
   if (!response.ok) {
     const error = new Error(`COMPLETION_GITHUB_VERIFY_FAILED_${response.status}`);
     error.code = 'COMPLETION_GITHUB_VERIFY_FAILED';
     error.status = response.status;
     throw error;
   }
-  return response.json();
+  try { return await response.json(); } catch {
+    throw Object.assign(new Error('COMPLETION_GITHUB_RESPONSE_INVALID'), { code: 'COMPLETION_GITHUB_RESPONSE_INVALID' });
+  }
 }
 
 export async function verifyCompletionEvidence(completion, env = {}, { fetchImpl = fetch } = {}) {
@@ -121,7 +129,7 @@ export async function verifyCompletionEvidence(completion, env = {}, { fetchImpl
   if (completion.candidate_branch !== branch) {
     throw Object.assign(new Error('COMPLETION_BRANCH_MISMATCH'), { code: 'COMPLETION_BRANCH_MISMATCH' });
   }
-  const run = await fetchJson(fetchImpl, `https://api.github.com/repos/${encodePath(repository)}/actions/runs/${completion.ci_run_id}`);
+  const run = await fetchJson(fetchImpl, `https://api.github.com/repos/${encodePath(repository)}/actions/runs/${completion.ci_run_id}`, env);
   const runName = String(run?.name || '');
   const headSha = String(run?.head_sha || '');
   const headBranch = String(run?.head_branch || '');
@@ -158,8 +166,10 @@ export async function findGreenFullCandidateRun(env = {}, sha, { fetchImpl = fet
   const { repository, branch } = repoAndBranch(env);
   const head = String(sha || '').toLowerCase();
   if (!SHA_RE.test(head)) return null;
-  const page = await fetchJson(fetchImpl, `https://api.github.com/repos/${encodePath(repository)}/actions/workflows/full-candidate-ci.yml/runs?head_sha=${head}&per_page=10`);
-  const run = (Array.isArray(page?.workflow_runs) ? page.workflow_runs : [])
+  const page = await fetchJson(fetchImpl, `https://api.github.com/repos/${encodePath(repository)}/actions/workflows/full-candidate-ci.yml/runs?head_sha=${head}&per_page=10`, env);
+  if (!Array.isArray(page?.workflow_runs)) throw Object.assign(
+    new Error('COMPLETION_GITHUB_RESPONSE_INVALID'), { code: 'COMPLETION_GITHUB_RESPONSE_INVALID' });
+  const run = page.workflow_runs
     .find((row) => row?.head_sha === head && row?.head_branch === branch && row?.status === 'completed' && row?.conclusion === 'success');
   return run ? Number(run.id) : null;
 }
