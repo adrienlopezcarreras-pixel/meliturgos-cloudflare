@@ -71,6 +71,18 @@ jobs:
           npx wrangler d1 execute DB --remote --json \
             --command "SELECT status,last_seen,json_extract(metadata_json,'$.paused') AS paused,json_extract(metadata_json,'$.max_autonomy') AS max_autonomy,json_extract(metadata_json,'$.launch_approved_sha') AS launch_approved_sha,json_extract(metadata_json,'$.launch_approved_at') AS launch_approved_at FROM dev_bridge_state WHERE bridge_id='mel-autonomy-control'" \
             > autonomy-control.raw.json
+
+          # CODEX: observe ownership and durable job transitions; never acquire,
+          # release, delete or renew a lease from this read-only diagnostic.
+          for SAMPLE in 0 1 2; do
+            npx wrangler d1 execute DB --remote --json \
+              --command "SELECT CAST(strftime('%s','now') AS INTEGER)*1000 AS db_now_ms,bridge_id,status,last_seen,json_extract(metadata_json,'$.acquired_at') AS acquired_at,json_extract(metadata_json,'$.expires_at') AS expires_at FROM dev_bridge_state WHERE bridge_id IN ('runtime-lease:autonomy-heartbeat','primary') ORDER BY bridge_id" \
+              > "runtime-lease-${SAMPLE}.raw.json"
+            npx wrangler d1 execute DB --remote --json \
+              --command "SELECT id,status,created_at,updated_at,error,json_extract(optional_context,'$.roadmap_id') AS roadmap_id,json_extract(result_json,'$.teacher_bridge.status') AS teacher_status,json_extract(result_json,'$.teacher_bridge.request.request_id') AS teacher_request_id,json_extract(result_json,'$.teacher_bridge.review.verdict') AS teacher_verdict,json_extract(plan_json,'$.preflight.council.status') AS council_status,json_extract(result_json,'$.implementation_proposal.decision') AS implementation_decision,json_extract(result_json,'$.implementation_proposal.status') AS implementation_status,json_extract(result_json,'$.implementation_planning_diagnostic.code') AS implementation_code,json_extract(result_json,'$.bridge_preparation.status') AS bridge_status,json_extract(result_json,'$.bridge_preparation_diagnostic.code') AS bridge_code,json_extract(result_json,'$.autonomy_completion.status') AS completion_status,json_extract(result_json,'$.autonomy_completion.candidate_sha') AS candidate_sha,json_extract(result_json,'$.autonomy_completion.ci.run_id') AS ci_run_id FROM dev_jobs WHERE requested_by='mel-autonomy' ORDER BY updated_at DESC LIMIT 30" \
+              > "runtime-jobs-${SAMPLE}.raw.json"
+            if [ "$SAMPLE" != 2 ]; then sleep 40; fi
+          done
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -83,6 +95,7 @@ jobs:
           python - <<'PY'
           import json
           import os
+          import re
           from pathlib import Path
           from datetime import datetime, timezone
 
@@ -103,6 +116,28 @@ jobs:
           failure_rows = load_rows('failed-jobs.raw.json')
           control_rows = load_rows('autonomy-control.raw.json')
           control_row = control_rows[0] if control_rows else {}
+
+          # CODEX: publish only explicit runtime metadata, never goal, plan,
+          # proposal contents, tokens or arbitrary raw JSON from D1.
+          def safe_runtime_row(row):
+              result = {}
+              for key, value in row.items():
+                  if value is None or isinstance(value, (int, float, bool)):
+                      result[key] = value
+                  elif re.fullmatch(r'[A-Za-z0-9_.:/@-]{1,200}', str(value)):
+                      result[key] = str(value)
+                  else:
+                      result[key] = 'DETAIL_WITHHELD'
+              return result
+
+          runtime_samples = [
+              {
+                  'sample': sample,
+                  'leases_and_bridge': [safe_runtime_row(row) for row in load_rows(f'runtime-lease-{sample}.raw.json')],
+                  'jobs': [safe_runtime_row(row) for row in load_rows(f'runtime-jobs-{sample}.raw.json')],
+              }
+              for sample in range(3)
+          ]
 
           watch_by_id = {str(row.get('id')): row for row in watch_rows}
           watch_state = {}
@@ -242,6 +277,7 @@ jobs:
               'schema': 'mel.gen2-42-live-proof/v1',
               'generated_at': datetime.now(timezone.utc).isoformat(),
               'candidate_sha': os.environ.get('GITHUB_SHA'),
+              'runtime_samples': runtime_samples,
               'proof_status': proof_status,
               'watch': {
                   'run_count': int(watch_state.get('run_count') or 0),
@@ -289,8 +325,9 @@ jobs:
                   'max_autonomy': control_row.get('max_autonomy'),
                   'launch_approved_sha': control_row.get('launch_approved_sha'),
                   'launch_approved_at': control_row.get('launch_approved_at'),
-                  'deployed_sha': os.environ.get('MEL_DEPLOYED_GIT_SHA') or os.environ.get('GITHUB_SHA'),
+                  'diagnostic_source_sha': os.environ.get('GITHUB_SHA'),
               },
+              'runtime_samples': runtime_samples,
               'ecosystem_job_summaries': ecosystem_jobs[:40],
               'active_handoff_summaries': [
                   {
