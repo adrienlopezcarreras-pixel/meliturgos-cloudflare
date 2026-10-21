@@ -46,6 +46,7 @@ relais ; scénario Windows dédié avec boutons WinForms et vrais processus.
 Les fixtures ne constituent pas une preuve de communication avec la production
 ni une recette sur le PC personnel du propriétaire.
 
-XP MEL : NON — réutilisation des règles existantes de consentement local,
-de présence confirmée, d’unicité et de preuve réelle. Aucune fusion ni aucun
+XP MEL : OUI — `codex-powershell-typed-null-atomic-config-20261021`, règle
+dédupliquée, issue d’une reproduction Windows réelle et chargée par le
+LearningEngine. Les règles de consentement et de preuve existantes sont conservées. Aucune fusion ni aucun
 déploiement autorisés par cette livraison ; lot en revue jusqu’à intégration.

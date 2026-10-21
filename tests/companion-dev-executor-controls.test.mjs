@@ -88,3 +88,11 @@ test('distribution stays identical, controls call the sole supervisor, and the w
   assert.ok(native.includes('dev-executor-view.json')); assert.ok(native.includes('StopCompanionTree()'));
   assert.ok(!native.includes('Process.Start("node'));
 });
+
+test('the observed Windows typed-null lesson reaches MEL once through its actual LearningEngine',async()=>{
+  const {LearningEngine}=await import('../src/learning/learning-engine.js');
+  const engine=new LearningEngine({memory:{async recent(){return [];}}});
+  const id='codex-powershell-typed-null-atomic-config-20261021';
+  assert.equal((await engine.corrections({limit:1000})).filter(row=>row.id===id).length,1);
+  assert.ok((await engine.trainingBundle({minQuality:0.95,limit:1000})).preference.some(row=>row.id===id));
+});
