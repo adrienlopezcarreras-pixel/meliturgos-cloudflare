@@ -14,7 +14,6 @@ export function classifyImplementationDecision(plan) {
   return /^DECISION:\s*VERIFY_EXISTING\s*$/im.test(String(plan || ''))
     ? 'VERIFY_EXISTING' : 'IMPLEMENT';
 }
-
 // GPT6: a no-code verdict must have objective-relevant functional checks.
 // Otherwise it can only stall in VERIFY_EXISTING_NO_FUNCTIONAL_PROOF after
 // Teacher approval, without ever preparing a Dev Bridge package.
@@ -204,7 +203,14 @@ async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) 
   // (IMPLEMENTATION_ROADMAP_ID_REQUIRED on every tick).
   const roadmapId = String(job?.optional_context?.roadmap_id || '').trim()
     || (job?.optional_context?.source === 'owner-chat' && job?.id ? 'OWNER-CHAT-' + String(job.id).replace(/^owner-chat-/, '').slice(0, 8).toUpperCase() : '');
-  if (!roadmapId) {
+  // GPT6 2026-10-21: a supervised self-audit repair is an internally
+  // authorized development job, but not a master-roadmap item. Use its
+  // immutable technical source to find existing code without inventing a
+  // roadmap id or broadening admission for other unclassified jobs.
+  const selfAuditRepair = job?.requested_by === 'mel-autonomy'
+    && job?.optional_context?.source === 'self-audit-supervisor';
+  const reuseQuery = roadmapId || (selfAuditRepair ? 'self-audit-supervisor' : '');
+  if (!reuseQuery) {
     throw Object.assign(new Error('IMPLEMENTATION_ROADMAP_ID_REQUIRED'), { code: 'IMPLEMENTATION_ROADMAP_ID_REQUIRED' });
   }
 
@@ -212,9 +218,9 @@ async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) 
   const fromSearch = [];
   let reuseSearch;
   try {
-    const search = await reader.search({ query: roadmapId });
+    const search = await reader.search({ query: reuseQuery });
     reuseSearch = {
-      query: roadmapId,
+      query: reuseQuery,
       searched_files: Number(search?.searched_files || 0),
       matches: (Array.isArray(search?.matches) ? search.matches : []).slice(0, 20).map((match) => ({
         path: String(match?.path || '').slice(0, 1000),
@@ -233,6 +239,7 @@ async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) 
   }
 
   const fallbacks = [
+    ...(selfAuditRepair ? ['src/diagnostics/self-audit-supervisor.js'] : []),
     'src/evolution/autonomy-runtime.js',
     'src/evolution/autonomy-supervisor.js',
     'src/work/work-dag.js',
