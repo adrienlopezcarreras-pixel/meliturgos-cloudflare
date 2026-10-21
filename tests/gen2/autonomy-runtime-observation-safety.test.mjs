@@ -64,5 +64,14 @@ test('bridge observation reads local execution evidence without retrieving priva
     assert.equal(rows[0].repair_attempts,1);
     assert.deepEqual(JSON.parse(rows[0].local_applied_files),['src/backup/restore-service.js']);
     assert.doesNotMatch(JSON.stringify(rows),/PRIVATE_/);
+    const { D1EvolutionLedger }=await import('../../src/evolution/evolution-ledger.js');
+    const ledger=new D1EvolutionLedger(db);
+    await ledger.append({evolution_id:'mel-autonomy-mel-founder-07-e1792579058089-3',stage:'JOB_UPDATED',status:'CLAIMED',actor:'mel-autonomy',evidence:{previous_status:'TEACHER_APPROVED',next_status:'CLAIMED',changed_fields:['result_json'],bridge_status:'READY',goal:'PRIVATE_LEDGER_CONTENT'}});
+    const ledgerQuery=[...source.matchAll(/--command "([^"]+)"/g)].map(x=>x[1]).find(x=>x.includes(' FROM evolution_ledger'));
+    const events=(await db.prepare(ledgerQuery).all()).results;
+    assert.equal(events.length,1);
+    assert.equal(events[0].bridge_status,'READY');
+    assert.doesNotMatch(JSON.stringify(events),/PRIVATE_/);
+
   } finally {db.close();}
 });
