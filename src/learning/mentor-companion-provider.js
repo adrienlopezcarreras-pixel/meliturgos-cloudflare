@@ -6,6 +6,7 @@ import { eligibleAlternatives } from '../portability/prevalidated-alternative-re
 import { createCompanionLocalAiAdapter } from '../portability/companion-local-ai-adapter.js';
 import { createCompanionSovereigntyExecutor } from '../portability/companion-sovereignty-executor.js';
 import { chooseReadyCompanionDevice } from '../portability/companion-sovereignty-executor.js';
+import { companionFallbackAuthorized } from '../evolution/cloud-bridge-dispatch.js';
 
 /**
  * Optional owner-PC fallback. No public Ollama endpoint, no inferred consent.
@@ -13,7 +14,8 @@ import { chooseReadyCompanionDevice } from '../portability/companion-sovereignty
  * heartbeat, resource telemetry and owner-approved local compute.
  */
 export async function createMentorCompanionFallback(env = {}) {
-  if (!env?.DB) return null;
+  // CODEX: no local discovery or inference without explicit fallback opt-in.
+  if (!companionFallbackAuthorized(env) || !env?.DB) return null;
   try {
     const registry = await new D1AlternativeRegistryStore(env.DB).load();
     const approved = eligibleAlternatives(registry, 'ai', { maxAddedCostEur: 0 })

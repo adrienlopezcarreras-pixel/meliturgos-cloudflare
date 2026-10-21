@@ -180,3 +180,5 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 - `codex-local-bridge-publication-evidence-20261021` — un retour local testé ne vaut pas publication GitHub; conserver sa preuve et réutiliser le publisher, le paquet Teacher et la prise atomique existants jusqu’au SHA candidat réel. Régression locale réelle, production encore à prouver.
 
 - `codex-source-scoped-autonomy-admission-20261021` — rattacher chaque producteur autonome à son item canonique; réconcilier un oubli historique uniquement sur provenance vérifiée, conserver les états terminaux et maintenir le refus des autres échecs sans périmètre.
+
+- `codex-cloud-first-owner-fallback-20261021` — cloud prioritaire sans attente de heartbeat personnel; secours explicite et preuve bornée du paquet; attribution atomique, report persistant et preuve réelle distincte du dispatch.

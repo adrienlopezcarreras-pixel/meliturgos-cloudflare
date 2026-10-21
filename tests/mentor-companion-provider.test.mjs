@@ -25,7 +25,7 @@ function approval(now) {
 test('local mentor fallback requires prevalidation, live engine and owner compute consent', async () => {
   const DB = sqliteD1();
   try {
-    assert.equal(await createMentorCompanionFallback({ DB }), null);
+    assert.equal(await createMentorCompanionFallback({ DB, MEL_COMPANION_FALLBACK_ALLOWED: true }), null);
     const now = Date.now();
     await new D1AlternativeRegistryStore(DB).save(createAlternativeRegistry([approval(now)]));
     await DB.prepare(`CREATE TABLE computer_devices (
@@ -42,7 +42,8 @@ test('local mentor fallback requires prevalidation, live engine and owner comput
     };
     await DB.prepare('INSERT INTO computer_devices VALUES(?,?,?,?,?)')
       .bind('owner-pc', 'windows', 0, now, JSON.stringify(metadata)).run();
-    const ready = await createMentorCompanionFallback({ DB });
+    assert.equal(await createMentorCompanionFallback({ DB }), null, 'compute consent alone does not enable fallback');
+    const ready = await createMentorCompanionFallback({ DB, MEL_COMPANION_FALLBACK_ALLOWED: true });
     assert.equal(ready?.id, 'companion-local-ai');
     assert.ok(ready?.capabilities.includes('CODE'));
     assert.equal(new ZeroEuroGovernor().allows(ready), true);
@@ -50,7 +51,7 @@ test('local mentor fallback requires prevalidation, live engine and owner comput
     metadata.local_compute_enabled = false;
     await DB.prepare('UPDATE computer_devices SET metadata=? WHERE id=?')
       .bind(JSON.stringify(metadata), 'owner-pc').run();
-    assert.equal(await createMentorCompanionFallback({ DB }), null);
+    assert.equal(await createMentorCompanionFallback({ DB, MEL_COMPANION_FALLBACK_ALLOWED: true }), null);
   } finally {
     DB.close();
   }
