@@ -12,6 +12,33 @@ export const LIVE_READ_CHECKS = Object.freeze({
   'drive.files.list': () => ({ limit: 1 }),
 });
 
+// Reads an objective obliges MEL to prove, whatever the plan claims.
+const GOAL_CHECKS = [
+  [/\bgmail\b|\be-?mails?\b|\bmails?\b|courriels?/i, 'gmail.messages.search'],
+  [/\bagenda\b|\bcalendar\b|calendrier/i, 'calendar.events.read'],
+  [/\bdrive\b/i, 'drive.files.list'],
+];
+
+/** Objective-derived checks plus the plan's LIVE_CHECKS line. */
+export function requiredLiveChecks(goal, planText) {
+  const fromGoal = GOAL_CHECKS.filter(([pattern]) => pattern.test(String(goal || ''))).map(([, id]) => id);
+  return [...new Set([...fromGoal, ...requestedLiveChecks(planText)])];
+}
+
+/**
+ * Deterministic gate before any Council review: VERIFY_EXISTING closes only
+ * when at least one functional read was required and every one succeeded in
+ * production. A green CI or a model's judgement never replaces it.
+ */
+export function liveProofGate(required, results) {
+  if (!Array.isArray(required) || !required.length) return { ok: false, code: 'VERIFY_EXISTING_NO_FUNCTIONAL_PROOF' };
+  const byId = new Map((Array.isArray(results) ? results : []).map(row => [row?.capability, row]));
+  const failed = required.find(id => byId.get(id)?.ok !== true);
+  return failed
+    ? { ok: false, code: `VERIFY_EXISTING_LIVE_CHECK_FAILED:${failed}:${byId.get(failed)?.code || 'NOT_RUN'}`.slice(0, 160) }
+    : { ok: true, code: null };
+}
+
 /** Checks requested by a plan line "LIVE_CHECKS: id, id"; unknown ids are ignored. */
 export function requestedLiveChecks(planText) {
   const line = /^LIVE_CHECKS:\s*(.+)$/im.exec(String(planText || ''))?.[1] || '';
