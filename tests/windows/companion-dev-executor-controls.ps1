@@ -41,7 +41,7 @@ if ($NativeAssembly) {
   $native.GetField('MelDir').SetValue($null, $root)
   $native.GetField('ConfigPath').SetValue($null, $ConfigPath)
   $native.GetField('CompanionProcess').SetValue($null, [Diagnostics.Process]::GetCurrentProcess())
-  Assert ($native.GetMethod('ValidDevExecutorRepo').Invoke($null,@($repo))) 'NATIVE_REPO_VALIDATION_FAILED'
+  Assert ($native.GetMethod('ValidDevExecutorRepo').Invoke($null,[string[]]@($repo))) 'NATIVE_REPO_VALIDATION_FAILED'
 }
 try {
   Ensure-DevExecutor
@@ -87,7 +87,7 @@ try {
   Assert ($saved.token_protected -eq 'opaque-test-value' -and $saved.unrelated.nested -eq 42) 'CONFIG_FIELDS_LOST'
   $request = @{ action='Start'; repo=$repo; request_id=[Guid]::NewGuid().ToString('N'); engine_pid=$PID; issued_at=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
   if ($native) {
-    $native.GetMethod('RequestDevExecutor').Invoke($null,@('Start',$repo))
+    $native.GetMethod('RequestDevExecutor').Invoke($null,[string[]]@('Start',$repo))
     $request = Get-Content -Raw (Join-Path $MelDir 'dev-executor-request.json') | ConvertFrom-Json
   } else { [IO.File]::WriteAllText((Join-Path $MelDir 'dev-executor-request.json'), ($request | ConvertTo-Json)) }
   Receive-DevExecutorControl

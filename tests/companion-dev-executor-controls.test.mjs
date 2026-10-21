@@ -82,4 +82,9 @@ test('distribution stays identical, controls call the sole supervisor, and the w
   const panel=source.slice(source.indexOf('function Show-MelTrayPanel'),source.indexOf('function New-MelTrayIcon'));
   assert.ok(panel.includes('$form.Show()')); assert.ok(!panel.includes('$form.ShowDialog()'));
   assert.ok(source.includes('CANDIDATE_REPO_FORBIDDEN')); assert.ok(source.includes('File]::Replace'));
+  const native=await readFile(new URL('../windows-companion/MEL-Companion.cs',import.meta.url),'utf8');
+  for(const action of ['Start','Stop','Restart'])assert.ok(native.includes(`ControlDevExecutor("${action}")`));
+  assert.ok(native.includes('MelApp.RequestDevExecutor(action,repo)'));
+  assert.ok(native.includes('dev-executor-view.json')); assert.ok(native.includes('StopCompanionTree()'));
+  assert.ok(!native.includes('Process.Start("node'));
 });
