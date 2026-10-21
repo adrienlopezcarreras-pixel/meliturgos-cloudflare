@@ -298,7 +298,7 @@ function Set-DevExecutorConfiguration([bool]$Enabled, [string]$Repo = "") {
   try {
     [IO.File]::WriteAllText($temp, ($saved | ConvertTo-Json -Depth 30), (New-Object Text.UTF8Encoding($false)))
     if ([IO.File]::ReadAllText($ConfigPath) -cne $before) { throw 'CONFIG_CHANGED_RETRY' }
-    [IO.File]::Replace($temp, $ConfigPath, $null)
+    [IO.File]::Replace($temp, $ConfigPath, [NullString]::Value)
   } finally { if ([IO.File]::Exists($temp)) { [IO.File]::Delete($temp) } }
 }
 
@@ -364,6 +364,7 @@ function Stop-DevExecutor {
     try { [IO.Directory]::Delete($script:DevExecutorControl) } catch {}
   }
   $script:DevExecutorControl = $null
+  $script:DevExecutorCode = "DISABLED"
   if ($script:DevExecutorMutex) { $script:DevExecutorMutex.ReleaseMutex(); $script:DevExecutorMutex.Dispose(); $script:DevExecutorMutex = $null }
 }
 
@@ -472,7 +473,7 @@ function Publish-DevExecutorView {
     $view.observed_at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
     $view.request_id = $script:DevExecutorLastRequest
     [IO.File]::WriteAllText($target + '.tmp', ($view | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
-    if ([IO.File]::Exists($target)) { [IO.File]::Replace($target + '.tmp', $target, $null) }
+    if ([IO.File]::Exists($target)) { [IO.File]::Replace($target + '.tmp', $target, [NullString]::Value) }
     else { [IO.File]::Move($target + '.tmp', $target) }
   } catch { }
 }
@@ -3458,6 +3459,7 @@ function Process-Command($command) {
 $trayResources = $null
 if (-not $Headless) { $trayResources = New-MelTrayIcon }
 $lastHeartbeat = Get-Date "2000-01-01"
+try {
 while (-not $script:MelExitRequested) {
   if ($Headless -and $ParentPid -gt 0 -and -not (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) { break }
   if (-not $Headless) { [System.Windows.Forms.Application]::DoEvents() }
@@ -3485,6 +3487,7 @@ while (-not $script:MelExitRequested) {
   }
   Start-Sleep -Milliseconds 1200
 }
+} finally {
 Stop-DevExecutor
 Publish-DevExecutorView
 if ($script:MelPanel -and -not $script:MelPanel.IsDisposed) { $script:MelPanel.Close(); $script:MelPanel.Dispose() }
@@ -3494,4 +3497,6 @@ if ($trayResources) {
   try { $trayResources.menu.Dispose() } catch {}
   try { $trayResources.icon.Dispose() } catch {}
   try { $trayResources.bitmap.Dispose() } catch {}
+}
+
 }
