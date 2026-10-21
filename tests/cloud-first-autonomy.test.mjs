@@ -8,6 +8,8 @@ import { runCouncilReview, PC_AFTER_ATTEMPTS } from '../src/evolution/council-re
 import { devRuntime } from '../src/dev/runtime-api.js';
 import { AutonomySupervisor } from '../src/evolution/autonomy-supervisor.js';
 import { D1GitHubActionRelayStore } from '../src/platform/github-action-relay.js';
+import { runAutonomyRuntimeTick } from '../src/evolution/autonomy-runtime-core.js';
+import { prepareApprovedImplementationProposal } from '../src/evolution/autonomy-implementation-planner.js';
 
 async function fixture(t) {
   const DB = sqliteD1();
@@ -153,4 +155,26 @@ test('cloud-first lesson reaches MEL once through its real LearningEngine', asyn
   const id = 'codex-cloud-first-owner-fallback-20261021';
   assert.equal((await engine.corrections({ limit: 1000 })).filter(row => row.id === id).length, 1);
   assert.ok((await engine.trainingBundle({ minQuality: 0.95, limit: 1000 })).preference.some(row => row.id === id));
+});
+
+test('real runtime records unavailable implementation providers before selecting other work', async t => {
+  const { DB, repository, job } = await fixture(t);
+  const result = structuredClone(job.result_json);
+  result.teacher_bridge.request.candidate = { branch: 'candidate/mel-clean-autonomy', sha: 'a'.repeat(40) };
+  result.teacher_bridge.evidence = { candidate_sha: 'a'.repeat(40), inspection_files: ['src/value.js'] };
+  await repository.update(job.id, { result_json: result });
+  const env = { DB, MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_GITHUB_BRANCH: 'candidate/mel-clean-autonomy', MEL_TEACHER_BRANCH: 'candidate/mel-clean-autonomy' };
+  const fetchImpl = async url => String(url).includes('/commits/')
+    ? Response.json({ sha: 'a'.repeat(40) })
+    : String(url).includes('api.github.com') ? new Response('fixture API fallback', { status: 403 })
+    : new Response(String(url).includes('raw.githubusercontent.com') && !String(url).includes('teacher-bridge/') ? 'export const value=1;\n' : '', { status: 200 });
+  const roadmap = [{ id: 'MEL-WORK-01', title: 'Unavailable provider', status: 'PARTIAL', priority: 'P0' }];
+  await assert.rejects(prepareApprovedImplementationProposal({ env, repository, job, fetchImpl }), { name: 'TypeError', message: 'WORKERS_AI_BINDING_UNAVAILABLE' });
+  const tick = await runAutonomyRuntimeTick(env, { repository, roadmap, epochMs: 0, fetchImpl });
+  assert.equal(tick.implementation?.code, 'WORKERS_AI_BINDING_UNAVAILABLE');
+  const persisted = await repository.get(job.id);
+  assert.equal(persisted.status, 'TEACHER_APPROVED');
+  assert.equal(persisted.result_json.autonomy_deferral.code, 'WORKERS_AI_BINDING_UNAVAILABLE');
+  assert.ok(persisted.result_json.autonomy_deferral.retry_after > Date.now());
+  assert.equal(persisted.result_json.autonomy_completion, undefined);
 });

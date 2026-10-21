@@ -125,14 +125,17 @@ function sameDiagnostic(previous, next) {
 }
 
 function safeDiagnosticCode(error, fallback = 'IMPLEMENTATION_PLANNING_FAILED') {
-  const raw = String(error?.code || fallback).toUpperCase();
+  // CODEX: this existing adapter throws a TypeError without .code. Admit only
+  // its known constant, never arbitrary provider messages or private details.
+  const knownMessage = error?.message === 'WORKERS_AI_BINDING_UNAVAILABLE' ? error.message : null;
+  const raw = String(error?.code || knownMessage || fallback).toUpperCase();
   return /^[A-Z0-9_:-]{1,120}$/.test(raw) ? raw : fallback;
 }
 
 // CODEX: preserve nonterminal work and let independent roadmap work proceed.
 export function providerDeferral(code, now = Date.now()) {
   const value = String(code || '');
-  return /^(?:NO_ZERO_COST|MENTOR_NO_ZERO_COST|NO_ELIGIBLE|MODEL_UNAVAILABLE|COUNCIL_(?:UNAVAILABLE|NOT_ENOUGH|REQUIRED_ROLE|MEL_SYNTHESIS|PROVIDER_NOT_FOUND))/.test(value)
+  return /^(?:WORKERS_AI_BINDING_UNAVAILABLE|NO_ZERO_COST|MENTOR_NO_ZERO_COST|NO_ELIGIBLE|MODEL_UNAVAILABLE|COUNCIL_(?:UNAVAILABLE|NOT_ENOUGH|REQUIRED_ROLE|MEL_SYNTHESIS|PROVIDER_NOT_FOUND))/.test(value)
     ? { code: value, observed_at: now, retry_after: now + 5 * 60_000 } : null;
 }
 
