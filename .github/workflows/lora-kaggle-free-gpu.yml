@@ -442,7 +442,7 @@ jobs:
               tail="\\n".join(lines[-12:])
               log_age_seconds=max(0.0,time.time()-log_file.stat().st_mtime)
               for line in reversed(lines):
-                  if "MEL_TRAINING_PROGRESS " in line or "MEL_TRAINING_STAGE " in line or "TRAINING_COMMAND_" in line or "LOCAL_IMPACT_" in line:
+                  if "MEL_TRAINING_PROGRESS " in line or "MEL_TRAINING_STAGE " in line or "MEL_BASE_MODEL_STAGE " in line or "TRAINING_COMMAND_" in line or "LOCAL_IMPACT_" in line:
                       latest_progress=line[-4000:]
                       break
           pid=None
@@ -501,6 +501,18 @@ jobs:
               "(root/'mel-training-background.json').write_text(json.dumps({'pid':proc.pid,'started_at':time.time()})+'\\n',encoding='utf-8')",
               "print({'status':'TRAINING_BACKGROUND_STARTED','pid':proc.pid})",
           ]) + "\n"
+          # GPT-6 LORA-C004-20261021: align monitor cells with the full
+          # Kaggle execution cap and GitHub watcher grace, not 80 x 45s.
+          monitor_interval_seconds = 45
+          monitor_budget_seconds = (
+              int(os.environ["KAGGLE_KERNEL_TIMEOUT_SECONDS"])
+              + int(os.environ["KAGGLE_MONITOR_GRACE_SECONDS"])
+          )
+          monitor_count = (monitor_budget_seconds + monitor_interval_seconds - 1) // monitor_interval_seconds + 2
+          if not 1 <= monitor_count <= 300:
+              raise SystemExit("KAGGLE_NOTEBOOK_MONITOR_BUDGET_INVALID")
+          print(f"Building {monitor_count} x {monitor_interval_seconds}s notebook monitor cells")
+
           notebook={
               "cells":[
                   code_cell("\n".join([
@@ -509,7 +521,7 @@ jobs:
                   ]) + "\n"),
 
                   code_cell(wrapper),
-                  *[code_cell(monitor) for _ in range(80)],
+                  *[code_cell(monitor) for _ in range(monitor_count)],
                   code_cell(finisher),
               ],
               "metadata":{
