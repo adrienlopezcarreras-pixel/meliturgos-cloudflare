@@ -1,3 +1,4 @@
+import { createMentorCompanionFallback } from './mentor-companion-provider.js';
 import { MentorMemoryRepository } from './mentor-memory.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { ZeroEuroGovernor } from '../augmentio/zero-euro-governor.js';
@@ -333,10 +334,34 @@ function buildPrompt({ role, goal, files, lessons, experiences, previousAttempts
   ].join('\n');
 }
 
+// ChatGPT-GPT6 / MEL-MENTOR-TIMEOUT: each provider call is bounded even
+// if its backend ignores AbortSignal; late results never block MAX.
+async function boundedMentorInvoke(provider, request, limitMs) {
+  const limit = Math.max(10, Math.min(30_000, Number(limitMs) || 25_000));
+  const abort = new AbortController();
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() => provider.invoke({ ...request, signal: abort.signal })),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          reject(Object.assign(new Error('MENTOR_PROVIDER_TIMEOUT'), { code: 'MENTOR_PROVIDER_TIMEOUT' }));
+          abort.abort();
+        }, limit);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export class MentorEngine {
-  constructor({ memory, providerFactory } = {}) {
+  constructor({ memory, providerFactory, invokeTimeoutMs = 25_000, repairTimeoutMs = 12_000 } = {}) {
     this.memory = memory || new MentorMemoryRepository(null);
     this.providerFactory = providerFactory;
+    // ChatGPT-GPT6 / MEL-MENTOR-TIMEOUT: deadlines below the 180-second MAX request.
+    this.invokeTimeoutMs = Math.max(10, Math.min(30_000, Number(invokeTimeoutMs) || 25_000));
+    this.repairTimeoutMs = Math.max(10, Math.min(30_000, Number(repairTimeoutMs) || 12_000));
   }
 
   async _providers(env) {
@@ -344,7 +369,12 @@ export class MentorEngine {
     const pool = createDefaultAugmentioPool(env);
     await pool.refreshHealth();
     const governor = new ZeroEuroGovernor({ maxCost: 0 });
-    return pool.list({ capability: 'CODE' }).filter(provider => governor.allows(provider)).slice(0, 3);
+    // ChatGPT-GPT6 / MEL-MENTOR-FALLBACK: bounded model fallback (revert this PR to remove).
+    // Bound the number of eligible models, but let the mentor fall back beyond
+    // the first three when those providers fail or return invalid proposals.
+    const cloud = pool.list({ capability: 'CODE' }).filter(provider => governor.allows(provider)).slice(0, 6);
+    const companion = await createMentorCompanionFallback(env);
+    return companion ? [...cloud, companion] : cloud;
   }
 
   async _learnedRuntime() {
@@ -384,88 +414,99 @@ export class MentorEngine {
     if (!providers.length) throw Object.assign(new Error('MENTOR_NO_ZERO_COST_CODE_PROVIDER'), { code: 'MENTOR_NO_ZERO_COST_CODE_PROVIDER', status: 503 });
 
     const roles = ['implémenteur principal', 'relecteur architecture et régressions', 'testeur-réparateur'];
-    const settled = await Promise.allSettled(providers.map((provider, index) => {
-      const active = learned.activeAdapter;
-      const lora = active?.base_model === provider.modelId ? active?.adapter?.id : null;
-      return provider.invoke({
-        input: buildPrompt({ role: roles[index % roles.length], goal: objective, files, lessons: remembered, experiences, previousAttempts, mode }),
-        context: {
-          purpose: 'mel-autonomous-development',
-          job_id: jobId || null,
-          mode,
-          inference_settings: learned.inference,
-          ...(lora ? { lora } : {}),
-        },
-      });
-    }));
-
     const proposals = [];
     const failures = [];
-    const repairInputs = [];
-    settled.forEach((result, index) => {
-      const provider = providers[index];
-      if (result.status === 'rejected') {
-        const failure = mentorFailureCode(result.reason);
-        failures.push({ provider: provider.id, error: failure, stage: 'initial' });
-        repairInputs.push({ provider, raw: '', failure });
-        return;
-      }
-      const raw = result.value?.text ?? result.value;
-      try {
-        const proposal = normalizeProposal(raw, result.value?.provenance || { provider: provider.providerId, model: provider.modelId }, files, previousAttempts);
-        proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: false });
-      } catch (error) {
-        const failure = mentorFailureCode(error, 'MENTOR_PROPOSAL_INVALID');
-        failures.push({ provider: provider.id, error: failure, stage: 'initial' });
-        repairInputs.push({ provider, raw: bounded(raw, 20_000), failure });
-      }
-    });
-
+    const attemptedProviders = [];
     let repairAttempted = false;
     let repairValidProposals = 0;
-    if (!proposals.length && repairInputs.length) {
-      repairAttempted = true;
-      const active = learned.activeAdapter;
-      const repaired = await Promise.allSettled(repairInputs.map(({ provider, raw, failure }) => {
+
+    // A failed or unavailable model must not monopolize the mentor. Work in
+    // bounded waves of three; stop as soon as one validated proposal exists.
+    // This keeps normal latency/concurrency unchanged while admitting backup
+    // models (and an owner-consented PC, if independently prevalidated).
+    for (let offset = 0; offset < providers.length && !proposals.length; offset += 3) {
+      const wave = providers.slice(offset, offset + 3);
+      attemptedProviders.push(...wave.map(provider => provider.id));
+      const settled = await Promise.allSettled(wave.map((provider, index) => {
+        const active = learned.activeAdapter;
         const lora = active?.base_model === provider.modelId ? active?.adapter?.id : null;
-        return provider.invoke({
-          input: buildRepairPrompt({ goal: objective, files, raw, failure, mode }),
+        return boundedMentorInvoke(provider, {
+          input: buildPrompt({ role: roles[(offset + index) % roles.length], goal: objective, files, lessons: remembered, experiences, previousAttempts, mode }),
           context: {
-            purpose: 'mel-autonomous-development-structured-repair',
+            purpose: 'mel-autonomous-development',
             job_id: jobId || null,
             mode,
             inference_settings: learned.inference,
             ...(lora ? { lora } : {}),
           },
-        });
+        }, this.invokeTimeoutMs);
       }));
-      repaired.forEach((result, index) => {
-        const { provider } = repairInputs[index];
+
+      const repairInputs = [];
+      settled.forEach((result, index) => {
+        const provider = wave[index];
         if (result.status === 'rejected') {
-          failures.push({
-            provider: provider.id,
-            error: mentorFailureCode(result.reason, 'MENTOR_PROVIDER_REPAIR_FAILED'),
-            stage: 'repair',
-          });
+          const failure = mentorFailureCode(result.reason);
+          failures.push({ provider: provider.id, error: failure, stage: 'initial' });
+          // A provider outage has no malformed answer to repair. Try another
+          // provider instead of issuing the same failed inference twice.
           return;
         }
+        const raw = result.value?.text ?? result.value;
         try {
-          const proposal = normalizeProposal(
-            result.value?.text ?? result.value,
-            result.value?.provenance || { provider: provider.providerId, model: provider.modelId },
-            files,
-            previousAttempts,
-          );
-          proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: true });
-          repairValidProposals += 1;
+          const proposal = normalizeProposal(raw, result.value?.provenance || { provider: provider.providerId, model: provider.modelId }, files, previousAttempts);
+          proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: false });
         } catch (error) {
-          failures.push({
-            provider: provider.id,
-            error: mentorFailureCode(error, 'MENTOR_REPAIRED_PROPOSAL_INVALID'),
-            stage: 'repair',
-          });
+          const failure = mentorFailureCode(error, 'MENTOR_PROPOSAL_INVALID');
+          failures.push({ provider: provider.id, error: failure, stage: 'initial' });
+          repairInputs.push({ provider, raw: bounded(raw, 20_000), failure });
         }
       });
+
+      if (!proposals.length && repairInputs.length) {
+        repairAttempted = true;
+        const active = learned.activeAdapter;
+        const repaired = await Promise.allSettled(repairInputs.map(({ provider, raw, failure }) => {
+          const lora = active?.base_model === provider.modelId ? active?.adapter?.id : null;
+          return boundedMentorInvoke(provider, {
+            input: buildRepairPrompt({ goal: objective, files, raw, failure, mode }),
+            context: {
+              purpose: 'mel-autonomous-development-structured-repair',
+              job_id: jobId || null,
+              mode,
+              inference_settings: learned.inference,
+              ...(lora ? { lora } : {}),
+            },
+          }, this.repairTimeoutMs);
+        }));
+        repaired.forEach((result, index) => {
+          const { provider } = repairInputs[index];
+          if (result.status === 'rejected') {
+            failures.push({
+              provider: provider.id,
+              error: mentorFailureCode(result.reason, 'MENTOR_PROVIDER_REPAIR_FAILED'),
+              stage: 'repair',
+            });
+            return;
+          }
+          try {
+            const proposal = normalizeProposal(
+              result.value?.text ?? result.value,
+              result.value?.provenance || { provider: provider.providerId, model: provider.modelId },
+              files,
+              previousAttempts,
+            );
+            proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: true });
+            repairValidProposals += 1;
+          } catch (error) {
+            failures.push({
+              provider: provider.id,
+              error: mentorFailureCode(error, 'MENTOR_REPAIRED_PROPOSAL_INVALID'),
+              stage: 'repair',
+            });
+          }
+        });
+      }
     }
 
     if (!proposals.length) {
@@ -517,7 +558,7 @@ export class MentorEngine {
         provenance: best.provenance,
       },
       council: {
-        providers_attempted: providers.map(p => p.id),
+        providers_attempted: attemptedProviders,
         valid_proposals: proposals.length,
         rejected_proposals: failures,
         selected_provider: best.provider_id,
