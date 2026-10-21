@@ -266,71 +266,65 @@ function scoreProposal(proposal) {
   return proposal.confidence * 10 + Math.min(5, proposal.changes.length) * 2 + Math.min(3, proposal.tests.length) + Math.min(2, proposal.lessons.length * 0.5);
 }
 
+// ChatGPT-GPT6 / MEL-MENTOR-SCOPE: bounded, faithful source excerpts.
+// The inspected full text remains available to applyInspectedEdits; truncation
+// here only controls inference context. Never fabricate a file or edit.
 function sourceBlock(files) {
-  return files.map(file => `\n===== FILE ${file.path} =====\n${file.content}\n===== END ${file.path} =====`).join('\n');
+  const maxSourceFiles = 6;
+  const maxSourceChars = 4500;
+  return (Array.isArray(files) ? files : []).slice(0, maxSourceFiles).map(file => {
+    const source = String(file.content || '');
+    const excerpt = source.slice(0, maxSourceChars);
+    return [
+      '===== FILE ' + file.path + ' =====',
+      excerpt,
+      ...(source.length > excerpt.length
+        ? ['[EXTRAIT PARTIEL: ne modifier que les lignes effectivement visibles ci-dessus]']
+        : []),
+      '===== END ' + file.path + ' =====',
+    ].join('\n');
+  }).join('\n');
 }
 
 function buildRepairPrompt({ goal, files, raw, failure, mode }) {
   const uninspected = /MENTOR_UNINSPECTED_PATH/.test(String(failure || ''));
-  const allowed = (Array.isArray(files) ? files : []).map((file) => file.path).filter(Boolean).join(', ');
+  const allowed = (Array.isArray(files) ? files : []).slice(0, 6).map(file => file.path).filter(Boolean).join(', ');
   return [
-    'Tu répares UNE réponse de code Mentor MELITURGOS qui a échoué à la validation structurée.',
-    `MODE: ${mode === 'repair' ? 'RÉPARATION APRÈS TEST' : 'IMPLÉMENTATION'}.`,
-    uninspected
-      ? `Le fichier proposé n'était pas inspecté. Il est abandonné. Ne le réécris pas. Réponds uniquement par edits sur l'un de ces chemins: ${allowed}.`
-      : 'Si le fichier est long, n’utilise pas JSON. Réponds avec ce bloc, une fois par fichier:',
-    uninspected ? '' : 'SUMMARY une phrase',
-    uninspected ? '' : 'TESTS test:smoke',
-    uninspected ? '' : 'FILE src/exemple.js',
-    uninspected ? '' : '<<<MEL_FILE',
-    uninspected ? '' : 'contenu complet du fichier',
-    uninspected ? '' : 'MEL_FILE',
-    'Structure obligatoire, soit le JSON complet, soit edits pour un fichier inspecté long:',
-    '{"summary":"...","edits":[{"path":"src/...","find":"EXTRAIT EXACT UNIQUE","replace":"..."}],"tests":["test:smoke"],"confidence":0.0,"lessons":["..."],"risks":["..."]}',
-    uninspected ? '' : '{"summary":"...","changes":[{"path":"src/...","content":"CONTENU COMPLET DU FICHIER","reason":"..."}],"tests":["test:smoke"],"confidence":0.0,"lessons":["..."],"risks":["..."]}',
-    uninspected ? '' : 'changes doit contenir au moins un fichier texte sûr déjà inspecté ou un fichier nouveau strictement nécessaire dans les chemins autorisés.',
-    'Chaque change.content doit être le CONTENU COMPLET final du fichier. Aucun diff, aucun placeholder, aucune ellipse.',
-    'Ne crée aucun secret, credential, token, .env, node_modules ou fichier hors dépôt.',
-    'Un fichier inspecté de plus de 4000 caractères se modifie uniquement par edits. Un import déjà signalé comme introuvable ne doit pas revenir.',
-    'Ne propose pas un fichier qui n’a pas été inspecté. Modifie un fichier déjà lu.',
-    'Ne prétends jamais qu’un test a réussi; propose seulement des tests autorisés.',
-    'Reste strictement dans l’objectif et réutilise les composants existants avant toute création.',
-    `OBJECTIF: ${bounded(goal, 12_000)}`,
-    `ERREUR_DE_VALIDATION: ${bounded(failure || 'INVALID_PROPOSAL', 500)}`,
-    uninspected ? 'La réponse rejetée n’est pas recopiée: elle pointait vers un fichier non inspecté.' : 'RÉPONSE_INVALIDE_À_RÉPARER:',
-    uninspected ? '' : bounded(raw || '', 20_000),
+    'Tu répares une réponse de code rejetée. Réponds uniquement par un objet JSON valide.',
+    'FORMAT UNIQUE (aucun autre format): {"summary":"modification","edits":[{"path":"CHEMIN_EXACT","find":"EXTRAIT_EXACT_UNIQUE","replace":"NOUVEAU_CONTENU"}],"tests":["test:smoke"],"confidence":0.8}.',
+    'Les edits remplacent un texte EXACT qui existe UNE SEULE FOIS dans un fichier inspecté; ne réécris pas le fichier entier.',
+    'Choisis uniquement un des fichiers effectivement inspectés ci-dessous: ' + allowed,
+    'Pour les gros fichiers, cible quelques lignes présentes dans les extraits fournis. Aucun import inventé, placeholder, diff, prose, bloc FILE ou marqueur MEL_FILE.',
+    'Ne crée aucun fichier non inspecté. Ne propose ni secret, ni nouvelle dépendance non prouvée.',
+    'Ne prétends pas avoir exécuté les tests.',
+    'MODE: ' + (mode === 'repair' ? 'RÉPARATION APRÈS TEST' : 'IMPLÉMENTATION'),
+    'OBJECTIF: ' + bounded(goal, 2000),
+    'ERREUR_DE_VALIDATION: ' + bounded(failure || 'INVALID_PROPOSAL', 120),
+    uninspected ? 'L’ancien chemin non inspecté est interdit; repars d’un extrait inspecté.' : 'RÉPONSE_INVALIDE_À_RÉPARER:',
+    uninspected ? '' : bounded(raw || '', 2500),
     'SOURCES_INSPECTÉES:',
     sourceBlock(files),
-  ].filter((line) => line !== '').join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 function buildPrompt({ role, goal, files, lessons, experiences, previousAttempts, mode }) {
+  const allowed = (Array.isArray(files) ? files : []).slice(0, 6).map(file => file.path).filter(Boolean).join(', ');
   return [
-    'Tu es un membre du Mentor Council de MELITURGOS chargé de produire du code réellement applicable.',
-    `RÔLE INDÉPENDANT: ${role}.`,
-    `MODE: ${mode === 'repair' ? 'RÉPARATION APRÈS TEST' : 'IMPLÉMENTATION'}.`,
-    'Règle absolue: un objet JSON valide, ou un fichier complet délimité. Pas de prose autour.',
-    'JSON: {"summary":"...","changes":[{"path":"src/...","content":"CONTENU COMPLET DU FICHIER","reason":"..."}],"tests":["test:smoke"],"confidence":0.0,"lessons":["..."],"risks":["..."]}',
-    'Pour un fichier inspecté déjà long, n’envoie pas le fichier entier. Envoie plutôt edits: [{"path":"src/...","find":"EXTRAIT EXACT PRÉSENT UNE SEULE FOIS","replace":"REMPLACEMENT"}].',
-    'Ne propose pas un fichier qui n’a pas été inspecté.',
-    'Si le fichier est long, utilise plutôt:',
-    'SUMMARY une phrase',
-    'TESTS test:smoke',
-    'FILE src/exemple.js',
-    '<<<MEL_FILE',
-    'contenu complet du fichier',
-    'MEL_FILE',
-    'Chaque change.content doit contenir le FICHIER COMPLET final, jamais un diff, jamais des points de suspension.',
-    'Ne modifie pas de secrets, .env, credentials, node_modules, .git ou fichiers privés.',
-    'Ne prétends pas qu’un test est passé: tu proposes seulement les tests à exécuter.',
-    'Privilégie une modification petite, cohérente et testable qui fait avancer réellement l’objectif.',
-    'Un import doit déjà exister : chemin relatif présent dans SOURCES INSPECTÉES, ou dépendance déjà déclarée. N’invente pas un module absent (googleapis, un ../ qui n’existe pas).',
-    'OBJECTIF UTILISATEUR:', bounded(goal, 12_000),
-    'LEÇONS MÉMORISÉES VALIDÉES/OPÉRATIONNELLES DU MENTOR:', JSON.stringify(lessons || []),
-    'EXPÉRIENCES VALIDÉES:', JSON.stringify(experiences?.validated || []),
-    'OBSERVATIONS ACQUISES NON VALIDÉES — HYPOTHÈSES/SIGNAUX UNIQUEMENT, NE JAMAIS LES TRAITER COMME DES FAITS:', JSON.stringify(experiences?.observations || []),
-    'TENTATIVES/ERREURS PRÉCÉDENTES:', JSON.stringify(previousAttempts || []),
-    'SOURCES INSPECTÉES:', sourceBlock(files),
+    'Tu es le mentor code de MELITURGOS. Réponds uniquement par un objet JSON valide, sans markdown ni explication.',
+    'RÔLE: ' + role + '. MODE: ' + (mode === 'repair' ? 'RÉPARATION APRÈS TEST' : 'IMPLÉMENTATION') + '.',
+    'FORMAT OBLIGATOIRE: {"summary":"modification concrète","edits":[{"path":"CHEMIN_EXACT","find":"EXTRAIT_EXACT_UNIQUE","replace":"NOUVEAU_CONTENU"}],"tests":["test:smoke"],"confidence":0.8}.',
+    'Utilise edits, pas changes. find doit être un extrait EXACT et UNIQUE visible dans SOURCES_INSPECTÉES. replace est son remplacement réel.',
+    'Fichiers autorisés: ' + allowed + '. Ne crée pas de fichier non inspecté.',
+    'Ne renvoie pas un fichier entier, un diff, un bloc FILE/MEL_FILE, du texte tronqué ou du code hors JSON.',
+    'Modifie le minimum pour faire avancer l’objectif approuvé. Aucun nouvel import ou module non présent dans les fichiers/dependances vérifiés.',
+    'Ne modifie aucun secret et ne prétends pas que les tests ont déjà réussi.',
+    'OBJECTIF: ' + bounded(goal, 2200),
+    'LEÇONS_VALIDÉES: ' + bounded(JSON.stringify(lessons || []), 1800),
+    'EXPÉRIENCES_VALIDÉES: ' + bounded(JSON.stringify(experiences?.validated || []), 1800),
+    'OBSERVATIONS_NON_VALIDÉES (hypothèses seulement): ' + bounded(JSON.stringify(experiences?.observations || []), 1200),
+    'ERREURS_PRÉCÉDENTES: ' + bounded(JSON.stringify(previousAttempts || []), 1800),
+    'SOURCES_INSPECTÉES:',
+    sourceBlock(files),
   ].join('\n');
 }
 
