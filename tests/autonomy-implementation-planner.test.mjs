@@ -332,3 +332,34 @@ test('planner refuses work without an exact correlated Teacher approval', async 
     (error) => error?.code === 'TEACHER_APPROVAL_REQUIRED',
   );
 });
+
+test('GPT6: unsupported no-code verdict for FOUNDER lease persistence is repaired into implementation', async () => {
+  const f = fixture();
+  const bad = 'DECISION: VERIFY_EXISTING\\nLIVE_CHECKS: gmail.messages.search, calendar.events.read, drive.files.list\\nFICHIERS: src/evolution/autonomy-runtime.js\\nCHANGEMENTS: aucun code nécessaire\\nREUTILISATION: composants existants\\nTESTS: vérification passive\\nRISQUES: inconnus\\nROLLBACK: aucun\\nCRITERES_DE_FIN: preuves réelles';
+  const good = 'DECISION: IMPLEMENT\\nFICHIERS: src/evolution/autonomy-runtime.js\\nCHANGEMENTS: ajouter des tests fonctionnels ciblés pour l’écriture durable et la libération du lease\\nREUTILISATION: conserver le runtime existant\\nTESTS: node --test tests/autonomy-runtime.test.mjs\\nRISQUES: concurrence\\nROLLBACK: revert de la branche candidate\\nCRITERES_DE_FIN: tests ciblés et CI verts';
+  f.env.AI.run = async (model, input) => {
+    f.aiCalls.push(model);
+    return { response: JSON.stringify(input).includes('OBJECTIVE_BOUND_FUNCTIONAL_PROOF') ? good : bad };
+  };
+  const job = await approvedJob(f.repository);
+  const proposal = await prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl });
+  assert.equal(proposal.status, 'READY');
+  assert.equal(proposal.decision, 'IMPLEMENT');
+  assert.equal(proposal.consolidation.quality_repair_attempted, true);
+  assert.match(proposal.selected.text, /CHANGEMENTS:/);
+  assert.equal((await f.repository.get(job.id)).status, 'TEACHER_APPROVED');
+});
+
+test('GPT6: no model can certify unprovable VERIFY_EXISTING as a Bridge-ready plan', async () => {
+  const f = fixture();
+  const bad = 'DECISION: VERIFY_EXISTING\\nLIVE_CHECKS: gmail.messages.search\\nFICHIERS: src/evolution/autonomy-runtime.js\\nCHANGEMENTS: rien\\nREUTILISATION: existant\\nTESTS: à faire\\nRISQUES: doute\\nROLLBACK: aucune\\nCRITERES_DE_FIN: plus tard';
+  f.env.AI.run = async (model) => { f.aiCalls.push(model); return { response: bad }; };
+  const job = await approvedJob(f.repository);
+  await assert.rejects(
+    () => prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl }),
+    error => error?.code === 'IMPLEMENTATION_UNPROVABLE_VERIFY_EXISTING',
+  );
+  const after = await f.repository.get(job.id);
+  assert.equal(after.status, 'TEACHER_APPROVED');
+  assert.equal(after.result_json.implementation_proposal, undefined);
+});
