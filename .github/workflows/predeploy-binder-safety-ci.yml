@@ -44,7 +44,7 @@ jobs:
         run: >-
           node --test tests/release-max-recovery.test.mjs
           tests/autonomy-control.test.mjs tests/release-launch-bootstrap.test.mjs
-          tests/release-predeploy-backup-reuse.test.mjs tests/autonomy-runtime-lease.test.mjs
+          tests/release-predeploy-backup-reuse.test.mjs tests/release-shardvault-prep.test.mjs tests/autonomy-runtime-lease.test.mjs
           tests/release-outcome-ledger.test.mjs tests/release-outcome-reconcile.test.mjs
           tests/max-mode-self-knowledge.test.mjs tests/autonomy-activity-detail.test.mjs
       - name: Verify embedded release proof shell
