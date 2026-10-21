@@ -655,6 +655,10 @@ async function heartbeat(request,env,a){
  // Reflect the local Companion toggle on every authenticated heartbeat.
  // Never elevate permission from a non-boolean or absent value.
  if(typeof b.remote_access_enabled==="boolean")patch.remote_access_enabled=b.remote_access_enabled;
+ // Local MEL development executor supervised by the Companion (owner opt-in).
+ // GPT6 2026-10-21: status-only heartbeat metadata, no change in permissions.
+ const devExecutor=String(b?.dev_executor?.status||"");
+ patch.dev_executor_status=/^[A-Z_]{1,40}$/.test(devExecutor)?devExecutor:null;
  // Separate, locally controlled opt-in for optional MEL compute acceleration.
  // Remote PC access permission does not imply permission to use CPU/GPU.
  // Fail closed on every heartbeat: legacy clients and malformed values cannot
