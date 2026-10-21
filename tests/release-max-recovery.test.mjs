@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import { getAutonomyControl, setAutonomyControl, rememberedReleaseMax } from '../src/evolution/autonomy-control.js';
+import { maybeHandleAutonomyApi } from '../src/evolution/autonomy-api.js';
 import { maybeHandleReleaseLaunchBootstrap } from '../src/evolution/release-launch-bootstrap.js';
 import { tryAcquireAutonomyRuntimeLease, releaseAutonomyRuntimeLease } from '../src/evolution/autonomy-runtime-lease.js';
 import { preparePredeployRelease } from '../release-tools/predeploy-backup-binder/worker.js';
@@ -147,4 +148,13 @@ test('remembered preference never becomes effective MAX merely because a stored 
  await db.prepare("UPDATE dev_bridge_state SET metadata_json=json_set(metadata_json,'$.max_remembered',json('true')) WHERE bridge_id='mel-autonomy-control'").run();
  assert.equal((await getAutonomyControl(db)).max_autonomy,false);
  assert.equal(rememberedReleaseMax({paused:true,max_autonomy:true,source:'owner-ui'}),false);
+}));
+
+
+test('public capture exposes only fixed release provenance, never an owner pause message',()=>usingDb(async db=>{
+ await owner(db);await pause(db,true);
+ const read=async()=>{const r=await maybeHandleAutonomyApi(new Request('https://mel.test/api/gen2/autonomy/control'),{DB:db});return r.json();};
+ let c=await read();assert.equal(c.max_remembered,true);assert.equal(c.source,'release-launch-bootstrap');
+ await setAutonomyControl(db,{paused:true,source:'owner-ui',reason:'Private owner explanation'});
+ c=await read();assert.equal(c.source,null);assert.equal(c.reason,null);assert.equal(c.max_remembered,false);
 }));
