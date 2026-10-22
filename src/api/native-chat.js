@@ -1374,9 +1374,9 @@ export async function handleNativeChat(request, env, options = {}) {
   const requestedInputSource = String(body.input_source || 'text').trim().toLowerCase();
   // Only Professor Code is allowed to claim state-changing development work.
   // Keep the Normal and Professor Conversation paths exactly as they were.
-  const professorCodeChat = body?.intent_context?.surface === 'mel-full'
-    && body?.intent_context?.role === 'developer'
-    && body?.intent_context?.requested_mode === 'code';
+  // [ChatGPT-GPT6] One verified routing decision owns both model and role context.
+  const professorRoute = resolveProfessorChatInferenceRoute(body?.intent_context);
+  const professorCodeChat = professorRoute?.task === 'CODE';
   const inputSource = ['voice-server-transcription','voice-browser-recognition'].includes(requestedInputSource)
     ? requestedInputSource
     : 'text';
@@ -1668,10 +1668,9 @@ export async function handleNativeChat(request, env, options = {}) {
   // Direct chat is the default. The operational context is only assembled
   // when a request actually needs capabilities, a live status, or verification.
   // This avoids burying an ordinary answer under the entire MEL runbook.
-  // Professor selects distinct model families; never override Normal routing.
-  const professorRoute = resolveProfessorChatInferenceRoute(body?.intent_context);
+  // The Professor model route was resolved at request intake; Normal stays null.
   const melWorkCapabilityQuestion = melWorkReadiness;
-  const plainChatTurn = !releaseSmoke && !body.capability?.id && !inferredCapability
+  const plainChatTurn = !professorCodeChat && !releaseSmoke && !body.capability?.id && !inferredCapability
     && !melWorkCapabilityQuestion
     && !currentFactVerification && !personalProfileIntent
     && !negativeFeedbackRecovery && !conversationFocus.elliptical;
@@ -2239,6 +2238,10 @@ export async function handleNativeChat(request, env, options = {}) {
     buildResponseQualityInstruction(activeTaskText),
     conversationFocusInstruction,
     MEL_REAL_CAPABILITIES,
+    // [ChatGPT-GPT6] Only explicit Professor Code gets a developer context.
+    professorCodeChat
+      ? 'MODE PROFESSEUR — CODE : tu es la développeuse de MEL. Traite les demandes comme du travail logiciel : repère les fichiers concernés, exploite les outils réellement disponibles et vérifie les tests et résultats. Distingue code proposé, commit, PR, fusion et déploiement vérifiés. N’invente jamais une exécution, un accès ni une preuve. Le mode Code ne supprime aucune autorisation, validation ni protection de production.'
+      : '',
     operatingManual,
     currentFactReliabilityInstruction(currentFactVerification),
     buildPresentationInstruction(activeTaskText,{voiceReply}),
