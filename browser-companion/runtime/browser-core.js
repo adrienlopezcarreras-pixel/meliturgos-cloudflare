@@ -281,18 +281,36 @@ export async function executeBrowserStep(page, step, allowedOrigins) {
               return new URL(response.url()).pathname === '/api/files/upload'
                 && response.request().method() === 'POST';
             } catch { return false; }
-          }, { timeout: 12000 }).then(response => response.status()).catch(() => null)
+          }, { timeout: 12000 }).then(async response => {
+            // Prove that the real API acknowledged this exact file. Only retain
+            // bounded diagnostic metadata; never expose the response payload.
+            const status = response.status();
+            let accepted = false;
+            let code = '';
+            try {
+              const body = await response.json();
+              accepted = body?.ok === true
+                && typeof body?.id === 'string' && body.id.length > 0
+                && body?.name === fileName;
+              const rawCode = String(body?.code || '');
+              if (/^[A-Z][A-Z0-9_]{2,79}$/.test(rawCode)) code = rawCode;
+            } catch {}
+            return { status, accepted, code };
+          }).catch(() => null)
         : null;
       await page.locator(selector).setInputFiles({
         name: fileName,
         mimeType,
         buffer: bytes,
       }, { timeout: ACTION_TIMEOUT_MS });
-      const uploadHttpStatus = uploadResponse ? await uploadResponse : null;
-      if (uploadResponse && uploadHttpStatus !== 200) {
-        throw companionError(uploadHttpStatus === null
-          ? 'BROWSER_UPLOAD_HTTP_NOT_OBSERVED'
-          : 'BROWSER_UPLOAD_HTTP_' + uploadHttpStatus, uploadHttpStatus || 408);
+      const uploadOutcome = uploadResponse ? await uploadResponse : null;
+      if (uploadResponse && (uploadOutcome?.status !== 200 || !uploadOutcome?.accepted)) {
+        const status = uploadOutcome?.status || 408;
+        const cause = !uploadOutcome ? 'BROWSER_UPLOAD_HTTP_NOT_OBSERVED'
+          : status !== 200 ? 'BROWSER_UPLOAD_HTTP_' + status
+          : 'BROWSER_UPLOAD_API_NOT_ACKNOWLEDGED';
+        // Do not return untrusted server error strings or any upload contents.
+        throw companionError(cause, status === 200 ? 502 : status);
       }
       return {
         kind: 'upload',

@@ -206,14 +206,22 @@ test('page executor rejects missing selectors for interactive actions', async ()
 });
 
 test('MEL-FILE proof observes actual upload HTTP status without exposing response data', async () => {
-  for (const status of [200, 403]) {
+  for (const mode of ['acknowledged', 'refused', 'missing-ack']) {
+    const status = mode === 'refused' ? 403 : 200;
     let observed = false;
     const page = {
       url: () => 'https://example.com/',
       waitForResponse(predicate) {
         return new Promise(resolve => { this.onUpload = () => {
           observed = predicate({ url:()=> 'https://example.com/api/files/upload', request:()=>({ method:()=> 'POST' }) });
-          resolve({ status:()=>status });
+          resolve({
+            status:()=>status,
+            json:async()=>mode === 'acknowledged'
+              ? {ok:true,id:'proof-id',name:'mel-file-normal-proof.txt'}
+              : mode === 'missing-ack'
+                ? {ok:true,name:'mel-file-normal-proof.txt'}
+                : {ok:false,code:'MEL_FILE_PROOF_UPLOAD_REJECTED'},
+          });
         }; });
       },
       locator() { return { setInputFiles: async () => page.onUpload() }; },
@@ -222,11 +230,13 @@ test('MEL-FILE proof observes actual upload HTTP status without exposing respons
       id:'proof',action:'browser.upload-file',selector:'#fileInput',
       file_name:'mel-file-normal-proof.txt',file_text:'MEL_FILE_NORMAL_PROOF_abc',
     }, ['https://example.com']);
-    if (status === 200) {
+    if (mode === 'acknowledged') {
       const result = await operation;
       assert.equal(result.kind,'upload');
     } else {
-      await assert.rejects(operation, { code:'BROWSER_UPLOAD_HTTP_403' });
+      await assert.rejects(operation, {
+        code:mode === 'refused' ? 'BROWSER_UPLOAD_HTTP_403' : 'BROWSER_UPLOAD_API_NOT_ACKNOWLEDGED',
+      });
     }
     assert.equal(observed,true);
   }
