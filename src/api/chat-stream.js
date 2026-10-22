@@ -34,8 +34,8 @@ export function messagesChars(messages) {
 
 // Ordre d'essai pour cette requête : un modèle forcé, sinon tous ceux dont le
 // contexte suffit (le dernier reste toujours en secours).
-export function streamModelCandidates(messages, env = {}, order = null) {
-  const forced = String(env?.MEL_STREAM_MODEL || '').trim();
+export function streamModelCandidates(messages, env = {}, order = null, { ignoreConfiguredModel = false } = {}) {
+  const forced = ignoreConfiguredModel ? '' : String(env?.MEL_STREAM_MODEL || '').trim();
   if (forced) return [forced];
   const size = messagesChars(messages);
   // `order` = latest nightly tournament ranking (src/models/model-tournament.js);
@@ -211,7 +211,7 @@ export function streamChatResponse({ env, messages, archive = async () => false,
   // without affecting ordinary Normal chat or disabling bounded fallbacks.
   const preferred = String(preferredModel || '').trim();
   const roleCandidates = preferred
-    ? streamModelCandidates(messages, { ...env, MEL_STREAM_MODEL: '' }, modelOrder)
+    ? streamModelCandidates(messages, env, modelOrder, { ignoreConfiguredModel: true })
     : null;
   const candidates = model ? [model] : preferred
     ? (roleCandidates.includes(preferred)
