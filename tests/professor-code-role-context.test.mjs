@@ -10,8 +10,10 @@ test('Professor Code uses one authoritative gate for developer context and model
   assert.match(source, /const professorRoute = resolveProfessorChatInferenceRoute\(body\?\.intent_context\)/);
   assert.equal((source.match(/const professorRoute = resolveProfessorChatInferenceRoute\(/g) || []).length, 1);
   assert.match(source, /const professorCodeChat = professorRoute\?\.task === 'CODE'/);
-  assert.match(source, /const plainChatTurn = !professorCodeChat && !releaseSmoke/);
-  assert.match(source, /professorCodeChat\s*\? 'MODE PROFESSEUR — CODE/);
+  assert.match(source, /const plainChatTurn = !releaseSmoke/);
+  assert.match(source, /const professorDeveloperInstruction = professorCodeChat/);
+  assert.equal((source.match(/    professorDeveloperInstruction,/g)||[]).length, 2, 'both streamed and operational prompts use developer role');
+  assert.match(source, /professorCodeChat\s*\n\s*\? 'MODE PROFESSEUR — CODE/);
   assert.match(source, /parallel: professorCodeChat \? false : parallel/);
   assert.doesNotMatch(source, /const developerRole = body\?/);
 });
