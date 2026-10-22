@@ -1374,9 +1374,9 @@ export async function handleNativeChat(request, env, options = {}) {
   const requestedInputSource = String(body.input_source || 'text').trim().toLowerCase();
   // Only Professor Code is allowed to claim state-changing development work.
   // Keep the Normal and Professor Conversation paths exactly as they were.
-  const professorCodeChat = body?.intent_context?.surface === 'mel-full'
-    && body?.intent_context?.role === 'developer'
-    && body?.intent_context?.requested_mode === 'code';
+  // [ChatGPT-GPT6] A single route is authoritative for model, prompt and execution lane.
+  const professorRoute = resolveProfessorChatInferenceRoute(body?.intent_context);
+  const professorCodeChat = professorRoute?.task === 'CODE';
   const inputSource = ['voice-server-transcription','voice-browser-recognition'].includes(requestedInputSource)
     ? requestedInputSource
     : 'text';
@@ -1669,9 +1669,8 @@ export async function handleNativeChat(request, env, options = {}) {
   // when a request actually needs capabilities, a live status, or verification.
   // This avoids burying an ordinary answer under the entire MEL runbook.
   // Professor selects distinct model families; never override Normal routing.
-  const professorRoute = resolveProfessorChatInferenceRoute(body?.intent_context);
   const melWorkCapabilityQuestion = melWorkReadiness;
-  const plainChatTurn = !releaseSmoke && !body.capability?.id && !inferredCapability
+  const plainChatTurn = !professorCodeChat && !releaseSmoke && !body.capability?.id && !inferredCapability
     && !melWorkCapabilityQuestion
     && !currentFactVerification && !personalProfileIntent
     && !negativeFeedbackRecovery && !conversationFocus.elliptical;
@@ -2239,6 +2238,9 @@ export async function handleNativeChat(request, env, options = {}) {
     buildResponseQualityInstruction(activeTaskText),
     conversationFocusInstruction,
     MEL_REAL_CAPABILITIES,
+    professorCodeChat
+      ? 'MODE PROFESSEUR — CODE : tu es la développeuse de MEL. Identifie le chantier et les fichiers, utilise les capacités réellement disponibles, teste les modifications et distingue toujours proposition, code écrit, commit, PR, fusion et déploiement prouvés. N’invente aucune exécution ni résultat. Les autorisations, le Council, la CI, les sauvegardes et les protections de publication demeurent obligatoires.'
+      : '',
     operatingManual,
     currentFactReliabilityInstruction(currentFactVerification),
     buildPresentationInstruction(activeTaskText,{voiceReply}),
@@ -2363,7 +2365,7 @@ export async function handleNativeChat(request, env, options = {}) {
       env,
       messages,
       text,
-      parallel,
+      parallel: professorCodeChat ? false : parallel,
       maxCandidates: body.max_candidates ?? env.MEL_AUGMENTIO_MAX_CANDIDATES ?? activeInferenceSettings?.council_min_responses ?? 4,
       inferenceSettings: effectiveInferenceSettings,
       activeAdapter,
