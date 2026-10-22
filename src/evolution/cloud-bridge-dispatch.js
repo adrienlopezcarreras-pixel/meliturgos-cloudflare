@@ -27,7 +27,7 @@ export async function localBridgeFallbackAllowed(env, job, { now = Date.now() } 
     && metadata.package_created_at === prep.created_at && metadata.candidate_sha === prep.candidate_sha;
 }
 
-export async function readyJobFromD1(db) {
+export async function readyJobsFromD1(db) {
   try {
     const rows = (await db.prepare(`SELECT id,status,result_json,files_json,tests_json FROM dev_jobs
       WHERE json_extract(result_json,'$.bridge_preparation.status')='READY'
@@ -35,6 +35,7 @@ export async function readyJobFromD1(db) {
         AND status IN ('TEACHER_APPROVED','READY_FOR_REVIEW')
       ORDER BY CASE status WHEN 'TEACHER_APPROVED' THEN 0 ELSE 1 END, updated_at ASC
       LIMIT 100`).all()).results || [];
+    const ready = [];
     for (const row of rows) {
       try {
         const job = { ...row,
@@ -44,12 +45,17 @@ export async function readyJobFromD1(db) {
         };
         // CODEX: dispatch and atomic claim share one eligibility predicate.
         if (isPreparedDevBridgeJob(job) || isUnappliedReadyReviewJob(job)) {
-          return { id: job.id, status: job.status, package_created_at: job.result_json.bridge_preparation.created_at, candidate_sha: job.result_json.bridge_preparation.candidate_sha };
+          ready.push({ id: job.id, status: job.status, package_created_at: job.result_json.bridge_preparation.created_at, candidate_sha: job.result_json.bridge_preparation.candidate_sha });
         }
       } catch { /* Malformed metadata cannot authorize a publication. */ }
     }
-    return null;
-  } catch { return null; }
+    return ready;
+  } catch { return []; }
+}
+
+// Keep the single-job API for callers that need to inspect the first ready job.
+export async function readyJobFromD1(db) {
+  return (await readyJobsFromD1(db))[0] || null;
 }
 
 
@@ -74,28 +80,38 @@ async function recordCloudUnavailable(db, job, key, now, code) {
 export async function maybeDispatchCloudBridge(env, tick, { now = Date.now(), relay = null } = {}) {
   const db = env?.DB;
   if (!db?.prepare) return { status: 'SKIPPED_NO_TICK' };
-  // [ChatGPT-GPT6 / MEL-CODE-MAX-HANDOFF] The authoritative D1 snapshot,
-  // not a stale tick result, decides whether the package is still executable.
-  // MAX may have cancelled or superseded the job while a tick was running.
-  // The existing eligibility predicate checks Teacher, package, tests and
-  // terminal states. Cloud and optional Companion share the atomic claim.
-  const job = await readyJobFromD1(db);
-  if (!job?.id) return { status: 'SKIPPED_NOT_READY' };
-  // CODEX: no local heartbeat read or grace period before cloud execution.
-  const packageAt = await packageCreatedMs(db, job);
-  const key = 'cloud-bridge-dispatch:' + String(job.id).slice(0, 160);
-  const last = await db.prepare('SELECT last_seen,status,metadata_json FROM dev_bridge_state WHERE bridge_id=?').bind(key).first().catch(() => null);
+  // [ChatGPT-GPT6 / MEL-CODE-MAX-HANDOFF] D1, not a stale MAX tick,
+  // decides which Teacher-approved package is eligible for cloud execution.
+  // A previously queued job cannot starve a second independent READY job.
+  const candidates = await readyJobsFromD1(db);
+  if (!candidates.length) return { status: 'SKIPPED_NOT_READY' };
   const store = relay || new D1GitHubActionRelayStore(db);
-  let metadata = {};
-  try { metadata = JSON.parse(last?.metadata_json || '{}'); } catch { /* no fallback authority */ }
-  // CODEX: transport completion is not execution. A durable failed dispatch
-  // may authorize optional fallback only for the unchanged original package.
-  if (last?.status === 'QUEUED' && metadata.relay_job_id && typeof store.get === 'function'
-      && metadata.package_created_at === (job.package_created_at || job.result_json?.bridge_preparation?.created_at)
-      && metadata.candidate_sha === (job.candidate_sha || job.result_json?.bridge_preparation?.candidate_sha)) {
-    const prior = await store.get(metadata.relay_job_id).catch(() => null);
-    if (prior?.status === 'FAILED') return recordCloudUnavailable(db, job, key, now, 'CLOUD_RELAY_DISPATCH_FAILED');
+  let job = null, key = '', last = null, packageAt = 0;
+  let unavailable = null;
+  for (const candidate of candidates) {
+    const candidateKey = 'cloud-bridge-dispatch:' + String(candidate.id).slice(0, 160);
+    const state = await db.prepare('SELECT last_seen,status,metadata_json FROM dev_bridge_state WHERE bridge_id=?')
+      .bind(candidateKey).first().catch(() => null);
+    let metadata = {};
+    try { metadata = JSON.parse(state?.metadata_json || '{}'); } catch { /* fail closed for fallback */ }
+    // A FAILED relay receipt is not code execution. Record the failure, but
+    // allow other independent jobs to advance during the retry cooldown.
+    if (state?.status === 'QUEUED' && metadata.relay_job_id && typeof store.get === 'function'
+        && metadata.package_created_at === candidate.package_created_at
+        && metadata.candidate_sha === candidate.candidate_sha) {
+      const prior = await store.get(metadata.relay_job_id).catch(() => null);
+      if (prior?.status === 'FAILED') {
+        unavailable = await recordCloudUnavailable(db, candidate, candidateKey, now, 'CLOUD_RELAY_DISPATCH_FAILED');
+        continue;
+      }
+    }
+    const createdMs = await packageCreatedMs(db, candidate);
+    const stateAt = Number(state?.last_seen || 0);
+    if (state && createdMs <= stateAt && now >= stateAt && now - stateAt < REDISPATCH_MS) continue;
+    job = candidate; key = candidateKey; last = state; packageAt = createdMs;
+    break;
   }
+  if (!job) return unavailable || { status: 'SKIPPED_RECENTLY_DISPATCHED' };
   // [ChatGPT-GPT6 / MEL-CODE-DISPATCH-CAS] Claim the dispatch slot *before*
   // touching the relay. The earlier read-only cooldown is insufficient when
   // cron and an authenticated MAX tick race in separate Worker isolates.
