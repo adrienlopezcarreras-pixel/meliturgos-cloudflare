@@ -339,3 +339,41 @@ test('native Professor streams Conversation but verifies Code before returning J
     DB.close?.();
   }
 });
+
+test('Professor Code NDJSON buffers model claims until authenticated final verification', async () => {
+  const raw='J’ai exécuté d1.write : {"success": true}.';
+  let archived='';
+  const response=streamChatResponse({
+    env:{AI:{async run(){return sse([raw.slice(0,19),raw.slice(19)])}}},
+    messages:[{role:'user',content:'continue'}],
+    model:'@cf/test/code',
+    verifyCompletedText:(text) => {
+      assert.equal(text,raw);
+      return 'Aucune écriture D1 authentifiée n’a été exécutée dans cet échange.';
+    },
+    archive:async(text)=>{archived=text;return true;},
+  });
+  assert.match(response.headers.get('content-type'),/application\/x-ndjson/);
+  const events=await readNdjson(response);
+  const deltas=events.filter(e=>e.type==='delta').map(e=>e.text);
+  assert.deepEqual(deltas,['Aucune écriture D1 authentifiée n’a été exécutée dans cet échange.']);
+  assert.doesNotMatch(JSON.stringify(events),/J’ai exécuté d1\.write/);
+  assert.equal(archived,deltas.join(''));
+  assert.equal(events.at(-1).type,'done');
+});
+
+test('Professor Code verification failure does not emit or archive unverified content', async()=>{
+  let archived=false;
+  const response=streamChatResponse({
+    env:{AI:{async run(){return sse(['J’ai exécuté d1.write : succès.'])}}},
+    messages:[{role:'user',content:'go'}],
+    model:'@cf/test/code',
+    verifyCompletedText:()=>{throw Object.assign(new Error('PROOF_UNAVAILABLE'),{code:'PROOF_UNAVAILABLE'});},
+    archive:async()=>{archived=true;return true;},
+  });
+  const events=await readNdjson(response);
+  assert.equal(events.some(e=>e.type==='delta'),false);
+  assert.equal(archived,false);
+  assert.equal(events.at(-1).type,'error');
+  assert.equal(events.at(-1).code,'PROOF_UNAVAILABLE');
+});

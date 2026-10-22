@@ -2307,9 +2307,9 @@ export async function handleNativeChat(request, env, options = {}) {
   // for one complete JSON reply (which made long answers hit the browser
   // timeout). Only for plain conversation: tool results, voice, Council
   // fan-out, LoRA and release smoke keep the full pipeline below.
-  // Code mode requires a complete verified reply before emitting claimed D1 actions.
-  // Progressive token streaming cannot retract a fabricated success already shown.
-  if (!professorCodeChat && plainChatMayStream({
+  // Professor Code uses the same NDJSON transport as Conversation, but its
+  // model deltas are withheld until the completed response is evidence-checked.
+  if (plainChatMayStream({
     stream: body.stream === true,
     voice: voiceReply,
     releaseSmoke,
@@ -2323,6 +2323,10 @@ export async function handleNativeChat(request, env, options = {}) {
     return streamChatResponse({
       env,
       messages,
+      verifyCompletedText: professorCodeChat ? (raw) => finalizeEvidenceAlignedResponse({
+        text:raw, userText:activeTaskText, codeAccess, toolResults, developmentQueued,
+        requireD1ExecutionReceipts:true,
+      }) : null,
       localFallback: msgs => runLocalPcModel({ env, messages: msgs }),
       // Professor roles pin distinct primaries in BOTH stream and ordinary inference.
       // Code fallback candidates remain CODE-capable; Normal keeps tournament ranking.
