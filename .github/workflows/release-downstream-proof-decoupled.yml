@@ -1340,3 +1340,30 @@ jobs:
           test "${FILE_RESULT}" = "success"
           test "${SOV_RESULT}" = "success"
           echo "All six exact-SHA downstream production proofs and readiness passed independently of ShardVault."
+      - name: Write exact-SHA downstream proof attestation
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          const sha=String(process.env.TARGET_SHA||'').toLowerCase();
+          if(!/^[0-9a-f]{40}$/.test(sha)) throw new Error('DOWNSTREAM_ATTESTATION_SHA_INVALID');
+          const result={
+            schema:'mel.release.downstream-proof.v1',
+            expected_sha:sha,
+            github_run_id:String(process.env.GITHUB_RUN_ID||''),
+            github_run_attempt:String(process.env.GITHUB_RUN_ATTEMPT||''),
+            verification:'seven-jobs-success',
+            passed_jobs:['readiness','http','capabilities','skills','browser','file','sovereignty'],
+          };
+          if(!/^\d+$/.test(result.github_run_id)||!/^\d+$/.test(result.github_run_attempt)) throw new Error('DOWNSTREAM_ATTESTATION_RUN_INVALID');
+          writeFileSync('downstream-proof-attestation.json',JSON.stringify(result,null,2)+'\n',{mode:0o600,flag:'wx'});
+          NODE
+      - name: Store exact-SHA proof attestation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: downstream-proof-attestation-${{ inputs.expected_sha }}
+          path: downstream-proof-attestation.json
+          if-no-files-found: error
+          retention-days: 14
+
