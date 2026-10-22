@@ -98,3 +98,19 @@ test('an activity reset hides older jobs and cancels only the active supervised 
   assert.deepEqual(view.jobs.map(job => job.id), ['new']);
   assert.equal(view.activity_list_epoch, now);
 });
+
+// [ChatGPT-GPT6] A committed package is still awaiting promotion and must be
+// cancellable; only terminal lifecycle states are exempt from activity reset.
+test('activity reset treats COMMITTED as active and preserves terminal jobs', async () => {
+  const { resetAutonomyActivityList } = await import('../src/evolution/autonomy-activity.js');
+  const statements = [];
+  const db = { prepare(sql) {
+    statements.push(sql);
+    return { bind() { return this; }, async run() { return { meta: { changes: 1 } }; } };
+  } };
+  const reset = await resetAutonomyActivityList(db, { now: 1_800_000_000_000 });
+  assert.equal(reset.cancelled_active, 1);
+  assert.match(statements[0], /UPDATE dev_jobs SET status='CANCELLED'/);
+  assert.match(statements[0], /status NOT IN \\('COMPLETED','CANCELLED','FAILED'\\)/);
+  assert.doesNotMatch(statements[0], /'COMMITTED'/);
+});
