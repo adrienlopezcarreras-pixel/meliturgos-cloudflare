@@ -48,6 +48,8 @@ jobs:
         run: npm ci
       - name: Syntax gate
         run: npm run check
+      - name: Execute generated Professor file upload runtime regression
+        run: node --test tests/professor-file-upload-runtime.test.mjs
       - name: Audit every Professor control
         run: node --test tests/ui-control-contract-exhaustive.test.mjs
       - name: Audit Professor ergonomics and responsive UI
