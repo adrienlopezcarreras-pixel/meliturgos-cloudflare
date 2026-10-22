@@ -334,8 +334,8 @@ test('release bootstrap exposes bounded pause, backup, code-sync and readiness p
   const readiness=await maybeHandleReleaseLaunchBootstrap(request('readiness'),{MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB:{}},deps);
   assert.equal(readiness.status,200);
   assert.equal((await readiness.json()).readiness.launch_ready,true);
-  assert.equal(calls.length,4);
-  assert.ok(calls.every(row=>row[1]==='NEW_RELEASE_AWAITING_OWNER_LAUNCH'));
+  assert.equal(calls.length,1, 'only explicit pause mutates MAX control');
+  assert.equal(calls[0][1],'NEW_RELEASE_AWAITING_OWNER_LAUNCH');
 });
 
 
@@ -468,7 +468,7 @@ test('release bootstrap capability-watch proof requires a real waiting Teacher h
   assert.equal(body.production_activation_allowed,false);
   assert.equal(body.auto_approval_allowed,false);
   assert.equal(body.autonomy_started,false);
-  assert.equal(calls[0].paused,true);
+  assert.equal(calls.length,0, 'capability proof must not change MAX control');
 
   const blocked=await maybeHandleReleaseLaunchBootstrap(request(),env,{
     setControl:async()=>{},
