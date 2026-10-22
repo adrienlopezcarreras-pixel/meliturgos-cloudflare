@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { inferPublicImageLookup } from '../src/api/native-chat.js';
 import { NORMAL_RUNTIME_SOURCE } from '../src/pages/mvp-runtime.js';
+import { LOCAL_PHOTO_PREVIEW_SOURCE } from '../src/pages/local-photo-preview.js';
 
 const root = new URL('../', import.meta.url);
 const source = path => readFile(new URL(path, root), 'utf8');
@@ -27,12 +28,14 @@ test('native chat does not turn an unexecuted tool JSON into an apparent answer 
 });
 
 test('normal chat previews bounded private photos before and after send without external URLs', () => {
-  assert.match(NORMAL_RUNTIME_SOURCE, /async function melLocalPhotoPreview\(file\)/);
-  assert.match(NORMAL_RUNTIME_SOURCE, /createImageBitmap\(file\)/);
-  assert.match(NORMAL_RUNTIME_SOURCE, /canvas\.toDataURL/);
+  assert.match(LOCAL_PHOTO_PREVIEW_SOURCE, /async function melLocalPhotoPreview\(file\)/);
+  assert.match(LOCAL_PHOTO_PREVIEW_SOURCE, /createImageBitmap\(file\)/);
+  assert.match(LOCAL_PHOTO_PREVIEW_SOURCE, /canvas\.toDataURL/);
   assert.match(NORMAL_RUNTIME_SOURCE, /showSentPhotos\(node,staged\)/);
   assert.match(NORMAL_RUNTIME_SOURCE, /analyse visuelle indisponible/);
-  assert.doesNotMatch(NORMAL_RUNTIME_SOURCE, /URL\.createObjectURL/);
+  assert.match(NORMAL_RUNTIME_SOURCE, /item\.mediaUrl\|\|item\.localUrl/);
+  assert.match(NORMAL_RUNTIME_SOURCE, /URL\.revokeObjectURL/);
+  assert.doesNotMatch(LOCAL_PHOTO_PREVIEW_SOURCE, /URL\.createObjectURL/);
 });
 
 test('full chat keeps photo preview in sent messages and does not expose a stored object publicly', async () => {
@@ -40,6 +43,9 @@ test('full chat keeps photo preview in sent messages and does not expose a store
   assert.match(full, /LOCAL_PHOTO_PREVIEW_SOURCE/);
   assert.match(full, /showSentPhotos\(node,staged\)/);
   assert.match(full, /localUrl=await melLocalPhotoPreview\(file\)/);
+  assert.match(full, /function appendLocalMedia\(host,item/);
   assert.match(full, /vision indisponible/);
-  assert.doesNotMatch(full, /URL\.createObjectURL\(file\)/);
+  // Object URLs are local, ephemeral media previews; they are not public R2 links.
+  assert.match(full, /URL\.createObjectURL\(file\)/);
+  assert.match(full, /URL\.revokeObjectURL/);
 });

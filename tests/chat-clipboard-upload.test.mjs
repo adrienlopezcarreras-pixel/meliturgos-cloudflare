@@ -95,7 +95,7 @@ test('[GPT6][MEL-FILE] generated Normal upload requires an actual API receipt be
   const end = NORMAL_RUNTIME_SOURCE.indexOf('\ninitVoice();',start);
   assert.ok(start>=0 && end>start, 'must test the generated browser handler, not the template source');
   const compile = new Function(
-    'status','FormData','fetch','melLocalPhotoPreview','pendingFiles','renderPendingFiles',
+    'status','FormData','fetch','melLocalPhotoPreview','localPlayableMedia','pendingFiles','renderPendingFiles',
     NORMAL_RUNTIME_SOURCE.slice(start,end) + ';return handleFiles;',
   );
   for(const mime of ['text/plain','image/png']){
@@ -110,7 +110,7 @@ test('[GPT6][MEL-FILE] generated Normal upload requires an actual API receipt be
       assert.equal(options.method,'POST');
       assert.ok(options.body instanceof FormDataStub);
       return {ok:true,json:async()=>({ok:true,id:'uploaded-proof',stored:true,analysis_status:'OK'})};
-    },async()=>null,pending,()=>{renders++});
+    },async()=>null,()=>({isVideo:false,isAudio:false,mediaUrl:null}),pending,()=>{renders++});
     await upload([file],'file-picker');
     assert.deepEqual(calls,[{key:'file',file}]);
     assert.equal(pending.length,1);
@@ -125,7 +125,7 @@ test('[GPT6][MEL-FILE] generated Normal upload requires an actual API receipt be
     let previewCalled=false;
     let rendered=false;
     const upload=compile(status,class {append(){}},async()=>({ok:true,json:async()=>invalid}),
-      async()=>{previewCalled=true;return null},pending,()=>{rendered=true});
+      async()=>{previewCalled=true;return null},()=>{throw Error('MEDIA_BEFORE_RECEIPT')},pending,()=>{rendered=true});
     await upload([{name:'unverified.txt',type:'text/plain'}],'file-picker');
     assert.equal(pending.length,0);
     assert.equal(previewCalled,false);

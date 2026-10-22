@@ -12,7 +12,9 @@ test('normal UI offers one generic multi-file drop surface without pretending lo
   assert.match(source,/Glisse un fichier ici/);
   assert.match(NORMAL_RUNTIME_SOURCE,/\/api\/files\/upload/);
   assert.doesNotMatch(source,/<video[^>]*controls/);
-  assert.doesNotMatch(NORMAL_RUNTIME_SOURCE,/URL\.createObjectURL/);
+  assert.match(NORMAL_RUNTIME_SOURCE,/URL\.createObjectURL/);
+  assert.match(NORMAL_RUNTIME_SOURCE,/URL\.revokeObjectURL/);
+  assert.match(NORMAL_RUNTIME_SOURCE,/media\.controls=true/);
 });
 
 test('binary upload stays private and uses R2 only when the binding exists', async()=>{
