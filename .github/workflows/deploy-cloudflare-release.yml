@@ -2529,13 +2529,15 @@ jobs:
             --output verified-release-autonomy-control.json
           node --input-type=module - <<'NODE'
           import fs from 'node:fs';
-          import { rememberedReleaseMax } from './src/evolution/autonomy-control.js';
+          import { rememberedReleaseMax, isReleaseAutonomyPause } from './src/evolution/autonomy-control.js';
           const control=JSON.parse(fs.readFileSync('verified-release-autonomy-control.json','utf8'));
           if(control.ok!==true || typeof control.paused!=='boolean' || typeof control.max_autonomy!=='boolean')
             throw new Error('VERIFIED_RELEASE_CONTROL_UNAVAILABLE');
-          // Read the newly deployed schema too: the previous Worker may not
-          // expose remembered MAX even though D1 retained it before cancellation.
-          fs.appendFileSync(process.env.GITHUB_ENV,'PREVIOUS_MAX_AUTONOMY='+String(rememberedReleaseMax(control))+'\n');
+          // Preserve the owner's pre-deploy choice through a technical release pause.
+          // A later owner/safety pause must always revoke automatic restoration.
+          const predeployChoice=process.env.PREVIOUS_MAX_AUTONOMY==='true';
+          const restoreChoice=rememberedReleaseMax(control) || (predeployChoice && isReleaseAutonomyPause(control));
+          fs.appendFileSync(process.env.GITHUB_ENV,'PREVIOUS_MAX_AUTONOMY='+String(restoreChoice)+'\n');
           NODE
 
       # A routine release must not silently switch off an autonomy the owner had
