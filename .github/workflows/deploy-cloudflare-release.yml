@@ -438,6 +438,7 @@ jobs:
           }
           fs.appendFileSync(process.env.GITHUB_ENV,
             'PREVIOUS_AUTONOMY_PAUSED='+String(paused)+'\n'
+            +'PREDEPLOY_CONTROL_VERSION='+String(d.updated_at ?? '')+'\n'
             +'PREVIOUS_MAX_AUTONOMY='+String(maxAutonomy)+'\n');
           console.log(JSON.stringify({paused,max_autonomy:maxAutonomy,status:paused?'PAUSED':(maxAutonomy?'MAX_AUTONOMY':(d.status||'RUNNING')),normalized_contradiction:paused&&reportedMax}));
           NODE
@@ -1291,7 +1292,7 @@ jobs:
               --data '{"phase":"gen2-42-owner-max"}' \
               --output owner-max-autorelease.json \
               --write-out '%{http_code}' \
-              "$BASE_URL/api/internal/release-launch-bootstrap?release_restore=true" || true)"
+              "$BASE_URL/api/internal/release-launch-bootstrap?release_restore=true&predeploy_control_version=${PREDEPLOY_CONTROL_VERSION}" || true)"
             if [ "$CODE" = "200" ]; then READY=1; break; fi
             sleep 3
           done
