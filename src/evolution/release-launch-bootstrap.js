@@ -895,15 +895,20 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   // A deployment may inherit RUNNING/MAX control state from the previous SHA.
   // Force the new release into PAUSED before any preparation. Only the normal
   // owner-authenticated Resume/MAX endpoint may approve and start this SHA.
-  const releaseControl = await setControl(env?.DB, {
-    paused: true,
-    max_autonomy: false,
-    source: 'release-launch-bootstrap',
-    reason: 'NEW_RELEASE_AWAITING_OWNER_LAUNCH',
-    launch_approved_sha: null,
-    launch_approved_at: null,
-    launch_gate_digest: null,
-  });
+  // Only an explicit release safety-pause may change the owner's MAX state.
+  // Health/proof/readiness calls must be read-only for autonomy control;
+  // otherwise a late post-release probe re-pauses MAX after owner activation.
+  const releaseControl = phase === 'pause'
+    ? await setControl(env?.DB, {
+      paused: true,
+      max_autonomy: false,
+      source: 'release-launch-bootstrap',
+      reason: 'NEW_RELEASE_AWAITING_OWNER_LAUNCH',
+      launch_approved_sha: null,
+      launch_approved_at: null,
+      launch_gate_digest: null,
+    })
+    : null;
 
   if (phase === 'capability-watch-proof') {
     const proof = await proveCapabilityWatch(env);
