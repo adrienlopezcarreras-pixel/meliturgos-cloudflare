@@ -184,3 +184,5 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 - `codex-source-scoped-autonomy-admission-20261021` — rattacher chaque producteur autonome à son item canonique; réconcilier un oubli historique uniquement sur provenance vérifiée, conserver les états terminaux et maintenir le refus des autres échecs sans périmètre.
 
 - `codex-cloud-first-owner-fallback-20261021` — cloud prioritaire sans attente de heartbeat personnel; secours explicite et preuve bornée du paquet; attribution atomique, report persistant et preuve réelle distincte du dispatch.
+
+- `codex-owner-intent-version-release-cas-20261023` — distinguer la révision du choix propriétaire des écritures techniques et conserver le CAS final avant reprise.

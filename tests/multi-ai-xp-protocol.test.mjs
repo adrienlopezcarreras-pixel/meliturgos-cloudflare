@@ -150,3 +150,13 @@ test('development experience pack is deduplicated and available to MEL training'
     assert.equal(pair.rejected, lesson.before);
   }
 });
+
+test('owner-intent release safety lesson is validated and exposed through the canonical corpus', async () => {
+  const id='codex-owner-intent-version-release-cas-20261023';
+  const row=DEVELOPMENT_EXPERIENCE_PACK.find(item=>item.id===id);
+  assert.equal(validateAgentExperience(row).ok,true);
+  assert.equal(BOOTSTRAP_CORRECTIONS.filter(item=>item.id===id).length,1);
+  const engine=new LearningEngine({memory:new MemoryStub()});
+  const corrections=await engine.corrections({limit:500});
+  assert.ok(corrections.some(item=>item.id===id));
+});

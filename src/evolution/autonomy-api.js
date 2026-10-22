@@ -172,6 +172,7 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
       owner_override: control.owner_override === true,
       status: control.status,
       updated_at: control.updated_at,
+      owner_control_version: control.owner_control_version,
       max_remembered: control.max_remembered === true,
       // Only fixed release labels are public; owner-supplied pause text stays private.
       source: isReleaseAutonomyPause(control) ? control.source : null,

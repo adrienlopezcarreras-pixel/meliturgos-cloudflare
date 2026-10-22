@@ -6,7 +6,7 @@ import {
   prepareAutonomyLaunchBackup,
   prepareAutonomyLaunchCodeSync,
 } from './launch-readiness.js';
-import { setAutonomyControl, getAutonomyControl, isReleaseAutonomyPause } from './autonomy-control.js';
+import { setAutonomyControl, getAutonomyControl, isReleaseAutonomyPause, ownerControlVersion } from './autonomy-control.js';
 import { D1SkillRegistryStore } from './d1-skill-registry-store.js';
 import { SkillRegistry } from './skill-registry.js';
 import { D1PluginVersionStore } from '../plugins/d1-version-store.js';
@@ -819,7 +819,14 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       || verifiedControlVersion <= 0
       || !Number.isSafeInteger(observedVersion)
       || observedVersion !== verifiedControlVersion;
-    if (releaseRestore && !isReleaseAutonomyPause(beforeRestore) && (safetyStop || changedSinceVerification)) {
+    // A final snapshot alone misses owner stops earlier in the same release.
+    // Compare owner intent with the pre-deployment snapshot as well; technical
+    // release pauses advance the row CAS clock, never this owner-intent version.
+    const releaseOwnerVersion = Number(url.searchParams.get('release_owner_control_version'));
+    const changedOwnerIntent = !Number.isSafeInteger(releaseOwnerVersion)
+      || releaseOwnerVersion <= 0
+      || ownerControlVersion(beforeRestore) !== releaseOwnerVersion;
+    if (releaseRestore && !isReleaseAutonomyPause(beforeRestore) && (safetyStop || changedSinceVerification || changedOwnerIntent)) {
       return Response.json({ ok: true, status: 'RELEASE_OWNER_CONTROL_PRESERVED', restore_skipped: true,
         paused: beforeRestore.paused, max_autonomy: beforeRestore.max_autonomy,
         autonomy_started: false }, { headers: { 'cache-control': 'no-store' } });
