@@ -118,3 +118,16 @@ test('all production mutation workflows retain one shared FIFO queue instead of 
     assert.match(source, /concurrency:\s*\n\s+group:[^\n]*mel-launch-bootstrap-token[^\n]*\n\s+cancel-in-progress:\s*false\n\s+queue:\s*max\b/, name);
   }
 });
+
+test('an official release retains its serving SHA until downstream proofs finish without deadlocking child probes', async () => {
+  const source = await readFile(new URL('../../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const parent = source.slice(0, source.indexOf('\njobs:'));
+  const pipeline = parent.match(/^concurrency:\n\s+group:\s*(\S+)\n\s+cancel-in-progress:\s*false\n\s+queue:\s*max/m);
+  assert.ok(pipeline, 'all official releases, including manual dispatch, must queue until the complete previous run finishes');
+  assert.equal(pipeline[1], 'mel-production-release-pipeline');
+  assert.notEqual(pipeline[1], 'mel-launch-bootstrap-token', 'the parent must not hold the child proof identity lane');
+  assert.match(source, /deploy:\n(?:\s*#[^\n]*\n)*\s+concurrency:\n\s+group:\s*mel-launch-bootstrap-token/);
+  assert.match(source, /post-release-health:\n[\s\S]*needs:\s*deploy/);
+  assert.match(source, /Require explicit production approval/);
+  assert.doesNotMatch(parent, /cancel-in-progress:\s*true/);
+});
