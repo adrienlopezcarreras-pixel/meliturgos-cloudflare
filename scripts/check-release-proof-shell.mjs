@@ -8,6 +8,15 @@ const source = await fs.readFile(workflowPath, 'utf8');
 const marker = '      - name: Prepare and prove production autonomy launch evidence';
 const start = source.indexOf(marker);
 if (start < 0) throw new Error('RELEASE_PROOF_STEP_NOT_FOUND');
+// [GPT] Block deployments with wrong ordering: exact-SHA binding and HTTP
+// health must be verified before slower post-deployment autonomy probes.
+const shaGate = source.indexOf('      - name: Verify owner auth binding and exact deployment immediately');
+const httpGate = source.indexOf('      - name: Verify production HTTP');
+if (shaGate < 0 || httpGate < 0) throw new Error('RELEASE_PRIMARY_GATES_MISSING');
+if (!(shaGate < httpGate && httpGate < start)) {
+  throw new Error('RELEASE_PRIMARY_GATES_MUST_PRECEDE_DEEP_PROOFS');
+}
+
 const runMarker = '        run: |';
 const runAt = source.indexOf(runMarker, start);
 if (runAt < 0) throw new Error('RELEASE_PROOF_RUN_BLOCK_NOT_FOUND');
