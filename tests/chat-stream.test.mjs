@@ -291,7 +291,7 @@ test('Professor streaming keeps Code and Conversation on distinct primaries with
   assert.deepEqual(fallbacks, [codeModel, codeBackup]);
 });
 
-test('native Professor streams Conversation but verifies Code before returning JSON without changing Normal', async () => {
+test('native Professor streams Conversation and verified Code without changing Normal', async () => {
   const DB = sqliteD1();
   const normalModel = '@cf/test/normal-configured';
   const codeModel = '@cf/nvidia/nemotron-3-120b-a12b';
@@ -314,12 +314,15 @@ test('native Professor streams Conversation but verifies Code before returning J
       }),
     }), env, { authorized: true });
     if (suffix === 'code') {
-      // Code must not stream unverified claims of code or D1 mutations.
-      assert.match(response.headers.get('content-type') || '', /application\/json/);
-      const payload = await response.json();
-      assert.equal(payload.ok, true);
-      assert.ok(String(payload.text || '').includes('Réponse vérifiée.'));
-      return payload.model;
+      // Code can use NDJSON, but its model content must only be emitted
+      // after evidence verification. No raw unverified deltas may leak.
+      assert.match(response.headers.get('content-type') || '', /application\/x-ndjson/);
+      const events = await readNdjson(response);
+      assert.equal(events[0].type, 'start');
+      assert.equal(events.at(-1).type, 'done');
+      const verifiedText = events.filter(event => event.type === 'delta').map(event => event.text).join('');
+      assert.match(verifiedText, /Réponse vérifiée\./);
+      return events[0].model;
     }
     assert.match(response.headers.get('content-type') || '', /application\/x-ndjson/);
     const events = await readNdjson(response);
@@ -333,7 +336,7 @@ test('native Professor streams Conversation but verifies Code before returning J
     assert.deepEqual(called, [
       { model:normalModel, streaming:true },
       { model:chatModel, streaming:true },
-      { model:codeModel, streaming:false },
+      { model:codeModel, streaming:true },
     ]);
   } finally {
     DB.close?.();
