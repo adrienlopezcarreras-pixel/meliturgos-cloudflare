@@ -46,17 +46,31 @@ def classify_session_error(text):
     return max(matches)[1] if matches else None
 
 
+def session_log_text(text):
+    try:
+        payload = json.loads(text)
+    except (ValueError, TypeError):
+        return text, "TEXT" if text.strip() else "EMPTY"
+    if isinstance(payload, list):
+        return "\n".join(row["data"] for row in payload
+                          if isinstance(row, dict) and isinstance(row.get("data"), str)), "JSON_EVENTS"
+    if isinstance(payload, dict) and isinstance(payload.get("log"), str):
+        return payload["log"], "JSON_LOG"
+    return "", "JSON_UNRECOGNIZED"
+
+
 def read_session_error(kernel, run=subprocess.run):
     try:
         result = run([sys.executable, "-m", "kaggle", "kernels", "logs", kernel],
                      capture_output=True, text=True, timeout=45, check=False)
         if result.returncode == 0:
-            code = classify_session_error(result.stdout)
-            return {"session_error_code": code,
+            text, log_format = session_log_text(result.stdout)
+            code = classify_session_error(text)
+            return {"session_error_code": code, "session_log_format": log_format,
                     "session_diagnostics_status": "CLASSIFIED" if code else "UNCLASSIFIED"}
     except Exception:
         pass
-    return {"session_error_code": None, "session_diagnostics_status": "UNAVAILABLE"}
+    return {"session_error_code": None, "session_log_format": "UNAVAILABLE", "session_diagnostics_status": "UNAVAILABLE"}
 
 
 def collect_status(kernel, run=subprocess.run):
@@ -122,7 +136,9 @@ def main():
         print("::notice title=MEL Kaggle read-only status::session_status="
               + proof["session_status"] + ";weights_verified=false;promotion_allowed=false;code="
               + (proof["error_code"] or "NONE")
-              + ";session_error_code=" + (proof["session_error_code"] or "UNCLASSIFIED"))
+              + ";session_error_code=" + (proof["session_error_code"] or "UNCLASSIFIED")
+              + ";diagnostics=" + proof["session_diagnostics_status"]
+              + ";log_format=" + proof.get("session_log_format", "NOT_REQUESTED"))
     return 0 if proof["ok"] else 1
 
 
