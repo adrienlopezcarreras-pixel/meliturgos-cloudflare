@@ -269,11 +269,28 @@ export async function executeBrowserStep(page, step, allowedOrigins) {
       if (!fileName || !step.file_text) throw companionError('BROWSER_UPLOAD_FILE_REQUIRED', 400);
       const bytes = Buffer.from(step.file_text, 'utf8');
       if (bytes.byteLength > 16384) throw companionError('BROWSER_UPLOAD_FILE_TOO_LARGE', 413);
+      // Release-file proofs must establish the actual upload response, not just
+      // that Playwright populated an input. Never return response body or headers.
+      const releaseFileProof = /^mel-file-(normal|full)-proof\\.txt$/i.test(fileName);
+      const uploadResponse = releaseFileProof && typeof page.waitForResponse === 'function'
+        ? page.waitForResponse(response => {
+            try {
+              return new URL(response.url()).pathname === '/api/files/upload'
+                && response.request().method() === 'POST';
+            } catch { return false; }
+          }, { timeout: 12000 }).then(response => response.status()).catch(() => null)
+        : null;
       await page.locator(selector).setInputFiles({
         name: fileName,
         mimeType,
         buffer: bytes,
       }, { timeout: ACTION_TIMEOUT_MS });
+      const uploadHttpStatus = uploadResponse ? await uploadResponse : null;
+      if (uploadResponse && uploadHttpStatus !== 200) {
+        throw companionError(uploadHttpStatus === null
+          ? 'BROWSER_UPLOAD_HTTP_NOT_OBSERVED'
+          : 'BROWSER_UPLOAD_HTTP_' + uploadHttpStatus, uploadHttpStatus || 408);
+      }
       return {
         kind: 'upload',
         action: step.action,
