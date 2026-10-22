@@ -74,12 +74,12 @@ async function recordCloudUnavailable(db, job, key, now, code) {
 export async function maybeDispatchCloudBridge(env, tick, { now = Date.now(), relay = null } = {}) {
   const db = env?.DB;
   if (!db?.prepare) return { status: 'SKIPPED_NO_TICK' };
-  tick = tick || {};
-  // The tick may stop before reporting the package (e.g. no free model for its
-  // runtime proof), so the READY package is also looked up in D1 directly:
-  // applying it needs no model at all.
-  let job = tick.bridge_preparation?.status === 'READY' && ['TEACHER_APPROVED', 'READY_FOR_REVIEW'].includes(String(tick.job?.status || '').toUpperCase()) ? tick.job : null;
-  if (!job) job = await readyJobFromD1(db);
+  // [ChatGPT-GPT6 / MEL-CODE-MAX-HANDOFF] The authoritative D1 snapshot,
+  // not a stale tick result, decides whether the package is still executable.
+  // MAX may have cancelled or superseded the job while a tick was running.
+  // The existing eligibility predicate checks Teacher, package, tests and
+  // terminal states. Cloud and optional Companion share the atomic claim.
+  const job = await readyJobFromD1(db);
   if (!job?.id) return { status: 'SKIPPED_NOT_READY' };
   // CODEX: no local heartbeat read or grace period before cloud execution.
   const packageAt = await packageCreatedMs(db, job);
