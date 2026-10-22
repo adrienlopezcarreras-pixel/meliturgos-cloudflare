@@ -475,12 +475,21 @@ export class MentorEngine {
     let repairAttempted = false;
     let repairValidProposals = 0;
 
-    // A failed or unavailable model must not monopolize the mentor. Work in
-    // bounded waves of three; stop as soon as one validated proposal exists.
-    // This keeps normal latency/concurrency unchanged while admitting backup
-    // models (and an owner-consented PC, if independently prevalidated).
-    for (let offset = 0; offset < providers.length && !proposals.length; offset += 3) {
-      const wave = providers.slice(offset, offset + 3);
+    // [ChatGPT-GPT6 / MEL-CODE-CLOUD-FIRST] Separate zero-added-cost cloud
+    // waves from optional, prevalidated Companion inference. A partial final
+    // cloud wave must finish before any local PC inference can be attempted.
+    // No extra scheduler, provider registry or budget is introduced.
+    const cloudProviders = providers.filter(provider => provider.providerId !== 'local-companion-ai');
+    const localProviders = providers.filter(provider => provider.providerId === 'local-companion-ai');
+    const providerWaves = [];
+    for (const tier of [cloudProviders, localProviders]) {
+      for (let offset = 0; offset < tier.length; offset += 3) {
+        providerWaves.push(tier.slice(offset, offset + 3));
+      }
+    }
+    for (const wave of providerWaves) {
+      if (proposals.length) break;
+      const waveOffset = attemptedProviders.length;
       attemptedProviders.push(...wave.map(provider => provider.id));
       const settled = await Promise.allSettled(wave.map((provider, index) => {
         const active = learned.activeAdapter;
@@ -488,7 +497,7 @@ export class MentorEngine {
         const visibleScope = [];
         return boundedMentorInvoke(provider, {
           input: promptWithinLimit(
-            visible => buildPrompt({ role: roles[(offset + index) % roles.length], goal: objective, files: visible, lessons: remembered, experiences, previousAttempts, mode, reference: referenceFor(provider) }),
+            visible => buildPrompt({ role: roles[(waveOffset + index) % roles.length], goal: objective, files: visible, lessons: remembered, experiences, previousAttempts, mode, reference: referenceFor(provider) }),
             files,
             promptLimit(provider),
             visibleScope,

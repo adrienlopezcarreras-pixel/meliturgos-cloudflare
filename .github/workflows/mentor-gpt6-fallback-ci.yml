@@ -15,6 +15,11 @@ on:
       - 'src/learning/mentor-companion-provider.js'
       - 'tests/mentor-engine.test.mjs'
       - 'tests/mentor-companion-provider.test.mjs'
+      - 'src/dev/runtime-api.js'
+      - 'src/evolution/cloud-bridge-dispatch.js'
+      - 'tests/max-mode-self-knowledge.test.mjs'
+      - 'tests/cloud-first-autonomy.test.mjs'
+      - 'tests/integration/dev-runtime-api.test.mjs'
       - '.github/workflows/mentor-gpt6-fallback-ci.yml'
 permissions:
   contents: read
@@ -38,5 +43,8 @@ jobs:
           node --check src/learning/mentor-companion-provider.js
           node --check tests/mentor-engine.test.mjs
           node --check tests/mentor-companion-provider.test.mjs
+          node --check src/dev/runtime-api.js
+          node --check src/evolution/cloud-bridge-dispatch.js
+          node --check tests/max-mode-self-knowledge.test.mjs
       - name: Isolated mentor regressions
-        run: node --test tests/mentor-engine.test.mjs tests/mentor-companion-provider.test.mjs tests/mentor-candidate-safety.test.mjs tests/autonomy-bridge-preparer.test.mjs
+        run: node --test tests/mentor-engine.test.mjs tests/mentor-companion-provider.test.mjs tests/mentor-candidate-safety.test.mjs tests/autonomy-bridge-preparer.test.mjs tests/max-mode-self-knowledge.test.mjs tests/cloud-first-autonomy.test.mjs tests/integration/dev-runtime-api.test.mjs

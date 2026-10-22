@@ -36,13 +36,34 @@ function fakeDb(rows = {}) {
       let args = [];
       const stmt = {
         bind(...a) { args = a; return stmt; },
+        async all() {
+          // [ChatGPT-GPT6] An actual READY D1 row is now required, not a
+          // potentially stale tick assertion. Fake only the SQL read boundary.
+          if (!/FROM dev_jobs/.test(sql)) return { results: [] };
+          if (rows.ready !== true) return { results: [] };
+          const requestedAt = rows.package?.package_created_at || new Date(0).toISOString();
+          return { results: [{
+            id: 'job-1',
+            status: 'TEACHER_APPROVED',
+            files_json: JSON.stringify([{ path: 'src/example.js', content: 'export const ready = true;' }]),
+            tests_json: JSON.stringify([{ command: 'test:smoke' }]),
+            result_json: JSON.stringify({
+              teacher_bridge: { status: 'ANSWERED', request: { request_id: 'teacher-1' },
+                review: { request_id: 'teacher-1', verdict: 'APPROVE_PLAN', development_allowed: true } },
+              implementation_proposal: { status: 'READY' },
+              bridge_preparation: { status: 'READY', teacher_request_id: 'teacher-1',
+                candidate_branch: 'candidate/mel-clean-autonomy', candidate_sha: 'a'.repeat(40),
+                created_at: requestedAt },
+            }),
+          }] };
+        },
         async first() {
           if (/bridge_id='primary'/.test(sql)) return rows.primary || null;
           if (/FROM dev_jobs WHERE id=\?/.test(sql)) return rows.package || null;
           if (/WHERE bridge_id=\?/.test(sql)) return rows[args[0]] || null;
           return null;
         },
-        async run() { writes.push({ sql, args }); return {}; },
+        async run() { writes.push({ sql, args }); return { meta: { changes: 1 } }; },
       };
       return stmt;
     },
@@ -51,8 +72,18 @@ function fakeDb(rows = {}) {
 
 const readyTick = { bridge_preparation: { status: 'READY' }, job: { id: 'job-1', status: 'TEACHER_APPROVED' } };
 
+test('[ChatGPT-GPT6] stale MAX tick cannot send a missing or cancelled D1 package', async () => {
+  let invoked = 0;
+  const result = await maybeDispatchCloudBridge({ DB: fakeDb() }, readyTick, {
+    now: 10_000_000,
+    relay: { async enqueue() { invoked++; return { id: 'should-not-happen' }; } },
+  });
+  assert.equal(result.status, 'SKIPPED_NOT_READY');
+  assert.equal(invoked, 0);
+});
+
 test('MEL queues her own cloud bridge when a change is ready and the PC is offline', async () => {
-  const db = fakeDb();
+  const db = fakeDb({ ready: true });
   const queued = [];
   const relay = { async enqueue(job) { queued.push(job); return { id: 'r1' }; } };
   const out = await maybeDispatchCloudBridge({ DB: db }, readyTick, { now: 1_000_000, relay });
@@ -66,12 +97,13 @@ test('no dispatch when not ready or dispatched recently', async () => {
   const relay = { async enqueue() { throw new Error('must not enqueue'); } };
   const now = 10_000_000;
   assert.equal((await maybeDispatchCloudBridge({ DB: fakeDb() }, { job: { id: 'j', status: 'WAITING_TEACHER' } }, { now, relay })).status, 'SKIPPED_NOT_READY');
-  assert.equal((await maybeDispatchCloudBridge({ DB: fakeDb({ 'cloud-bridge-dispatch:job-1': { last_seen: now - 60_000 } }) }, readyTick, { now, relay })).status, 'SKIPPED_RECENTLY_DISPATCHED');
+  assert.equal((await maybeDispatchCloudBridge({ DB: fakeDb({ ready: true, 'cloud-bridge-dispatch:job-1': { last_seen: now - 60_000 } }) }, readyTick, { now, relay })).status, 'SKIPPED_RECENTLY_DISPATCHED');
 });
 
 test('a package created after the last dispatch is sent without waiting 30 minutes', async () => {
   const now = 10_000_000;
   const db = fakeDb({
+    ready: true,
     'cloud-bridge-dispatch:job-1': { last_seen: now - 60_000 },
     package: { package_created_at: new Date(now - 30_000).toISOString() },
   });
@@ -133,6 +165,7 @@ test('MAX status answers name the real job, its waiting step and the guard state
 test('[GPT] online Companion heartbeat does not indefinitely hide an unclaimed READY package', async () => {
   const now = 20_000_000;
   const db = fakeDb({
+    ready: true,
     primary: { last_seen: now - 2_000, status: 'ONLINE' },
     package: { package_created_at: new Date(now - 240_000).toISOString() },
   });
@@ -149,6 +182,7 @@ test('[GPT] online Companion heartbeat does not indefinitely hide an unclaimed R
 test('[CODEX] recent READY package goes to cloud even with an online Companion', async () => {
   const now = 20_000_000;
   const db = fakeDb({
+    ready: true,
     primary: { last_seen: now - 2_000, status: 'ONLINE' },
     package: { package_created_at: new Date(now - 30_000).toISOString() },
   });

@@ -5,6 +5,8 @@ import { prepareApprovedBridgePackage, normalizeTests } from '../src/evolution/a
 import { MentorEngine } from '../src/learning/mentor-engine.js';
 import { MentorMemoryRepository } from '../src/learning/mentor-memory.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
+import { devRuntime } from '../src/dev/runtime-api.js';
+import { maybeDispatchCloudBridge, CLOUD_BRIDGE_WORKFLOW } from '../src/evolution/cloud-bridge-dispatch.js';
 
 const SHA = 'cccccccccccccccccccccccccccccccccccccccc';
 const BRANCH = 'candidate/augmentio-core';
@@ -429,4 +431,85 @@ test('an older cached package cannot bypass export validation or the mandatory f
   await assert.rejects(prepareApprovedBridgePackage({ ...args, job: await repository.get(job.id) }),
     error => error.code === 'MENTOR_EXPORT_CONTRACT_REMOVED');
   assert.equal((await repository.get(job.id)).status, 'TEACHER_APPROVED');
+});
+
+
+// [ChatGPT-GPT6 / MEL-CODE-MAX-HANDOFF] End-to-end MAX -> Mentor package ->
+// existing online GitHub dispatcher, using disposable D1 and a fake transport.
+test('an authenticated manual MAX tick queues the real Teacher-approved Mentor package through the cloud relay', async () => {
+  const DB = sqliteD1();
+  try {
+    const repository = await approvedRepository(DB);
+    const prepared = await prepareApprovedBridgePackage({
+      env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
+      repository,
+      job: await repository.get('bridge-prep-job'),
+      fetchImpl: fetchImpl(),
+      mentorEngine: mentorEngine([]),
+    });
+    assert.equal(prepared.status, 'READY');
+    const queued = [];
+    const tick = { ok: true, bridge_preparation: prepared, job: { id: 'bridge-prep-job', status: 'TEACHER_APPROVED' } };
+    const env = { DB, MEL_DEV_BRIDGE_TOKEN: 'test-cloud-bridge' };
+    let now = Date.now() + 1000;
+    const options = {
+      repository,
+      runAutonomyTick: async () => tick,
+      dispatchCloudBridge: (runtimeEnv, currentTick) => maybeDispatchCloudBridge(runtimeEnv, currentTick, {
+        now,
+        relay: {
+          async enqueue(item) {
+            queued.push(item);
+            return { id: 'online-relay-receipt-1' };
+          },
+        },
+      }),
+    };
+    const call = () => devRuntime(new Request('https://mel.example/api/dev-bridge/autonomy/tick', {
+      method: 'POST',
+      headers: { authorization: 'Bearer test-cloud-bridge', 'content-type': 'application/json' },
+      body: '{}',
+    }), env, options);
+
+    const first = await call();
+    assert.equal(first.status, 200);
+    const answer = await first.json();
+    assert.equal(answer.ok, true);
+    assert.equal(answer.cloud_dispatch.status, 'DISPATCH_QUEUED');
+    assert.equal(answer.cloud_dispatch.relay_job_id, 'online-relay-receipt-1');
+    assert.equal(queued.length, 1);
+    assert.equal(queued[0].workflow, CLOUD_BRIDGE_WORKFLOW);
+    assert.equal(queued[0].ref, 'main', 'the existing cloud workflow is the executor; no local PC endpoint');
+    assert.equal(queued[0].inputs.job_id, 'bridge-prep-job');
+    assert.equal((await repository.get('bridge-prep-job')).status, 'TEACHER_APPROVED', 'queue receipt never claims code ran');
+
+    now += 1000;
+    assert.equal((await (await call()).json()).cloud_dispatch.status, 'SKIPPED_RECENTLY_DISPATCHED');
+    assert.equal(queued.length, 1, 'a repeated MAX tick must not enqueue the same package');
+
+    const current = await repository.get('bridge-prep-job');
+    await repository.update(current.id, { status: 'CANCELLED' });
+    assert.equal((await (await call()).json()).cloud_dispatch.status, 'SKIPPED_NOT_READY');
+    assert.equal(queued.length, 1, 'a cancelled MAX job must not be dispatched');
+  } finally {
+    DB.close();
+  }
+});
+
+test('manual MAX tick reports cloud handoff failure without leaking internal transport details', async () => {
+  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+  const response = await devRuntime(new Request('https://mel.example/api/dev-bridge/autonomy/tick', {
+    method: 'POST',
+    headers: { authorization: 'Bearer test-cloud-bridge', 'content-type': 'application/json' },
+    body: '{}',
+  }), { MEL_DEV_BRIDGE_TOKEN: 'test-cloud-bridge' }, {
+    repository,
+    runAutonomyTick: async () => ({ ok: true, advanced: true }),
+    dispatchCloudBridge: async () => { throw new Error('private network authorization detail'); },
+  });
+  const answer = await response.json();
+  assert.equal(answer.tick.advanced, true, 'the MAX tick itself is preserved');
+  assert.equal(answer.cloud_dispatch.status, 'FAILED');
+  assert.equal(answer.cloud_dispatch.code, 'CLOUD_DISPATCH_FAILED');
+  assert.doesNotMatch(JSON.stringify(answer), /private network authorization detail/);
 });

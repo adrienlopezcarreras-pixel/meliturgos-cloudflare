@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import { MentorEngine, mentorPolicy } from '../src/learning/mentor-engine.js';
 import { MentorMemoryRepository } from '../src/learning/mentor-memory.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
+import { ModelRouter } from '../src/models/ModelRouter.js';
+import { ModelRegistry } from '../src/models/ModelRegistry.js';
+import { createHttpChatAdapter } from '../src/augmentio/http-chat-adapter.js';
+import { ZeroEuroGovernor, ZERO_EURO_POLICY } from '../src/augmentio/zero-euro-governor.js';
 
 function provider(id, payload) {
   return {
@@ -669,4 +673,165 @@ test('mentor structured repair receives the same unambiguous bounded format', as
   assert.match(String(calls[1].input.input), /FORMAT UNIQUE/);
   assert.match(String(calls[1].input.input), /RÉPONSE_INVALIDE_À_RÉPARER/);
   assert.equal(result.proposal.changes[0].content, 'export const enabled = true;\n');
+});
+
+
+// [ChatGPT-GPT6 / MEL-CODE-CLOUD-FIRST] Real Mentor inference order: cloud before optional PC.
+test('MEL CODE exhausts free cloud waves before considering the optional Companion', async () => {
+  const DB = sqliteD1();
+  try {
+    const calls = [];
+    const offline = id => ({
+      id, providerId: 'workers-ai', modelId: id,
+      async invoke() { calls.push(id); throw new Error('cloud temporarily unavailable'); },
+    });
+    const workingCloud = {
+      id: 'cloud-four', providerId: 'workers-ai', modelId: 'cloud-four',
+      async invoke() {
+        calls.push('cloud-four');
+        return { text: JSON.stringify({
+          summary: 'Apply a bounded cloud correction',
+          edits: [{ path: 'src/example.js', find: 'return 0;', replace: 'return 1;' }],
+          tests: ['test:smoke'],
+          confidence: 0.9,
+        }), provenance: { provider: 'workers-ai', model: 'cloud-four' } };
+      },
+    };
+    const pc = {
+      id: 'companion', providerId: 'local-companion-ai', modelId: 'pc',
+      async invoke() { calls.push('companion'); throw new Error('PC must not be contacted'); },
+    };
+    const engine = new MentorEngine({
+      memory: new MentorMemoryRepository(DB),
+      // Intentionally interleave the optional PC between cloud adapters.
+      providerFactory: async () => [offline('cloud-one'), pc, offline('cloud-two'), offline('cloud-three'), workingCloud],
+    });
+    const result = await engine.propose({
+      env: {}, jobId: 'mel-code-cloud-first',
+      goal: 'Fix existing code using a free online model without touching the PC',
+      inspectedFiles: [{ path: 'src/example.js', content: 'export function read() { return 0; }\n' }],
+    });
+    assert.equal(result.proposal.changes[0].content, 'export function read() { return 1; }\n');
+    assert.ok(calls.includes('cloud-four'), 'the last cloud candidate must be tried');
+    assert.ok(!calls.includes('companion'), 'the PC is not a speculative parallel candidate');
+    assert.equal(result.council.selected_provider, 'cloud-four');
+  } finally { DB.close(); }
+});
+
+test('MEL CODE uses the consented Companion only after every cloud provider fails', async () => {
+  const DB = sqliteD1();
+  try {
+    const calls = [];
+    const cloud = {
+      id: 'cloud-offline', providerId: 'workers-ai', modelId: 'cloud-offline',
+      async invoke() { calls.push('cloud'); throw new Error('cloud unavailable'); },
+    };
+    const pc = {
+      id: 'pc-only-as-fallback', providerId: 'local-companion-ai', modelId: 'local',
+      async invoke() {
+        calls.push('pc');
+        return { text: JSON.stringify({
+          summary: 'Repair on prevalidated optional local engine',
+          edits: [{ path: 'src/example.js', find: 'return false;', replace: 'return true;' }],
+          tests: ['test:smoke'],
+          confidence: 0.9,
+        }), provenance: { provider: 'local-companion-ai', model: 'local' } };
+      },
+    };
+    const engine = new MentorEngine({
+      memory: new MentorMemoryRepository(DB),
+      providerFactory: async () => [pc, cloud],
+    });
+    const result = await engine.propose({
+      env: {}, jobId: 'mel-code-optional-pc',
+      goal: 'Try cloud before prevalidated PC for a small repair',
+      inspectedFiles: [{ path: 'src/example.js', content: 'export function ready() { return false; }\n' }],
+    });
+    assert.deepEqual(calls, ['cloud', 'pc']);
+    assert.equal(result.council.selected_provider, 'pc-only-as-fallback');
+    assert.match(result.proposal.changes[0].content, /return true;/);
+  } finally { DB.close(); }
+});
+
+test('MEL CODE has no false code success when no free provider can be used', async () => {
+  const engine = new MentorEngine({ providerFactory: async () => [] });
+  await assert.rejects(
+    () => engine.propose({
+      env: {}, goal: 'Do not pretend a development was completed',
+      inspectedFiles: [{ path: 'src/example.js', content: 'export const ready = false;\n' }],
+    }),
+    error => error.code === 'MENTOR_NO_ZERO_COST_CODE_PROVIDER',
+  );
+});
+
+
+// [ChatGPT-GPT6 / MEL-CODE-CAPABILITY-ISOLATION]
+test('MEL CODE does not replace the assistant general-purpose model route', async () => {
+  const seen = [];
+  const registry = new ModelRegistry([
+    { id: 'chat-general', provider: 'test', capabilities: ['GENERAL', 'REASONING'], priority: 10 },
+    { id: 'code-specialist', provider: 'test', capabilities: ['CODE'], priority: 50 },
+  ]);
+  const router = new ModelRouter({
+    registry,
+    invoke: async model => {
+      seen.push(model.id);
+      return { text: model.id === 'chat-general' ? 'Bonjour, je reste ton assistant.' : 'Modification proposée.' };
+    },
+  });
+  const chat = await router.execute({ task: 'GENERAL', messages: [{ role: 'user', content: 'Parlons ensemble' }] });
+  const code = await router.execute({ task: 'CODE', messages: [{ role: 'user', content: 'Inspecte cette fonction' }] });
+  assert.deepEqual(seen, ['chat-general', 'code-specialist']);
+  assert.equal(chat.model, 'chat-general');
+  assert.match(chat.text, /assistant/);
+  assert.equal(code.model, 'code-specialist');
+});
+
+test('MEL CODE specialist HTTP adapter is mock-tested and zero-cost gated without real API calls', async () => {
+  let invoked = 0;
+  const base = {
+    env: { OPENROUTER_API_KEY: 'fixture-only-not-real' },
+    id: 'free-code-demo',
+    providerId: 'openrouter',
+    modelId: 'cohere/north-mini-code:free',
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    secretEnv: 'OPENROUTER_API_KEY',
+    capabilities: ['CODE'],
+    estimatedCost: 0,
+    fetchImpl: async (url, options) => {
+      invoked++;
+      assert.equal(url, 'https://openrouter.ai/api/v1/chat/completions');
+      assert.equal(options.redirect, 'error');
+      const parsed = JSON.parse(options.body);
+      assert.equal(parsed.model, 'cohere/north-mini-code:free');
+      return { ok: true, json: async () => ({ choices: [{ message: { content: '{"edits":[]}' } }] }) };
+    },
+  };
+  const governor = new ZeroEuroGovernor();
+  const withoutProof = createHttpChatAdapter(base);
+  assert.equal(governor.allows(withoutProof), false, 'a public free-model name and estimatedCost=0 are not a verified zero-cost proof');
+  assert.equal(invoked, 0);
+
+  // Fixture only: a real external adapter requires independent cost, quota,
+  // credentials, owner authorization and privacy verification before activation.
+  const withFixtureProof = createHttpChatAdapter({
+    ...base,
+    costProvenance: {
+      verified: true,
+      addedCost: 0,
+      source: 'test-fixture-for-mel-code',
+      authorization: {
+        approved: true,
+        policy: ZERO_EURO_POLICY,
+        authority: 'isolated-ci-fixture',
+        adapter_id: base.id,
+        provider: base.providerId,
+        model: base.modelId,
+      },
+    },
+  });
+  assert.equal(governor.allows(withFixtureProof), true);
+  const output = await withFixtureProof.invoke({ input: 'Test synthétique non privé' });
+  assert.equal(output.text, '{"edits":[]}');
+  assert.equal(invoked, 1, 'mocked network only; no external paid request');
 });
