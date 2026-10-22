@@ -273,3 +273,16 @@ test('GPT6: no-code live checks must be related to the actual objective', async 
     'DECISION: VERIFY_EXISTING\nLIVE_CHECKS: drive.files.list',
   ), false);
 });
+
+test('GPT6: older job outside the bounded list can still complete by exact ID', async () => {
+  const repository = await approvedRepository();
+  const list = repository.list.bind(repository);
+  repository.list = async () => (await list()).filter(job => job.id !== JOB);
+  const result = await reconcileRuntimeCompletions({
+    repository,
+    env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
+    fetchImpl: fetchImplFor(),
+  });
+  assert.equal(result.completed.length, 1);
+  assert.equal((await repository.get(JOB)).status, 'COMPLETED');
+});
