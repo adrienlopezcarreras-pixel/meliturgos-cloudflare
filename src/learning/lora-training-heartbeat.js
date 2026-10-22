@@ -88,28 +88,52 @@ async function workflowRuns({ fetchImpl, repository, branch, workflow, token }) 
   return Array.isArray(body?.workflow_runs) ? body.workflow_runs : [];
 }
 
-const CHECKPOINT_TAG_RE = /^mel-lora-kaggle-[0-9a-f]{12}-c(\d+)$/i;
+// GitHub's release list is not a checkpoint-order guarantee: drafts can appear
+// ahead of published training cycles, and c013 from an older lineage may appear
+// after c003 from a newer one. Choose evidence, not array position.
+// GPT6 / MEL-LORA-HEARTBEAT-PUBLISHED-20261022.
+const CHECKPOINT_TAG_RE = /^mel-lora-kaggle-([0-9a-f]{12})-c(\\d+)$/i;
+const CHECKPOINT_ASSETS = ['kaggle-run.json', 'mel-lora-bundle.tar.gz'];
+
+export function selectLatestCheckpointRelease(releases) {
+  if (!Array.isArray(releases)) return null;
+  const valid = [];
+  for (const release of releases) {
+    const tag = String(release?.tag_name || '').trim();
+    const match = CHECKPOINT_TAG_RE.exec(tag);
+    const target = String(release?.target_commitish || '').trim().toLowerCase();
+    const published = String(release?.published_at || '').trim();
+    const publishedMs = Date.parse(published);
+    if (!match || release?.draft === true || !published
+      || !Number.isFinite(publishedMs)
+      || !/^[0-9a-f]{40}$/.test(target) || !target.startsWith(match[1].toLowerCase())) continue;
+    const assets = Array.isArray(release?.assets) ? release.assets : [];
+    if (!CHECKPOINT_ASSETS.every(name => assets.some(asset =>
+      asset?.name === name && Number(asset?.size) > 0))) continue;
+    const cycle = Number(match[2]);
+    if (!Number.isSafeInteger(cycle) || cycle < 0) continue;
+    const body = String(release?.body || '');
+    valid.push({
+      tag,
+      cycle,
+      target_commitish: target,
+      local_gate_ready: body.includes('LOCAL_GATE_READY_FOR_CANONICAL_BENCHMARK'),
+      body: body.slice(0, 1000),
+      published_at: published,
+      published_ms: publishedMs,
+    });
+  }
+  valid.sort((a, b) => b.published_ms - a.published_ms || b.cycle - a.cycle || a.tag.localeCompare(b.tag));
+  if (!valid.length) return null;
+  const { published_ms, ...checkpoint } = valid[0];
+  return checkpoint;
+}
 
 async function latestCheckpointRelease({ fetchImpl, repository, token }) {
   const url = new URL(`https://api.github.com/repos/${repository}/releases`);
   url.searchParams.set('per_page', '100');
   const releases = await githubJson(fetchImpl, url.toString(), token);
-  if (!Array.isArray(releases)) return null;
-  for (const release of releases) {
-    const tag = String(release?.tag_name || '').trim();
-    const match = CHECKPOINT_TAG_RE.exec(tag);
-    if (!match) continue;
-    const body = String(release?.body || '');
-    return {
-      tag,
-      cycle: Number(match[1]),
-      target_commitish: String(release?.target_commitish || '').trim(),
-      local_gate_ready: body.includes('LOCAL_GATE_READY_FOR_CANONICAL_BENCHMARK'),
-      body: body.slice(0, 1000),
-      published_at: release?.published_at || release?.created_at || null,
-    };
-  }
-  return null;
+  return selectLatestCheckpointRelease(releases);
 }
 
 async function dispatchWorkflow({ fetchImpl, repository, branch, workflow, token, inputs }) {
