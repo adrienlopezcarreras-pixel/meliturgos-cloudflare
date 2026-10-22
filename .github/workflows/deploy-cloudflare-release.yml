@@ -1239,7 +1239,7 @@ jobs:
           // A later owner/safety pause must always revoke automatic restoration.
           const predeployChoice=process.env.PREVIOUS_MAX_AUTONOMY==='true';
           const restoreChoice=rememberedReleaseMax(control) || (predeployChoice && isReleaseAutonomyPause(control));
-          fs.appendFileSync(process.env.GITHUB_ENV,'PREVIOUS_MAX_AUTONOMY='+String(restoreChoice)+'\n');
+          fs.appendFileSync(process.env.GITHUB_ENV,'PREVIOUS_MAX_AUTONOMY='+String(restoreChoice)+'\n'+'VERIFIED_CONTROL_VERSION='+String(control.updated_at ?? '')+'\n');
           NODE
 
       # A routine release must not silently switch off an autonomy the owner had
@@ -1292,7 +1292,7 @@ jobs:
               --data '{"phase":"gen2-42-owner-max"}' \
               --output owner-max-autorelease.json \
               --write-out '%{http_code}' \
-              "$BASE_URL/api/internal/release-launch-bootstrap?release_restore=true&predeploy_control_version=${PREDEPLOY_CONTROL_VERSION}" || true)"
+              "$BASE_URL/api/internal/release-launch-bootstrap?release_restore=true&verified_control_version=${VERIFIED_CONTROL_VERSION}" || true)"
             if [ "$CODE" = "200" ]; then READY=1; break; fi
             sleep 3
           done
