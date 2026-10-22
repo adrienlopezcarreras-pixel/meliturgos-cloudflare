@@ -271,7 +271,7 @@ export async function executeBrowserStep(page, step, allowedOrigins) {
       if (bytes.byteLength > 16384) throw companionError('BROWSER_UPLOAD_FILE_TOO_LARGE', 413);
       // Release-file proofs must establish the actual upload response, not just
       // that Playwright populated an input. Never return response body or headers.
-      const releaseFileProof = /^mel-file-(normal|full)-proof\\.txt$/i.test(fileName);
+      const releaseFileProof = /^mel-file-(normal|full)-proof\.txt$/i.test(fileName);
       const uploadResponse = releaseFileProof && typeof page.waitForResponse === 'function'
         ? page.waitForResponse(response => {
             try {
