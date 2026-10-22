@@ -75,3 +75,16 @@ test('generated Professor upload runtime preserves executable image MIME matchin
   assert.equal(checkImage({type:'image/png'}),true);
   assert.equal(checkImage({type:'text/plain'}),false);
 });
+
+test('Professor alone requires a verified API receipt before staging an attachment', async () => {
+  const html = await (await renderFullInterface()).text();
+  const gate = "if(d?.ok!==true||typeof d?.id!=='string'||!d.id.trim())throw Error('FILE_UPLOAD_NOT_ACKNOWLEDGED');";
+  const at = html.indexOf(gate);
+  assert.ok(at >= 0, 'Professor verifies a successful upload response and nonempty id');
+  assert.ok(html.indexOf('pendingChatFiles.push(item)', at) > at, 'staging follows receipt validation');
+  const approved = new Function('d', gate + 'return true;');
+  assert.equal(approved({ok:true,id:'verified-file'}), true);
+  for (const rejected of [null, {}, {ok:false,id:'x'}, {ok:true}, {ok:true,id:' '}, {ok:true,id:1}]) {
+    assert.throws(() => approved(rejected), /FILE_UPLOAD_NOT_ACKNOWLEDGED/);
+  }
+});
