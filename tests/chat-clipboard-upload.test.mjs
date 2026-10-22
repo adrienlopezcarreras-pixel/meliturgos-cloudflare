@@ -82,8 +82,12 @@ test('both generated chat surfaces require a real server upload acknowledgement 
   for(const [surface,runtime] of [['normal',NORMAL_RUNTIME_SOURCE],['professor',html]]) {
     const gate=runtime.match(/if\(d\?\.ok!==true\|\|typeof d\?\.id!=='string'\|\|!d\.id\.trim\(\)\)throw (?:new )?Error\('FILE_UPLOAD_NOT_ACKNOWLEDGED'\);/);
     assert.ok(gate,surface+' must gate attachment staging on an API receipt');
-    const stage=runtime.indexOf(surface==='normal'?'pendingFiles.push(':'pendingChatFiles.push(');
-    assert.ok(stage>runtime.indexOf(gate[0]),surface+' must validate before staging');
+    // Professor also stages previously validated queued attachments elsewhere.
+    // Compare within the upload code following this receipt gate, not the first
+    // unrelated pendingChatFiles.push in the entire generated interface.
+    const guardAt=runtime.indexOf(gate[0]);
+    const stage=runtime.indexOf(surface==='normal'?'pendingFiles.push(':'pendingChatFiles.push(',guardAt+gate[0].length);
+    assert.ok(stage>guardAt,surface+' must validate before staging');
     const accepted=new Function('d',gate[0]+'return true;');
     assert.equal(accepted({ok:true,id:'file-123'}),true);
     for(const invalid of [{ok:false,id:'file-123'},{ok:true},{ok:true,id:''},{ok:true,id:'  '},null]) {
