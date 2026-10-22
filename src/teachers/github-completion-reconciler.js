@@ -99,21 +99,29 @@ export function parseCompletionJsonl(text) {
   return completions;
 }
 
-async function fetchJson(fetchImpl, url) {
-  const response = await fetchImpl(url, {
+async function fetchJson(fetchImpl, url, env = {}) {
+  let response;
+  try { response = await fetchImpl(url, {
     headers: {
       accept: 'application/vnd.github+json',
       'user-agent': 'meliturgos-completion-reconciler',
       'x-github-api-version': '2022-11-28',
+      ...(env.MEL_GITHUB_TOKEN ? { authorization: 'Bearer ' + String(env.MEL_GITHUB_TOKEN) } : {}),
     },
-  });
+    redirect: 'error',
+    signal: AbortSignal.timeout(20_000),
+  }); } catch {
+    throw Object.assign(new Error('COMPLETION_GITHUB_TRANSPORT_FAILED'), { code: 'COMPLETION_GITHUB_TRANSPORT_FAILED' });
+  }
   if (!response.ok) {
     const error = new Error(`COMPLETION_GITHUB_VERIFY_FAILED_${response.status}`);
     error.code = 'COMPLETION_GITHUB_VERIFY_FAILED';
     error.status = response.status;
     throw error;
   }
-  return response.json();
+  try { return await response.json(); } catch {
+    throw Object.assign(new Error('COMPLETION_GITHUB_RESPONSE_INVALID'), { code: 'COMPLETION_GITHUB_RESPONSE_INVALID' });
+  }
 }
 
 export async function verifyCompletionEvidence(completion, env = {}, { fetchImpl = fetch } = {}) {
@@ -121,7 +129,7 @@ export async function verifyCompletionEvidence(completion, env = {}, { fetchImpl
   if (completion.candidate_branch !== branch) {
     throw Object.assign(new Error('COMPLETION_BRANCH_MISMATCH'), { code: 'COMPLETION_BRANCH_MISMATCH' });
   }
-  const run = await fetchJson(fetchImpl, `https://api.github.com/repos/${encodePath(repository)}/actions/runs/${completion.ci_run_id}`);
+  const run = await fetchJson(fetchImpl, `https://api.github.com/repos/${encodePath(repository)}/actions/runs/${completion.ci_run_id}`, env);
   const runName = String(run?.name || '');
   const headSha = String(run?.head_sha || '');
   const headBranch = String(run?.head_branch || '');
@@ -158,7 +166,7 @@ export async function findGreenFullCandidateRun(env = {}, sha, { fetchImpl = fet
   const { repository, branch } = repoAndBranch(env);
   const head = String(sha || '').toLowerCase();
   if (!SHA_RE.test(head)) return null;
-  const page = await fetchJson(fetchImpl, `https://api.github.com/repos/${encodePath(repository)}/actions/workflows/full-candidate-ci.yml/runs?head_sha=${head}&per_page=10`);
+  const page = await fetchJson(fetchImpl, `https://api.github.com/repos/${encodePath(repository)}/actions/workflows/full-candidate-ci.yml/runs?head_sha=${head}&per_page=10`, env);
   const run = (Array.isArray(page?.workflow_runs) ? page.workflow_runs : [])
     .find((row) => row?.head_sha === head && row?.head_branch === branch && row?.status === 'completed' && row?.conclusion === 'success');
   return run ? Number(run.id) : null;
@@ -510,4 +518,62 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
   }
 
   return { ok: true, records: records.length, completed, rejected };
+}
+
+// Reuse the active heartbeat and the existing repair state machine. This does
+// not run behind the launch gate, complete a job or make any release decision.
+export async function reconcileFailedCandidateRuns({ repository, env = {}, fetchImpl = fetch } = {}) {
+  const { repository: repo, branch } = repoAndBranch(env);
+  const repaired = [];
+  const deferred = [];
+  const jobs = (await repository.list()).filter(job => job.status === 'READY_FOR_REVIEW'
+    && /^[a-f0-9]{40}$/i.test(String(job.result_json?.dev_bridge?.candidate_sha || ''))).slice(0, 8);
+  for (const job of jobs) {
+    try {
+      const bridge = job.result_json.dev_bridge;
+      const teacher = job.result_json.teacher_bridge;
+      const prep = job.result_json.bridge_preparation;
+      if (teacher?.status !== 'ANSWERED' || teacher?.review?.verdict !== 'APPROVE_PLAN'
+          || teacher.review.development_allowed !== true
+          || !teacher.request?.request_id || teacher.request.request_id !== teacher.review.request_id
+          || prep?.status !== 'READY' || !/^[a-f0-9]{40}$/i.test(String(prep.candidate_sha || ''))
+          || prep?.teacher_request_id !== teacher.request.request_id
+          || prep?.candidate_branch !== branch) continue;
+      const sha = bridge.candidate_sha;
+      const page = await fetchJson(fetchImpl, `https://api.github.com/repos/${encodePath(repo)}/actions/workflows/full-candidate-ci.yml/runs?head_sha=${sha}&per_page=10`, env);
+      if (!Array.isArray(page?.workflow_runs)) throw Object.assign(new Error('COMPLETION_GITHUB_RESPONSE_INVALID'), { code: 'COMPLETION_GITHUB_RESPONSE_INVALID' });
+      const run = page.workflow_runs.filter(run => run.name === 'full-candidate-ci' && run.head_sha === sha
+        && run.head_branch === branch).sort((a, b) => Number(b.id) - Number(a.id))[0];
+      if (!run || !Number.isSafeInteger(Number(run.id)) || Number(run.id) <= 0 || run.status !== 'completed' || !['failure', 'timed_out'].includes(run.conclusion)) continue;
+      const head = await fetchJson(fetchImpl, `https://api.github.com/repos/${encodePath(repo)}/commits/${encodeURIComponent(branch)}`, env);
+      if (head.sha !== sha) {
+        // Preserve unrelated work, but never carry a failure onto changed
+        // package files or an unproved/non-descendant candidate.
+        const paths = Array.isArray(prep.files) ? prep.files : [];
+        if (!/^[a-f0-9]{40}$/i.test(String(head.sha || '')) || !paths.length) {
+          deferred.push({ job_id: job.id, code: 'FAILED_CANDIDATE_SUPERSEDED' }); continue;
+        }
+        const comparison = await fetchJson(fetchImpl, `https://api.github.com/repos/${encodePath(repo)}/compare/${sha}...${head.sha}`, env);
+        if (comparison.status !== 'ahead' || comparison.merge_base_commit?.sha !== sha
+            || !Array.isArray(comparison.files) || comparison.files.length >= 300
+            || comparison.files.some(file => paths.includes(file.filename) || paths.includes(file.previous_filename))) {
+          deferred.push({ job_id: job.id, code: 'FAILED_CANDIDATE_SUPERSEDED' }); continue;
+        }
+      }
+      const receivedAt = new Date().toISOString();
+      const tests = [{ name: 'full-candidate-ci', command: 'test', passed: false,
+        executed: true, error: 'FULL_CANDIDATE_CI_FAILED', run_id: run.id, head_sha: sha }];
+      const result = { ...job.result_json,
+        dev_bridge_history: [...(job.result_json.dev_bridge_history || []), bridge].slice(-20),
+        dev_bridge: { ...bridge, status: 'REPAIR_REQUIRED', needs_repair: true, tests, received_at: receivedAt },
+        candidate_ci_failure: { run_id: run.id, failed_candidate_sha: sha, candidate_sha: head.sha, base_sha: prep.candidate_sha,
+          teacher_request_id: teacher.request.request_id, files: (Array.isArray(prep.files) ? prep.files : []).filter(path => typeof path === 'string').slice(0, 8), observed_at: receivedAt },
+      };
+      const updated = await repository.update(job.id, { status: 'REPAIR_REQUIRED', result_json: result }, { expected: job });
+      if (updated.status === 'REPAIR_REQUIRED') repaired.push({ job_id: job.id, run_id: run.id });
+    } catch (error) {
+      deferred.push({ job_id: job.id, code: /^[A-Z0-9_]+$/.test(error?.code || '') ? error.code : 'CANDIDATE_CI_LOOKUP_FAILED' });
+    }
+  }
+  return { repaired, deferred };
 }
