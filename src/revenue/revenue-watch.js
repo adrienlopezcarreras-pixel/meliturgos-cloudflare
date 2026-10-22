@@ -6,6 +6,7 @@
 // no spam, no paid service), and stores a ranked report in D1. Opportunities
 // already seen are not repeated; new ones are flagged for the owner.
 
+import { workersAiRuntimeZeroCostProvenance } from '../augmentio/workers-ai-zero-cost-proof.js';
 import { discoverGithubBounties } from './github-bounty-discovery.js';
 import { createGen2Runtime } from '../core/orchestrator/gen2-runtime.js';
 import { extractModelText } from '../models/ModelRouter.js';
@@ -83,21 +84,28 @@ async function ensureTable(db) {
 }
 
 export async function runRevenueWatch(env, { now = new Date(), research = null, githubDiscovery = discoverGithubBounties } = {}) {
-  if (!env?.DB?.prepare || typeof env?.AI?.run !== 'function') return { status: 'RUNTIME_UNAVAILABLE' };
+  if (!env?.DB?.prepare) return { status: 'RUNTIME_UNAVAILABLE' };
   await ensureTable(env.DB);
   const runResearch = research || (async query => {
     const runtime = createGen2Runtime({ env });
     return runtime.bus.execute('web.research', { query, depth: 2 }, { owner: env.MELITURGOS_USER || 'owner', permissions: env.CAPABILITY_PERMISSIONS || [], requestId: crypto.randomUUID() });
   });
   const corpus = [];
+  const citedUrls = new Set();
   for (const theme of themesFor(now)) {
     try {
       const r = await runResearch(theme);
+      for (const source of Array.isArray(r?.sources) ? r.sources.slice(0, 8) : []) {
+        const url = String(source?.url || '');
+        if (url.length <= 300 && /^https:\/\/[^\s"'<>]+$/.test(url)) citedUrls.add(url);
+      }
       corpus.push('THÈME : ' + theme + '\n' + String(r?.summary || '').slice(0, 4000) + '\nSOURCES : ' + (Array.isArray(r?.sources) ? r.sources.slice(0, 8).map(s => (s?.title || '') + ' ' + (s?.url || '')).join(' | ') : ''));
     } catch (error) { corpus.push('THÈME : ' + theme + ' (recherche indisponible : ' + String(error?.code || error?.message || '').slice(0, 60) + ')'); }
   }
-  // Reject model-invented opportunity links: evidence must originate in the research corpus.\n  const citedUrls = new Set([...corpus.join(' ').matchAll(/https:\\/\\/[^\\s|<>\\\"']+/g)].map(m => m[0].replace(/[),.;]+$/, '')));\n  let text = '';
+  // Only structured research citations authorize a link; prose is not evidence.
+  let text = '';
   for (const model of [MODEL, FALLBACK_MODEL]) {
+    if (typeof env.AI?.run !== 'function' || !workersAiRuntimeZeroCostProvenance(env, { adapterId: 'workers-ai', modelId: model })) continue;
     try {
       text = extractModelText(await env.AI.run(model, { messages: [{ role: 'system', content: EXTRACT }, { role: 'user', content: corpus.join('\n\n').slice(0, 20_000) }], max_tokens: 3000 })) || '';
       if (parseOpportunities(text).some(o => citedUrls.has(o.url))) break;
@@ -116,8 +124,8 @@ export async function runRevenueWatch(env, { now = new Date(), research = null, 
   let fresh = 0;
   for (const o of found) {
     const existing = await env.DB.prepare('SELECT url FROM revenue_watch WHERE url=?').bind(o.url).first();
-    if (existing) await env.DB.prepare('UPDATE revenue_watch SET last_seen=?, data=? WHERE url=?').bind(today, JSON.stringify(o), o.url).run();
-    else { await env.DB.prepare('INSERT INTO revenue_watch (url, first_seen, last_seen, data) VALUES (?,?,?,?)').bind(o.url, today, today, JSON.stringify(o)).run(); fresh += 1; }
+    if (existing) await env.DB.prepare('UPDATE revenue_watch SET last_seen=?, data=?, status=CASE WHEN status=\'NEW\' THEN \'DISCOVERY_ONLY\' ELSE status END WHERE url=?').bind(today, JSON.stringify(o), o.url).run();
+    else { await env.DB.prepare('INSERT INTO revenue_watch (url, first_seen, last_seen, data, status) VALUES (?,?,?,?,\'DISCOVERY_ONLY\')').bind(o.url, today, today, JSON.stringify(o)).run(); fresh += 1; }
   }
   return { status: 'DONE', themes: themesFor(now), found: found.length, new: fresh, github: (github.opportunities || []).length, github_errors: github.errors || [] };
 }
