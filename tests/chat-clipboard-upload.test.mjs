@@ -88,3 +88,47 @@ test('Professor alone requires a verified API receipt before staging an attachme
     assert.throws(() => approved(rejected), /FILE_UPLOAD_NOT_ACKNOWLEDGED/);
   }
 });
+
+test('[GPT6][MEL-FILE] generated Normal upload requires an actual API receipt before staging', async () => {
+  const start = NORMAL_RUNTIME_SOURCE.indexOf('async function handleFiles(');
+  const end = NORMAL_RUNTIME_SOURCE.indexOf('\ninitVoice();',start);
+  assert.ok(start>=0 && end>start, 'must test the generated browser handler, not the template source');
+  const compile = new Function(
+    'status','FormData','fetch','localPhotoPreview','pendingFiles','renderPendingFiles',
+    NORMAL_RUNTIME_SOURCE.slice(start,end) + ';return handleFiles;',
+  );
+  for(const mime of ['text/plain','image/png']){
+    const pending = [];
+    const status = {textContent:''};
+    const calls=[];
+    let renders=0;
+    class FormDataStub{append(key,file){calls.push({key,file})}}
+    const file={name:mime==='image/png'?'photo.png':'preuve.txt',type:mime};
+    const upload=compile(status,FormDataStub,async(url,options)=>{
+      assert.equal(url,'/api/files/upload');
+      assert.equal(options.method,'POST');
+      assert.ok(options.body instanceof FormDataStub);
+      return {ok:true,json:async()=>({ok:true,id:'uploaded-proof',stored:true,analysis_status:'OK'})};
+    },async()=>null,pending,()=>{renders++});
+    await upload([file],'file-picker');
+    assert.deepEqual(calls,[{key:'file',file}]);
+    assert.equal(pending.length,1);
+    assert.equal(pending[0].id,'uploaded-proof');
+    assert.equal(pending[0].isImage,mime==='image/png');
+    assert.equal(renders,1);
+    assert.match(status.textContent,/pièce jointe prête/);
+  }
+  for(const invalid of [null,{}, {ok:false,id:'x'}, {ok:true}, {ok:true,id:' '}, {ok:true,id:9}]){
+    const pending=[];
+    const status={textContent:''};
+    let previewCalled=false;
+    let rendered=false;
+    const upload=compile(status,class {append(){}},async()=>({ok:true,json:async()=>invalid}),
+      async()=>{previewCalled=true;return null},pending,()=>{rendered=true});
+    await upload([{name:'unverified.txt',type:'text/plain'}],'file-picker');
+    assert.equal(pending.length,0);
+    assert.equal(previewCalled,false);
+    assert.equal(rendered,false);
+    assert.match(status.textContent,/FILE_UPLOAD_NOT_ACKNOWLEDGED/);
+  }
+});
