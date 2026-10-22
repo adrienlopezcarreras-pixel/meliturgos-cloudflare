@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import { MentorEngine, mentorPolicy } from '../src/learning/mentor-engine.js';
 import { MentorMemoryRepository } from '../src/learning/mentor-memory.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
+import { ModelRouter } from '../src/models/ModelRouter.js';
+import { ModelRegistry } from '../src/models/ModelRegistry.js';
+import { createHttpChatAdapter } from '../src/augmentio/http-chat-adapter.js';
+import { ZeroEuroGovernor, ZERO_EURO_POLICY } from '../src/augmentio/zero-euro-governor.js';
 
 function provider(id, payload) {
   return {
@@ -758,4 +762,76 @@ test('MEL CODE has no false code success when no free provider can be used', asy
     }),
     error => error.code === 'MENTOR_NO_ZERO_COST_CODE_PROVIDER',
   );
+});
+
+
+// [ChatGPT-GPT6 / MEL-CODE-CAPABILITY-ISOLATION]
+test('MEL CODE does not replace the assistant general-purpose model route', async () => {
+  const seen = [];
+  const registry = new ModelRegistry([
+    { id: 'chat-general', provider: 'test', capabilities: ['GENERAL', 'REASONING'], priority: 10 },
+    { id: 'code-specialist', provider: 'test', capabilities: ['CODE'], priority: 50 },
+  ]);
+  const router = new ModelRouter({
+    registry,
+    invoke: async model => {
+      seen.push(model.id);
+      return { text: model.id === 'chat-general' ? 'Bonjour, je reste ton assistant.' : 'Modification proposée.' };
+    },
+  });
+  const chat = await router.execute({ task: 'GENERAL', messages: [{ role: 'user', content: 'Parlons ensemble' }] });
+  const code = await router.execute({ task: 'CODE', messages: [{ role: 'user', content: 'Inspecte cette fonction' }] });
+  assert.deepEqual(seen, ['chat-general', 'code-specialist']);
+  assert.equal(chat.model, 'chat-general');
+  assert.match(chat.text, /assistant/);
+  assert.equal(code.model, 'code-specialist');
+});
+
+test('MEL CODE specialist HTTP adapter is mock-tested and zero-cost gated without real API calls', async () => {
+  let invoked = 0;
+  const base = {
+    env: { OPENROUTER_API_KEY: 'fixture-only-not-real' },
+    id: 'free-code-demo',
+    providerId: 'openrouter',
+    modelId: 'cohere/north-mini-code:free',
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    secretEnv: 'OPENROUTER_API_KEY',
+    capabilities: ['CODE'],
+    estimatedCost: 0,
+    fetchImpl: async (url, options) => {
+      invoked++;
+      assert.equal(url, 'https://openrouter.ai/api/v1/chat/completions');
+      assert.equal(options.redirect, 'error');
+      const parsed = JSON.parse(options.body);
+      assert.equal(parsed.model, 'cohere/north-mini-code:free');
+      return { ok: true, json: async () => ({ choices: [{ message: { content: '{"edits":[]}' } }] }) };
+    },
+  };
+  const governor = new ZeroEuroGovernor();
+  const withoutProof = createHttpChatAdapter(base);
+  assert.equal(governor.allows(withoutProof), false, 'a public free-model name and estimatedCost=0 are not a verified zero-cost proof');
+  assert.equal(invoked, 0);
+
+  // Fixture only: a real external adapter requires independent cost, quota,
+  // credentials, owner authorization and privacy verification before activation.
+  const withFixtureProof = createHttpChatAdapter({
+    ...base,
+    costProvenance: {
+      verified: true,
+      addedCost: 0,
+      source: 'test-fixture-for-mel-code',
+      authorization: {
+        approved: true,
+        policy: ZERO_EURO_POLICY,
+        authority: 'isolated-ci-fixture',
+        adapter_id: base.id,
+        provider: base.providerId,
+        model: base.modelId,
+      },
+    },
+  });
+  assert.equal(governor.allows(withFixtureProof), true);
+  const output = await withFixtureProof.invoke({ input: 'Test synthétique non privé' });
+  assert.equal(output.text, '{"edits":[]}');
+  assert.equal(invoked, 1, 'mocked network only; no external paid request');
 });
