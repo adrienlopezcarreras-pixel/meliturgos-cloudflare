@@ -1072,4 +1072,29 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     quality: 1,
     created_at: 1792617600000,
   }),
+  {
+    "id": "codex-owner-intent-version-release-cas-20261023",
+    "source": "codex",
+    "domain": "release-safety",
+    "task": "Préserver un arrêt propriétaire pendant une release malgré les écritures techniques de pause.",
+    "input": "La release capture un état initial, écrit plusieurs pauses techniques, puis vérifie le contrôle final avant reprise.",
+    "before": "Comparer uniquement la révision finale permet de reprendre après un arrêt propriétaire antérieur à cette vérification ; comparer uniquement le timestamp initial confond arrêt et pause technique.",
+    "after": "Conserver dans le contrôle canonique une version du choix propriétaire indépendante du compteur CAS ; les pauses de release la préservent, les actions propriétaire et sécurité la changent. Comparer le choix au snapshot pré-déploiement et conserver le CAS final atomique. Toute preuve absente ou périmée doit empêcher la reprise.",
+    "rationale": "Un compteur technique indique une écriture, pas sa cause. Deux horloges dans le même contrôle distinguent le changement de décision de la persistance technique sans créer un moteur de reprise concurrent.",
+    "tests": [
+      "tests/release-launch-bootstrap.test.mjs: owner stop before the final release snapshot cannot be reclassified as an old pause (red on b05e2cb2, green with guard)",
+      "tests/autonomy-control.test.mjs: persisted owner intent survives repeated technical pauses; owner/safety stops advance version; legacy fallback",
+      "54 targeted autonomy control/API/bootstrap/recovery tests passed"
+    ],
+    "tags": [
+      "release",
+      "owner-intent",
+      "cas",
+      "pause",
+      "fail-closed"
+    ],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1792710885844
+  },
 ]);

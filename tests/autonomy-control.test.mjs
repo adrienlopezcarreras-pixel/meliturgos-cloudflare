@@ -92,3 +92,34 @@ test('persistent D1 autonomy control is fail-closed PAUSED until the owner expli
     db.close();
   }
 });
+
+test('release pauses preserve persisted owner intent while owner and safety stops advance it', async () => {
+  const db=sqliteD1();
+  try {
+    const active=await setOwnerMaxAutonomy(db,{enabled:true,source:'owner-ui'});
+    assert.equal(active.owner_control_version,active.updated_at);
+    const paused=await setAutonomyControl(db,{paused:true,source:'release-predeploy-binder',reason:'predeploy-release-safety'});
+    assert.ok(paused.updated_at>active.updated_at);
+    assert.equal(paused.owner_control_version,active.owner_control_version);
+    const repeated=await setAutonomyControl(db,{paused:true,source:'release-launch-bootstrap',reason:'NEW_RELEASE_AWAITING_OWNER_LAUNCH'});
+    assert.ok(repeated.updated_at>paused.updated_at);
+    assert.equal((await getAutonomyControl(db)).owner_control_version,active.owner_control_version);
+    const stopped=await setAutonomyControl(db,{paused:true,source:'owner-ui',reason:'owner-stop'});
+    assert.ok(stopped.owner_control_version>active.owner_control_version);
+    const preserved=await setAutonomyControl(db,{paused:true,source:'release-launch-bootstrap',reason:'NEW_RELEASE_AWAITING_OWNER_LAUNCH'});
+    assert.equal(preserved.source,'owner-ui');
+    assert.equal(preserved.owner_control_version,stopped.owner_control_version);
+    const safety=await setAutonomyControl(db,{paused:true,source:'watchdog',reason:'safety-stop'});
+    assert.ok(safety.owner_control_version>stopped.owner_control_version);
+  } finally { db.close(); }
+});
+
+test('legacy control metadata derives owner version before its first technical pause', async () => {
+  const memoryState=createAutonomyControlMemoryState();
+  memoryState.control={paused:false,max_autonomy:true,status:'MAX_AUTONOMY',updated_at:100,source:'owner-ui'};
+  const legacy=await getAutonomyControl(null,{memoryState});
+  assert.equal(legacy.owner_control_version,100);
+  const paused=await setAutonomyControl(null,{paused:true,source:'release-predeploy-binder',reason:'predeploy-release-safety',memoryState});
+  assert.equal(paused.owner_control_version,100);
+  assert.ok(paused.updated_at>100);
+});

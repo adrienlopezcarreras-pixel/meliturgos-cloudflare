@@ -1594,7 +1594,7 @@ test('MAX release restore supersedes only an unchanged non-safety pause', async 
   ];
   for (const scenario of scenarios) {
     let writes=0;
-    const version=scenario.version == null ? '' : '&verified_control_version='+scenario.version;
+    const version=scenario.version == null ? '' : '&verified_control_version='+scenario.version+'&release_owner_control_version='+base.updated_at;
     const response=await maybeHandleReleaseLaunchBootstrap(
       new Request('https://mel.test/api/internal/release-launch-bootstrap?release_restore=true'+version,{
         method:'POST',
@@ -1614,4 +1614,28 @@ test('MAX release restore supersedes only an unchanged non-safety pause', async 
     assert.equal(body.restore_skipped===true,!scenario.restored,scenario.label);
     assert.equal(writes,scenario.restored?1:0,scenario.label);
   }
+});
+
+test('owner stop before the final release snapshot cannot be reclassified as an old pause', async () => {
+  const sha='7'.repeat(40);
+  // Release started at version 100; the owner stopped MAX at 200. The final
+  // technical verification observes 200 too, so a final-snapshot CAS alone
+  // cannot distinguish this intervening owner action from a pre-existing pause.
+  let writes=0;
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap?release_restore=true&verified_control_version=200&release_owner_control_version=100', {
+      method:'POST',headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+      body:JSON.stringify({phase:'gen2-42-owner-max'}),
+    }),
+    {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,MEL_DEPLOYED_GIT_SHA:sha,DB:{}},
+    {
+      readControl:async()=>({paused:true,max_autonomy:false,source:'owner-ui',reason:'owner-pause',updated_at:200,owner_control_version:200}),
+      prepare:async()=>({ok:true,readiness:{ok:true,launch_ready:true,candidate_sha:sha}}),
+      setControl:async(_db,control)=>{writes++;return control;},
+      runAutonomyTick:async()=>{throw new Error('OWNER_STOP_MUST_NOT_TICK');},
+    },
+  );
+  assert.equal(response.status,200);
+  assert.equal((await response.json()).restore_skipped,true);
+  assert.equal(writes,0);
 });

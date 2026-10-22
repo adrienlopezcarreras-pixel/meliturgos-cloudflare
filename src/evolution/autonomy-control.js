@@ -15,6 +15,13 @@ export function rememberedReleaseMax(control) {
     || (isReleaseAutonomyPause(control) && control?.max_remembered === true);
 }
 
+// Technical release pauses may update the row several times without changing
+// the owner's intent. Keep that intent's version separate from the CAS clock.
+export function ownerControlVersion(control) {
+  const version = Number(control?.owner_control_version ?? control?.updated_at);
+  return Number.isSafeInteger(version) && version > 0 ? version : null;
+}
+
 function defaultControl({ paused = false, source = 'default', reason = null } = {}) {
   return {
     paused: paused === true,
@@ -23,6 +30,7 @@ function defaultControl({ paused = false, source = 'default', reason = null } = 
     owner_override: false,
     status: paused === true ? 'PAUSED' : 'RUNNING',
     updated_at: null,
+    owner_control_version: null,
     source,
     reason,
     launch_approved_sha: null,
@@ -43,7 +51,7 @@ export function createAutonomyControlMemoryState() {
 
 function readMemoryControl(memoryState) {
   const value = memoryState?.control;
-  const control = value && typeof value === 'object' ? { ...value } : defaultControl();
+  const control = value && typeof value === 'object' ? { ...value, owner_control_version: ownerControlVersion(value) } : defaultControl();
   if (control.paused === true) {
     return { ...control, max_autonomy: false, owner_override: false, status: 'PAUSED' };
   }
@@ -71,6 +79,7 @@ export async function getAutonomyControl(db, { memoryState = null } = {}) {
     max_remembered: metadata.max_remembered === true || storedMaxAutonomy,
     status: paused ? 'PAUSED' : (maxAutonomy ? 'MAX_AUTONOMY' : 'RUNNING'),
     updated_at: metadata.updated_at ?? row.last_seen ?? null,
+    owner_control_version: ownerControlVersion({ ...metadata, updated_at: metadata.updated_at ?? row.last_seen }),
     source: metadata.source || 'runtime',
     reason: metadata.reason || null,
     launch_approved_sha: /^[a-f0-9]{40}$/i.test(String(metadata.launch_approved_sha || '')) ? String(metadata.launch_approved_sha).toLowerCase() : null,
@@ -109,13 +118,15 @@ export async function setAutonomyControl(db, {
     ? max_autonomy
     : (typeof owner_override === 'boolean' ? owner_override : current.max_autonomy === true);
   const nextMax = nextPaused ? false : requestedMax;
+  const updatedAt = Math.max(Date.now(), Number(current.updated_at || 0) + 1);
   const next = {
     paused: nextPaused,
     max_autonomy: nextMax,
     max_remembered: nextMax || (releasePause && !protectedPause && rememberedReleaseMax(current)),
     owner_override: nextMax,
     status: nextPaused ? 'PAUSED' : (nextMax ? 'MAX_AUTONOMY' : 'RUNNING'),
-    updated_at: Math.max(Date.now(), Number(current.updated_at || 0) + 1),
+    updated_at: updatedAt,
+    owner_control_version: releasePause ? ownerControlVersion(current) : updatedAt,
     source: protectedPause ? current.source : String(source || 'owner-ui').slice(0, 100),
     reason: protectedPause ? current.reason : reason === undefined ? (current.reason || null) : (reason ? String(reason).slice(0, 500) : null),
     launch_approved_sha: launch_approved_sha === undefined
