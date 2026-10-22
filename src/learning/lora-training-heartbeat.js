@@ -133,7 +133,16 @@ async function latestCheckpointRelease({ fetchImpl, repository, token }) {
   const url = new URL(`https://api.github.com/repos/${repository}/releases`);
   url.searchParams.set('per_page', '100');
   const releases = await githubJson(fetchImpl, url.toString(), token);
-  return selectLatestCheckpointRelease(releases);
+  const checkpoint = selectLatestCheckpointRelease(releases);
+  // Existing but unverified releases must not silently look like cycle zero:
+  // that would discard the intended parent and restart the LoRA chain.
+  if (!checkpoint && Array.isArray(releases) && releases.some(row =>
+    CHECKPOINT_TAG_RE.test(String(row?.tag_name || '').trim()))) {
+    throw Object.assign(new Error('LORA_CHECKPOINT_CHAIN_UNVERIFIED'), {
+      code: 'LORA_CHECKPOINT_CHAIN_UNVERIFIED',
+    });
+  }
+  return checkpoint;
 }
 
 async function dispatchWorkflow({ fetchImpl, repository, branch, workflow, token, inputs }) {
