@@ -34,10 +34,17 @@ permissions:
   actions: write
   id-token: write
 
+# Keep the serving SHA stable until its mandatory downstream proofs finish.
+# A distinct group is essential: child probes still acquire the secret lane.
+concurrency:
+  group: mel-production-release-pipeline
+  cancel-in-progress: false
+  queue: max
+
 jobs:
   deploy:
-    # Serialize production mutation only; downstream health proofs must not hold
-    # the release-wide lock after deployment has completed.
+    # Cross-workflow secret/identity lane, distinct from whole-release ordering.
+    # Child probes must be able to acquire this lane after deployment.
     concurrency:
       group: mel-launch-bootstrap-token
       cancel-in-progress: false
