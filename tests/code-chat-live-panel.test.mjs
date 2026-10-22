@@ -25,7 +25,7 @@ test('Code Continue and unchecked-by-default auto-continue live next to chat but
   assert.ok(section.indexOf('melCodeContinue')<section.indexOf('chatInterrupt'));
   assert.match(page,/const MEL_CODE_AUTO_MAX=5|let melCodeAutoRemaining=0/);
   assert.match(page,/melCodeAutoRemaining=5/);
-  assert.match(page,/if\(d\?\.ok===false\|\|d\?\.stream_error\|\|d\?\.approval_required/);
+  assert.match(page,/if\(d\?\.ok===false\|\|d\?\.stream_error\|\|d\?\.response_truncated===true\|\|d\?\.approval_required/);
   assert.match(page,/if\(melCodeAutoRemaining<=0\)/);
   assert.match(page,/melCodeRequestContinue\('code-auto'\)/);
   assert.match(page,/source==='code-auto'/);
