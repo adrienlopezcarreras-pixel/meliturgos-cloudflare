@@ -92,7 +92,7 @@ async function workflowRuns({ fetchImpl, repository, branch, workflow, token }) 
 // ahead of published training cycles, and c013 from an older lineage may appear
 // after c003 from a newer one. Choose evidence, not array position.
 // GPT6 / MEL-LORA-HEARTBEAT-PUBLISHED-20261022.
-const CHECKPOINT_TAG_RE = /^mel-lora-kaggle-([0-9a-f]{12})-c(\\d+)$/i;
+const CHECKPOINT_TAG_RE = /^mel-lora-kaggle-([0-9a-f]{12})-c(\d+)$/i;
 const CHECKPOINT_ASSETS = ['kaggle-run.json', 'mel-lora-bundle.tar.gz'];
 
 export function selectLatestCheckpointRelease(releases) {
