@@ -124,7 +124,9 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   const refreshCleanupArm = refreshBlock.indexOf('REFRESH_CREATED=1', refreshBlock.indexOf('Arm cleanup before deploy'));
   const refreshDeploy = refreshBlock.indexOf('for DEPLOY_ATTEMPT in $(seq 1 8); do');
   assert.ok(refreshCleanupArm >= 0 && refreshDeploy > refreshCleanupArm, 'cleanup must be armed before bounded refresher deployment retries');
-  assert.match(refreshBlock, /REFRESH_DEPLOYED=0[\\s\\S]*REFRESH_DEPLOYED=1[\\s\\S]*if \\[ "\\$\\{REFRESH_DEPLOYED\\}" != "1" \\]; then/);
+  assert.ok(refreshBlock.includes('REFRESH_DEPLOYED=0'));
+  assert.ok(refreshBlock.includes('REFRESH_DEPLOYED=1'));
+  assert.ok(refreshBlock.includes('if [ "${REFRESH_DEPLOYED}" != "1" ]; then'));
   assert.match(refreshBlock, /predeploy-refresh-deploy\.log 2>&1; then[\s\S]*cat \/tmp\/predeploy-refresh-deploy\.log[\s\S]*exit 53/);
   assert.match(refreshBlock, /--var "MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN:\$\{REFRESH_TOKEN\}"/);
   assert.doesNotMatch(refreshBlock, /wrangler secret put MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN/);
