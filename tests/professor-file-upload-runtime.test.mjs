@@ -11,8 +11,10 @@ test('Professor browser upload handler stages a real successful text and image u
   const end = html.indexOf('async function resumeLatestConversation()', start);
   assert.ok(start >= 0 && end > start, 'the emitted upload handler is present');
   const handler = html.slice(start, end);
+  // [GPT] This function now comes from the shared emitted photo module.
+  assert.match(html, /async function melLocalPhotoPreview\(file\)/);
   const compile = new Function(
-    'qs', 'fetch', 'FormData', 'localPhotoPreview', 'pendingChatFiles', 'renderPendingChatFiles',
+    'qs', 'fetch', 'FormData', 'melLocalPhotoPreview', 'pendingChatFiles', 'renderPendingChatFiles',
     handler + ';return uploadChatFiles;',
   );
   for (const [type, expectedImage] of [['text/plain', false], ['image/png', true]]) {
@@ -55,7 +57,7 @@ test('Professor rejected upload cannot appear as a staged attachment', async () 
   const start = html.indexOf('async function uploadChatFiles(');
   const end = html.indexOf('async function resumeLatestConversation()', start);
   const compile = new Function(
-    'qs','fetch','FormData','localPhotoPreview','pendingChatFiles','renderPendingChatFiles',
+    'qs','fetch','FormData','melLocalPhotoPreview','pendingChatFiles','renderPendingChatFiles',
     html.slice(start, end) + ';return uploadChatFiles;',
   );
   const pending = [];
@@ -75,7 +77,7 @@ test('Professor does not stage HTTP 200 without API-confirmed receipt', async ()
   const start = html.indexOf('async function uploadChatFiles(');
   const end = html.indexOf('async function resumeLatestConversation()', start);
   const build = new Function(
-    'qs','fetch','FormData','localPhotoPreview','pendingChatFiles','renderPendingChatFiles',
+    'qs','fetch','FormData','melLocalPhotoPreview','pendingChatFiles','renderPendingChatFiles',
     html.slice(start,end)+';return uploadChatFiles;',
   );
   for (const receipt of [{ok:true}, {ok:false,id:'bad'}, {ok:true,id:' '}]) {
