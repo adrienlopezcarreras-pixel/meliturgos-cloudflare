@@ -25,6 +25,7 @@ on:
       - "tests/ui-control-contract-exhaustive.test.mjs"
       - "tests/ui-performance-ergonomics.test.mjs"
       - "tests/chat-rich-renderer.test.mjs"
+      - "tests/professor-file-upload-runtime.test.mjs"
       - "tests/response-quality.test.mjs"
       - "tests/response-grounding.test.mjs"
       - "tests/mel-operating-manual.test.mjs"
@@ -52,6 +53,8 @@ jobs:
         run: npm run check
       - name: Verify verified Professor Code NDJSON stream contract
         run: node --test tests/chat-stream.test.mjs
+      - name: Execute generated Professor file upload runtime
+        run: node --test tests/professor-file-upload-runtime.test.mjs
       - name: Audit every Professor control
         run: node --test tests/ui-control-contract-exhaustive.test.mjs
       - name: Audit Professor ergonomics and responsive UI

@@ -75,3 +75,61 @@ test('generated Professor upload runtime preserves executable image MIME matchin
   assert.equal(checkImage({type:'image/png'}),true);
   assert.equal(checkImage({type:'text/plain'}),false);
 });
+
+test('Professor alone requires a verified API receipt before staging an attachment', async () => {
+  const html = await (await renderFullInterface()).text();
+  const gate = "if(d?.ok!==true||typeof d?.id!=='string'||!d.id.trim())throw Error('FILE_UPLOAD_NOT_ACKNOWLEDGED');";
+  const at = html.indexOf(gate);
+  assert.ok(at >= 0, 'Professor verifies a successful upload response and nonempty id');
+  assert.ok(html.indexOf('pendingChatFiles.push(item)', at) > at, 'staging follows receipt validation');
+  const approved = new Function('d', gate + 'return true;');
+  assert.equal(approved({ok:true,id:'verified-file'}), true);
+  for (const rejected of [null, {}, {ok:false,id:'x'}, {ok:true}, {ok:true,id:' '}, {ok:true,id:1}]) {
+    assert.throws(() => approved(rejected), /FILE_UPLOAD_NOT_ACKNOWLEDGED/);
+  }
+});
+
+
+test('[GPT6][MEL-FILE] generated Normal upload requires an actual API receipt before staging', async () => {
+  const start = NORMAL_RUNTIME_SOURCE.indexOf('async function handleFiles(');
+  const end = NORMAL_RUNTIME_SOURCE.indexOf('\ninitVoice();',start);
+  assert.ok(start>=0 && end>start, 'must test the generated browser handler, not the template source');
+  const compile = new Function(
+    'status','FormData','fetch','melLocalPhotoPreview','pendingFiles','renderPendingFiles',
+    NORMAL_RUNTIME_SOURCE.slice(start,end) + ';return handleFiles;',
+  );
+  for(const mime of ['text/plain','image/png']){
+    const pending = [];
+    const status = {textContent:''};
+    const calls=[];
+    let renders=0;
+    class FormDataStub{append(key,file){calls.push({key,file})}}
+    const file={name:mime==='image/png'?'photo.png':'preuve.txt',type:mime};
+    const upload=compile(status,FormDataStub,async(url,options)=>{
+      assert.equal(url,'/api/files/upload');
+      assert.equal(options.method,'POST');
+      assert.ok(options.body instanceof FormDataStub);
+      return {ok:true,json:async()=>({ok:true,id:'uploaded-proof',stored:true,analysis_status:'OK'})};
+    },async()=>null,pending,()=>{renders++});
+    await upload([file],'file-picker');
+    assert.deepEqual(calls,[{key:'file',file}]);
+    assert.equal(pending.length,1);
+    assert.equal(pending[0].id,'uploaded-proof');
+    assert.equal(pending[0].isImage,mime==='image/png');
+    assert.equal(renders,1);
+    assert.match(status.textContent,/pièce jointe prête/);
+  }
+  for(const invalid of [null,{}, {ok:false,id:'x'}, {ok:true}, {ok:true,id:' '}, {ok:true,id:9}]){
+    const pending=[];
+    const status={textContent:''};
+    let previewCalled=false;
+    let rendered=false;
+    const upload=compile(status,class {append(){}},async()=>({ok:true,json:async()=>invalid}),
+      async()=>{previewCalled=true;return null},pending,()=>{rendered=true});
+    await upload([{name:'unverified.txt',type:'text/plain'}],'file-picker');
+    assert.equal(pending.length,0);
+    assert.equal(previewCalled,false);
+    assert.equal(rendered,false);
+    assert.match(status.textContent,/FILE_UPLOAD_NOT_ACKNOWLEDGED/);
+  }
+});
