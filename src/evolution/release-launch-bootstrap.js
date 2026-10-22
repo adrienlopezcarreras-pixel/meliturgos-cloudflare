@@ -811,7 +811,15 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     const reason = String(beforeRestore?.reason || '').toLowerCase();
     const safetyStop = /rollback|safety|watchdog|emergency|fail.closed|security|incident|circuit.breaker/.test(source + ' ' + reason)
       || source === 'default-d1-fail-closed';
-    if (releaseRestore && !isReleaseAutonomyPause(beforeRestore) && safetyStop) {
+    const predeployControlVersion = Number(url.searchParams.get('predeploy_control_version'));
+    const observedVersion = Number(beforeRestore?.updated_at);
+    // Missing or changed version is fail-closed: an intervening owner stop
+    // must never be cleared by release automation.
+    const changedSincePredeploy = !Number.isSafeInteger(predeployControlVersion)
+      || predeployControlVersion <= 0
+      || !Number.isSafeInteger(observedVersion)
+      || observedVersion !== predeployControlVersion;
+    if (releaseRestore && !isReleaseAutonomyPause(beforeRestore) && (safetyStop || changedSincePredeploy)) {
       return Response.json({ ok: true, status: 'RELEASE_OWNER_CONTROL_PRESERVED', restore_skipped: true,
         paused: beforeRestore.paused, max_autonomy: beforeRestore.max_autonomy,
         autonomy_started: false }, { headers: { 'cache-control': 'no-store' } });
