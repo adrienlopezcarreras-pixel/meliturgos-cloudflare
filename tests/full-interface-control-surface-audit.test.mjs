@@ -19,7 +19,7 @@ function attr(attrs, name) {
 
 test('full control surface stays bounded and free of retired Vercel controls', () => {
   const rows = buttons();
-  assert.ok(rows.length <= 91, 'control surface grew beyond the audited 91-button budget');
+  assert.ok(rows.length <= 92, 'control surface grew beyond the audited 92-button budget (one owner interrupt control)');
   assert.match(source, /id="melClearActivity"/);
   assert.match(source, /id="mobileClearActivity"/);
   assert.match(source, /\/api\/gen2\/autonomy\/activity\/reset/);
