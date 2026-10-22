@@ -220,7 +220,8 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
     const s = String(job?.status || 'UNKNOWN').toUpperCase();
     byStatus[s] = (byStatus[s] || 0) + 1;
   }
-  const terminal = new Set(['COMPLETED', 'COMMITTED', 'FAILED', 'CANCELLED']);
+  // COMMITTED still awaits CI and promotion. Only genuinely terminal jobs leave active counts.
+  const terminal = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
   const jobs = supervised.slice(0, Math.max(1, Math.min(60, limit))).map(job => describeJob(job, now));
   const executorAge = executor ? now - Number(executor.last_seen || 0) : null;
   return {
