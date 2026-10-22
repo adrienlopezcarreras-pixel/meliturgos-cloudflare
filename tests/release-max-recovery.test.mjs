@@ -26,6 +26,14 @@ async function restore(db,{sha=SHA,prepare=async()=>ready(sha),tick=async()=>({o
 }
 async function usingDb(fn){const db=sqliteD1();try{await fn(db);}finally{db.close();}}
 
+test('release workflow retains predeploy MAX intent only through a technical pause',()=>{
+ const workflow=readFileSync(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+ assert.match(workflow,/const predeployChoice=process\.env\.PREVIOUS_MAX_AUTONOMY==='true'/);
+ assert.match(workflow,/rememberedReleaseMax\(control\) \|\| \(predeployChoice && isReleaseAutonomyPause\(control\)\)/);
+ assert.equal(rememberedReleaseMax({paused:true,source:'release-launch-bootstrap',reason:'NEW_RELEASE_AWAITING_OWNER_LAUNCH',max_remembered:true}),true);
+ assert.equal(rememberedReleaseMax({paused:true,source:'owner-ui',reason:'owner-emergency-stop',max_remembered:true}),false);
+});
+
 test('successful verified release restores previously active MAX on the gated deployed SHA',()=>usingDb(async db=>{
  await owner(db);await pause(db);await pause(db,true);
  const stopped=await getAutonomyControl(db);
