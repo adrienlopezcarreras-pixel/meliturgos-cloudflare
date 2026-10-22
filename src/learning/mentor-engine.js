@@ -413,7 +413,7 @@ export class MentorEngine {
     this.repairTimeoutMs = Math.max(10, Math.min(30_000, Number(repairTimeoutMs) || 12_000));
   }
 
-  async _providers(env) {
+  async _providers(env, { codeCouncil = false } = {}) {
     if (this.providerFactory) return this.providerFactory(env);
     const pool = createDefaultAugmentioPool(env);
     await pool.refreshHealth();
@@ -421,8 +421,9 @@ export class MentorEngine {
     // ChatGPT-GPT6 / MEL-MENTOR-FALLBACK: bounded model fallback (revert this PR to remove).
     // Bound the number of eligible models, but let the mentor fall back beyond
     // the first three when those providers fail or return invalid proposals.
-    const cloud = pool.list({ capability: 'CODE' }).filter(provider => governor.allows(provider)).slice(0, 6);
+    const cloud = pool.list({ capability: 'CODE' }).filter(provider => governor.allows(provider)).slice(0, codeCouncil ? 16 : 6);
     const companion = await createMentorCompanionFallback(env);
+    if (codeCouncil) return cloud;
     return companion ? [...cloud, companion] : cloud;
   }
 
@@ -465,7 +466,8 @@ export class MentorEngine {
       this.memory.context(objective, { limit: learned.inference.memory_results }),
       this.memory.experienceContext(objective, { limit: learned.inference.memory_results }),
     ]);
-    const providers = await this._providers(env);
+    const codeCouncil = mode === 'repair' || previousAttempts.length >= 2;
+    const providers = await this._providers(env, { codeCouncil });
     if (!providers.length) throw Object.assign(new Error('MENTOR_NO_ZERO_COST_CODE_PROVIDER'), { code: 'MENTOR_NO_ZERO_COST_CODE_PROVIDER', status: 503 });
 
     const roles = ['implémenteur principal', 'relecteur architecture et régressions', 'testeur-réparateur'];
@@ -488,7 +490,7 @@ export class MentorEngine {
       }
     }
     for (const wave of providerWaves) {
-      if (proposals.length) break;
+      if (!codeCouncil && proposals.length) break;
       const waveOffset = attemptedProviders.length;
       attemptedProviders.push(...wave.map(provider => provider.id));
       const settled = await Promise.allSettled(wave.map((provider, index) => {
@@ -627,6 +629,7 @@ export class MentorEngine {
       ok: true,
       job_id: jobId || null,
       mode,
+      code_council: { triggered: codeCouncil, eligible_only: 'CODE', attempted: attemptedProviders, valid_proposals: proposals.length, selected: best.provider_id },
       proposal: {
         summary: best.summary,
         changes: best.changes,
