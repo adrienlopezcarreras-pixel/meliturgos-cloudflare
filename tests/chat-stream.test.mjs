@@ -255,3 +255,38 @@ test('stream suppresses fake name/arguments tool calls across chunk boundaries',
   const filter = createToolLeakFilter();
   assert.equal(filter.push('Voici des données : {"name":"Alice","age":4}') + filter.flush(), 'Voici des données : {"name":"Alice","age":4}');
 });
+
+test('Professor streaming keeps Code and Conversation on distinct primaries without changing Normal', async () => {
+  const normalModel = '@cf/test/normal-configured';
+  const codeModel = '@cf/nvidia/nemotron-3-120b-a12b';
+  const chatModel = '@cf/openai/gpt-oss-120b';
+  const codeBackup = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+  const calls = [];
+  const env = { MEL_STREAM_MODEL: normalModel, AI: {
+    async run(model) { calls.push(model); return sse(['Bonjour']); },
+  } };
+  const messages = [{ role: 'user', content: 'bonjour' }];
+  const normal = await readNdjson(streamChatResponse({ env, messages }));
+  assert.equal(normal[0].model, normalModel, 'Normal retains its exact existing stream choice');
+  const conversation = await readNdjson(streamChatResponse({
+    env, messages, preferredModel: chatModel, modelOrder: [chatModel, codeBackup],
+  }));
+  const code = await readNdjson(streamChatResponse({
+    env, messages, preferredModel: codeModel, modelOrder: [codeModel, codeBackup],
+  }));
+  assert.equal(conversation[0].model, chatModel);
+  assert.equal(code[0].model, codeModel);
+  assert.deepEqual(calls, [normalModel, chatModel, codeModel]);
+
+  const fallbacks = [];
+  const codeEnv = { AI: { async run(model) {
+    fallbacks.push(model);
+    if (model === codeModel) throw Error('MODEL_UNAVAILABLE');
+    return sse(['Repli Code']);
+  } } };
+  const fallback = await readNdjson(streamChatResponse({
+    env: codeEnv, messages, preferredModel: codeModel, modelOrder: [codeModel, codeBackup],
+  }));
+  assert.equal(fallback.at(-1).model, codeBackup);
+  assert.deepEqual(fallbacks, [codeModel, codeBackup]);
+});
