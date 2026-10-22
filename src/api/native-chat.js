@@ -1255,7 +1255,7 @@ export async function runBoundedChatFallback(invoke, model, payload, { timeoutMs
 export function resolveProfessorChatInferenceRoute(intentContext = {}) {
   if (intentContext?.surface !== 'mel-full') return null;
   if (intentContext.role === 'developer' && intentContext.requested_mode === 'code') {
-    return { task: 'CODE', model: '@cf/zai-org/glm-4.7-flash' };
+    return { task: 'CODE', model: '@cf/nvidia/nemotron-3-120b-a12b' };
   }
   if (intentContext.role === 'assistant' && intentContext.requested_mode === 'conversation') {
     return { task: 'GENERAL', model: '@cf/openai/gpt-oss-120b' };
@@ -2302,7 +2302,12 @@ export async function handleNativeChat(request, env, options = {}) {
       env,
       messages,
       localFallback: msgs => runLocalPcModel({ env, messages: msgs }),
-      modelOrder: await rankedStreamModels(env).catch(() => null),
+      // Professor roles pin distinct primaries in BOTH stream and ordinary inference.
+      // Code fallback candidates remain CODE-capable; Normal keeps tournament ranking.
+      preferredModel: professorRoute?.model || null,
+      modelOrder: professorRoute?.task === 'CODE'
+        ? ['@cf/nvidia/nemotron-3-120b-a12b', '@cf/meta/llama-3.3-70b-instruct-fp8-fast', '@cf/google/gemma-4-26b-a4b-it']
+        : await rankedStreamModels(env).catch(() => null),
       archive: async (fullText, meta = {}) => {
         if (!service) return false;
         await service.archiveMessage({ conversationId, deviceId, role: 'user', content: text, timestamp: Date.now(), provenance: userProvenance, metadata: userMetadata });
