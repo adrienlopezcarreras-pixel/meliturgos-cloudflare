@@ -75,6 +75,8 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 105000, sig
   const progress = new Map();
   let liveBox = null;
   const renderLive = () => {
+    // [GPT] Code-mode window owns live progress; keep the chat bubble light.
+    if (typeof onProgress === 'function') return;
     if (!bubble) return;
     if (!liveBox) { liveBox = document.createElement('div'); liveBox.className = 'mel-live'; bubble.insertBefore(liveBox, bubble.firstChild); }
     liveBox.textContent = '';
