@@ -174,6 +174,21 @@ export function finalizeEvidenceAlignedResponse({
     out=`Le développement est enregistré${job?` sous le job ${job}`:''} (statut ${status}). Il n’est pas encore prouvé terminé ni déployé : je le considérerai terminé seulement après une preuve de completion/CI correspondant au niveau annoncé.`;
   }
 
+  // A model-generated claim is not a GitHub/Cloudflare receipt. Chat may
+  // describe a completed PR or deployment only when this turn has verifiable
+  // evidence; a queued evolution job and generic tool success do not qualify.
+  const claimsRepoDelivery = /(?:\bPR\s*#?\d+\b[^.\\n]{0,100}\b(?:fusionn[ée]e?|d[ée]ploy[ée]e?|cr[ée][ée]e?)\b|\b(?:PR|pull request)\b[^.\\n]{0,100}\b(?:fusionn[ée]e?|d[ée]ploy[ée]e?)\b|\bd[ée]ploiement\b[^.\\n]{0,80}\b(?:r[ée]ussi|effectu[ée]|termin[ée])\b)/i.test(out);
+  const hasReleaseReceipt = (Array.isArray(toolResults) ? toolResults : []).some(row => {
+    if (row?.status !== 'SUCCEEDED') return false;
+    const r = row.result || {};
+    if (/github|pull.request|cloudflare|deployment/i.test(String(row.capability || '')))
+      return Boolean(r.html_url || r.url || r.merge_commit_sha || r.deployment_id || r.deploy_id);
+    return false;
+  });
+  if (claimsRepoDelivery && !hasReleaseReceipt) {
+    out = 'Je ne dispose pas, dans les résultats vérifiés de cette requête, d’un reçu GitHub ou Cloudflare attestant la création, la fusion ou le déploiement annoncé. Je ne peux donc pas présenter cette opération comme réussie. Consulte les journaux persistants et les outils autorisés pour obtenir une preuve réelle.';
+  }
+
   const knowledgeEvidence=successfulKnowledgeEvidence(toolResults);
   if(knowledgeEvidence && deniesKnowledgeAction(out)){
     const replacement=knowledgeEvidenceFallback(knowledgeEvidence);
