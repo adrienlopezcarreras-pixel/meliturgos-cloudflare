@@ -23,6 +23,7 @@ on:
       - '.github/workflows/release-observability-smoke-ci.yml'
       - '.github/workflows/release-downstream-proof-decoupled.yml'
       - 'tests/gen2/release-downstream-proof-decoupled.test.mjs'
+      - 'tests/release-downstream-summary-gate.test.mjs'
       - 'scripts/check-release-proof-shell.mjs'
       - 'scripts/check-release-council-proof.mjs'
       - 'tests/release-council-proof.test.mjs'
@@ -74,6 +75,7 @@ jobs:
           tests/mel-autonomous-release-dispatch.test.mjs
           tests/gen2/runtime-observability.test.mjs
           tests/gen2/release-downstream-proof-decoupled.test.mjs
+          tests/release-downstream-summary-gate.test.mjs
           tests/gen2/sov-ai-auto-close.test.mjs
           tests/system-readiness.test.mjs
 
