@@ -313,7 +313,6 @@ test('native Professor streams Conversation but verifies Code before returning J
         ...(intent_context ? { intent_context } : {}),
       }),
     }), env, { authorized: true });
-    assert.match(response.headers.get('content-type') || '', /application\/x-ndjson/);
     if (suffix === 'code') {
       // Code must not stream unverified claims of code or D1 mutations.
       assert.match(response.headers.get('content-type') || '', /application\/json/);
@@ -322,6 +321,7 @@ test('native Professor streams Conversation but verifies Code before returning J
       assert.ok(String(payload.text || '').includes('Réponse vérifiée.'));
       return payload.model;
     }
+    assert.match(response.headers.get('content-type') || '', /application\/x-ndjson/);
     const events = await readNdjson(response);
     assert.equal(events.at(-1).type, 'done');
     return events[0].model;
