@@ -1636,6 +1636,11 @@ export async function handleNativeChat(request, env, options = {}) {
   // Direct chat is the default. The operational context is only assembled
   // when a request actually needs capabilities, a live status, or verification.
   // This avoids burying an ordinary answer under the entire MEL runbook.
+  // [ChatGPT-GPT6] Explicit UI role selects task-class routing, not just the label.
+  // Keep safety, capability gates and model availability checks unchanged.
+  const developerRole = body?.intent_context?.surface === 'mel-full'
+    && body?.intent_context?.role === 'developer'
+    && body?.intent_context?.requested_mode === 'code';
   const melWorkCapabilityQuestion = melWorkReadiness;
   const plainChatTurn = !releaseSmoke && !body.capability?.id && !inferredCapability
     && !melWorkCapabilityQuestion
@@ -2327,7 +2332,7 @@ export async function handleNativeChat(request, env, options = {}) {
       inferenceSettings: effectiveInferenceSettings,
       activeAdapter,
       runtime,
-      taskOverride: voiceReply ? 'FAST' : (personalProfileIntent ? 'REASONING' : null),
+      taskOverride: voiceReply ? 'FAST' : (developerRole ? 'CODE' : (personalProfileIntent ? 'REASONING' : null)),
       preferredModel: voiceReply
         ? '@cf/zai-org/glm-4.7-flash'
         : (personalProfileIntent ? '@cf/meta/llama-3.3-70b-instruct-fp8-fast' : null),
