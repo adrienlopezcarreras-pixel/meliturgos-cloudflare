@@ -1,79 +1,55 @@
 name: lora-kaggle-status
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/lora-kaggle-status.yml"
+      - "scripts/kaggle-readonly-status.py"
+      - "tests/kaggle-readonly-status.test.mjs"
   push:
     branches:
       - candidate/mel-clean-autonomy
     paths:
       - ".github/workflows/lora-kaggle-status.yml"
+      - "scripts/kaggle-readonly-status.py"
+      - "tests/kaggle-readonly-status.test.mjs"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+      - run: node --test tests/kaggle-readonly-status.test.mjs
+
   status:
+    if: ${{ github.event_name != 'pull_request' }}
+    needs: contract
     runs-on: ubuntu-latest
     environment: preview
     timeout-minutes: 10
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
     steps:
-      - name: Verify Kaggle token
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${KAGGLE_API_TOKEN:-}" || { echo "KAGGLE_API_TOKEN_MISSING"; exit 1; }
-
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - name: Install Kaggle CLI
         run: python -m pip install -q -U kaggle
-
-      - name: Resolve account and read kernel status
-        shell: bash
-        run: |
-          set -euo pipefail
-          USERNAME="$(python - <<'PY'
-          import os
-          from kagglesdk.kaggle_client import KaggleClient
-          from kagglesdk.kaggle_creds import KaggleCredentials
-          client = KaggleClient(user_agent="meliturgos-kaggle-status/1.0")
-          creds = KaggleCredentials(client=client, access_token=os.environ["KAGGLE_API_TOKEN"])
-          print(creds.introspect())
-          PY
-          )"
-          test -n "$USERNAME"
-          KERNEL="$USERNAME/mel-lora-uncensored-notebook-t4"
-          echo "KAGGLE_USERNAME=$USERNAME" >> "$GITHUB_ENV"
-          echo "KERNEL_REF=$KERNEL" >> "$GITHUB_ENV"
-          echo "Kernel: $KERNEL"
-          kaggle kernels status "$KERNEL" | tee kaggle-status.txt
-          echo "=== Kaggle live log ==="
-          kaggle kernels logs "$KERNEL" 2>&1 | tee kaggle-live.log || true
-          tail -n 240 kaggle-live.log || true
-
-          STATUS_TEXT="$(cat kaggle-status.txt)"
-          mkdir -p kaggle-debug-output
-          kaggle kernels output "$KERNEL" -p kaggle-debug-output --force || true
-          echo "=== Kaggle output files ==="
-          find kaggle-debug-output -maxdepth 4 -type f -print || true
-          echo "=== Text diagnostics ==="
-          while IFS= read -r file; do
-            case "$file" in
-              *.txt|*.log|*.json|*.out|*.err)
-                echo "--- $file ---"
-                tail -n 200 "$file" || true
-                ;;
-            esac
-          done < <(find kaggle-debug-output -maxdepth 4 -type f -print 2>/dev/null || true)
+      - name: Read sanitized session status without GPU execution or output download
+        run: python scripts/kaggle-readonly-status.py
 
       - name: Upload status evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: kaggle-lora-status-${{ github.run_id }}
-          path: |
-            kaggle-status.txt
-            kaggle-live.log
-            kaggle-debug-output/**
+          path: kaggle-lora-status.json
           if-no-files-found: warn
           retention-days: 7
