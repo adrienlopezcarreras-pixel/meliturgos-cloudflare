@@ -28,19 +28,23 @@ test('native chat does not turn an unexecuted tool JSON into an apparent answer 
 });
 
 test('normal chat previews bounded private photos before and after send without external URLs', () => {
-  assert.match(NORMAL_RUNTIME_SOURCE, /async function melLocalPhotoPreview\(file\)/);
-  assert.match(NORMAL_RUNTIME_SOURCE, /createImageBitmap\(file\)/);
-  assert.match(NORMAL_RUNTIME_SOURCE, /canvas\.toDataURL/);
+  assert.match(LOCAL_PHOTO_PREVIEW_SOURCE, /async function melLocalPhotoPreview\(file\)/);
+  assert.match(LOCAL_PHOTO_PREVIEW_SOURCE, /createImageBitmap\(file\)/);
+  assert.match(LOCAL_PHOTO_PREVIEW_SOURCE, /canvas\.toDataURL/);
   assert.match(NORMAL_RUNTIME_SOURCE, /showSentPhotos\(node,staged\)/);
   assert.match(NORMAL_RUNTIME_SOURCE, /analyse visuelle indisponible/);
-  assert.doesNotMatch(NORMAL_RUNTIME_SOURCE, /URL\.createObjectURL/);
+  assert.match(NORMAL_RUNTIME_SOURCE, /item\.mediaUrl\|\|item\.localUrl/);
+  assert.match(NORMAL_RUNTIME_SOURCE, /URL\.revokeObjectURL/);
+  assert.doesNotMatch(LOCAL_PHOTO_PREVIEW_SOURCE, /URL\.createObjectURL/);
 });
 
 test('full chat keeps photo preview in sent messages and does not expose a stored object publicly', async () => {
   const full = await source('src/pages/full-interface-v2.js');
   assert.match(full, /LOCAL_PHOTO_PREVIEW_SOURCE/);
   assert.match(full, /showSentPhotos\(node,staged\)/);
+  assert.match(full, /LOCAL_PHOTO_PREVIEW_SOURCE/);
   assert.match(full, /localUrl=await melLocalPhotoPreview\(file\)/);
+  assert.match(full, /function appendLocalMedia\(host,item/);
   assert.match(full, /vision indisponible/);
   assert.doesNotMatch(full, /URL\.createObjectURL\(file\)/);
 });
