@@ -363,11 +363,113 @@ async function followDurableMelGoal(id){
     }
   }finally{melGoalPolls.delete(id)}
 }
+// [GPT] Only Code-mode events shown in a floating owner-controlled window.
+let melCodeLastRequest='';
+let melCodeAutoRemaining=0;
+let melCodeAutoTimer=null;
+let melCodeInterrupted=false;
+function melCodeLiveRecord(event){
+  const panel=qs('#melCodeLivePanel'),host=qs('#melCodeLiveEvents');
+  if(!panel||!host||melChatRole!=='code'||panel.hidden)return;
+  const key=String(event?.id||'row-'+Date.now()+'-'+host.children.length).slice(0,120);
+  let node=[...host.children].find(row=>row.dataset.eventKey===key);
+  if(!node){node=document.createElement('div');node.dataset.eventKey=key;host.appendChild(node)}
+  const status=['done','failed','running','blocked','queued'].includes(event?.status)?event.status:'running';
+  node.className='mel-code-live-event mel-code-live-'+status;
+  const icon=status==='done'?'✓':status==='failed'?'✗':status==='blocked'?'⛔':status==='queued'?'◷':'⏳';
+  node.textContent=icon+' '+String(event?.label||'Activité reçue').slice(0,160);
+  const stamp=document.createElement('div');stamp.className='mel-code-live-meta';
+  stamp.textContent=new Date().toLocaleTimeString('fr-FR')+' · '+(event?.source==='server'?'Serveur MEL':'Interface')+' · '+status;
+  node.appendChild(stamp);
+  while(host.children.length>80)host.firstElementChild.remove();
+  host.scrollTop=host.scrollHeight;
+  const target=qs('#melCodeLiveStatus');
+  if(target)target.textContent='Dernier événement : '+String(event?.label||'activité').slice(0,110);
+}
+function melCodeLiveReceipt(d){
+  if(melChatRole!=='code')return;
+  for(const t of Array.isArray(d?.tool_results)?d.tool_results:[]){
+    const status=String(t?.status||'').toUpperCase();
+    melCodeLiveRecord({id:'tool-'+String(t.capability||'unknown'),label:'Outil '+String(t.capability||'inconnu'),status:status==='SUCCEEDED'?'done':status==='FAILED'?'failed':status==='BLOCKED'?'blocked':'queued',source:'server'});
+  }
+  if(d?.work?.id)melCodeLiveRecord({id:'work-'+String(d.work.id),label:'Travail persistant '+String(d.work.id),status:'queued',source:'server'});
+  if(d?.development_job?.id)melCodeLiveRecord({id:'dev-'+String(d.development_job.id),label:'Tâche de développement '+String(d.development_job.id),status:'queued',source:'server'});
+  melCodeLiveRecord({id:'response-'+Date.now(),label:d?.stream_error?'Réponse interrompue':'Réponse du serveur reçue',status:d?.stream_error||d?.ok===false?'failed':'done',source:'server'});
+}
+function melCodeCancelAuto(reason){
+  const checkbox=qs('#melCodeAutoContinue');
+  if(checkbox)checkbox.checked=false;
+  melCodeAutoRemaining=0;
+  if(melCodeAutoTimer!==null){clearTimeout(melCodeAutoTimer);melCodeAutoTimer=null}
+  if(reason)melCodeLiveRecord({id:'auto-stop-'+Date.now(),label:reason,status:'blocked'});
+}
+function melCodeContinuationText(){
+  return 'Continue le chantier de code déjà engagé, vérifie ce qui est réellement fait, avance à la prochaine étape utile sans répéter de rapport. Ne prétends pas avoir exécuté une action sans preuve. Si le chantier est terminé, dis exactement « CHANTIER TERMINÉ ». Demande initiale : '+String(melCodeLastRequest).slice(0,900);
+}
+function melCodeRequestContinue(source='code-manual'){
+  if(melChatRole!=='code'||chatActiveController||chatPendingTurns.length||!melCodeLastRequest)return false;
+  melCodeLiveRecord({id:'continue-'+Date.now(),label:source==='code-auto'?'Continuation automatique demandée':'Continuation manuelle demandée',status:'queued'});
+  void sendChat(melCodeContinuationText(),source,'code');
+  return true;
+}
+function melCodeScheduleAuto(d,answer,source){
+  if(source==='code-auto'&&melCodeAutoRemaining>=0){}
+  if(melChatRole!=='code'||!qs('#melCodeAutoContinue')?.checked||melCodeInterrupted)return;
+  if(d?.ok===false||d?.stream_error||d?.approval_required||d?.response_mode==='durable-work'||d?.work?.id||d?.development_job?.id||d?.computer_command?.command_id){
+    melCodeCancelAuto('Auto-continuer arrêté : confirmation, erreur ou travail de fond en cours.');return;
+  }
+  if((Array.isArray(d?.tool_results)?d.tool_results:[]).some(t=>['FAILED','BLOCKED','PENDING','QUEUED','RUNNING'].includes(String(t?.status||'')))){
+    melCodeCancelAuto('Auto-continuer arrêté : outil non terminé ou en échec.');return;
+  }
+  if(/CHANTIER TERMIN[ÉE]|DONE_VERIFIED/i.test(String(answer||''))){
+    melCodeCancelAuto('Chantier déclaré terminé par MEL.');return;
+  }
+  if(melCodeAutoRemaining<=0){melCodeCancelAuto('Limite atteinte : 5 continuations par demande.');return}
+  melCodeAutoRemaining--;
+  if(melCodeAutoTimer!==null)clearTimeout(melCodeAutoTimer);
+  melCodeAutoTimer=setTimeout(()=>{
+    melCodeAutoTimer=null;
+    if(!chatActiveController&&melChatRole==='code'&&qs('#melCodeAutoContinue')?.checked&&!melCodeInterrupted)melCodeRequestContinue('code-auto');
+  },900);
+  melCodeLiveRecord({id:'auto-next-'+Date.now(),label:'Prochaine continuation après réponse · reste '+melCodeAutoRemaining,status:'queued'});
+}
+function melCodeSetupWindow(){
+  const panel=qs('#melCodeLivePanel'),header=qs('#melCodeLiveDrag');
+  if(!panel||!header)return;
+  qs('#melCodeLiveClear').onclick=()=>{qs('#melCodeLiveEvents').textContent='';qs('#melCodeLiveStatus').textContent='Historique affiché effacé.'};
+  qs('#melCodeLiveCollapse').onclick=()=>{
+    panel.classList.toggle('is-collapsed');
+    const open=!panel.classList.contains('is-collapsed');
+    const btn=qs('#melCodeLiveCollapse');btn.textContent=open?'Réduire':'Afficher';btn.setAttribute('aria-expanded',String(open));
+  };
+  let start=null;
+  header.addEventListener('pointerdown',event=>{
+    if(event.button!==0||event.target.closest('button'))return;
+    const rect=panel.getBoundingClientRect();
+    start={x:event.clientX,y:event.clientY,left:rect.left,top:rect.top};
+    header.setPointerCapture(event.pointerId);
+  });
+  header.addEventListener('pointermove',event=>{
+    if(!start)return;
+    const left=Math.max(0,Math.min(innerWidth-panel.offsetWidth,start.left+event.clientX-start.x));
+    const top=Math.max(0,Math.min(innerHeight-50,start.top+event.clientY-start.y));
+    panel.style.left=left+'px';panel.style.top=top+'px';panel.style.right='auto';
+  });
+  const stop=()=>{start=null};
+  header.addEventListener('pointerup',stop);
+  header.addEventListener('pointercancel',stop);
+  qs('#melCodeContinue').onclick=()=>{melCodeRequestContinue('code-manual')};
+  qs('#melCodeAutoContinue').onchange=event=>{
+    if(event.target.checked){melCodeAutoRemaining=5;melCodeInterrupted=false;melCodeLiveRecord({id:'auto-enabled',label:'Auto-continuer activé : 5 cycles au maximum.',status:'done'})}
+    else melCodeCancelAuto('Auto-continuer désactivé par le propriétaire.');
+  };
+}
 let melChatRole='code';
-function setMelChatRole(role){melChatRole=role==='code'?'code':'assistant';for(const [id,on] of [['#melRoleAssistant',melChatRole==='assistant'],['#melRoleCode',melChatRole==='code']]){const b=qs(id);if(b){b.className=on?'primary':'ghost';b.setAttribute('aria-pressed',String(on));if(id==='#melRoleCode')b.style.cssText=on?'border:1px solid var(--cyan);box-shadow:0 0 12px rgba(34,211,238,.35);letter-spacing:.04em;transition:all .2s':'transition:all .2s';}}const label=qs('#melRoleStatus');if(label)label.textContent=melChatRole==='code'?'MEL développe : code, tests et preuves.':'MEL répond comme assistante.';}
+function setMelChatRole(role){melChatRole=role==='code'?'code':'assistant';if(melChatRole!=='code')melCodeCancelAuto();const panel=qs('#melCodeLivePanel');if(panel)panel.hidden=melChatRole!=='code';const continueBtn=qs('#melCodeContinue');if(continueBtn)continueBtn.hidden=melChatRole!=='code';const autoLabel=qs('#melCodeAutoLabel');if(autoLabel)autoLabel.hidden=melChatRole!=='code';for(const [id,on] of [['#melRoleAssistant',melChatRole==='assistant'],['#melRoleCode',melChatRole==='code']]){const b=qs(id);if(b){b.className=on?'primary':'ghost';b.setAttribute('aria-pressed',String(on));if(id==='#melRoleCode')b.style.cssText=on?'border:1px solid var(--cyan);box-shadow:0 0 12px rgba(34,211,238,.35);letter-spacing:.04em;transition:all .2s':'transition:all .2s';}}const label=qs('#melRoleStatus');if(label)label.textContent=melChatRole==='code'?'MEL développe : code, tests et preuves.':'MEL répond comme assistante.';}
 qs('#melRoleAssistant').addEventListener('click',()=>setMelChatRole('assistant'));
 qs('#melRoleCode').addEventListener('click',()=>setMelChatRole('code'));
 setMelChatRole('code');
+melCodeSetupWindow();
 let chatActiveController=null;
 const chatPendingTurns=[];
 function chatQueueStatus(){const el=qs('#chatPendingCount');if(el)el.textContent=chatPendingTurns.length?chatPendingTurns.length+' message(s) en attente.':''}
