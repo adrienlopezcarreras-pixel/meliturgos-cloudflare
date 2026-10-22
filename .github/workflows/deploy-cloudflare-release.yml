@@ -278,13 +278,27 @@ jobs:
           # Arm cleanup before deploy: Cloudflare may create the script even if
           # the CLI times out or exits nonzero before returning success.
           REFRESH_CREATED=1
-          # Bound CLI startup/network waits and retain actionable logs on failure.
-          if ! timeout 180s npx wrangler deploy --config "${REFRESH_CONFIG}" \
-            --var "MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN:${REFRESH_TOKEN}" \
-            >/tmp/predeploy-refresh-deploy.log 2>&1; then
+          # [ChatGPT-GPT6] Same exact-10007 propagation contract as the
+          # predeploy binder. Cloudflare may accept the script upload before
+          # its new name is visible to the subdomain activation endpoint.
+          # Preserve the encrypted-backup gate: retry ONLY that error, bounded.
+          REFRESH_DEPLOYED=0
+          for DEPLOY_ATTEMPT in $(seq 1 8); do
+            if timeout 180s npx wrangler deploy --config "${REFRESH_CONFIG}" \
+              --var "MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN:${REFRESH_TOKEN}" \
+              >/tmp/predeploy-refresh-deploy.log 2>&1; then
+              REFRESH_DEPLOYED=1
+              break
+            fi
             test ! -s /tmp/predeploy-refresh-deploy.log || cat /tmp/predeploy-refresh-deploy.log
+            if grep -Eq 'code: 10007|"code"[[:space:]]*:[[:space:]]*10007' /tmp/predeploy-refresh-deploy.log; then
+              echo "Cloudflare ephemeral refresher visibility gap (10007); retry ${DEPLOY_ATTEMPT}/8."
+              sleep 4
+              continue
+            fi
             exit 53
-          fi
+          done
+          test "${REFRESH_DEPLOYED}" = "1" || exit 53
 
           SIDECAR_READY=0
           SIDECAR_STABLE_PROBES=0
