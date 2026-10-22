@@ -1,5 +1,7 @@
 # MEL — Index d’expérience développement
 
+- `codex-powershell-typed-null-atomic-config-20261021` — utiliser une vraie chaîne .NET nulle pour File.Replace sous Windows PowerShell ; conserver l’atomicité et tester le clic avec processus/configuration réels.
+
 Cet index permet à une IA de savoir immédiatement ce que MEL a déjà appris avant d’ajouter une nouvelle XP.
 
 ## Corpus historique conservé

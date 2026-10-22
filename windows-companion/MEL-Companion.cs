@@ -15,7 +15,7 @@ using System.Web.Script.Serialization;
 static class MelApp
 {
     public const string DefaultServer = "https://meliturgos.adrien-lopezcarreras.workers.dev";
-    public const string Version = "2.3.16";
+    public const string Version = "2.3.17";
     public static readonly string MelDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MEL");
     public static readonly string ConfigPath = Path.Combine(MelDir, "computer.json");
     public static readonly string InstalledExe = Path.Combine(MelDir, "MEL-Companion.exe");
@@ -460,6 +460,48 @@ static class MelApp
             ? Convert.ToString(value) : "";
     }
 
+    // [Codex] The EXE controls the existing PowerShell supervisor by a local,
+    // bounded action file. It never launches or supervises a second Node process.
+    public static bool ValidDevExecutorRepo(string repo)
+    {
+        try {
+            var full = Path.GetFullPath(repo);
+            return !full.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                .Any(part => String.Equals(part, ".mel-dev-candidates", StringComparison.OrdinalIgnoreCase))
+                && (Directory.Exists(Path.Combine(full, ".git")) || File.Exists(Path.Combine(full, ".git")))
+                && File.Exists(Path.Combine(full, "scripts", "mel-dev-bridge.mjs"));
+        } catch { return false; }
+    }
+
+    public static Dictionary<string, object> ReadDevExecutorView()
+    {
+        try {
+            if (!CompanionRunning()) return null;
+            var view = Json.Deserialize<Dictionary<string, object>>(File.ReadAllText(Path.Combine(MelDir, "dev-executor-view.json")));
+            long age = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - Convert.ToInt64(view["observed_at"]);
+            if (Convert.ToInt32(view["engine_pid"]) != CompanionProcess.Id || age < 0 || age > 45000) return null;
+            return view;
+        } catch { return null; }
+    }
+
+    public static void RequestDevExecutor(string action, string repo)
+    {
+        if (action != "Start" && action != "Stop" && action != "Restart") throw new InvalidOperationException("LOCAL_CONTROL_INVALID");
+        if (action != "Stop" && !ValidDevExecutorRepo(repo)) throw new InvalidOperationException("REPO_MISSING");
+        StartCompanion();
+        if (!CompanionRunning()) throw new InvalidOperationException("ENGINE_UNAVAILABLE");
+        var request = new Dictionary<string, object> {
+            {"action", action}, {"repo", repo ?? ""}, {"request_id", Guid.NewGuid().ToString("N")},
+            {"issued_at", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}, {"engine_pid", CompanionProcess.Id}
+        };
+        string target = Path.Combine(MelDir, "dev-executor-request.json");
+        string temp = target + "." + Guid.NewGuid().ToString("N");
+        try {
+            File.WriteAllText(temp, Json.Serialize(request), new UTF8Encoding(false));
+            File.Move(temp, target); // Never replace a pending local action.
+        } finally { if (File.Exists(temp)) File.Delete(temp); }
+    }
+
     public static bool ContainsIgnoreCase(List<string> values, string candidate)
     {
         foreach (var value in values)
@@ -481,7 +523,7 @@ static class MelApp
 
     public static void SavePermissions(List<string> apps, List<string> paths, bool remoteAccessEnabled, bool localComputeEnabled, string localComputeProfile, bool localGpuEnabled)
     {
-        if (Config == null && !LoadConfig()) throw new InvalidOperationException("Configuration MEL indisponible.");
+        if (!LoadConfig()) throw new InvalidOperationException("Configuration MEL indisponible.");
         // Publish the new complete snapshot only after its atomic file replace succeeds.
         var next = new Dictionary<string, object>(Config);
         next["allowed_apps"] = apps.ToArray();
@@ -501,15 +543,29 @@ static class MelApp
     {
         try
         {
-            if (CompanionProcess != null && !CompanionProcess.HasExited)
-            {
-                CompanionProcess.Kill();
-                CompanionProcess.WaitForExit(1500);
-            }
+            if (!StopCompanionTree()) return;
         }
         catch { }
         CompanionProcess = null;
         StartCompanion();
+    }
+
+    // [Codex] A supervised Node/test child must not survive a deliberate
+    // engine restart/exit. Target only the engine process owned by this EXE.
+    public static bool StopCompanionTree()
+    {
+        try {
+            if (CompanionProcess == null || CompanionProcess.HasExited) return true;
+            var stop = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory,"taskkill.exe"));
+            stop.Arguments = "/PID " + CompanionProcess.Id + " /T /F";
+            stop.UseShellExecute=false; stop.CreateNoWindow=true;
+            using (var killer=Process.Start(stop)) {
+                if(killer==null || !killer.WaitForExit(5000)) { LastEngineStartError="ENGINE_STOP_UNCONFIRMED"; return false; }
+            }
+            if(!CompanionProcess.WaitForExit(3000)) { LastEngineStartError="ENGINE_STOP_UNCONFIRMED"; return false; }
+            CompanionProcess.Dispose(); CompanionProcess=null;
+            return true;
+        } catch { LastEngineStartError="ENGINE_STOP_UNCONFIRMED"; return false; }
     }
 
     public static void InstallFiles(bool startup)
@@ -1092,7 +1148,7 @@ static class MelApp
         Exiting = true;
         if (Tray != null) { Tray.Visible = false; Tray.Dispose(); }
         try { if (HotKey != null) { HotKey.Dispose(); HotKey = null; } } catch { }
-        try { if (CompanionProcess != null && !CompanionProcess.HasExited) CompanionProcess.Kill(); } catch { }
+        StopCompanionTree();
         Application.Exit();
     }
 
@@ -1100,7 +1156,7 @@ static class MelApp
     {
         if (MessageBox.Show("Retirer MEL Companion de cet ordinateur ?", "MEL Companion", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
         ConfigureStartup(false); Exiting = true; if (Tray != null) Tray.Visible = false;
-        try { if (CompanionProcess != null && !CompanionProcess.HasExited) CompanionProcess.Kill(); } catch { }
+        StopCompanionTree();
         var cmd = Path.Combine(Path.GetTempPath(), "mel-remove-" + Guid.NewGuid().ToString("N") + ".cmd");
         File.WriteAllText(cmd, "@echo off\r\ntimeout /t 2 /nobreak >nul\r\nrmdir /s /q \"" + MelDir + "\"\r\ndel \"%~f0\"\r\n", Encoding.ASCII);
         Process.Start(new ProcessStartInfo(cmd){UseShellExecute=true,WindowStyle=ProcessWindowStyle.Hidden}); Application.Exit();
@@ -1473,6 +1529,8 @@ class PermissionsForm : Form
 
 class MainForm : Form
 {
+    Label devExecutorDetails;
+    System.Windows.Forms.Timer devExecutorRender;
     Label connection;
     Label localAccessStatus;
     Label adbWifiStatus;
@@ -1590,24 +1648,27 @@ class MainForm : Form
     {
         Text="MEL Companion — Windows";
         Icon=MelApp.MakeIcon();
-        ClientSize=new Size(S(1100),S(800));
-        MinimumSize=new Size(S(790),S(650));
+        var available=Screen.PrimaryScreen.WorkingArea;
+        ClientSize=new Size(Math.Min(S(1100),available.Width-40),Math.Min(S(950),available.Height-80));
+        MinimumSize=new Size(Math.Min(S(790),ClientSize.Width),Math.Min(S(650),ClientSize.Height));
         StartPosition=FormStartPosition.CenterScreen;
         AutoScaleMode=AutoScaleMode.None; // sizes are scaled explicitly with k
         Font=new Font("Segoe UI",10f);
         BackColor=background;ForeColor=text;DoubleBuffered=true;
-        AutoScroll=false;
+        AutoScroll=true;
+        AutoScrollMinSize=new Size(0,S(900));
 
         // Structural layout: proportional center, fixed minimum-height tool areas,
         // no absolute coordinates on the window and no competing edge anchors.
         var shell=new TableLayoutPanel {
-            Dock=DockStyle.Fill,ColumnCount=1,RowCount=5,
+            Dock=DockStyle.Fill,ColumnCount=1,RowCount=6,
             Padding=new Padding(22,14,22,14),Margin=new Padding(0),
             BackColor=background
         };
         shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100f));
         shell.RowStyles.Add(Abs(104f));
         shell.RowStyles.Add(Abs(218f));
+        shell.RowStyles.Add(Abs(175f));
         shell.RowStyles.Add(Abs(84f));
         shell.RowStyles.Add(new RowStyle(SizeType.Percent,100f));
         shell.RowStyles.Add(Abs(110f));
@@ -1651,11 +1712,26 @@ class MainForm : Form
         localAccessStatus=CellLabel(work,"Accès PC : état en attente",9.5f,false,gray);
         adbWifiStatus=CellLabel(work,"ADB Wi-Fi : recherche du téléphone…",9.5f,false,gray);
 
+        var executor = Surface();
+        shell.Controls.Add(executor,0,2);
+        var executorLayout = Stack(3);
+        executorLayout.RowStyles.Add(Abs(26f));
+        executorLayout.RowStyles.Add(new RowStyle(SizeType.Percent,100f));
+        executorLayout.RowStyles.Add(Abs(40f));
+        executor.Controls.Add(executorLayout);
+        CellLabel(executorLayout,"Exécuteur de développement",11f,true,blue);
+        devExecutorDetails=CellLabel(executorLayout,"État : Démarrage · vérification du moteur…",9f,false,gray);
+        var executorActions = new FlowLayoutPanel { Dock=DockStyle.Fill, WrapContents=false, Margin=new Padding(0) };
+        executorLayout.Controls.Add(executorActions);
+        executorActions.Controls.Add(ActionButton("Démarrer l'exécuteur",195,delegate{ControlDevExecutor("Start");},true));
+        executorActions.Controls.Add(ActionButton("Arrêter l'exécuteur",185,delegate{ControlDevExecutor("Stop");}));
+        executorActions.Controls.Add(ActionButton("Redémarrer l'exécuteur",215,delegate{ControlDevExecutor("Restart");}));
+
         var section=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,
             BackColor=Color.Transparent,Margin=new Padding(0)};
         section.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100f));
         section.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,345f*k));
-        shell.Controls.Add(section,0,2);
+        shell.Controls.Add(section,0,3);
         var captions=Stack(2);
         captions.RowStyles.Add(Abs(43f));
         captions.RowStyles.Add(new RowStyle(SizeType.Percent,100f));
@@ -1678,13 +1754,13 @@ class MainForm : Form
             WrapContents=true,AutoScroll=true,BackColor=background,
             Padding=new Padding(0),Margin=new Padding(0)
         };
-        shell.Controls.Add(cards,0,3);
+        shell.Controls.Add(cards,0,4);
         cards.Resize+=delegate{ResizeCards();};
 
         var footer=Stack(2);
         footer.RowStyles.Add(Abs(54f));
         footer.RowStyles.Add(new RowStyle(SizeType.Percent,100f));
-        shell.Controls.Add(footer,0,4);
+        shell.Controls.Add(footer,0,5);
         var maintenance=new FlowLayoutPanel {
             Dock=DockStyle.Fill,FlowDirection=FlowDirection.LeftToRight,
             WrapContents=false,AutoScroll=true,BackColor=Color.Transparent,
@@ -1714,9 +1790,40 @@ class MainForm : Form
         poll.Tick+=delegate{RefreshAll();};poll.Start();
         triadPoll=new System.Windows.Forms.Timer{Interval=10000};
         triadPoll.Tick+=delegate{RefreshTriadActivity();};triadPoll.Start();
+        devExecutorRender=new System.Windows.Forms.Timer{Interval=1000};
+        devExecutorRender.Tick+=delegate{RefreshDevExecutor();};devExecutorRender.Start();
+        Disposed+=delegate{devExecutorRender.Stop();devExecutorRender.Dispose();};
         Shown+=delegate{BeginInvoke((MethodInvoker)delegate{
             RefreshAll();RefreshTriadActivity();
         });};
+    }
+    void ControlDevExecutor(string action)
+    {
+        try {
+            MelApp.LoadConfig();
+            string repo=MelApp.ConfigString("dev_executor_repo");
+            if (action!="Stop" && !MelApp.ValidDevExecutorRepo(repo)) {
+                using(var picker=new FolderBrowserDialog { Description="Choisis le dépôt MEL principal (pas .mel-dev-candidates)." }) {
+                    if(picker.ShowDialog(this)!=DialogResult.OK)return;
+                    repo=picker.SelectedPath;
+                }
+            }
+            MelApp.RequestDevExecutor(action,repo);
+            devExecutorDetails.Text="Commande locale transmise · attente de confirmation du moteur…";
+        } catch { MessageBox.Show(this,"Commande non confirmée. Vérifie le dépôt et le moteur Companion ; attends la fin de toute commande précédente.","Exécuteur de développement"); }
+    }
+    void RefreshDevExecutor()
+    {
+        var view=MelApp.ReadDevExecutorView();
+        if(view==null) {
+            devExecutorDetails.Text="État : Erreur · moteur arrêté ou heartbeat local expiré\r\nDépôt configuré : "+MelApp.ConfigString("dev_executor_repo")+"\r\nRelais GitHub Cloud : inconnu · le PC reste facultatif pour MAX";
+            return;
+        }
+        try {
+            devExecutorDetails.Text="État : "+Convert.ToString(view["state"])+" · Relais GitHub Cloud : "+Convert.ToString(view["relay"])
+                +"\r\nDépôt : "+Convert.ToString(view["repo"])
+                +"\r\nDernier heartbeat confirmé par MEL : "+Convert.ToString(view["heartbeat"])+" · Erreur : "+Convert.ToString(view["error"]);
+        } catch { devExecutorDetails.Text="État : erreur de diagnostic local"; }
     }
     void RefreshAdbDiagnostics()
     {
