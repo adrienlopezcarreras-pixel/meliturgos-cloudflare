@@ -1317,20 +1317,26 @@ jobs:
   summary:
     runs-on: ubuntu-24.04
     if: always()
-    needs: [http, browser, file, sovereignty]
+    needs: [readiness, http, capabilities, skills, browser, file, sovereignty]
     steps:
       - name: Require every independent downstream proof
         shell: bash
         env:
+          READINESS_RESULT: ${{ needs.readiness.result }}
           HTTP_RESULT: ${{ needs.http.result }}
+          CAPABILITIES_RESULT: ${{ needs.capabilities.result }}
+          SKILLS_RESULT: ${{ needs.skills.result }}
           BROWSER_RESULT: ${{ needs.browser.result }}
           FILE_RESULT: ${{ needs.file.result }}
           SOV_RESULT: ${{ needs.sovereignty.result }}
         run: |
           set -euo pipefail
-          printf 'HTTP=%s\nBROWSER=%s\nFILE=%s\nSOV=%s\n' "${HTTP_RESULT}" "${BROWSER_RESULT}" "${FILE_RESULT}" "${SOV_RESULT}"
+          printf 'READINESS=%s\nHTTP=%s\nCAPABILITIES=%s\nSKILLS=%s\nBROWSER=%s\nFILE=%s\nSOV=%s\n' "${READINESS_RESULT}" "${HTTP_RESULT}" "${CAPABILITIES_RESULT}" "${SKILLS_RESULT}" "${BROWSER_RESULT}" "${FILE_RESULT}" "${SOV_RESULT}"
+          test "${READINESS_RESULT}" = "success"
           test "${HTTP_RESULT}" = "success"
+          test "${CAPABILITIES_RESULT}" = "success"
+          test "${SKILLS_RESULT}" = "success"
           test "${BROWSER_RESULT}" = "success"
           test "${FILE_RESULT}" = "success"
           test "${SOV_RESULT}" = "success"
-          echo "All exact-SHA downstream production proofs passed independently of ShardVault."
+          echo "All six exact-SHA downstream production proofs and readiness passed independently of ShardVault."
