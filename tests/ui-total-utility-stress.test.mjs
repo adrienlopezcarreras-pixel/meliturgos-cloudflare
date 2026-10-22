@@ -75,10 +75,12 @@ test('obsolete Collector is not presented as a live LoRA component', async()=>{
   assert.match(source,/promotion:wf/);
 });
 
-test('runtime tick workflow cannot stay green on persistent lease contention or tripped MAX watchdog', async()=>{
+test('runtime tick defers expected lease contention without claiming progress and fails on tripped MAX watchdog', async()=>{
   const workflow=await read('.github/workflows/gen2-42-runtime-tick.yml');
   assert.match(workflow,/AUTONOMY_LEASE_BUSY_RETRY/);
-  assert.match(workflow,/AUTONOMY_LEASE_BUSY_AFTER_RETRIES/);
+  assert.match(workflow,/AUTONOMY_LEASE_CONTENTION_DEFERRED/);
+  assert.match(workflow,/if \[ "\$TICK_STATUS" != "SKIPPED_LEASE_BUSY" \]; then break; fi/);
+  assert.match(workflow,/if \[ "\$ATTEMPT" -ge 3 \]; then/);
   assert.match(workflow,/MAX_PROGRESS_WATCHDOG_TRIPPED/);
   assert.match(workflow,/progress\?\.work_remaining/);
   assert.match(workflow,/exit 67/);
