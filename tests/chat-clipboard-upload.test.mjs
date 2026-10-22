@@ -69,7 +69,7 @@ test('generated Normal upload handler stages image and text files, and surfaces 
   assert.ok(start >= 0 && end > start, 'generated upload handler must exist');
   const handlerSource = NORMAL_RUNTIME_SOURCE.slice(start, end);
   const compile = new Function(
-    'FormData', 'fetch', 'status', 'add', 'input', 'pendingFiles', 'renderPendingFiles',
+    'FormData', 'fetch', 'status', 'add', 'input', 'pendingFiles', 'renderPendingFiles', 'localPhotoPreview',
     handlerSource + '; return handleFiles;',
   );
 
@@ -99,6 +99,7 @@ test('generated Normal upload handler stages image and text files, and surfaces 
       },
       status, (role, text) => messages.push({ role, text }), { value: '' },
       pendingFiles, () => { renders += 1; },
+      async () => expectedImage ? 'blob:preview' : null,
     );
     const file = { name: expectedImage ? 'photo.png' : 'notes.txt', type };
     await handleFiles([file], 'file-picker');
@@ -108,6 +109,7 @@ test('generated Normal upload handler stages image and text files, and surfaces 
     assert.equal(pendingFiles.length, 1);
     assert.equal(pendingFiles[0].isImage, expectedImage);
     assert.equal(pendingFiles[0].id, 'staged-id');
+    assert.equal(pendingFiles[0].localUrl, expectedImage ? 'blob:preview' : null);
     assert.equal(renders, 1);
     assert.match(status.textContent, /pièce jointe prête/);
     assert.deepEqual(messages, [{ role: 'user', text: '📎 ' + file.name }]);
@@ -118,7 +120,7 @@ test('generated Normal upload handler stages image and text files, and surfaces 
   const handleRejected = compile(
     class { append() {} },
     async () => ({ ok: false, json: async () => ({ code: 'FILE_TOO_LARGE' }) }),
-    status, () => {}, { value: '' }, pendingFiles, () => {},
+    status, () => {}, { value: '' }, pendingFiles, () => {}, async () => null,
   );
   await handleRejected([{ name: 'oversized.txt', type: 'text/plain' }]);
   assert.equal(pendingFiles.length, 0);
