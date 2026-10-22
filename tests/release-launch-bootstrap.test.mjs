@@ -1591,10 +1591,11 @@ test('MAX release restore supersedes only an unchanged non-safety pause', async 
     {label:'owner stopped MAX after final verification',control:{...base,updated_at:base.updated_at+1},version:base.updated_at,restored:false},
     {label:'watchdog safety pause',control:{...base,source:'watchdog',reason:'safety-stop'},version:base.updated_at,restored:false},
     {label:'missing control snapshot',control:base,version:null,restored:false},
+    {label:'missing owner intent snapshot',control:base,version:base.updated_at,missingOwner:true,restored:false},
   ];
   for (const scenario of scenarios) {
     let writes=0;
-    const version=scenario.version == null ? '' : '&verified_control_version='+scenario.version+'&release_owner_control_version='+base.updated_at;
+    const version=scenario.version == null ? '' : '&verified_control_version='+scenario.version+(scenario.missingOwner?'':'&release_owner_control_version='+base.updated_at);
     const response=await maybeHandleReleaseLaunchBootstrap(
       new Request('https://mel.test/api/internal/release-launch-bootstrap?release_restore=true'+version,{
         method:'POST',
