@@ -239,3 +239,50 @@ test('parallel MEL-FILE proof rejects a payload for a different deployed SHA', a
   assert.equal(response.status,403);
   assert.equal(body.code,'MEL_FILE_PROOF_PAYLOAD_INVALID');
 });
+
+test('primary MEL-FILE release token has the same exact-SHA upload restrictions as parallel proof', async () => {
+  const token='r'.repeat(64);
+  const sha='e'.repeat(40);
+  const persisted=[];
+  const env={
+    ...MEDIA_ENV,
+    MELITURGOS_USER:'owner',
+    MELITURGOS_PASSWORD:'owner-password',
+    MEL_LAUNCH_BOOTSTRAP_TOKEN:token,
+    MEL_DEPLOYED_GIT_SHA:sha,
+    MEDIA_BUCKET:{ async put(key,content,options){persisted.push({key,options});} },
+  };
+  const post=async (name, text) => {
+    const form=new FormData();
+    form.append('file',new File([text],name,{type:'text/plain'}));
+    return handleFileUpload(new Request('https://mel.test/api/files/upload',{
+      method:'POST',
+      headers:{'x-mel-release-smoke':'1','x-mel-launch-bootstrap':token},
+      body:form,
+    }),env);
+  };
+  const unauthorizedName=await post('unrelated.txt','ordinary content');
+  assert.equal(unauthorizedName.status,403);
+  assert.equal((await unauthorizedName.json()).code,'MEL_FILE_PROOF_UPLOAD_REJECTED');
+  const wrongSha=await post('mel-file-normal-proof.txt','MEL_FILE_NORMAL_PROOF_'+('f'.repeat(40)));
+  assert.equal(wrongSha.status,403);
+  assert.equal((await wrongSha.json()).code,'MEL_FILE_PROOF_PAYLOAD_INVALID');
+  assert.equal(persisted.length,0);
+  const valid=await post('mel-file-normal-proof.txt','MEL_FILE_NORMAL_PROOF_'+sha);
+  assert.equal(valid.status,200);
+  const result=await valid.json();
+  assert.equal(result.ok,true);
+  assert.equal(result.stored,true);
+  assert.equal(result.ttl_seconds,300);
+  assert.equal(persisted.length,1);
+});
+
+test('ordinary authorized uploads are not restricted to exact-SHA release proof filenames', async () => {
+  const env={...MEDIA_ENV,MEDIA_BUCKET:{async put(){}}};
+  const response=await handleFileUpload(uploadRequest(new File(['hello'],'ordinary.txt',{type:'text/plain'})),env,{authorized:true});
+  assert.equal(response.status,200);
+  const result=await response.json();
+  assert.equal(result.ok,true);
+  assert.equal(result.name,'ordinary.txt');
+  assert.notEqual(result.ttl_seconds,300);
+});
