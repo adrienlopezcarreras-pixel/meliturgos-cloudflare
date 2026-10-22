@@ -1671,7 +1671,7 @@ export async function handleNativeChat(request, env, options = {}) {
   // Professor selects distinct model families; never override Normal routing.
   const professorRoute = resolveProfessorChatInferenceRoute(body?.intent_context);
   const melWorkCapabilityQuestion = melWorkReadiness;
-  const plainChatTurn = !releaseSmoke && !body.capability?.id && !inferredCapability
+  const plainChatTurn = !professorCodeChat && !releaseSmoke && !body.capability?.id && !inferredCapability
     && !melWorkCapabilityQuestion
     && !currentFactVerification && !personalProfileIntent
     && !negativeFeedbackRecovery && !conversationFocus.elliptical;
@@ -2239,6 +2239,10 @@ export async function handleNativeChat(request, env, options = {}) {
     buildResponseQualityInstruction(activeTaskText),
     conversationFocusInstruction,
     MEL_REAL_CAPABILITIES,
+    // [ChatGPT-GPT6] Only explicit Professor Code gets a developer context.
+    professorCodeChat
+      ? 'MODE PROFESSEUR — CODE : tu es la développeuse de MEL. Traite les demandes comme du travail logiciel : repère les fichiers concernés, exploite les outils réellement disponibles et vérifie les tests et résultats. Distingue code proposé, commit, PR, fusion et déploiement vérifiés. N’invente jamais une exécution, un accès ni une preuve. Le mode Code ne supprime aucune autorisation, validation ni protection de production.'
+      : '',
     operatingManual,
     currentFactReliabilityInstruction(currentFactVerification),
     buildPresentationInstruction(activeTaskText,{voiceReply}),
