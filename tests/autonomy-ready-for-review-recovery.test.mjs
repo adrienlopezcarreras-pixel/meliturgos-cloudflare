@@ -67,7 +67,7 @@ test('a real READY_FOR_REVIEW autonomy job is recovered into WAITING_TEACHER ins
     },
   });
 
-  const tick = await runAutonomyRuntimeTick(f.env, { repository: f.repository, fetchImpl: f.fetchImpl });
+  const tick = await runAutonomyRuntimeTick(f.env, { repository: f.repository, fetchImpl: f.fetchImpl, roadmap: [{ id: 'MEL-WORK-01', title: 'Fixture unfinished Work', status: 'PARTIAL', priority: 'P0' }] });
 
   assert.equal(tick.ok, true);
   assert.equal(tick.job.id, job.id);
