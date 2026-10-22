@@ -290,3 +290,37 @@ test('Professor streaming keeps Code and Conversation on distinct primaries with
   assert.equal(fallback.at(-1).model, codeBackup);
   assert.deepEqual(fallbacks, [codeModel, codeBackup]);
 });
+
+test('native Professor chat routes live streamed replies by selected role and preserves Normal', async () => {
+  const DB = sqliteD1();
+  const normalModel = '@cf/test/normal-configured';
+  const codeModel = '@cf/nvidia/nemotron-3-120b-a12b';
+  const chatModel = '@cf/openai/gpt-oss-120b';
+  const called = [];
+  const env = { DB, MEL_STREAM_MODEL: normalModel, AI: {
+    async run(model) { called.push(model); return sse(['Réponse vérifiée.']); },
+  } };
+  const send = async (suffix, intent_context = undefined) => {
+    const response = await handleNativeChat(new Request('https://mel.example/api/chat', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        text: 'Raconte un souvenir fictif en une phrase.',
+        conversation_id: 'role-stream-' + suffix,
+        stream: true, use_companion_compute: false,
+        ...(intent_context ? { intent_context } : {}),
+      }),
+    }), env, { authorized: true });
+    assert.match(response.headers.get('content-type') || '', /application\/x-ndjson/);
+    const events = await readNdjson(response);
+    assert.equal(events.at(-1).type, 'done');
+    return events[0].model;
+  };
+  try {
+    assert.equal(await send('normal'), normalModel);
+    assert.equal(await send('assistant', { surface: 'mel-full', role: 'assistant', requested_mode: 'conversation' }), chatModel);
+    assert.equal(await send('code', { surface: 'mel-full', role: 'developer', requested_mode: 'code' }), codeModel);
+    assert.deepEqual(called, [normalModel, chatModel, codeModel]);
+  } finally {
+    DB.close?.();
+  }
+});
