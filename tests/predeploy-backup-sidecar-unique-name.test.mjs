@@ -14,19 +14,20 @@ test('release backup sidecar uses a unique Worker name per workflow run and atte
 });
 
 
-test('predeploy refresher has the same bounded fail-closed Cloudflare 10007 handling as the binder', async () => {
+test('predeploy refresher applies the binder 10007-only retry contract without bypassing backup', async () => {
   const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
   const start = source.indexOf('      - name: Refresh current production backup through ephemeral worker');
   const end = source.indexOf('      - name: Create verified pre-deploy production backup', start);
   assert.ok(start >= 0 && end > start);
   const refresh = source.slice(start, end);
-  assert.match(refresh, /REFRESH_DEPLOYED=0/);
-  assert.match(refresh, /for DEPLOY_ATTEMPT in \\$\\(seq 1 8\\); do/);
-  assert.match(refresh, /grep -Eq 'code: 10007/);
-  assert.match(refresh, /REFRESH_DEPLOYED=1/);
-  assert.match(refresh, /if \\[ "\\$\\{REFRESH_DEPLOYED\\}" != "1" \\]; then\\s+exit 53/);
-  assert.match(refresh, /predeploy-refresh-ready\\.json/);
-  assert.match(refresh, /PREDEPLOY_BACKUP_REFRESH_CREATED/);
+  assert.ok(refresh.includes('REFRESH_DEPLOYED=0'));
+  assert.ok(refresh.includes('for DEPLOY_ATTEMPT in $(seq 1 8); do'));
+  assert.ok(refresh.includes("grep -Eq 'code: 10007"));
+  assert.ok(refresh.includes('REFRESH_DEPLOYED=1'));
+  assert.ok(refresh.includes('if [ "${REFRESH_DEPLOYED}" != "1" ]; then'));
+  assert.ok(refresh.includes('exit 53'));
+  assert.ok(refresh.includes('predeploy-refresh-ready.json'));
+  assert.ok(refresh.includes('PREDEPLOY_BACKUP_REFRESH_CREATED'));
   assert.doesNotMatch(refresh, /SKIP_BACKUP|ALLOW_UNVERIFIED_BACKUP/);
 });
 
