@@ -41,6 +41,12 @@ test('unlimited auto-continue resets only on new task and keeps owner-controlled
   assert.match(page,/melCodeCancelAuto\('Auto-continuer arrêté : confirmation/);
   assert.match(page,/melCodeCancelAuto\('Auto-continuer désactivé par le propriétaire/);
   assert.doesNotMatch(page,/Limite atteinte : 5 continuations/);
+  assert.match(page,/async function followDurableMelGoal\(id,autoTaskVersion=null\)/);
+  assert.match(page,/autoTaskVersion===melCodeAutoTaskVersion/);
+  assert.match(page,/Attente de fin réelle du travail persistant avant continuation/);
+  assert.match(page,/result\.complete_cycle===true/);
+  assert.match(page,/result\.blocked===true/);
+  assert.match(page,/followDurableMelGoal\(String\(d\.work\.id\),role==='code'/);
 });
 
 test('chat interrupt aborts the response and queued chat turns, never pauses MAX', () => {
