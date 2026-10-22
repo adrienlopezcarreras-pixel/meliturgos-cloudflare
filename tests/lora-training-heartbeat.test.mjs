@@ -40,6 +40,37 @@ test('LoRA heartbeat does not duplicate an active Kaggle training chain', async 
   assert.equal(calls, 1);
 });
 
+test('LoRA source stays on canonical main even when MAX develops on candidate', async () => {
+  const seen=[];
+  const result = await runLoraTrainingHeartbeat(baseEnv, {
+    force: true, engine: engineWith([]),
+    fetchImpl: async (url, options={}) => {
+      const href=String(url); seen.push(href);
+      if (href.includes('/actions/workflows/') && href.includes('/runs')) return Response.json({ workflow_runs: [] });
+      if (href.includes('/releases')) return Response.json([]);
+      if (href.includes('/git/ref/heads/main')) return Response.json({ object: { sha: SHA } });
+      if (href.endsWith('/dispatches')) {
+        const body=JSON.parse(options.body);
+        assert.equal(body.ref,'main');
+        assert.equal(body.inputs.source_sha,SHA);
+        return new Response(null,{ status:204 });
+      }
+      throw new Error('unexpected training URL: '+href);
+    },
+  });
+  assert.equal(result.dispatched,true);
+  assert.equal(result.branch,'main');
+  assert.ok(seen.some(href=>href.includes('/git/ref/heads/main')));
+  assert.ok(seen.every(href=>!href.includes('/git/ref/heads/candidate')));
+});
+
+test('Kaggle push does not auto-restart cycle zero or cancel active GPU training', async () => {
+  const source=await readFile(new URL('../.github/workflows/lora-kaggle-free-gpu.yml',import.meta.url),'utf8');
+  assert.match(source,/train-chain:\\n[\\s\\S]*if: \\$\\{\\{ github\\.event_name == 'workflow_dispatch' \\$\\}\\}/);
+  assert.match(source,/cancel-in-progress: \\$\\{\\{ github\\.event_name == 'push' && contains\\(github\\.event\\.head_commit\\.message, '\\[cancel-only\\]'\\) \\$\\}\\}/);
+  assert.match(source,/cancel-only:\\n[\\s\\S]*contains\\(github\\.event\\.head_commit\\.message, '\\[cancel-only\\]'\\)/);
+});
+
 test('LoRA heartbeat dispatches cycle zero only when no checkpoint exists', async () => {
   const seen = [];
   const result = await runLoraTrainingHeartbeat(baseEnv, {
