@@ -175,3 +175,18 @@ test('verified existing code is described without claiming that Mentor generated
   assert.equal(stages.find(s=>s.key==='package').label,'Vérification sans nouveau paquet');
   assert.ok(stages.every(s=>s.done));
 });
+
+// [ChatGPT-GPT6] COMMITTED is not terminal: promotion can still be pending.
+test('activity reset includes COMMITTED but excludes terminal job states', async () => {
+  const { resetAutonomyActivityList } = await import('../src/evolution/autonomy-activity.js');
+  const statements = [];
+  const db = { prepare(sql) {
+    statements.push(sql);
+    return { bind() { return this; }, async run() { return { meta: { changes: 1 } }; } };
+  } };
+  const result = await resetAutonomyActivityList(db, { now: 1_800_000_000_000 });
+  assert.equal(result.cancelled_active, 1);
+  assert.match(statements[0], /UPDATE dev_jobs SET status='CANCELLED'/);
+  assert.match(statements[0], /status NOT IN \\('COMPLETED','CANCELLED','FAILED'\\)/);
+  assert.doesNotMatch(statements[0], /'COMMITTED'/);
+});
