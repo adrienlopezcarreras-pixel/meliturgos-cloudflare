@@ -1251,6 +1251,18 @@ export async function runBoundedChatFallback(invoke, model, payload, { timeoutMs
   }
 }
 
+// [ChatGPT-GPT6] Professor-only role routing: Normal keeps its original model policy.
+export function resolveProfessorChatInferenceRoute(intentContext = {}) {
+  if (intentContext?.surface !== 'mel-full') return null;
+  if (intentContext.role === 'developer' && intentContext.requested_mode === 'code') {
+    return { task: 'CODE', model: '@cf/zai-org/glm-4.7-flash' };
+  }
+  if (intentContext.role === 'assistant' && intentContext.requested_mode === 'conversation') {
+    return { task: 'GENERAL', model: '@cf/openai/gpt-oss-120b' };
+  }
+  return null;
+}
+
 export async function runNativeInference({ env, messages, text, parallel = false, maxCandidates = 4, inferenceSettings = null, activeAdapter = null, runtime = null, taskOverride = null, preferredModel = null, timeoutMs = null, maxCalls = null, deadlineAt = null } = {}) {
   if (!env?.AI || typeof env.AI.run !== 'function') {
     const error = new Error('AI_BINDING_MISSING');
@@ -1636,11 +1648,8 @@ export async function handleNativeChat(request, env, options = {}) {
   // Direct chat is the default. The operational context is only assembled
   // when a request actually needs capabilities, a live status, or verification.
   // This avoids burying an ordinary answer under the entire MEL runbook.
-  // [ChatGPT-GPT6] Explicit UI role selects task-class routing, not just the label.
-  // Keep safety, capability gates and model availability checks unchanged.
-  const developerRole = body?.intent_context?.surface === 'mel-full'
-    && body?.intent_context?.role === 'developer'
-    && body?.intent_context?.requested_mode === 'code';
+  // Professor selects distinct model families; never override Normal routing.
+  const professorRoute = resolveProfessorChatInferenceRoute(body?.intent_context);
   const melWorkCapabilityQuestion = melWorkReadiness;
   const plainChatTurn = !releaseSmoke && !body.capability?.id && !inferredCapability
     && !melWorkCapabilityQuestion
@@ -2332,10 +2341,10 @@ export async function handleNativeChat(request, env, options = {}) {
       inferenceSettings: effectiveInferenceSettings,
       activeAdapter,
       runtime,
-      taskOverride: voiceReply ? 'FAST' : (developerRole ? 'CODE' : (personalProfileIntent ? 'REASONING' : null)),
+      taskOverride: voiceReply ? 'FAST' : (professorRoute?.task || (personalProfileIntent ? 'REASONING' : null)),
       preferredModel: voiceReply
         ? '@cf/zai-org/glm-4.7-flash'
-        : (personalProfileIntent ? '@cf/meta/llama-3.3-70b-instruct-fp8-fast' : null),
+        : (professorRoute?.model || (personalProfileIntent ? '@cf/meta/llama-3.3-70b-instruct-fp8-fast' : null)),
       timeoutMs: voiceReply ? 6000 : null,
       maxCalls: voiceReply ? 1 : null,
       deadlineAt: chatDeadlineAt,
