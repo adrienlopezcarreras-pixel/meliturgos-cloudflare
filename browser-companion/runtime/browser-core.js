@@ -324,6 +324,21 @@ export async function executeBrowserStep(page, step, allowedOrigins) {
         if (typeof page.waitForTimeout === 'function') await page.waitForTimeout(120);
         else await new Promise(resolve => setTimeout(resolve, 120));
       }
+      // A file-picker change can be accepted by Playwright even when the application's
+      // asynchronous POST /api/files/upload fails. Preserve the UI's failure
+      // signal instead of reporting every upload failure as missing DOM text.
+      // Never surface status contents: they may contain private filenames.
+      if (selector === '#attachments' || selector === '#chatAttachments') {
+        const statusSelector = selector === '#attachments' ? '#status' : '#chatStatus';
+        try {
+          const uploadStatus = String(await page.locator(statusSelector).innerText({ timeout: 1000 }));
+          if (/^(?:Échec du fichier|Erreur (?:de |d')?envoi|Upload failed)/i.test(uploadStatus.trim())) {
+            throw companionError('BROWSER_UPLOAD_UI_FAILURE', 422);
+          }
+        } catch (error) {
+          if (error?.code === 'BROWSER_UPLOAD_UI_FAILURE') throw error;
+        }
+      }
       throw companionError('BROWSER_TEXT_NOT_FOUND', 408);
     }
 
