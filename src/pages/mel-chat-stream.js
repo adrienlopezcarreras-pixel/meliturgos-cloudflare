@@ -20,9 +20,12 @@ export function melParseNdjsonLines(buffer) {
 // Le serveur peut travailler 90 s sans nouveau fragment si un appel de modèle
 // bloque les battements. Le silence autorisé reste sous le délai client de
 // 120 s, et au-dessus de ce budget, pour ne pas couper une réponse encore en cours.
-async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 105000 } = {}) {
+async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 105000, signal = null } = {}) {
   const startedAt = Date.now();
   const controller = new AbortController();
+  const abortFromOwner = () => controller.abort();
+  if (signal?.aborted) controller.abort();
+  else signal?.addEventListener('abort', abortFromOwner, { once: true });
   let timer = setTimeout(() => controller.abort(), firstByteMs);
   const bump = () => { clearTimeout(timer); timer = setTimeout(() => controller.abort(), idleMs); };
   let response;
@@ -35,7 +38,8 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 105000 } = 
     });
   } catch (error) {
     clearTimeout(timer);
-    throw error?.name === 'AbortError' ? Error('Réponse serveur trop lente') : error;
+    signal?.removeEventListener('abort', abortFromOwner);
+    throw error?.name === 'AbortError' ? Error(signal?.aborted ? 'Réponse interrompue par le propriétaire' : 'Réponse serveur trop lente') : error;
   }
   const type = response.headers.get('content-type') || '';
   if (!type.includes('application/x-ndjson') || !response.body) {
@@ -50,6 +54,7 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 105000 } = 
       throw error?.name === 'AbortError' ? Error('Réponse serveur trop lente') : error;
     } finally {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', abortFromOwner);
     }
   }
 
@@ -126,9 +131,10 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 105000 } = 
       }
     }
   } catch (error) {
-    failure = { code: error?.name === 'AbortError' ? 'Réponse interrompue (aucun texte reçu)' : String(error?.message || error) };
+    failure = { code: error?.name === 'AbortError' ? (signal?.aborted ? 'Interrompu par le propriétaire' : 'Réponse interrompue (aucun texte reçu)') : String(error?.message || error) };
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener('abort', abortFromOwner);
     if (bubble) bubble.classList.remove('streaming');
   }
   if (liveBox) liveBox.remove();
