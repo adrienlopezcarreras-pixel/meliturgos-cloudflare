@@ -1,7 +1,8 @@
 import { createLearningEngine } from './learning-engine.js';
 
 const DEFAULT_REPOSITORY = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
-const DEFAULT_BRANCH = 'candidate/mel-clean-autonomy';
+// LoRA must train from the canonical reviewed code, not the mutable autonomy candidate.
+const DEFAULT_BRANCH = 'main';
 const DEFAULT_WORKFLOW = 'lora-kaggle-free-gpu.yml';
 const ACTIVE_RUN_STATES = new Set(['queued', 'in_progress', 'waiting', 'pending', 'requested']);
 
@@ -201,7 +202,7 @@ export async function runLoraTrainingHeartbeat(env = {}, options = {}) {
 
   const fetchImpl = options.fetchImpl || fetch;
   const repository = String(env?.MEL_GITHUB_REPOSITORY || DEFAULT_REPOSITORY).trim();
-  const branch = String(env?.MEL_GITHUB_BRANCH || DEFAULT_BRANCH).trim();
+  const branch = String(env?.MEL_LORA_GITHUB_BRANCH || DEFAULT_BRANCH).trim();
   const workflow = String(env?.MEL_LORA_KAGGLE_WORKFLOW || DEFAULT_WORKFLOW).trim();
 
   try {
@@ -308,6 +309,7 @@ export async function runLoraTrainingHeartbeat(env = {}, options = {}) {
 
 export const LORA_TRAINING_HEARTBEAT_DEFAULTS = Object.freeze({
   workflow: DEFAULT_WORKFLOW,
+  source_branch: DEFAULT_BRANCH,
   interval_minutes: 15,
   retry_minutes: 60,
   shard_size: 750,
