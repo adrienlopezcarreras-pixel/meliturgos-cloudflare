@@ -4,7 +4,10 @@ import { isClaimedPreparedDevBridgeJob } from '../dev/bridge-job-state.js';
 
 const TERMINAL_JOB = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
 const BLOCKED_ROADMAP = new Set([ROADMAP_STATUSES.BLOCKED_HUMAN, ROADMAP_STATUSES.BLOCKED_EXTERNAL]);
-const DONE_ROADMAP = new Set([ROADMAP_STATUSES.DONE, ROADMAP_STATUSES.VERIFIED, 'DONE', 'DONE_VERIFIED']);
+const DONE_ROADMAP = new Set([ROADMAP_STATUSES.DONE, ROADMAP_STATUSES.VERIFIED, 'DONE', 'VERIFIED', 'DONE_VERIFIED', 'ACCEPTED']);
+function isVerifiedRoadmap(item) {
+  return DONE_ROADMAP.has(String(item?.status || '').trim().toUpperCase());
+}
 const PRIORITY_WEIGHT = Object.freeze({ P0: 0, P1: 10, P2: 20, P3: 30 });
 const STATUS_WEIGHT = Object.freeze({ IN_PROGRESS: 0, PARTIAL: 1, PLANNED: 2 });
 const SUPERVISED_REQUESTERS = new Set(['owner-chat', 'mel-autonomy']);
@@ -161,7 +164,7 @@ export function selectActionableAutonomyJob(jobs = [], { epochMs = 0 } = {}) {
 export function manifestObjective(roadmap = flattenRoadmap()) {
   return roadmap
     .filter((item) => item?.id && (item.id.startsWith('MEL-FOUNDER-') || item.id.startsWith('MEL-MANIFEST-')))
-    .filter((item) => !DONE_ROADMAP.has(item.status))
+    .filter((item) => !isVerifiedRoadmap(item))
     .map((item) => item.id + ':' + item.status)
     .join(' ')
     .slice(0, 900);
@@ -212,7 +215,11 @@ export class AutonomySupervisor {
     const supervisedJobs = jobs
       .filter(isSupervisedAutonomyJob)
       .filter((job) => !this.epochMs || Number(job?.created_at || 0) >= this.epochMs);
-    const active = supervisedJobs.filter((job) => !TERMINAL_JOB.has(String(job.status || '').toUpperCase()));
+    // Accepted and verified roadmap work is historical evidence, not a new MAX priority.
+    // Never mutate an already queued job for that item unless the roadmap is explicitly reopened.
+    const verifiedRoadmapIds = new Set(this.roadmap.filter(isVerifiedRoadmap).map(item => item.id));
+    const active = supervisedJobs.filter((job) => !TERMINAL_JOB.has(String(job.status || '').toUpperCase()))
+      .filter((job) => !verifiedRoadmapIds.has(roadmapIdFromJob(job)));
     const activeIds = active.map(roadmapIdFromJob).filter(Boolean);
     const completedIds = supervisedJobs
       .filter((job) => ['COMPLETED', 'COMMITTED'].includes(String(job.status || '').toUpperCase()))
