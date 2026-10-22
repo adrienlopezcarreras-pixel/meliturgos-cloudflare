@@ -98,3 +98,27 @@ test('an activity reset hides older jobs and cancels only the active supervised 
   assert.deepEqual(view.jobs.map(job => job.id), ['new']);
   assert.equal(view.activity_list_epoch, now);
 });
+
+// GPT6: a committed candidate still awaits CI/promotion and must not disappear from active counts.
+test('COMMITTED supervised job remains active until COMPLETED', async () => {
+  const { buildAutonomyActivity } = await import('../src/evolution/autonomy-activity.js');
+  const now = Date.now();
+  const db = { prepare(sql) {
+    const st = {
+      bind() { return st; },
+      async all() {
+        if (/FROM dev_jobs/.test(sql)) return { results: [
+          { id: 'commit-1', status: 'COMMITTED', requested_by: 'mel-autonomy', goal: 'CI pending', created_at: now, updated_at: now, result_json: '{}' },
+          { id: 'done-1', status: 'COMPLETED', requested_by: 'mel-autonomy', goal: 'Released', created_at: now, updated_at: now, result_json: '{}' },
+        ] };
+        return { results: [] };
+      },
+      async first() { return null; },
+    };
+    return st;
+  } };
+  const view = await buildAutonomyActivity({ DB: db }, { now });
+  assert.equal(view.counts.active, 1);
+  assert.equal(view.counts.by_status.COMMITTED, 1);
+  assert.equal(view.jobs.find(job => job.id === 'commit-1').pipeline.at(-1).done, false);
+});
