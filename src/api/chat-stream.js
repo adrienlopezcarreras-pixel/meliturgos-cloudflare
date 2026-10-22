@@ -206,7 +206,7 @@ export function createToolLeakFilter({ holdLimit = 4000 } = {}) {
  * `archive(fullText, meta)` est appelé une fois la réponse terminée (ou
  * interrompue avec du texte partiel) ; il doit renvoyer true si l'archivage a réussi.
  */
-export function streamChatResponse({ env, messages, archive = async () => false, model = null, localFallback = null, modelOrder = null, preferredModel = null } = {}) {
+export function streamChatResponse({ env, messages, archive = async () => false, model = null, localFallback = null, modelOrder = null, preferredModel = null, verifyCompletedText = null } = {}) {
   // A Professor-only preference must take precedence over the global chat model
   // without affecting ordinary Normal chat or disabling bounded fallbacks.
   const preferred = String(preferredModel || '').trim();
@@ -218,6 +218,9 @@ export function streamChatResponse({ env, messages, archive = async () => false,
       ? [preferred, ...roleCandidates.filter(id => id !== preferred)]
       : roleCandidates)
     : streamModelCandidates(messages, env, modelOrder);
+  // Code replies keep the NDJSON transport but withhold model deltas until the
+  // complete reply has passed the same D1 execution-receipt guard as JSON chat.
+  const gated = typeof verifyCompletedText === 'function';
   const maxTokens = streamOutputTokens(env);
   let fullText = '';
   let usedModel = candidates[0];
@@ -237,7 +240,7 @@ export function streamChatResponse({ env, messages, archive = async () => false,
           usedModel = candidate;
           try {
             const filter = createToolLeakFilter();
-            const emit = text => { if (text) { fullText += text; send({ type: 'delta', text }); } };
+            const emit = text => { if (text) { fullText += text; if (!gated) send({ type: 'delta', text }); } };
             const source = await env.AI.run(candidate, { messages: withNoToolsNote(messages), stream: true, max_tokens: maxTokens });
             if (!source || typeof source.getReader !== 'function') {
               emit(filter.push(sseEventText(source) || String(source?.result?.response || '')));
@@ -259,17 +262,23 @@ export function streamChatResponse({ env, messages, archive = async () => false,
         if (!fullText.trim() && typeof localFallback === 'function') {
           send({ type: 'model', model: 'pc-local', fallback_from: usedModel, reason: lastError });
           const local = await localFallback(messages).catch(error => ({ ok: false, code: String(error?.message || 'LOCAL_FAILED') }));
-          if (local?.ok && local.text) { usedModel = local.model || 'pc-local'; fullText = local.text; send({ type: 'delta', text: local.text }); }
+          if (local?.ok && local.text) { usedModel = local.model || 'pc-local'; fullText = local.text; if (!gated) send({ type: 'delta', text: local.text }); }
           else lastError = lastError || local?.code || 'LOCAL_FAILED';
         }
         if (!fullText.trim()) throw Object.assign(new Error(lastError || 'EMPTY_MODEL_RESPONSE'), { code: lastError || 'EMPTY_MODEL_RESPONSE' });
+        if (gated) {
+          const safeText = String(await verifyCompletedText(fullText) || '').trim();
+          if (!safeText) throw Object.assign(new Error('STREAM_VERIFICATION_EMPTY'), { code:'STREAM_VERIFICATION_EMPTY' });
+          fullText = safeText;
+          send({ type: 'delta', text: fullText });
+        }
         const truncated = finishReason === 'length';
         let archived = false;
         try { archived = await archive(fullText, { model: usedModel, truncated }); } catch {}
         send({ type: 'done', model: usedModel, chars: fullText.length, archived: archived === true, truncated });
       } catch (error) {
         const code = String(error?.code || error?.message || 'STREAM_FAILED').slice(0, 120);
-        if (fullText.trim()) {
+        if (fullText.trim() && !gated) {
           try { await archive(fullText, { model: usedModel, truncated: true, error: code }); } catch {}
         }
         send({ type: 'error', code, partial_chars: fullText.length });
