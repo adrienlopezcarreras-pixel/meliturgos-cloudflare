@@ -34,7 +34,7 @@ test('Code Continue and unchecked-by-default auto-continue live next to chat but
 });
 
 test('unlimited auto-continue resets only on new task and keeps owner-controlled stop conditions',()=>{
-  assert.match(page,/if\(qs\('#melCodeAutoContinue'\)\?\.checked\)\{melCodeAutoLastReply='';melCodeAutoRepeatCount=0;\}/);
+  assert.match(page,/if\(qs\('#melCodeAutoContinue'\)\?\.checked\)\{melCodeAutoTaskVersion\+\+;melCodeAutoLastReply='';melCodeAutoRepeatCount=0;/);
   assert.match(page,/melCodeAutoTimer=setTimeout\(/);
   assert.match(page,/\},1500\)/);
   assert.match(page,/melCodeCancelAuto\('Chantier déclaré terminé par MEL/);
