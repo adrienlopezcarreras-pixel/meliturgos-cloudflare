@@ -178,3 +178,31 @@ test('real runtime records unavailable implementation providers before selecting
   assert.ok(persisted.result_json.autonomy_deferral.retry_after > Date.now());
   assert.equal(persisted.result_json.autonomy_completion, undefined);
 });
+
+
+// [ChatGPT-GPT6 / MEL-CODE-DISPATCH-CAS] Two MAX ticks must not enqueue
+// duplicate GitHub actions for an identical approved D1 package.
+test('concurrent MAX cloud dispatch is idempotent for the same approved package', async t => {
+  const { DB, repository, job } = await fixture(t);
+  let enqueues = 0;
+  const relay = {
+    async enqueue() {
+      enqueues += 1;
+      await new Promise(resolve => setImmediate(resolve));
+      return { id: 'concurrent-relay-' + enqueues };
+    },
+  };
+  const now = Date.now() + 1000;
+  const results = await Promise.all([
+    maybeDispatchCloudBridge({ DB }, {}, { now, relay }),
+    maybeDispatchCloudBridge({ DB }, {}, { now, relay }),
+    maybeDispatchCloudBridge({ DB }, {}, { now, relay }),
+  ]);
+  assert.equal(enqueues, 1, 'only one cloud relay job should be enqueued');
+  assert.equal(results.filter(result => result.status === 'DISPATCH_QUEUED').length, 1);
+  assert.equal(results.filter(result => result.status === 'SKIPPED_RECENTLY_DISPATCHED').length, 2);
+  const state = await DB.prepare('SELECT status,metadata_json FROM dev_bridge_state WHERE bridge_id=?')
+    .bind('cloud-bridge-dispatch:' + job.id).first();
+  assert.equal(state.status, 'QUEUED');
+  assert.equal((await repository.get(job.id)).status, 'TEACHER_APPROVED', 'an enqueue is not execution');
+});
