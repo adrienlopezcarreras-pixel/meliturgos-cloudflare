@@ -19,7 +19,9 @@ function attr(attrs, name) {
 
 test('full control surface stays bounded and free of retired Vercel controls', () => {
   const rows = buttons();
-  assert.ok(rows.length <= 92, 'control surface grew beyond the audited 92-button budget (one owner interrupt control)');
+  assert.ok(rows.length <= 94, 'control surface grew beyond the audited 94-button budget (two explicit Professor chat role buttons)');
+  assert.equal(rows.filter(row => /id="melRole(?:Assistant|Code)"/.test(row.attrs)).length, 2, 'exactly two role controls in Professor');
+  assert.match(source, /let melChatRole='code'/);
   assert.match(source, /id="melClearActivity"/);
   assert.match(source, /id="mobileClearActivity"/);
   assert.match(source, /\/api\/gen2\/autonomy\/activity\/reset/);
