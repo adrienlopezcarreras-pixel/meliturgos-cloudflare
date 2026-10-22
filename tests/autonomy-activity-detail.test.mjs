@@ -117,14 +117,13 @@ test('COMMITTED supervised job remains active until COMPLETED', async () => {
     };
     return st;
   } };
-  // The application repository migrates D1; this fixture models only a DB read
-  // boundary, so inject the supported repository port rather than silently
-  // swallowing a mock CREATE TABLE error as an empty job list.
-  const repository = { list: async () => [
+  // Isolate the activity counter from unrelated migration/schema initialization:
+  // the fixture validates COMMITTED semantics, not D1 repository migrations.
+  const fixtureJobs = [
     { id: 'commit-1', status: 'COMMITTED', requested_by: 'mel-autonomy', goal: 'CI pending', created_at: now, updated_at: now, result_json: '{}' },
     { id: 'done-1', status: 'COMPLETED', requested_by: 'mel-autonomy', goal: 'Released', created_at: now, updated_at: now, result_json: '{}' },
-  ] };
-  const view = await buildAutonomyActivity({ DB: db }, { now, repository });
+  ];
+  const view = await buildAutonomyActivity({ DB: db }, { now, repository: { async list() { return fixtureJobs; } } });
   assert.equal(view.counts.active, 1);
   assert.equal(view.counts.by_status.COMMITTED, 1);
   assert.equal(view.jobs.find(job => job.id === 'commit-1').pipeline.at(-1).done, false);
