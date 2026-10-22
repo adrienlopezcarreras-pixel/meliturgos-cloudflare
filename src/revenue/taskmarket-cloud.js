@@ -23,7 +23,9 @@ const enc = new TextEncoder();
 const hex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 
 function bytesFrom(text) {
-  const s = String(text || '').trim().replace(/^0x/i, '');
+  const raw = String(text || '').trim();
+  // A Base64 payload can randomly start with "0x". Strip that prefix only for valid hex.
+  const s = /^(?:0x)?[0-9a-f]+$/i.test(raw) ? raw.replace(/^0x/i, '') : raw;
   if (/^[0-9a-f]+$/i.test(s) && s.length % 2 === 0) return Uint8Array.from(s.match(/../g), h => parseInt(h, 16));
   try {
     const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
