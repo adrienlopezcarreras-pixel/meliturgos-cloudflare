@@ -19,9 +19,10 @@ test('MEL candidate is kept in sync with main and promoted only under MAX with g
   assert.doesNotMatch(s, /push --force|push -f /);
 });
 
-test('cloud bridge starts the full candidate suite and tolerates a candidate that only advanced', async () => {
+test('cloud bridge starts the full candidate suite and requires fresh review when candidate advances', async () => {
   const s = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
   assert.match(s, /actions\/workflows\/full-candidate-ci\.yml\/dispatches/);
-  assert.match(s, /CANDIDATE_ADVANCED_FILES_UNCHANGED/);
-  assert.match(s, /git merge-base --is-ancestor "\$CANDIDATE_SHA" "\$HEAD_SHA"/);
+  assert.match(s, /TEACHER_APPROVAL_CANDIDATE_SHA_STALE/);
+  assert.doesNotMatch(s, /git rebase/);
+  assert.match(s, /"\$REMOTE_SHA" = "\$CANDIDATE_SHA"/);
 });

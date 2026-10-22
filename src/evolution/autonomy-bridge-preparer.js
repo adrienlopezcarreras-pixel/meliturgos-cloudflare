@@ -1,4 +1,5 @@
 import { createGitHubCodeReader } from '../capabilities/github-code-capabilities.js';
+import { assertMentorCodeContract } from '../learning/mentor-code-contract.js';
 import { createMentorEngine } from '../learning/mentor-engine.js';
 
 const SHA40 = /^[0-9a-f]{40}$/i;
@@ -88,7 +89,9 @@ async function inspectSources(env, proposal, { fetchImpl = fetch } = {}) {
   for (const path of uniquePaths(proposal)) {
     try {
       const source = await reader.read(path);
-      files.push({ path: source.path, content: String(source.content || '').slice(0, MAX_SOURCE) });
+      const content = String(source.content || '');
+      if (content.length > MAX_SOURCE) continue;
+      files.push({ path: source.path, content });
     } catch {}
   }
   if (!files.length) throw Object.assign(new Error('BRIDGE_PREPARATION_SOURCE_REQUIRED'), { code: 'BRIDGE_PREPARATION_SOURCE_REQUIRED' });
@@ -113,7 +116,8 @@ async function inspectSources(env, proposal, { fetchImpl = fetch } = {}) {
 }
 
 function normalizeTests(tests = []) {
-  const values = [];
+  // A model-selected smoke cannot stand in for preservation of existing behavior.
+  const values = ['test'];
   for (const name of Array.isArray(tests) ? tests : []) {
     const value = String(name || '');
     if (!ALLOWED_TESTS.has(value) || values.includes(value)) continue;
@@ -132,6 +136,7 @@ function repairMarker(job) {
   // plan never inspected (MENTOR_UNINSPECTED_PATH). It stays in result_json.
   const failedAt = Date.parse(String(bridge.received_at || ''));
   const approvedAt = Date.parse(String(job?.result_json?.teacher_bridge?.reviewed_at || ''));
+  if (SHA40.test(String(job?.result_json?.candidate_ci_failure?.base_sha || ''))) return String(bridge.received_at || '');
   if (Number.isFinite(failedAt) && Number.isFinite(approvedAt) && failedAt < approvedAt) return '';
   return String(bridge.received_at || '');
 }
@@ -169,13 +174,31 @@ export async function prepareApprovedBridgePackage({
   if (!current) throw Object.assign(new Error('JOB_NOT_FOUND'), { code: 'JOB_NOT_FOUND' });
   const teacher = requireTeacherApproved(current);
   const implementation = requireImplementationProposal(current, teacher);
-  const reused = reusablePackage(current, implementation);
-  if (reused) return reused;
-
   const code = await inspectSources(env, implementation, { fetchImpl });
+  const reused = reusablePackage(current, implementation);
+  if (reused) {
+    for (const file of current.files_json) {
+      const inspected = code.files.find(source => source.path === file.path);
+      if (!inspected) throw Object.assign(new Error('MENTOR_UNINSPECTED_PATH'), { code: 'MENTOR_UNINSPECTED_PATH' });
+      assertMentorCodeContract(file.path, inspected.content, file.content);
+    }
+    // Packages made before mandatory full regression must be rebuilt once.
+    if (current.tests_json.some(test => test.command === 'test')) return reused;
+  }
   const engine = mentorEngine || createMentorEngine(env);
   const repairFor = repairMarker(current);
   const mode = repairFor ? 'repair' : 'implement';
+  const repairReferences = [];
+  const failure = current.result_json?.candidate_ci_failure;
+  if (repairFor && SHA40.test(String(failure?.base_sha || ''))) {
+    const referenceReader = createGitHubCodeReader({ repository: code.repository, branch: code.branch,
+      token: String(env?.MEL_GITHUB_TOKEN || ''), pinnedSha: failure.base_sha, fetchImpl });
+    for (const file of code.files) {
+      const reference = await referenceReader.read(file.path);
+      if (reference.content.length > MAX_SOURCE) throw Object.assign(new Error('MENTOR_SOURCE_TOO_LARGE'), { code: 'MENTOR_SOURCE_TOO_LARGE' });
+      repairReferences.push({ path: reference.path, content: reference.content });
+    }
+  }
   const mentor = await engine.propose({
     env,
     jobId: current.id,
@@ -183,11 +206,15 @@ export async function prepareApprovedBridgePackage({
     inspectedFiles: code.files,
     previousAttempts: repairFor ? current?.result_json?.dev_bridge?.tests || [] : [],
     mode,
+    repairReferences,
   });
   const proposal = mentor?.proposal;
   if (!proposal || !Array.isArray(proposal.changes) || !proposal.changes.length) {
     throw Object.assign(new Error('BRIDGE_PREPARATION_CHANGES_REQUIRED'), { code: 'BRIDGE_PREPARATION_CHANGES_REQUIRED' });
   }
+
+  const reader = createGitHubCodeReader({ ...code, token: String(env?.MEL_GITHUB_TOKEN || ''), pinnedSha: code.candidate_sha, fetchImpl });
+  await reader.head();
 
   const files = proposal.changes.slice(0, 10).map((change) => ({
     path: String(change.path || ''),

@@ -12,7 +12,7 @@ import { queueRuntimeTeacherRequest, applyRuntimeTeacherReply } from '../teacher
 import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-mirror.js';
 import { mirrorOwnerChatTeacherRequestToGitHub } from '../teachers/owner-chat-teacher-mirror.js';
 import { reconcileRuntimeCompletions } from '../teachers/github-completion-reconciler.js';
-import { localBridgeFallbackAllowed } from '../evolution/cloud-bridge-dispatch.js';
+import { localBridgeFallbackAllowed, maybeDispatchCloudBridge } from '../evolution/cloud-bridge-dispatch.js';
 
 function boundedInspection(value) {
   requireValue(value && value.status === 'COMPLETE' && Array.isArray(value.evidence) && value.evidence.length > 0, 'CODE_INSPECTION_REQUIRED', 422);
@@ -123,7 +123,7 @@ async function mirrorTeacherImmediately({ env, repo, job, state, fetchImpl = fet
   return { status: 'SKIPPED_UNSUPERVISED_REQUESTER', requested_by: job.requested_by || null };
 }
 
-export function devRuntime(request, env, { repository = null, bridgeRepository = null, roadmap = null, runAutonomyTick = runAutonomyRuntimeTick } = {}) {
+export function devRuntime(request, env, { repository = null, bridgeRepository = null, roadmap = null, runAutonomyTick = runAutonomyRuntimeTick, dispatchCloudBridge = maybeDispatchCloudBridge } = {}) {
   const url = new URL(request.url);
   const path = url.pathname;
   if (!path.startsWith('/api/professor/dev') && !path.startsWith('/api/dev-bridge')) return null;
@@ -216,9 +216,24 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
         fetchImpl: fetch,
         ...(roadmap ? { roadmap } : {}),
       });
+      // [ChatGPT-GPT6 / MEL-CODE-MAX-HANDOFF] An authenticated manual MAX
+      // tick uses the same cloud-first dispatcher as the scheduled runtime.
+      // Its D1 deduplication/atomic claim prevents racing a cron or Companion.
+      // A dispatch receipt is not proof that any code was executed.
+      let cloudDispatch;
+      try {
+        cloudDispatch = await dispatchCloudBridge(env, tick);
+      } catch (error) {
+        const candidate = String(error?.code || '');
+        cloudDispatch = {
+          status: 'FAILED',
+          code: /^[A-Z0-9_]{1,80}$/.test(candidate) ? candidate : 'CLOUD_DISPATCH_FAILED',
+        };
+      }
       return Response.json({
         ok: tick?.ok !== false,
         tick,
+        cloud_dispatch: cloudDispatch,
       }, { headers: { 'cache-control': 'no-store' } });
     }
 

@@ -17,6 +17,7 @@ const AUTONOMY_ORDER = [
   'MEL-FOUNDER-03',
   'MEL-FOUNDER-04',
   'MEL-FOUNDER-05',
+  'MEL-FOUNDER-06',
   'MEL-FOUNDER-07',
   'MEL-FOUNDER-08',
   'MEL-MANIFEST-01',
@@ -79,6 +80,8 @@ function isPassiveRuntimeJob(job) {
   // normal owner priority.
   return status === 'READY_FOR_REVIEW' && job?.result_json?.dev_bridge?.needs_repair !== true;
 }
+
+
 
 function hasLiveExternalProgress(job) {
   if (providerDeferred(job)) return true;

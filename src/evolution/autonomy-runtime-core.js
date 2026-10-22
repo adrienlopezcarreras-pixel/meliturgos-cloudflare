@@ -7,7 +7,7 @@ import { createTeacherReviewRequest } from '../teachers/teacher-request.js';
 import { queueRuntimeTeacherRequest } from '../teachers/runtime-teacher-bridge.js';
 import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-mirror.js';
 import { reconcileRuntimeTeacherReplies } from '../teachers/github-reply-reconciler.js';
-import { reconcileRuntimeCompletions, findGreenFullCandidateRun } from '../teachers/github-completion-reconciler.js';
+import { reconcileRuntimeCompletions, findGreenFullCandidateRun, reconcileFailedCandidateRuns } from '../teachers/github-completion-reconciler.js';
 import { reviewVerificationEvidence } from './council-review.js';
 import { requiredLiveChecks, runLiveChecks, liveProofGate } from './verify-existing-live-checks.js';
 import { runRuntimeWorkDagResumeProof } from './autonomy-proof.js';
@@ -220,7 +220,7 @@ async function requeueStaleTeacherApproval(repository, jobId, diagnosticCode) {
     plan_json: plan,
     result_json: result,
     error: null,
-  });
+  }, { expected: latest });
 }
 
 async function persistBridgePreparationDiagnostic(repository, jobId, diagnostic) {
@@ -297,7 +297,8 @@ function codeConfig(env = {}) {
 }
 
 function requestedInspectionPaths(job) {
-  return (Array.isArray(job?.optional_context?.inspection_paths) ? job.optional_context.inspection_paths : [])
+  return [...(job?.result_json?.dev_bridge?.needs_repair === true && Array.isArray(job?.result_json?.candidate_ci_failure?.files) ? job.result_json.candidate_ci_failure.files : []),
+    ...(Array.isArray(job?.optional_context?.inspection_paths) ? job.optional_context.inspection_paths : [])]
     .map(path => String(path || '').trim())
     .filter(path => path && path.length <= 240 && !path.startsWith('/') && !path.split('/').includes('..') && /^[a-zA-Z0-9_./-]+$/.test(path))
     .slice(0, 12);
@@ -447,7 +448,7 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
     });
     const plan = current.plan_json && typeof current.plan_json === 'object' ? { ...current.plan_json } : {};
     plan.preflight = preflight;
-    current = await repository.update(current.id, { plan_json: plan, status: 'COUNCIL_COMPLETE' });
+    current = await repository.update(current.id, { plan_json: plan, status: 'COUNCIL_COMPLETE' }, { expected: current });
   }
 
   const inspection = await inspectCandidateCode(env, current, { fetchImpl, minimal: minimalInspection });
@@ -543,6 +544,8 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     completed: [],
     rejected: [],
   }));
+
+  const candidateCI = await reconcileFailedCandidateRuns({ repository: currentRepository, env, fetchImpl });
 
   const evolutionLoader = !roadmap ? createRuntimeEvolutionLoader(env) : null;
   const supervisor = new AutonomySupervisor({
@@ -666,7 +669,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
           status: 'FAILED',
           result_json: result,
           error: 'MAX_REPAIR_ATTEMPTS_EXHAUSTED',
-        });
+        }, { expected: job });
       } else {
         const requestedAt = new Date().toISOString();
         result.repair_cycle = {
@@ -701,7 +704,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
           status: 'TEACHER_APPROVED',
           result_json: result,
           error: null,
-        });
+        }, { expected: job });
       }
     }
   }
@@ -826,7 +829,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   if (Array.isArray(reconciliation?.applied) && reconciliation.applied.length > 0) progressEvents.push('TEACHER_REPLY_RECONCILED');
   if (Array.isArray(completions?.completed) && completions.completed.length > 0) progressEvents.push('JOB_COMPLETED');
   if (Array.isArray(completions?.rejected) && completions.rejected.length > 0) progressEvents.push('COMPLETION_REJECTED_AND_DIAGNOSED');
-  if (reopenedUnansweredRepair) progressEvents.push('JOB_STATE_ADVANCED');
+  if (reopenedUnansweredRepair || candidateCI.repaired.length) progressEvents.push('JOB_STATE_ADVANCED');
   if (teacher?.status === 'WAITING_TEACHER' && teacher?.reused !== true) progressEvents.push('TEACHER_REQUEST_CREATED');
   if (String(teacherMirror?.status || '').toUpperCase() === 'MIRRORED') progressEvents.push('TEACHER_REQUEST_MIRRORED');
   if (implementation?.status === 'READY' && implementation?.reused !== true) progressEvents.push('IMPLEMENTATION_PREPARED');
@@ -870,6 +873,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       job_status: finalJobStatus,
     },
     reconciliation,
+    candidate_ci: candidateCI,
     completions,
     runtime_proof: runtimeProof ? {
       status: runtimeProof.status,
