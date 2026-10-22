@@ -50,5 +50,5 @@ test('Code live view receives only server progress and verified tool receipts',(
   assert.match(page,/melCodeLiveReceipt\(d\)/);
   assert.match(page,/if\(role==='code'\)melCodeLiveReceipt/);
   assert.match(page,/d\?\.tool_results/);
-  assert.match(page,/result\.node_counts/);
+  assert.match(page,/result\?\.node_counts/);
 });
