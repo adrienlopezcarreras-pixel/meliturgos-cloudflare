@@ -12,6 +12,9 @@ on:
       - 'src/devices/computer-agent*.js'
       - 'src/devices/computer-use.js'
       - 'tests/computer-agent.test.mjs'
+      - 'tests/windows/companion-dev-executor-controls.ps1'
+      - 'scripts/mel-dev-bridge.mjs'
+      - 'windows-companion/MEL-Companion.cs'
       - '.github/workflows/companion-ui-snapshot-windows-ci.yml'
   workflow_dispatch:
 
@@ -24,6 +27,19 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Compile native Companion controls
+        shell: powershell
+        run: |
+          $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          $sourcePath = (Resolve-Path 'windows-companion\MEL-Companion.cs').Path
+          & $csc /nologo /target:winexe /out:"$env:RUNNER_TEMP\MEL-Companion-controls.exe" /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll /reference:System.Security.dll $sourcePath
+          if ($LASTEXITCODE -ne 0) { throw 'COMPANION_NATIVE_COMPILE_FAILED' }
+      - name: Dev Executor controls with real Windows Node processes
+        shell: powershell
+        run: .\tests\windows\companion-dev-executor-controls.ps1 -NativeAssembly "$env:RUNNER_TEMP\MEL-Companion-controls.exe"
       - name: Engine parses and assets/dist are identical
         shell: powershell
         run: |

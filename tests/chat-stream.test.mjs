@@ -233,3 +233,25 @@ test('stream drops fake tool calls and English agent narration, keeps the French
   assert.equal(plainChatMayStream({ ...plain, actionRequest: true }), false);
   assert.equal(plainChatMayStream({ ...plain, toolCount: 1 }), false);
 });
+
+// GPT6 regression: model-produced name/arguments JSON is not a genuine tool result.
+test('stream suppresses fake name/arguments tool calls across chunk boundaries', async () => {
+  const { createToolLeakFilter } = await import('../src/api/chat-stream.js');
+  for (const fake of [
+    '{"name":"code.search","arguments":{"path":".","query":"applied"}}',
+    '{"name":"autonomy.status","arguments":{}}',
+    '{"tool":"code.read","parameters":{"path":"src/index.js"}}',
+  ]) {
+    for (const size of [1, 7, 999]) {
+      const filter = createToolLeakFilter();
+      const input = fake + 'Je ne peux pas confirmer une exécution.';
+      let actual = '';
+      for (let i = 0; i < input.length; i += size) actual += filter.push(input.slice(i, i + size));
+      actual += filter.flush();
+      assert.equal(actual, 'Je ne peux pas confirmer une exécution.');
+      assert.equal(filter.dropped, 1);
+    }
+  }
+  const filter = createToolLeakFilter();
+  assert.equal(filter.push('Voici des données : {"name":"Alice","age":4}') + filter.flush(), 'Voici des données : {"name":"Alice","age":4}');
+});

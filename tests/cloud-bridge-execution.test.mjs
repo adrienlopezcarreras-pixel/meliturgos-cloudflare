@@ -29,6 +29,7 @@ test('cloud workflow writes approved bytes, runs real syntax/tests and publishes
   await mkdir(path.join(cwd, 'tests'), { recursive: true });
   await writeFile(path.join(cwd, 'tests/__cloud_value.test.mjs'), "import assert from 'node:assert/strict'; import {value} from '../src/__cloud_value.js'; assert.equal(value,2);\n");
   const pkg = JSON.parse(await readFile(path.join(cwd, 'package.json'), 'utf8'));
+  pkg.scripts.test = 'node --test tests/__cloud_value.test.mjs';
   pkg.scripts['test:smoke'] = 'node --test tests/__cloud_value.test.mjs';
   await writeFile(path.join(cwd, 'package.json'), JSON.stringify(pkg));
   git('add', '--all'); git('commit', '-qm', 'cloud fixture baseline');
@@ -60,4 +61,19 @@ test('cloud workflow writes approved bytes, runs real syntax/tests and publishes
   assert.deepEqual(git('diff-tree', '--no-commit-id', '--name-only', '-r', after).split('\n'), ['src/__cloud_value.js']);
   assert.equal(git('show', after + ':src/__cloud_value.js'), 'export const value=2;');
   assert.notEqual(receipt.status, 'DONE_VERIFIED', 'local cloud execution is not Council/CI/production verification');
+  // A second mission moves the remote after the first mission's tests. The
+  // workflow must preserve it and request reconciliation, not silently rebase.
+  await writeFile(path.join(cwd, 'src/__other_mission.js'), 'export const concurrent=true;\n');
+  git('add', '--all'); git('commit', '-qm', 'other mission');
+  git('push', '-q', 'origin', 'HEAD:candidate/cloud-fixture');
+  const concurrent = git('rev-parse', 'HEAD');
+  git('checkout', '--detach', after);
+  env.CANDIDATE_SHA = after;
+  await writeFile(path.join(cwd, 'src/__late_package.js'), 'export const late=true;\n');
+  run(stepScript(workflow, 'Commit and push exact candidate change').split('# A push made')[0]);
+  const rejected = JSON.parse(await readFile(path.join(cwd, 'bridge-apply-result.json'), 'utf8'));
+  assert.equal(rejected.needs_repair, true);
+  assert.equal(rejected.tests.at(-1).error, 'CANDIDATE_PUSH_NOT_FAST_FORWARD');
+  assert.equal(git('ls-remote', 'origin', 'refs/heads/candidate/cloud-fixture').split(/\s/)[0], concurrent);
+
 });

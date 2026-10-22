@@ -1,4 +1,4 @@
-param(
+﻿param(
   [switch]$Run
 )
 
@@ -31,7 +31,7 @@ function Unprotect-Text([string]$value) {
 $Token = Unprotect-Text $config.token_protected
 $Server = ([string]$config.server_url).TrimEnd("/")
 $ComputerId = [string]$config.computer_id
-$Version = "1.5.1"
+$Version = "1.5.2"
 $Headless = $env:MEL_COMPANION_HEADLESS -eq "1"
 $ParentPid = 0
 [void][int]::TryParse([string]$env:MEL_COMPANION_PARENT_PID,[ref]$ParentPid)
@@ -43,13 +43,14 @@ function Open-MelUi {
 }
 
 function Show-MelTrayPanel {
+  if ($script:MelPanel -and -not $script:MelPanel.IsDisposed) { $script:MelPanel.Activate(); return }
   $form = New-Object System.Windows.Forms.Form
   $form.Text = "MEL Companion"
   $form.StartPosition = "CenterScreen"
   $form.FormBorderStyle = "FixedDialog"
   $form.MaximizeBox = $false
   $form.MinimizeBox = $false
-  $form.ClientSize = New-Object System.Drawing.Size(430,260)
+  $form.ClientSize = New-Object System.Drawing.Size(650,485)
   $form.BackColor = [System.Drawing.Color]::FromArgb(8,13,28)
   $form.ForeColor = [System.Drawing.Color]::White
 
@@ -66,16 +67,51 @@ function Show-MelTrayPanel {
   $title.SetBounds(118,24,260,34)
 
   $status = New-Object System.Windows.Forms.Label
-  $status.Text = "●  Connecte a MEL"
+  $status.Text = "Connexion à MEL : vérification…"
   $status.Font = New-Object System.Drawing.Font("Segoe UI",10)
   $status.ForeColor = [System.Drawing.Color]::FromArgb(72,220,170)
-  $status.SetBounds(28,82,250,26)
+  $status.SetBounds(28,82,590,26)
 
   $info = New-Object System.Windows.Forms.Label
   $info.Text = "Le compagnon tourne en arriere-plan. Il permet a MEL d interagir avec ce PC dans les limites autorisees."
   $info.Font = New-Object System.Drawing.Font("Segoe UI",9.5)
   $info.ForeColor = [System.Drawing.Color]::FromArgb(205,218,240)
-  $info.SetBounds(28,118,370,55)
+  $info.SetBounds(28,112,590,45)
+
+  $executorTitle = New-Object System.Windows.Forms.Label
+  $executorTitle.Text = 'Exécuteur de développement'
+  $executorTitle.Font = New-Object System.Drawing.Font('Segoe UI',12,[System.Drawing.FontStyle]::Bold)
+  $executorTitle.SetBounds(28,163,590,30)
+  $executorDetails = New-Object System.Windows.Forms.Label
+  $executorDetails.SetBounds(28,200,590,115)
+  $executorDetails.AutoEllipsis = $true
+  $executorNote = New-Object System.Windows.Forms.Label
+  $executorNote.Text = 'Démarrer autorise la reprise au lancement du Companion. Arrêter la désactive. Le PC reste facultatif pour MEL MAX.'
+  $executorNote.SetBounds(28,365,590,42)
+  $startExecutor = New-Object System.Windows.Forms.Button
+  $startExecutor.Text = "Démarrer l'exécuteur"
+  $startExecutor.SetBounds(28,322,185,34)
+  $stopExecutor = New-Object System.Windows.Forms.Button
+  $stopExecutor.Text = "Arrêter l'exécuteur"
+  $stopExecutor.SetBounds(225,322,185,34)
+  $restartExecutor = New-Object System.Windows.Forms.Button
+  $restartExecutor.Text = "Redémarrer l'exécuteur"
+  $restartExecutor.SetBounds(422,322,195,34)
+  foreach ($button in @($startExecutor,$stopExecutor,$restartExecutor)) {
+    $button.BackColor = [System.Drawing.Color]::FromArgb(28,38,65)
+    $button.ForeColor = [System.Drawing.Color]::White
+  }
+  $startExecutor.Add_Click({ try { Invoke-DevExecutorControl Start } catch { $script:DevExecutorCode = 'LOCAL_START_FAILED' } })
+  $stopExecutor.Add_Click({ try { Invoke-DevExecutorControl Stop } catch { $script:DevExecutorCode = 'LOCAL_STOP_FAILED' } })
+  $restartExecutor.Add_Click({ try { Invoke-DevExecutorControl Restart } catch { $script:DevExecutorCode = 'LOCAL_RESTART_FAILED' } })
+  $script:DevExecutorPanelControls = @{ details=$executorDetails; status=$status; start=$startExecutor }
+  $panelTimer = New-Object System.Windows.Forms.Timer
+  $panelTimer.Interval = 1000
+  $panelTimer.Add_Tick({ Update-DevExecutorPanel })
+  $form.Tag = $panelTimer
+  $form.Add_FormClosed({ param($sender,$eventArgs); $sender.Tag.Stop(); $sender.Tag.Dispose() })
+  Update-DevExecutorPanel
+  $panelTimer.Start()
 
   $openButton = New-Object System.Windows.Forms.Button
   $openButton.Text = "OUVRIR MEL"
@@ -84,8 +120,8 @@ function Show-MelTrayPanel {
   $openButton.BackColor = [System.Drawing.Color]::FromArgb(68,232,255)
   $openButton.FlatStyle = "Flat"
   $openButton.FlatAppearance.BorderSize = 0
-  $openButton.SetBounds(165,195,125,38)
-  $openButton.Add_Click({ Open-MelUi; $form.Close() })
+  $openButton.SetBounds(375,425,125,38)
+  $openButton.Add_Click({ Open-MelUi; $script:MelPanel.Close() })
 
   $closeButton = New-Object System.Windows.Forms.Button
   $closeButton.Text = "FERMER"
@@ -93,11 +129,23 @@ function Show-MelTrayPanel {
   $closeButton.ForeColor = [System.Drawing.Color]::FromArgb(207,222,246)
   $closeButton.BackColor = [System.Drawing.Color]::FromArgb(28,38,65)
   $closeButton.FlatStyle = "Flat"
-  $closeButton.SetBounds(300,195,100,38)
-  $closeButton.Add_Click({ $form.Close() })
+  $closeButton.SetBounds(515,425,100,38)
+  $closeButton.Add_Click({ $script:MelPanel.Close() })
 
-  $form.Controls.AddRange(@($logo,$title,$status,$info,$openButton,$closeButton))
-  [void]$form.ShowDialog()
+  $form.Controls.AddRange(@($logo,$title,$status,$info,$executorTitle,$executorDetails,$executorNote,$startExecutor,$stopExecutor,$restartExecutor,$openButton,$closeButton))
+  $script:MelPanel = $form
+  # Modeless: the existing heartbeat/supervision loop must keep running while
+  # the owner watches this panel. The timer renders only; it never supervises.
+  $form.Show()
+}
+
+function Update-DevExecutorPanel {
+  $view = Get-DevExecutorDisplay
+  $controls = $script:DevExecutorPanelControls
+  $controls.details.Text = "État : $($view.state)`r`nDépôt : $($view.repo)`r`nDernier heartbeat confirmé par MEL : $($view.heartbeat)`r`nDernière erreur : $($view.error)`r`nRelais GitHub Cloud : $($view.relay)"
+  $controls.status.Text = 'Companion : connexion non confirmée'
+  if ($view.companion_online) { $controls.status.Text = 'Companion connecté à MEL' }
+  $controls.start.Enabled = -not $view.running
 }
 
 function New-MelTrayIcon {
@@ -132,7 +180,7 @@ function New-MelTrayIcon {
 
   $notify = New-Object System.Windows.Forms.NotifyIcon
   $notify.Icon = $icon
-  $notify.Text = "MEL Companion - connecté"
+  $notify.Text = "MEL Companion"
   $notify.ContextMenuStrip = $menu
   $notify.Visible = $true
 
@@ -230,12 +278,94 @@ function Active-Window {
 $script:DevExecutorProcess = $null
 $script:DevExecutorLastStart = Get-Date "2000-01-01"
 $script:DevExecutorCode = "DISABLED"
+$script:DevExecutorRepo = ""
+$script:DevExecutorFaulted = $false
+$script:DevExecutorMutex = $null
+$script:DevExecutorControl = $null
+$script:DevExecutorSession = $null
+$script:DevExecutorLastHeartbeat = 0L
+$script:CompanionConfirmedAt = $null
+$script:GithubRelay = $null
+
+# [Codex] One supervisor, local owner controls only. Config keeps all existing
+# fields (including protected credentials); errors shown by the UI are codes.
+function Set-DevExecutorConfiguration([bool]$Enabled, [string]$Repo = "") {
+  $before = [IO.File]::ReadAllText($ConfigPath)
+  $saved = $before | ConvertFrom-Json
+  if ($Repo) { $Repo = Resolve-DevExecutorRepo $Repo; $saved | Add-Member -Force NoteProperty dev_executor_repo $Repo }
+  $saved | Add-Member -Force NoteProperty dev_executor_enabled $Enabled
+  $temp = $ConfigPath + "." + [Guid]::NewGuid().ToString('N') + ".tmp"
+  try {
+    [IO.File]::WriteAllText($temp, ($saved | ConvertTo-Json -Depth 30), (New-Object Text.UTF8Encoding($false)))
+    if ([IO.File]::ReadAllText($ConfigPath) -cne $before) { throw 'CONFIG_CHANGED_RETRY' }
+    [IO.File]::Replace($temp, $ConfigPath, [NullString]::Value)
+  } finally { if ([IO.File]::Exists($temp)) { [IO.File]::Delete($temp) } }
+}
+
+function Resolve-DevExecutorRepo([string]$Repo) {
+  if (-not $Repo -or $Repo -match '["\r\n]') { throw 'REPO_MISSING' }
+  $resolved = (Resolve-Path -LiteralPath $Repo -ErrorAction Stop).ProviderPath
+  if ($resolved -match '(^|[\\/])\.mel-dev-candidates([\\/]|$)') { throw 'CANDIDATE_REPO_FORBIDDEN' }
+  if (-not (Test-Path -LiteralPath (Join-Path $resolved '.git')) -or
+      -not (Test-Path -LiteralPath (Join-Path $resolved 'scripts/mel-dev-bridge.mjs') -PathType Leaf)) { throw 'REPO_MISSING' }
+  return $resolved
+}
+
+function Read-DevExecutorReceipt {
+  if (-not $script:DevExecutorProcess -or $script:DevExecutorProcess.HasExited -or -not $script:DevExecutorControl) { return $null }
+  try {
+    $receipt = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $script:DevExecutorControl 'status.json') | ConvertFrom-Json
+    if ([int]$receipt.pid -ne $script:DevExecutorProcess.Id -or [string]$receipt.session -cne $script:DevExecutorSession -or
+        [string]$receipt.repo -ine $script:DevExecutorRepo) { return $null }
+    if ([long]$receipt.heartbeat_at -gt $script:DevExecutorLastHeartbeat) { $script:DevExecutorLastHeartbeat = [long]$receipt.heartbeat_at }
+    return $receipt
+  } catch { return $null }
+}
+
+function Get-DevExecutorDisplay {
+  $receipt = Read-DevExecutorReceipt
+  $at = $script:DevExecutorLastHeartbeat
+  if ($receipt) { [void][long]::TryParse([string]$receipt.heartbeat_at, [ref]$at) }
+  $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  $running = $script:DevExecutorProcess -and -not $script:DevExecutorProcess.HasExited
+  $fresh = $running -and $at -gt 0 -and $at -le $now -and ($now - $at) -lt 60000
+  $state = 'Arrêté'; $errorCode = ''
+  if ($fresh -and $receipt.code -eq 'RUNNING') { $state = 'En ligne' }
+  elseif ($running -and ((Get-Date)-$script:DevExecutorLastStart).TotalSeconds -lt 45 -and (-not $receipt -or $receipt.code -eq 'STARTING')) { $state = 'Démarrage' }
+  elseif ($running) { $state = 'Erreur'; $errorCode = 'HEARTBEAT_EXPIRED'; if ($receipt -and $receipt.code -in @('CLOUD_AUTH_REQUIRED','HEARTBEAT_UNCONFIRMED','LOCAL_PORT_UNAVAILABLE')) { $errorCode = $receipt.code } }
+  elseif ($script:DevExecutorCode -ne 'DISABLED') { $state = 'Erreur'; $errorCode = $script:DevExecutorCode }
+  $heartbeat = 'Aucun confirmé'
+  if ($at -gt 0) { $heartbeat = [DateTimeOffset]::FromUnixTimeMilliseconds($at).ToLocalTime().ToString('g') }
+  $relay = 'Inconnu'
+  if ($script:GithubRelay -and $script:CompanionConfirmedAt -and ($now - $script:CompanionConfirmedAt) -lt 35000) {
+    if ($script:GithubRelay.status -eq 'ONLINE') { $relay = 'Disponible' }
+    elseif ($script:GithubRelay.status -eq 'OFFLINE') { $relay = 'Hors ligne' }
+  }
+  return @{ state=$state; repo=$script:DevExecutorRepo; heartbeat=$heartbeat; error=$errorCode; relay=$relay; running=[bool]$running; companion_online=($script:CompanionConfirmedAt -and ($now - $script:CompanionConfirmedAt) -ge 0 -and ($now - $script:CompanionConfirmedAt) -lt 35000) }
+}
 
 function Stop-DevExecutor {
+  [void](Read-DevExecutorReceipt)
   if ($script:DevExecutorProcess -and -not $script:DevExecutorProcess.HasExited) {
-    try { $script:DevExecutorProcess.Kill() } catch {}
+    # Graceful local stop request; bounded fallback targets only our process tree.
+    if ($script:DevExecutorControl) { [IO.File]::WriteAllText((Join-Path $script:DevExecutorControl 'stop'), 'stop') }
+    if (-not $script:DevExecutorProcess.WaitForExit(3000)) {
+      & "$env:SystemRoot\System32\taskkill.exe" /PID $script:DevExecutorProcess.Id /T /F | Out-Null
+      if (-not $script:DevExecutorProcess.WaitForExit(3000)) { throw 'STOP_UNCONFIRMED' }
+    }
   }
+  if ($script:DevExecutorProcess) { $script:DevExecutorProcess.Dispose() }
   $script:DevExecutorProcess = $null
+  if ($script:DevExecutorControl -and [IO.Directory]::Exists($script:DevExecutorControl)) {
+    foreach ($name in @('stop','status.json','status.json.tmp')) {
+      $file = Join-Path $script:DevExecutorControl $name
+      if ([IO.File]::Exists($file)) { [IO.File]::Delete($file) }
+    }
+    try { [IO.Directory]::Delete($script:DevExecutorControl) } catch {}
+  }
+  $script:DevExecutorControl = $null
+  $script:DevExecutorCode = "DISABLED"
+  if ($script:DevExecutorMutex) { $script:DevExecutorMutex.ReleaseMutex(); $script:DevExecutorMutex.Dispose(); $script:DevExecutorMutex = $null }
 }
 
 function Ensure-DevExecutor {
@@ -246,23 +376,106 @@ function Ensure-DevExecutor {
     $enabled = $localConfig.dev_executor_enabled -eq $true
     $repo = [string]$localConfig.dev_executor_repo
   } catch { $enabled = $false }
-  if (-not $enabled) { Stop-DevExecutor; $script:DevExecutorCode = "DISABLED"; return }
-  if ($script:DevExecutorProcess -and -not $script:DevExecutorProcess.HasExited) { $script:DevExecutorCode = "RUNNING"; return }
-  if (-not $repo -or -not (Test-Path -LiteralPath (Join-Path $repo "scripts\mel-dev-bridge.mjs"))) { $script:DevExecutorCode = "REPO_MISSING"; return }
-  if (-not (Test-Path -LiteralPath (Join-Path $repo ".dev.vars"))) { $script:DevExecutorCode = "TOKEN_FILE_MISSING"; return }
+  if (-not $enabled) { Stop-DevExecutor; $script:DevExecutorRepo = $repo; $script:DevExecutorCode = "DISABLED"; return }
+  if ($script:DevExecutorProcess -and -not $script:DevExecutorProcess.HasExited) {
+    if ($script:DevExecutorRepo -ieq $repo) { $script:DevExecutorCode = "RUNNING"; return }
+    Stop-DevExecutor
+  }
+  if ($script:DevExecutorProcess) { Stop-DevExecutor; $script:DevExecutorFaulted = $true; $script:DevExecutorCode = 'NODE_EXITED' }
+  if ($script:DevExecutorFaulted) { return }
+  $script:DevExecutorRepo = $repo
+  try { $repo = Resolve-DevExecutorRepo $repo; $script:DevExecutorRepo = $repo } catch { $script:DevExecutorCode = 'REPO_MISSING'; return }
   $node = Get-Command node -ErrorAction SilentlyContinue
   if (-not $node) { $script:DevExecutorCode = "NODE_MISSING"; return }
-  if (((Get-Date) - $script:DevExecutorLastStart).TotalSeconds -lt 30) { $script:DevExecutorCode = "RESTART_BACKOFF"; return }
+  if (-not $script:DevExecutorMutex) {
+    $gate = New-Object Threading.Mutex($false, 'Local\MEL.DevExecutor')
+    $acquired = $false
+    try { $acquired = $gate.WaitOne(0) } catch [Threading.AbandonedMutexException] { $acquired = $true }
+    if (-not $acquired) { $gate.Dispose(); $script:DevExecutorCode = 'PROCESS_ALREADY_SUPERVISED'; return }
+    $script:DevExecutorMutex = $gate
+  }
   $script:DevExecutorLastStart = Get-Date
   try {
-    $script:DevExecutorProcess = Start-Process -FilePath $node.Source -ArgumentList @("scripts/mel-dev-bridge.mjs") `
-      -WorkingDirectory $repo -WindowStyle Hidden -PassThru `
-      -RedirectStandardOutput (Join-Path $MelDir "dev-executor.log") -RedirectStandardError (Join-Path $MelDir "dev-executor.err.log")
+    # Refuse to compete with a bridge started outside this supervisor. Never
+    # adopt/kill an unrelated node.exe based only on its name or a stale PID.
+    $other = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction Stop | Where-Object { $_.CommandLine -match 'mel-dev-bridge\.mjs' })
+    if ($other.Count) { $script:DevExecutorCode = 'EXTERNAL_EXECUTOR_ACTIVE'; return }
+    $script:DevExecutorSession = [Guid]::NewGuid().ToString('N')
+    $script:DevExecutorControl = Join-Path $MelDir ('executor-' + $script:DevExecutorSession)
+    [void][IO.Directory]::CreateDirectory($script:DevExecutorControl)
+    $start = New-Object Diagnostics.ProcessStartInfo
+    $start.FileName = $node.Source
+    $start.Arguments = '"' + (Join-Path $repo 'scripts/mel-dev-bridge.mjs') + '"'
+    $start.WorkingDirectory = $repo
+    $start.UseShellExecute = $false; $start.CreateNoWindow = $true
+    $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
+    $start.EnvironmentVariables['MEL_DEV_BRIDGE_CONTROL_DIR'] = $script:DevExecutorControl
+    $start.EnvironmentVariables['MEL_DEV_BRIDGE_SESSION'] = $script:DevExecutorSession
+    $start.EnvironmentVariables['MEL_DEV_BRIDGE_PARENT_PID'] = [string]$PID
+    $script:DevExecutorProcess = New-Object Diagnostics.Process
+    $script:DevExecutorProcess.StartInfo = $start
+    if (-not $script:DevExecutorProcess.Start()) { throw 'START_FAILED' }
+    $script:DevExecutorProcess.BeginOutputReadLine(); $script:DevExecutorProcess.BeginErrorReadLine()
     $script:DevExecutorCode = "STARTED"
   } catch {
-    $script:DevExecutorProcess = $null
+    Stop-DevExecutor
+    $script:DevExecutorFaulted = $true
     $script:DevExecutorCode = "START_FAILED"
   }
+}
+
+function Invoke-DevExecutorControl([ValidateSet('Start','Stop','Restart')][string]$Action, [string]$SelectedRepo = '') {
+  if ($Action -eq 'Stop') {
+    Set-DevExecutorConfiguration $false
+    Stop-DevExecutor; $script:DevExecutorCode = 'DISABLED'; return
+  }
+  $saved = Get-Content -Raw -Encoding UTF8 -LiteralPath $ConfigPath | ConvertFrom-Json
+  $repo = [string]$saved.dev_executor_repo
+  if ($SelectedRepo) { $repo = Resolve-DevExecutorRepo $SelectedRepo }
+  try { $repo = Resolve-DevExecutorRepo $repo } catch {
+    if ($Headless) { throw 'REPO_MISSING' }
+    $picker = New-Object System.Windows.Forms.FolderBrowserDialog
+    $picker.Description = 'Choisis le dépôt MEL principal (pas .mel-dev-candidates).'
+    try { if ($picker.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { return }; $repo = Resolve-DevExecutorRepo $picker.SelectedPath } finally { $picker.Dispose() }
+  }
+  # Only this explicit local click enables persistent activation.
+  Set-DevExecutorConfiguration $true $repo
+  if ($Action -eq 'Restart') { Stop-DevExecutor }
+  $script:DevExecutorFaulted = $false
+  Ensure-DevExecutor
+}
+
+# [Codex] Native EXE and legacy tray share this same supervisor. The native
+# window may submit only a local allowlisted action, not shell or cloud code.
+$script:DevExecutorLastRequest = ''
+function Receive-DevExecutorControl {
+  $requestFile = Join-Path $MelDir 'dev-executor-request.json'
+  if (-not [IO.File]::Exists($requestFile)) { return }
+  $processing = $requestFile + '.' + [Guid]::NewGuid().ToString('N')
+  try {
+    [IO.File]::Move($requestFile, $processing)
+    $request = Get-Content -Raw -Encoding UTF8 -LiteralPath $processing | ConvertFrom-Json
+    $age = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - [long]$request.issued_at
+    if ([string]$request.request_id -notmatch '^[a-f0-9]{32}$' -or [int]$request.engine_pid -ne $PID -or
+        $age -lt 0 -or $age -gt 60000 -or [string]$request.action -notin @('Start','Stop','Restart')) { throw 'LOCAL_CONTROL_INVALID' }
+    if ([string]$request.request_id -ceq $script:DevExecutorLastRequest) { return }
+    $script:DevExecutorLastRequest = [string]$request.request_id
+    Invoke-DevExecutorControl ([string]$request.action) ([string]$request.repo)
+  } catch { $script:DevExecutorCode = 'LOCAL_CONTROL_FAILED' }
+  finally { if ([IO.File]::Exists($processing)) { [IO.File]::Delete($processing) } }
+}
+
+function Publish-DevExecutorView {
+  $target = Join-Path $MelDir 'dev-executor-view.json'
+  try {
+    $view = Get-DevExecutorDisplay
+    $view.engine_pid = $PID
+    $view.observed_at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $view.request_id = $script:DevExecutorLastRequest
+    [IO.File]::WriteAllText($target + '.tmp', ($view | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
+    if ([IO.File]::Exists($target)) { [IO.File]::Replace($target + '.tmp', $target, [NullString]::Value) }
+    else { [IO.File]::Move($target + '.tmp', $target) }
+  } catch { }
 }
 function Send-Heartbeat {
   # Advertise the currently persisted owner switch, not its startup value.
@@ -281,6 +494,13 @@ function Send-Heartbeat {
     }
   } catch { $localComputeEnabled = $false; $localGpuEnabled = $false }
   $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+  $executorView = Get-DevExecutorDisplay
+  $executorStatus = 'UNAVAILABLE'
+  switch ($executorView.state) {
+    'En ligne' { $executorStatus = 'RUNNING' }
+    'Démarrage' { $executorStatus = 'STARTING' }
+    'Arrêté' { $executorStatus = 'DISABLED' }
+  }
   $body = @{
     engine_version = $Version
     engine_heartbeat_at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
@@ -291,14 +511,17 @@ function Send-Heartbeat {
     user = $env:USERNAME
     screen = @{ x=$bounds.X; y=$bounds.Y; width=$bounds.Width; height=$bounds.Height }
     active_window = (Active-Window)
-    dev_executor = @{ status = [string]$script:DevExecutorCode }
+    dev_executor = @{ status = $executorStatus; heartbeat_at = $script:DevExecutorLastHeartbeat }
   }
   if ($null -eq $script:HeartbeatFailures) { $script:HeartbeatFailures = 0 }
   $diag = @{ last_error_code = [string]$script:HeartbeatLastError; http_ms = 0; engine_process_running = $true; consecutive_failures = [int]$script:HeartbeatFailures }
   $body.heartbeat_diag = $diag
   $started = Get-Date
   try {
-    [void](Invoke-MelJson -Path "/api/computer/v1/heartbeat" -Method "POST" -Body $body)
+    $ack = Invoke-MelJson -Path "/api/computer/v1/heartbeat" -Method "POST" -Body $body
+    if ($ack.ok -ne $true -or -not $ack.server_time) { throw 'COMPANION_HEARTBEAT_UNCONFIRMED' }
+    $script:CompanionConfirmedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $script:GithubRelay = $ack.github_relay
     $script:HeartbeatLastError = $null
     $script:HeartbeatFailures = 0
   } catch {
@@ -3243,9 +3466,12 @@ function Process-Command($command) {
 $trayResources = $null
 if (-not $Headless) { $trayResources = New-MelTrayIcon }
 $lastHeartbeat = Get-Date "2000-01-01"
+try {
 while (-not $script:MelExitRequested) {
   if ($Headless -and $ParentPid -gt 0 -and -not (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) { break }
   if (-not $Headless) { [System.Windows.Forms.Application]::DoEvents() }
+  Receive-DevExecutorControl
+  Publish-DevExecutorView
   try {
     if (((Get-Date) - $lastHeartbeat).TotalSeconds -ge 10) {
       try { Ensure-DevExecutor } catch { $script:DevExecutorCode = "SUPERVISION_FAILED" }
@@ -3268,11 +3494,16 @@ while (-not $script:MelExitRequested) {
   }
   Start-Sleep -Milliseconds 1200
 }
+} finally {
 Stop-DevExecutor
+Publish-DevExecutorView
+if ($script:MelPanel -and -not $script:MelPanel.IsDisposed) { $script:MelPanel.Close(); $script:MelPanel.Dispose() }
 if ($trayResources) {
   try { $trayResources.notify.Visible = $false } catch {}
   try { $trayResources.notify.Dispose() } catch {}
   try { $trayResources.menu.Dispose() } catch {}
   try { $trayResources.icon.Dispose() } catch {}
   try { $trayResources.bitmap.Dispose() } catch {}
+}
+
 }
