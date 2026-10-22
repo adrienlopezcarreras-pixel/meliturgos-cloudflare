@@ -449,7 +449,10 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
   const rejected = [];
 
   for (const record of records) {
-    const job = byId.get(record.job_id);
+    // GPT6: repository.list() is bounded (100 newest jobs). Completion evidence
+    // can arrive later for an older job; resolve it by primary key rather than
+    // silently dropping a valid, durable completion record.
+    const job = byId.get(record.job_id) || await repository.get(record.job_id);
     if (!job) continue;
     if (String(job.status || '').toUpperCase() === 'COMPLETED' && job.result_json?.autonomy_completion?.candidate_sha === record.candidate_sha) continue;
 
