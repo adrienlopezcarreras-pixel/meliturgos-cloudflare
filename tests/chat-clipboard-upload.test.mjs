@@ -60,3 +60,67 @@ test('normal runtime preserves image MIME regex after JS string generation', () 
   assert.equal(matchMime({type:'image/jpeg'}), true);
   assert.equal(matchMime({type:'application/pdf'}), false);
 });
+
+test('generated Normal upload handler stages image and text files, and surfaces rejection without staging', async () => {
+  // Exercise the JavaScript actually delivered to the browser, not the
+  // source string: a lost regex escape once caused "i is not defined" here.
+  const start = NORMAL_RUNTIME_SOURCE.indexOf('async function handleFiles(');
+  const end = NORMAL_RUNTIME_SOURCE.indexOf('\ninitVoice();', start);
+  assert.ok(start >= 0 && end > start, 'generated upload handler must exist');
+  const handlerSource = NORMAL_RUNTIME_SOURCE.slice(start, end);
+  const compile = new Function(
+    'FormData', 'fetch', 'status', 'add', 'input', 'pendingFiles', 'renderPendingFiles',
+    handlerSource + '; return handleFiles;',
+  );
+
+  for (const [type, expectedImage] of [['image/png', true], ['text/plain', false]]) {
+    const pendingFiles = [];
+    const uploads = [];
+    const messages = [];
+    const status = { textContent: '' };
+    let renders = 0;
+    class TestFormData {
+      append(name, file) { uploads.push({ name, file }); }
+    }
+    const handleFiles = compile(
+      TestFormData,
+      async (url, options) => {
+        assert.equal(url, '/api/files/upload');
+        assert.equal(options.method, 'POST');
+        assert.ok(options.body instanceof TestFormData);
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true, id: 'staged-id', stored: true,
+            analysis_status: expectedImage ? 'IMAGE_DESCRIBED' : 'TEXT_EXTRACTED',
+            preview_text: expectedImage ? '' : 'Texte du fichier',
+          }),
+        };
+      },
+      status, (role, text) => messages.push({ role, text }), { value: '' },
+      pendingFiles, () => { renders += 1; },
+    );
+    const file = { name: expectedImage ? 'photo.png' : 'notes.txt', type };
+    await handleFiles([file], 'file-picker');
+    assert.equal(uploads.length, 1);
+    assert.equal(uploads[0].name, 'file');
+    assert.equal(uploads[0].file, file);
+    assert.equal(pendingFiles.length, 1);
+    assert.equal(pendingFiles[0].isImage, expectedImage);
+    assert.equal(pendingFiles[0].id, 'staged-id');
+    assert.equal(renders, 1);
+    assert.match(status.textContent, /pièce jointe prête/);
+    assert.deepEqual(messages, [{ role: 'user', text: '📎 ' + file.name }]);
+  }
+
+  const pendingFiles = [];
+  const status = { textContent: '' };
+  const handleRejected = compile(
+    class { append() {} },
+    async () => ({ ok: false, json: async () => ({ code: 'FILE_TOO_LARGE' }) }),
+    status, () => {}, { value: '' }, pendingFiles, () => {},
+  );
+  await handleRejected([{ name: 'oversized.txt', type: 'text/plain' }]);
+  assert.equal(pendingFiles.length, 0);
+  assert.match(status.textContent, /Échec du fichier.*FILE_TOO_LARGE/);
+});
