@@ -22,6 +22,7 @@ on:
       - "tests/ui-control-contract-exhaustive.test.mjs"
       - "tests/ui-performance-ergonomics.test.mjs"
       - "tests/chat-rich-renderer.test.mjs"
+      - "tests/professor-file-upload-runtime.test.mjs"
       - "tests/response-quality.test.mjs"
       - "tests/response-grounding.test.mjs"
       - "tests/mel-operating-manual.test.mjs"
