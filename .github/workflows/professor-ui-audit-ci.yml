@@ -14,6 +14,9 @@ on:
       - "src/pages/chat-rich-renderer.js"
       - "src/pages/full-mode-control-enhancer.js"
       - "src/api/response-quality.js"
+      - "src/api/chat-stream.js"
+      - "src/api/native-chat.js"
+      - "tests/chat-stream.test.mjs"
       - "src/api/response-grounding.js"
       - "src/identity/mel-operating-manual.js"
       - "src/capabilities/**"
@@ -47,6 +50,8 @@ jobs:
         run: npm ci
       - name: Syntax gate
         run: npm run check
+      - name: Verify verified Professor Code NDJSON stream contract
+        run: node --test tests/chat-stream.test.mjs
       - name: Audit every Professor control
         run: node --test tests/ui-control-contract-exhaustive.test.mjs
       - name: Audit Professor ergonomics and responsive UI
