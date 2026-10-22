@@ -41,7 +41,7 @@ test('normal chat plays locally attached videos without disclosing an R2 URL',()
   assert.match(NORMAL_RUNTIME_SOURCE,/media\.controls=true/);
   assert.match(NORMAL_RUNTIME_SOURCE,/URL\.revokeObjectURL/);
   assert.match(NORMAL_RUNTIME_SOURCE,/vidéo non analysée/);
-  assert.match(NORMAL_RUNTIME_SOURCE,/Ne prétends pas avoir visionné la vidéo/);
+  assert.match(NORMAL_RUNTIME_SOURCE,/Ne prétends pas avoir visionné cette vidéo/);
 });
 
 test('full Code and Conversation chat support local playback with honest media status',async()=>{
