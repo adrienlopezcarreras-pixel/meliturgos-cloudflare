@@ -187,7 +187,7 @@ export function createToolLeakFilter({ holdLimit = 4000 } = {}) {
       }
       const block = buf.slice(0, end + 1);
       buf = buf.slice(end + 1);
-      if (/^\{\s*"(?:tool|action|name|function)"\s*:/.test(block) && /"tool"\s*:|"function"\s*:/.test(block)) { dropped += 1; continue; }
+      if (/^\{\s*"(?:tool|action|name|function)"\s*:/.test(block) && /"(?:tool|function|name)"\s*:\s*"[^"]+"\s*,?/.test(block) && /"(?:arguments|parameters|input)"\s*:/.test(block)) { dropped += 1; continue; }
       out += block;
     }
     const text = pending + out;
