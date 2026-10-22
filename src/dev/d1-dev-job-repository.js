@@ -198,7 +198,8 @@ export class D1DevJobRepository {
 
   async update(id, patch, { expected = null } = {}) {
     await this.init();
-    const j = await this.get(id);
+    // In-memory CAS must re-read and compare without an intervening await.
+    const j = this.db ? await this.get(id) : this.memory.get(id) || null;
     if (!j) throw Object.assign(new Error('JOB_NOT_FOUND'), { code: 'JOB_NOT_FOUND' });
     // A cancelled job stays cancelled: a tick that read it before "Vider la
     // liste" must not write it back to life (CANCELLED -> COUNCIL_COMPLETE).

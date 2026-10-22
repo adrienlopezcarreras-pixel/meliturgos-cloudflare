@@ -147,8 +147,8 @@ test('mentor rereads observations as non-facts and stores Council proposals as u
     jobId: `job-${marker}`,
     goal,
     inspectedFiles: [{
-      path: 'src/learning/mentor-memory.js',
-      content: 'export const inspected = true;\n',
+      path: 'src/learning/experience-proof-fixture.js',
+      content: 'export const experienceProofFixture = false;\n',
     }],
   });
 
