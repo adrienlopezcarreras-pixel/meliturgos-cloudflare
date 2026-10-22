@@ -1322,6 +1322,14 @@ function inferDirectCurrentWebCapability(text, intentContext = {}) {
   return { id: 'web.research', input };
 }
 
+// [ChatGPT-GPT6] Single authoritative mode gate. Normal and Professor
+// Conversation never inherit developer routing or development instructions.
+export function isProfessorCodeRole(context) {
+  return context?.surface === 'mel-full'
+    && context?.role === 'developer'
+    && context?.requested_mode === 'code';
+}
+
 export async function handleNativeChat(request, env, options = {}) {
   // One budget for the whole request, shorter than the browser timeout.
   const chatDeadlineAt = createChatDeadline(env);
@@ -1348,9 +1356,7 @@ export async function handleNativeChat(request, env, options = {}) {
   const requestedInputSource = String(body.input_source || 'text').trim().toLowerCase();
   // Only Professor Code is allowed to claim state-changing development work.
   // Keep the Normal and Professor Conversation paths exactly as they were.
-  const professorCodeChat = body?.intent_context?.surface === 'mel-full'
-    && body?.intent_context?.role === 'developer'
-    && body?.intent_context?.requested_mode === 'code';
+  const professorCodeChat = isProfessorCodeRole(body?.intent_context);
   const inputSource = ['voice-server-transcription','voice-browser-recognition'].includes(requestedInputSource)
     ? requestedInputSource
     : 'text';
@@ -1641,13 +1647,9 @@ export async function handleNativeChat(request, env, options = {}) {
   // Direct chat is the default. The operational context is only assembled
   // when a request actually needs capabilities, a live status, or verification.
   // This avoids burying an ordinary answer under the entire MEL runbook.
-  // [ChatGPT-GPT6] Explicit UI role selects task-class routing, not just the label.
-  // Keep safety, capability gates and model availability checks unchanged.
-  const developerRole = body?.intent_context?.surface === 'mel-full'
-    && body?.intent_context?.role === 'developer'
-    && body?.intent_context?.requested_mode === 'code';
+  // Professor Code uses the development context; Normal and Conversation retain the fast dialogue path.
   const melWorkCapabilityQuestion = melWorkReadiness;
-  const plainChatTurn = !releaseSmoke && !body.capability?.id && !inferredCapability
+  const plainChatTurn = !professorCodeChat && !releaseSmoke && !body.capability?.id && !inferredCapability
     && !melWorkCapabilityQuestion
     && !currentFactVerification && !personalProfileIntent
     && !negativeFeedbackRecovery && !conversationFocus.elliptical;
@@ -2215,6 +2217,9 @@ export async function handleNativeChat(request, env, options = {}) {
     buildResponseQualityInstruction(activeTaskText),
     conversationFocusInstruction,
     MEL_REAL_CAPABILITIES,
+    professorCodeChat
+      ? 'MODE PROFESSEUR — CODE : tu es la développeuse de MEL. Traite la demande comme un chantier logiciel. Identifie les fichiers, réalise les opérations accessibles et privilégie les tests, les correctifs cohérents et les preuves de CI. Distingue strictement code proposé, commit, PR, fusion et déploiement prouvés. Ne présente jamais une action ou une exécution non observée comme accomplie. Le choix Code ne supprime aucune autorisation, validation ou protection de production.'
+      : '',
     operatingManual,
     currentFactReliabilityInstruction(currentFactVerification),
     buildPresentationInstruction(activeTaskText,{voiceReply}),
@@ -2339,7 +2344,7 @@ export async function handleNativeChat(request, env, options = {}) {
       inferenceSettings: effectiveInferenceSettings,
       activeAdapter,
       runtime,
-      taskOverride: voiceReply ? 'FAST' : (developerRole ? 'CODE' : (personalProfileIntent ? 'REASONING' : null)),
+      taskOverride: voiceReply ? 'FAST' : (professorCodeChat ? 'CODE' : (personalProfileIntent ? 'REASONING' : null)),
       preferredModel: voiceReply
         ? '@cf/zai-org/glm-4.7-flash'
         : (personalProfileIntent ? '@cf/meta/llama-3.3-70b-instruct-fp8-fast' : null),
