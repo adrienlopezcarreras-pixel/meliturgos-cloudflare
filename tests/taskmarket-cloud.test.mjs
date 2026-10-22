@@ -16,6 +16,8 @@ function memoryVaults() {
 
 async function encrypt(dek, layout) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
+  // Reproduce the valid base64 prefix '0x' which must not be mistaken for hex.
+  if (layout === 'blob') { iv[0] = 0xd3; iv[1] = 0x10; }
   const key = await crypto.subtle.importKey('raw', dek, 'AES-GCM', false, ['encrypt']);
   const out = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode('0x' + PK)));
   const ct = out.slice(0, -16), tag = out.slice(-16);
