@@ -82,7 +82,7 @@ test('shared actionable selector matches supervisor ordering for retry attributi
   await repository.update(approved.id, { status: 'TEACHER_APPROVED' });
 
   const jobs = await repository.list();
-  const selected = selectActionableAutonomyJob(jobs);
+  const selected = selectActionableAutonomyJob(jobs, { roadmap });
   assert.equal(selected.id, approved.id);
 
   const supervisor = new AutonomySupervisor({ repository, roadmap });
@@ -120,7 +120,7 @@ test('REPAIR_REQUIRED approved work is actionable and outranks unrelated approve
   });
   await repository.update(other.id, { status: 'TEACHER_APPROVED' });
 
-  const selected = selectActionableAutonomyJob(await repository.list());
+  const selected = selectActionableAutonomyJob(await repository.list(), { roadmap });
   assert.equal(selected.id, repair.id);
   assert.equal(selected.status, 'REPAIR_REQUIRED');
 });
@@ -140,7 +140,7 @@ test('jobs created before the activity epoch are ignored by the selector', () =>
     created_at: 5000,
     optional_context: { roadmap_id: 'MEL-FOUNDER-01' },
   };
-  assert.equal(selectActionableAutonomyJob([old, fresh], { epochMs: 4000 }).id, 'fresh-job');
-  assert.equal(selectActionableAutonomyJob([old], { epochMs: 4000 }), null);
-  assert.equal(selectActionableAutonomyJob([old, fresh]).id, 'old-job');
+  assert.equal(selectActionableAutonomyJob([old, fresh], { epochMs: 4000, roadmap }).id, 'fresh-job');
+  assert.equal(selectActionableAutonomyJob([old], { epochMs: 4000, roadmap }), null);
+  assert.equal(selectActionableAutonomyJob([old, fresh], { roadmap }).id, 'old-job');
 });

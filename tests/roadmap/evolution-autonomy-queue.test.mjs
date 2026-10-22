@@ -86,3 +86,13 @@ test('production loader recovers after migration and reads correct owner only',a
   assert.equal((await s.ensureNextJob()).created,false);
  }finally{db.close();}
 });
+
+test('closed persistent evolution objective cannot be resurrected by a stale queued job while base roadmap still has work', async () => {
+ const r=repo();
+ const job=await r.create({id:'stale-evolution',requested_by:'mel-autonomy',goal:'Already verified',optional_context:{roadmap_id:'EVOLUTION-NEW-4'}});
+ const s=new AutonomySupervisor({repository:r,roadmap:initial,evolutionLoader:async()=>backlog});
+ const next=await s.ensureNextJob();
+ assert.equal(next.job.optional_context.roadmap_id,'BASE');
+ assert.ok(!(await s.state()).active.some(row=>row.id===job.id));
+ assert.equal((await r.get(job.id)).status,'QUEUED');
+});

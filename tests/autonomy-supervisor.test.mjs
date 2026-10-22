@@ -430,3 +430,45 @@ test('MAX recognizes accepted, verified and DONE_VERIFIED states regardless of c
     { id: 'MEL-FOUNDER-01', status: 'verified' },
   ] }), null);
 });
+
+for (const status of ['DONE_VERIFIED', 'verified', ' accepted ']) {
+  for (const jobStatus of ['QUEUED', 'CLAIMED', 'TEACHER_APPROVED']) {
+    test(`closed ${status} excludes ${jobStatus} durably without rewriting history`, async () => {
+      const repository = isolatedRepo();
+      const job = await repository.create({ id: 'stale-closed', requested_by: 'mel-autonomy', goal: 'Historical objective', optional_context: { roadmap_id: 'CLOSED-ITEM' } });
+      await repository.update(job.id, { status: jobStatus });
+      const before = structuredClone(await repository.get(job.id));
+      const supervisor = new AutonomySupervisor({ repository, roadmap: [
+        { id: 'CLOSED-ITEM', status, priority: 'P0' }, { id: 'NEXT-ITEM', status: 'PLANNED', priority: 'P1' },
+      ] });
+      const first = await supervisor.ensureNextJob();
+      const second = await supervisor.ensureNextJob();
+      assert.equal(first.job.optional_context.roadmap_id, 'NEXT-ITEM');
+      assert.equal(second.job.id, first.job.id);
+      assert.deepEqual(await repository.get(job.id), before);
+      assert.equal((await repository.list()).length, 2);
+    });
+  }
+}
+
+test('durable accepted job defeats contradictory stale active job even before roadmap refresh', async () => {
+  const repository = isolatedRepo();
+  for (const [id, status] of [['accepted', 'ACCEPTED'], ['stale', 'CLAIMED']]) {
+    await repository.create({ id, requested_by: 'mel-autonomy', goal: 'Same objective', optional_context: { roadmap_id: 'CLOSED-ITEM' } });
+    await repository.update(id, { status });
+  }
+  const supervisor = new AutonomySupervisor({ repository, roadmap: [{ id: 'CLOSED-ITEM', status: 'PLANNED' }] });
+  assert.deepEqual((await supervisor.state()).active, []);
+  assert.equal((await supervisor.ensureNextJob()).created, false);
+});
+
+test('explicit REGRESSED state permits a new attempt after historical completion', async () => {
+  const repository = isolatedRepo();
+  await repository.create({ id: 'old-completed', requested_by: 'mel-autonomy', goal: 'Old objective', optional_context: { roadmap_id: 'REOPENED' } });
+  await repository.update('old-completed', { status: 'COMPLETED' });
+  const supervisor = new AutonomySupervisor({ repository, roadmap: [{ id: 'REOPENED', status: 'REGRESSED', title: 'Explicit regression', priority: 'P0' }] });
+  const result = await supervisor.ensureNextJob();
+  assert.equal(result.created, true);
+  assert.notEqual(result.job.id, 'old-completed');
+  assert.equal((await repository.get('old-completed')).status, 'COMPLETED');
+});
