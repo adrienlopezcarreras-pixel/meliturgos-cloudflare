@@ -148,6 +148,52 @@ function stripMetaPreamble(text) {
     .replace(/^Je\s+dois\s+pr[ée]ciser\s+que\s+/i,'');
 }
 
+// An LLM can print a plausible capability invocation or JSON success object.
+// Only CapabilityBus tool_results from the current request are execution receipts.
+// This guard must run on the model output, not on quoted user input.
+function hasExecutedD1Receipt(rows, capability) {
+  return (Array.isArray(rows) ? rows : []).some(row => {
+    if (row?.capability !== capability || row?.status !== 'SUCCEEDED') return false;
+    const result = row.result || {};
+    if (capability === 'd1.write') {
+      return result.approved === true
+        && Number(result.changes) > 0
+        && ['insert', 'update', 'delete'].includes(String(result.operation || ''));
+    }
+    return capability === 'd1.read' && Array.isArray(result.rows);
+  });
+}
+
+function guardClaimedD1Execution(text, toolResults) {
+  const reply = cleanText(text);
+  const mentionsWrite = /\bd1\.write\b/i.test(reply);
+  const mentionsRead = /\bd1\.(?:read|get)\b/i.test(reply);
+  const mentionsApprovalFlag = /\bmax_auto_approval\b/i.test(reply);
+  if (!mentionsWrite && !mentionsRead && !mentionsApprovalFlag) return reply;
+
+  const reportsExecution = /(?:action\s+ex[ée]cut[ée]e|r[ée]sultat\s+obtenu|j['’]ai\s+(?:interrog[ée]|ex[ée]cut[ée]|lanc[ée]|cr[ée][ée]?|ajout[ée]|modifi[ée]|enregistr[ée]|mis\s+[àa]\s+jour)|(?:configuration|cl[ée])\s+(?:a\s+[ée]t[ée]\s+)?(?:mise?\s+[àa]\s+jour|ajout[ée]e?|activ[ée]e?)\s+(?:avec\s+succ[èe]s)?|["']?success["']?\s*:\s*true)/i.test(reply);
+  const unverifiedWrite = (mentionsWrite || mentionsApprovalFlag)
+    && reportsExecution && !hasExecutedD1Receipt(toolResults, 'd1.write');
+  // d1.get is not a registered capability. A d1.read receipt cannot verify a
+  // differently named operation asserted by the model.
+  const unverifiedRead = mentionsRead && reportsExecution
+    && (!hasExecutedD1Receipt(toolResults, 'd1.read') || /\bd1\.get\b/i.test(reply));
+  // A D1 config row alone cannot grant GitHub, Council, or release authority.
+  const claimsApprovalAuthority = mentionsApprovalFlag
+    && /(?:max\b[^.!?\n]{0,130}(?:approuv|fusionn|d[ée]ploi)|(?:approuv|fusionn|d[ée]ploi)[^.!?\n]{0,130}automatique|autorisation\s+permanente\s+activ[ée]e?)/i.test(reply);
+
+  if (!unverifiedWrite && !unverifiedRead && !claimsApprovalAuthority) return reply;
+  const executed = (Array.isArray(toolResults) ? toolResults : [])
+    .filter(row => /^d1\.(?:write|read)$/.test(String(row?.capability || '')))
+    .map(row => String(row.capability) + ': ' + String(row.status || 'UNKNOWN'))
+    .slice(0, 4);
+  return [
+    "Je ne peux pas confirmer l'action D1 annoncée dans cette réponse : elle n'est pas étayée par un résultat d'outil authentifié de cette requête, ou son effet sur les autorisations MAX n'est pas vérifié.",
+    executed.length ? 'Résultats D1 réellement observés : ' + executed.join(' ; ') + '.' : 'Aucun reçu d’exécution D1 correspondant n’est disponible.',
+    "La clé max_auto_approval, même présente dans D1, ne constitue pas une autorisation technique de fusionner des PR ou de déployer. Les contrôles CI, Council et la validation du SHA restent obligatoires."
+  ].join(' ');
+}
+
 export function finalizeEvidenceAlignedResponse({
   text,
   userText,
@@ -188,6 +234,8 @@ export function finalizeEvidenceAlignedResponse({
   if (claimsRepoDelivery && !hasReleaseReceipt) {
     out = 'Je ne dispose pas, dans les résultats vérifiés de cette requête, d’un reçu GitHub ou Cloudflare attestant la création, la fusion ou le déploiement annoncé. Je ne peux donc pas présenter cette opération comme réussie. Consulte les journaux persistants et les outils autorisés pour obtenir une preuve réelle.';
   }
+
+  out = guardClaimedD1Execution(out, toolResults);
 
   const knowledgeEvidence=successfulKnowledgeEvidence(toolResults);
   if(knowledgeEvidence && deniesKnowledgeAction(out)){
