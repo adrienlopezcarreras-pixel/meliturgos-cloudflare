@@ -186,3 +186,17 @@ test('Professor Code uses developer prompt only on explicit role; Normal remains
   assert.match(source, /professorCodeChat\s*\? 'MODE PROFESSEUR — CODE/);
   assert.match(source, /Le mode Code ne supprime aucune autorisation/);
 });
+
+test('truncated responses preserve Professor Code/Conversation model family while Normal is unchanged', async () => {
+  const { resolveProfessorChatInferenceRoute, resolveContinuationInferenceRoute } = await import('../src/api/native-chat.js');
+  const code = resolveProfessorChatInferenceRoute({ surface:'mel-full', role:'developer', requested_mode:'code' });
+  const conversation = resolveProfessorChatInferenceRoute({ surface:'mel-full', role:'assistant', requested_mode:'conversation' });
+  const normal = resolveProfessorChatInferenceRoute({ surface:'mel-normal', role:'developer', requested_mode:'code' });
+  assert.deepEqual(resolveContinuationInferenceRoute({ professorRoute:code }), { task:'CODE', model:code.model });
+  assert.deepEqual(resolveContinuationInferenceRoute({ professorRoute:conversation }), { task:'GENERAL', model:conversation.model });
+  assert.deepEqual(resolveContinuationInferenceRoute({ professorRoute:normal }), { task:'REASONING', model:null });
+  assert.deepEqual(resolveContinuationInferenceRoute({ professorRoute:code, previousModel:'@cf/google/gemma-4-26b-a4b-it' }),
+    { task:'CODE', model:'@cf/google/gemma-4-26b-a4b-it' });
+  assert.deepEqual(resolveContinuationInferenceRoute({ voiceReply:true, professorRoute:code }),
+    { task:'FAST', model:'@cf/zai-org/glm-4.7-flash' });
+});

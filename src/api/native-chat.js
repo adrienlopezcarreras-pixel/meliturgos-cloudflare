@@ -1277,6 +1277,16 @@ export function resolveProfessorChatInferenceRoute(intentContext = {}) {
   return null;
 }
 
+// [ChatGPT-GPT6] Preserve the same Professor task family across continuation.
+// Normal keeps its existing REASONING fallback; voice keeps FAST.
+export function resolveContinuationInferenceRoute({ voiceReply = false, professorRoute = null, previousModel = null } = {}) {
+  return {
+    task: voiceReply ? 'FAST' : (professorRoute?.task || 'REASONING'),
+    model: voiceReply ? '@cf/zai-org/glm-4.7-flash'
+      : (String(previousModel || '').startsWith('@cf/') ? previousModel : (professorRoute?.model || null)),
+  };
+}
+
 export async function runNativeInference({ env, messages, text, parallel = false, maxCandidates = 4, inferenceSettings = null, activeAdapter = null, runtime = null, taskOverride = null, preferredModel = null, timeoutMs = null, maxCalls = null, deadlineAt = null } = {}) {
   if (!env?.AI || typeof env.AI.run !== 'function') {
     const error = new Error('AI_BINDING_MISSING');
@@ -2552,6 +2562,7 @@ export async function handleNativeChat(request, env, options = {}) {
       && !hasChatBudget(chatDeadlineAt, CONTINUATION_MIN_REMAINING_MS)) {
     ai = { ...ai, continuation_attempted: false, continuation_skipped: 'CHAT_DEADLINE' };
   } else if (ai.truncated === true || isTruncationFinishReason(ai.finish_reason)) {
+    const continuationRoute = resolveContinuationInferenceRoute({ voiceReply, professorRoute, previousModel: ai.model });
     ai = await completeTruncatedNativeInference(ai, messages, continuationMessages => runNativeInference({
       env,
       messages: continuationMessages,
@@ -2561,8 +2572,8 @@ export async function handleNativeChat(request, env, options = {}) {
       inferenceSettings: effectiveInferenceSettings,
       activeAdapter,
       runtime,
-      taskOverride: voiceReply ? 'FAST' : 'REASONING',
-      preferredModel: voiceReply ? '@cf/zai-org/glm-4.7-flash' : (String(ai.model || '').startsWith('@cf/') ? ai.model : null),
+      taskOverride: continuationRoute.task,
+      preferredModel: continuationRoute.model,
       timeoutMs: voiceReply ? 6000 : 12000,
       maxCalls: 1,
       deadlineAt: chatDeadlineAt,
