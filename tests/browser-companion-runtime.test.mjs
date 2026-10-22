@@ -204,3 +204,30 @@ test('page executor rejects missing selectors for interactive actions', async ()
     code: 'BROWSER_SELECTOR_REQUIRED',
   });
 });
+
+test('MEL-FILE proof observes actual upload HTTP status without exposing response data', async () => {
+  for (const status of [200, 403]) {
+    let observed = false;
+    const page = {
+      url: () => 'https://example.com/',
+      waitForResponse(predicate) {
+        return new Promise(resolve => { this.onUpload = () => {
+          observed = predicate({ url:()=> 'https://example.com/api/files/upload', request:()=>({ method:()=> 'POST' }) });
+          resolve({ status:()=>status });
+        }; });
+      },
+      locator() { return { setInputFiles: async () => page.onUpload() }; },
+    };
+    const operation = executeBrowserStep(page, {
+      id:'proof',action:'browser.upload-file',selector:'#fileInput',
+      file_name:'mel-file-normal-proof.txt',file_text:'MEL_FILE_NORMAL_PROOF_abc',
+    }, ['https://example.com']);
+    if (status === 200) {
+      const result = await operation;
+      assert.equal(result.kind,'upload');
+    } else {
+      await assert.rejects(operation, { code:'BROWSER_UPLOAD_HTTP_403' });
+    }
+    assert.equal(observed,true);
+  }
+});
