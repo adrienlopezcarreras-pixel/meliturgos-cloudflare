@@ -75,3 +75,19 @@ test('generated Professor upload runtime preserves executable image MIME matchin
   assert.equal(checkImage({type:'image/png'}),true);
   assert.equal(checkImage({type:'text/plain'}),false);
 });
+
+
+test('both generated chat surfaces require a real server upload acknowledgement before staging', async () => {
+  const html=await (await renderFullInterface()).text();
+  for(const [surface,runtime] of [['normal',NORMAL_RUNTIME_SOURCE],['professor',html]]) {
+    const gate=runtime.match(/if\(d\?\.ok!==true\|\|typeof d\?\.id!=='string'\|\|!d\.id\.trim\(\)\)throw (?:new )?Error\('FILE_UPLOAD_NOT_ACKNOWLEDGED'\);/);
+    assert.ok(gate,surface+' must gate attachment staging on an API receipt');
+    const stage=runtime.indexOf(surface==='normal'?'pendingFiles.push(':'pendingChatFiles.push(');
+    assert.ok(stage>runtime.indexOf(gate[0]),surface+' must validate before staging');
+    const accepted=new Function('d',gate[0]+'return true;');
+    assert.equal(accepted({ok:true,id:'file-123'}),true);
+    for(const invalid of [{ok:false,id:'file-123'},{ok:true},{ok:true,id:''},{ok:true,id:'  '},null]) {
+      assert.throws(()=>accepted(invalid),/FILE_UPLOAD_NOT_ACKNOWLEDGED/,surface+' must reject unacknowledged upload');
+    }
+  }
+});
