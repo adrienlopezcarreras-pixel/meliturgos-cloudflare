@@ -63,7 +63,7 @@ function fakeDb(rows = {}) {
           if (/WHERE bridge_id=\?/.test(sql)) return rows[args[0]] || null;
           return null;
         },
-        async run() { writes.push({ sql, args }); return {}; },
+        async run() { writes.push({ sql, args }); return { meta: { changes: 1 } }; },
       };
       return stmt;
     },
