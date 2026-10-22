@@ -1582,3 +1582,36 @@ test('release handoff API accepts proven progress with mixed backlog and rejects
     if (expected === 200) assert.equal(body.blocked_open_handoff_count, 2);
   }
 });
+
+test('MAX release restore supersedes only an unchanged non-safety pause', async () => {
+  const sha='6'.repeat(40);
+  const base={paused:true,max_autonomy:false,source:'owner-ui',reason:'paused-previously',updated_at:1720000000000};
+  const scenarios=[
+    {label:'old owner pause with fresh owner release intent',control:base,version:base.updated_at,restored:true},
+    {label:'owner stopped MAX after release started',control:{...base,updated_at:base.updated_at+1},version:base.updated_at,restored:false},
+    {label:'watchdog safety pause',control:{...base,source:'watchdog',reason:'safety-stop'},version:base.updated_at,restored:false},
+    {label:'missing control snapshot',control:base,version:null,restored:false},
+  ];
+  for (const scenario of scenarios) {
+    let writes=0;
+    const version=scenario.version == null ? '' : '&predeploy_control_version='+scenario.version;
+    const response=await maybeHandleReleaseLaunchBootstrap(
+      new Request('https://mel.test/api/internal/release-launch-bootstrap?release_restore=true'+version,{
+        method:'POST',
+        headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+        body:JSON.stringify({phase:'gen2-42-owner-max'}),
+      }),
+      {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,MEL_DEPLOYED_GIT_SHA:sha,DB:{}},
+      {
+        readControl:async()=>scenario.control,
+        prepare:async()=>({ok:true,readiness:{ok:true,launch_ready:true,candidate_sha:sha}}),
+        setControl:async(_db,control)=>{writes++;return {...control};},
+        runAutonomyTick:async()=>({ok:true,status:'ACTIVE'}),
+      },
+    );
+    const body=await response.json();
+    assert.equal(response.status,200,scenario.label);
+    assert.equal(body.restore_skipped===true,!scenario.restored,scenario.label);
+    assert.equal(writes,scenario.restored?1:0,scenario.label);
+  }
+});
