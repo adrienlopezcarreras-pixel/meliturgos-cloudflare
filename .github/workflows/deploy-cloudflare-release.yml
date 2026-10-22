@@ -919,6 +919,22 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Verify production HTTP
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROD_STATUS="$(curl --silent --show-error --location \
+            --retry 5 --retry-all-errors --retry-delay 3 --max-time 30 \
+            --output production-root.html \
+            --write-out '%{http_code}' \
+            https://meliturgos.adrien-lopezcarreras.workers.dev)"
+          case "$PROD_STATUS" in
+            2??|3??|401) ;;
+            *) echo "Unexpected production HTTP status: $PROD_STATUS"; exit 22 ;;
+          esac
+          echo "Production HTTP verification passed with status ${PROD_STATUS}."
+
+
       - name: Dispatch decoupled downstream production proofs
         shell: bash
         env:
@@ -943,22 +959,6 @@ jobs:
 
       # Keep autonomy evidence bounded separately from the overall deploy job.
       # Fast production liveness is a blocking rollback gate BEFORE long autonomy proofs.
-      - name: Verify production HTTP
-        shell: bash
-        run: |
-          set -euo pipefail
-          PROD_STATUS="$(curl --silent --show-error --location \
-            --retry 5 --retry-all-errors --retry-delay 3 --max-time 30 \
-            --output production-root.html \
-            --write-out '%{http_code}' \
-            https://meliturgos.adrien-lopezcarreras.workers.dev)"
-          case "$PROD_STATUS" in
-            2??|3??|401) ;;
-            *) echo "Unexpected production HTTP status: $PROD_STATUS"; exit 22 ;;
-          esac
-          echo "Production HTTP verification passed with status ${PROD_STATUS}."
-
-
       - name: Prepare and prove production autonomy launch evidence
         timeout-minutes: 55
         shell: bash
