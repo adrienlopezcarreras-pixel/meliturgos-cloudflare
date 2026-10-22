@@ -1,10 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { runLoraTrainingHeartbeat } from '../src/learning/lora-training-heartbeat.js';
+import { runLoraTrainingHeartbeat, selectLatestCheckpointRelease } from '../src/learning/lora-training-heartbeat.js';
 
 const SHA = '1234567890abcdef1234567890abcdef12345678';
 const NEW_SHA = 'abcdef1234567890abcdef1234567890abcdef12';
+const publishedAssets = [
+  { name: 'kaggle-run.json', size: 100 },
+  { name: 'mel-lora-bundle.tar.gz', size: 1024 },
+];
+
 const baseEnv = {
   MEL_GITHUB_TOKEN: 'token-for-test',
   MEL_GITHUB_REPOSITORY: 'owner/repo',
@@ -98,6 +103,8 @@ test('LoRA heartbeat resumes from latest immutable checkpoint with current candi
           {
             tag_name: tag,
             target_commitish: SHA,
+            draft: false,
+            assets: publishedAssets,
             body: 'Local next stage: UNCENSORED_CONTINUE',
             published_at: '2026-09-18T09:00:00Z',
           },
@@ -141,6 +148,9 @@ test('LoRA heartbeat preserves checkpoint and stops when local gate awaits canon
           {
             tag_name: tag,
             target_commitish: SHA,
+            draft: false,
+            assets: publishedAssets,
+            published_at: '2026-09-18T09:00:00Z',
             body: 'Local next stage: LOCAL_GATE_READY_FOR_CANONICAL_BENCHMARK',
           },
         ]);
@@ -162,6 +172,37 @@ test('LoRA heartbeat preserves checkpoint and stops when local gate awaits canon
   assert.equal(result.checkpoint.tag, tag);
   assert.equal(headRead, false);
   assert.equal(dispatched, false);
+});
+
+test('checkpoint selector ignores a draft c000 above a real published c003 and older c013 lineages', () => {
+  const pub = (tag, sha, date, cycleBody='Free offline Kaggle GPU checkpoint') => ({
+    tag_name: tag, target_commitish: sha, published_at: date, draft: false,
+    assets: publishedAssets, body: cycleBody,
+  });
+  const fresh = 'defdfb84b307da1b11a4926b7d6e86aaded878a0';
+  const old = '8806969aad34e41a2bfdcdb2fc91c20824775e8a';
+  const draft = '635c4786b39b9c3a5458126d64ec7bb726a282e7';
+  const chosen = selectLatestCheckpointRelease([
+    { ...pub('mel-lora-kaggle-635c4786b39b-c000', draft, '2026-10-22T11:00:00Z'), draft: true },
+    pub('mel-lora-kaggle-8806969aad34-c013', old, '2026-10-13T14:20:46Z'),
+    pub('mel-lora-kaggle-defdfb84b307-c002', fresh, '2026-10-18T10:46:33Z'),
+    pub('mel-lora-kaggle-defdfb84b307-c003', fresh, '2026-10-18T11:53:20Z'),
+  ]);
+  assert.equal(chosen?.tag, 'mel-lora-kaggle-defdfb84b307-c003');
+  assert.equal(chosen?.cycle, 3);
+});
+
+test('checkpoint selector refuses invalid provenance and incomplete unpublished artifacts', () => {
+  const sha = SHA;
+  const record = {
+    tag_name: 'mel-lora-kaggle-1234567890ab-c003', target_commitish: sha,
+    published_at: '2026-10-18T12:00:00Z', draft: false, assets: publishedAssets,
+  };
+  assert.equal(selectLatestCheckpointRelease([{ ...record, draft: true }]), null);
+  assert.equal(selectLatestCheckpointRelease([{ ...record, published_at: null }]), null);
+  assert.equal(selectLatestCheckpointRelease([{ ...record, target_commitish: NEW_SHA }]), null);
+  assert.equal(selectLatestCheckpointRelease([{ ...record, assets: [{ name:'mel-lora-bundle.tar.gz', size: 1024 }] }]), null);
+  assert.equal(selectLatestCheckpointRelease([{ ...record, assets: [{ name:'kaggle-run.json', size: 0 }, { name:'mel-lora-bundle.tar.gz', size: 1024 }] }]), null);
 });
 
 test('LoRA heartbeat stops UNCENSORED relaunches once AGENTIC_READY is measured', async () => {
