@@ -171,3 +171,16 @@ test('Professor Code and Conversation use distinct existing model primaries whil
   }
   assert.deepEqual(observed, [conversation.model, code.model]);
 });
+
+test('Professor Code uses developer prompt only on explicit role; Normal remains conversational', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const { resolveProfessorChatInferenceRoute } = await import('../src/api/native-chat.js');
+  const source = await readFile(new URL('../src/api/native-chat.js', import.meta.url), 'utf8');
+  assert.equal(resolveProfessorChatInferenceRoute({ surface:'mel-normal', role:'developer', requested_mode:'code' }), null);
+  assert.equal(resolveProfessorChatInferenceRoute({ surface:'mel-full', role:'assistant', requested_mode:'conversation' })?.task, 'GENERAL');
+  assert.equal(resolveProfessorChatInferenceRoute({ surface:'mel-full', role:'developer', requested_mode:'code' })?.task, 'CODE');
+  assert.match(source, /const professorCodeChat = body\?\.intent_context\?\.surface === 'mel-full'/);
+  assert.match(source, /const plainChatTurn = !professorCodeChat && !releaseSmoke/);
+  assert.match(source, /professorCodeChat\s*\? 'MODE PROFESSEUR — CODE/);
+  assert.match(source, /Le mode Code ne supprime aucune autorisation/);
+});
