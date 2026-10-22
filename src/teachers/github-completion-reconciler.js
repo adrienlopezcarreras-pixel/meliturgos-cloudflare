@@ -167,7 +167,9 @@ export async function findGreenFullCandidateRun(env = {}, sha, { fetchImpl = fet
   const head = String(sha || '').toLowerCase();
   if (!SHA_RE.test(head)) return null;
   const page = await fetchJson(fetchImpl, `https://api.github.com/repos/${encodePath(repository)}/actions/workflows/full-candidate-ci.yml/runs?head_sha=${head}&per_page=10`, env);
-  const run = (Array.isArray(page?.workflow_runs) ? page.workflow_runs : [])
+  if (!Array.isArray(page?.workflow_runs)) throw Object.assign(
+    new Error('COMPLETION_GITHUB_RESPONSE_INVALID'), { code: 'COMPLETION_GITHUB_RESPONSE_INVALID' });
+  const run = page.workflow_runs
     .find((row) => row?.head_sha === head && row?.head_branch === branch && row?.status === 'completed' && row?.conclusion === 'success');
   return run ? Number(run.id) : null;
 }
