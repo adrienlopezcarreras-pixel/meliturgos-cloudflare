@@ -1251,6 +1251,16 @@ export async function runBoundedChatFallback(invoke, model, payload, { timeoutMs
   }
 }
 
+// [ChatGPT-GPT6] Professor-only code model. Normal and generic chat routing are unchanged.
+// The model is a registered Workers AI CODE candidate; the router keeps its fallbacks.
+export const PROFESSOR_CODE_PRIMARY_MODEL = '@cf/nvidia/nemotron-3-120b-a12b';
+export function professorCodeModelPreference(intentContext = {}) {
+  return intentContext?.surface === 'mel-full'
+    && intentContext?.role === 'developer'
+    && intentContext?.requested_mode === 'code'
+    ? PROFESSOR_CODE_PRIMARY_MODEL : null;
+}
+
 export async function runNativeInference({ env, messages, text, parallel = false, maxCandidates = 4, inferenceSettings = null, activeAdapter = null, runtime = null, taskOverride = null, preferredModel = null, timeoutMs = null, maxCalls = null, deadlineAt = null } = {}) {
   if (!env?.AI || typeof env.AI.run !== 'function') {
     const error = new Error('AI_BINDING_MISSING');
@@ -1638,9 +1648,8 @@ export async function handleNativeChat(request, env, options = {}) {
   // This avoids burying an ordinary answer under the entire MEL runbook.
   // [ChatGPT-GPT6] Explicit UI role selects task-class routing, not just the label.
   // Keep safety, capability gates and model availability checks unchanged.
-  const developerRole = body?.intent_context?.surface === 'mel-full'
-    && body?.intent_context?.role === 'developer'
-    && body?.intent_context?.requested_mode === 'code';
+  const professorCodeModel = professorCodeModelPreference(body?.intent_context);
+  const developerRole = Boolean(professorCodeModel);
   const melWorkCapabilityQuestion = melWorkReadiness;
   const plainChatTurn = !releaseSmoke && !body.capability?.id && !inferredCapability
     && !melWorkCapabilityQuestion
@@ -2327,7 +2336,7 @@ export async function handleNativeChat(request, env, options = {}) {
       env,
       messages,
       text,
-      parallel,
+      parallel: developerRole ? false : parallel,
       maxCandidates: body.max_candidates ?? env.MEL_AUGMENTIO_MAX_CANDIDATES ?? activeInferenceSettings?.council_min_responses ?? 4,
       inferenceSettings: effectiveInferenceSettings,
       activeAdapter,
@@ -2335,7 +2344,7 @@ export async function handleNativeChat(request, env, options = {}) {
       taskOverride: voiceReply ? 'FAST' : (developerRole ? 'CODE' : (personalProfileIntent ? 'REASONING' : null)),
       preferredModel: voiceReply
         ? '@cf/zai-org/glm-4.7-flash'
-        : (personalProfileIntent ? '@cf/meta/llama-3.3-70b-instruct-fp8-fast' : null),
+        : (professorCodeModel || (personalProfileIntent ? '@cf/meta/llama-3.3-70b-instruct-fp8-fast' : null)),
       timeoutMs: voiceReply ? 6000 : null,
       maxCalls: voiceReply ? 1 : null,
       deadlineAt: chatDeadlineAt,
