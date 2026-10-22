@@ -22,10 +22,7 @@ test('GEN2-55 production release proves integrity and maturity through Capabilit
 });
 
 test('GEN2-55 production proof remains fail-closed and read-only', async () => {
-  const workflow = await readFile(
-    new URL('../../.github/workflows/deploy-cloudflare-release.yml', import.meta.url),
-    'utf8',
-  );
+  const workflow = await effectiveRelease();
 
   assert.match(workflow, /exit 48/);
   assert.match(workflow, /exit 49/);
