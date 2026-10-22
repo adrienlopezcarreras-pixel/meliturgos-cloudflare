@@ -139,6 +139,14 @@ jobs:
           fi
           echo "Exact release identity verified against canonical main history: $EXPECTED_SHA"
 
+      # Reject an already-deployed SHA before another expensive release begins.
+      # The production lane serializes jobs; this check also deduplicates queued pushes.
+      - name: Reject duplicate successful release SHA
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-duplicate-sha-gate.mjs
+
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
