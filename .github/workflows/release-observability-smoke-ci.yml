@@ -25,6 +25,8 @@ on:
       - 'tests/gen2/release-downstream-proof-decoupled.test.mjs'
       - 'tests/release-downstream-summary-gate.test.mjs'
       - 'tests/verify-downstream-proof-attestation.test.mjs'
+      - 'tests/verify-github-downstream-run.test.mjs'
+      - 'scripts/verify-github-downstream-run.mjs'
       - 'scripts/verify-downstream-proof-attestation.mjs'
       - 'scripts/check-release-proof-shell.mjs'
       - 'scripts/check-release-council-proof.mjs'
@@ -79,6 +81,7 @@ jobs:
           tests/gen2/release-downstream-proof-decoupled.test.mjs
           tests/release-downstream-summary-gate.test.mjs
           tests/verify-downstream-proof-attestation.test.mjs
+          tests/verify-github-downstream-run.test.mjs
           tests/gen2/sov-ai-auto-close.test.mjs
           tests/system-readiness.test.mjs
 
