@@ -17,7 +17,8 @@ test('GEN2-42 tick uses GitHub Actions OIDC and no Cloudflare D1/R2 or Worker se
 
 test('GEN2-42 production tick shares the release-proof concurrency group and never cancels active stress', async () => {
   const source = await readFile(new URL('../../.github/workflows/gen2-42-runtime-tick.yml', import.meta.url), 'utf8');
-  assert.match(source, /concurrency:\s*\n\s+group:.*'mel-launch-bootstrap-token'/);
+  assert.match(source, /  tick:\\s*\\n[\\s\\S]*?    concurrency:\\s*\\n      group: mel-launch-bootstrap-token/);
+  assert.doesNotMatch(source.slice(0, source.indexOf('jobs:')), /^concurrency:/m);
   assert.match(source, /cancel-in-progress:\s*false/);
   assert.match(source, /SKIPPED_LEASE_BUSY/);
 });
