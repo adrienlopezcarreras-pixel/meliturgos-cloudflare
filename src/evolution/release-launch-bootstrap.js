@@ -6,7 +6,7 @@ import {
   prepareAutonomyLaunchBackup,
   prepareAutonomyLaunchCodeSync,
 } from './launch-readiness.js';
-import { setAutonomyControl } from './autonomy-control.js';
+import { setAutonomyControl, getAutonomyControl, isReleaseAutonomyPause } from './autonomy-control.js';
 import { D1SkillRegistryStore } from './d1-skill-registry-store.js';
 import { SkillRegistry } from './skill-registry.js';
 import { D1PluginVersionStore } from '../plugins/d1-version-store.js';
@@ -283,6 +283,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   prepareCodeSync = prepareAutonomyLaunchCodeSync,
   readReadiness = getAutonomyLaunchReadiness,
   setControl = setAutonomyControl,
+  readControl = getAutonomyControl,
   proveCapabilityWatch = proveEcosystemTeacherHandoff,
   runAutonomyTick = runAutonomyRuntimeTick,
   connectionHandler = maybeHandleConnectionSettingsApi,
@@ -797,10 +798,20 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   }
 
   if (phase === 'gen2-42-owner-max') {
+    // Only the existing official release restores MAX. A later owner/safety
+    // pause wins, including an owner action while readiness is being checked.
+    const releaseRestore = url.searchParams.get('release_restore') === 'true';
+    const beforeRestore = releaseRestore ? await readControl(env?.DB) : null;
+    if (releaseRestore && !isReleaseAutonomyPause(beforeRestore)) {
+      return Response.json({ ok: true, status: 'RELEASE_OWNER_CONTROL_PRESERVED', restore_skipped: true,
+        paused: beforeRestore.paused, max_autonomy: beforeRestore.max_autonomy,
+        autonomy_started: false }, { headers: { 'cache-control': 'no-store' } });
+    }
     const prepared = await prepare(env);
     const readiness = safeReadiness(prepared?.readiness);
     const approvedSha = String(prepared?.readiness?.candidate_sha || readiness.candidate_sha || '').trim().toLowerCase();
-    if (prepared?.ok !== true || readiness.launch_ready !== true || !/^[0-9a-f]{40}$/.test(approvedSha)) {
+    if (prepared?.ok !== true || readiness.launch_ready !== true || !/^[0-9a-f]{40}$/.test(approvedSha)
+      || (releaseRestore && approvedSha !== exactDeployedSha(env))) {
       return Response.json({
         ok: false,
         code: 'GEN2_42_OWNER_MAX_LAUNCH_GATE_BLOCKED',
@@ -814,6 +825,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       max_autonomy: true,
       source: 'owner-authorized-bootstrap',
       reason: 'owner-max-autonomy',
+      ...(releaseRestore ? { expected_updated_at: beforeRestore.updated_at } : {}),
       launch_approved_sha: approvedSha,
       launch_approved_at: prepared?.readiness?.evaluated_at || new Date().toISOString(),
       launch_gate_digest: preparednessDigest(prepared?.readiness) || readiness.gate_digest || null,

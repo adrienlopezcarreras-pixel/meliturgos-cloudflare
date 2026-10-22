@@ -4,7 +4,7 @@ import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { AutonomySupervisor, isSupervisedAutonomyJob } from './autonomy-supervisor.js';
 import { runAutonomyRuntimeTick } from './autonomy-runtime.js';
 import { getAutonomyReadiness } from './autonomy-readiness.js';
-import { getAutonomyControl, setAutonomyControl, setOwnerMaxAutonomy } from './autonomy-control.js';
+import { getAutonomyControl, setAutonomyControl, setOwnerMaxAutonomy, isReleaseAutonomyPause } from './autonomy-control.js';
 import { AUTONOMY_RUNTIME_CRON } from './autonomy-schedule.js';
 import { getAutonomyLaunchReadiness, prepareAutonomyLaunch } from './launch-readiness.js';
 import { D1AlternativeRegistryStore } from '../portability/d1-alternative-registry-store.js';
@@ -172,6 +172,11 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
       owner_override: control.owner_override === true,
       status: control.status,
       updated_at: control.updated_at,
+      max_remembered: control.max_remembered === true,
+      // Only fixed release labels are public; owner-supplied pause text stays private.
+      source: isReleaseAutonomyPause(control) ? control.source : null,
+      reason: isReleaseAutonomyPause(control) ? control.reason : null,
+      launch_approved_sha: control.launch_approved_sha,
     }, { headers: { 'cache-control': 'no-store' } });
   }
 

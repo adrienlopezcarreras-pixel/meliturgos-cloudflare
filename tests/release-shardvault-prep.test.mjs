@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { rememberedReleaseMax } from '../src/evolution/autonomy-control.js';
 import { isReleaseSmokeRequest } from '../src/core/security.js';
 
 const token='s'.repeat(64);
@@ -141,7 +142,9 @@ test('final ShardVault status tolerates bounded secret propagation',async()=>{
 
 test('release capture normalizes legacy paused plus MAX contradiction fail-safe before rollback state is recorded',async()=>{
   const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
-  assert.match(source,/const maxAutonomy=paused\?false:reportedMax/);
+  assert.match(source,/const maxAutonomy=rememberedReleaseMax\(d\)/);
+  assert.equal(rememberedReleaseMax({paused:true,max_autonomy:true,source:'owner-ui'}),false);
+  assert.equal(rememberedReleaseMax({paused:true,max_autonomy:false,max_remembered:true,source:'release-predeploy-binder',reason:'predeploy-release-safety'}),true);
   assert.match(source,/Legacy contradictory autonomy control normalized fail-safe/);
   assert.match(source,/PREVIOUS_MAX_AUTONOMY='\+String\(maxAutonomy\)/);
   assert.doesNotMatch(source,/PREDEPLOY_AUTONOMY_CONTROL_CONTRADICTORY/);

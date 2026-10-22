@@ -243,7 +243,8 @@ test('a release keeps MAX off unless the owner had it on before (any trigger, in
   assert.ok(browser >= 0 && safeStop > browser && max > safeStop, 'safe-stop must run after live proofs and before any optional MAX re-enable');
   const restore = "(env.OWNER_MAX_AUTORELEASE == 'true' || env.PREVIOUS_MAX_AUTONOMY == 'true')";
   assert.ok(source.includes("if: success() && !" + restore), 'safe stop unless MAX is restored');
-  assert.equal(source.split("if: success() && " + restore).length - 1, 2, 'MAX restore and autonomy kick share the same condition');
+  assert.equal(source.split("if: success() && " + restore).length - 1, 1);
+  assert.match(source, /if: success\(\) && steps\.restore_max\.outputs\.restored == 'true'/, 'kick only after an actual restore');
   assert.match(source, /'PREVIOUS_MAX_AUTONOMY='\+String\(maxAutonomy\)/, 'pre-deploy MAX state comes from the captured control (a paused owner stays paused)');
   assert.match(source, /paused=true, max_autonomy=false/);
 });

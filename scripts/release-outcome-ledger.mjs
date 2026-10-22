@@ -30,6 +30,9 @@ export function releaseOutcomeComment(payload, repository = REPO) {
   `- **Événement :** \`${w.event}\``,
   `- **Conclusion GitHub Actions :** \`${conclusion}\``,
   `- **État de la release :** \`${status}\``,
+  ...(conclusion === 'cancelled' ? [
+   '- **Reprise MAX : RECOVERY_REQUIRED.** Une annulation ne prouve ni rollback ni validation du SHA servi. Conserver la pause ; seule une nouvelle release officielle entièrement vérifiée peut restaurer le choix MAX mémorisé. Ne jamais relancer MAX depuis ce journal.',
+  ] : []),
   '- **Portée de la preuve :** conclusion du workflow de déploiement et de ses gates, pas une vérification indépendante de la disponibilité ultérieure.',
   '- **D1, HTTP et rollback :** consulter les étapes du run exact et les preuves post-release ; ne pas déduire leur succès de ce commentaire seul.',
   '',

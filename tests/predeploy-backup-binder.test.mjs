@@ -142,7 +142,8 @@ test('predeploy prepare pauses autonomy and proves a real restore backup without
   assert.equal(result.ok,true);
   assert.equal(result.status,'PREDEPLOY_RELEASE_PREPARED');
   assert.equal(result.autonomy.paused,true);
-  assert.equal(result.autonomy.max_autonomy,true);
+  assert.equal(result.autonomy.max_autonomy,false);
+  assert.equal(result.autonomy.max_remembered,true);
   assert.equal(result.backup.restore_candidate_verified,true);
   assert.equal(result.backup.backup_object_present,true);
   assert.equal(result.backup.backup_object_bytes,4096);
