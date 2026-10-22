@@ -670,3 +670,50 @@ test('mentor structured repair receives the same unambiguous bounded format', as
   assert.match(String(calls[1].input.input), /RÉPONSE_INVALIDE_À_RÉPARER/);
   assert.equal(result.proposal.changes[0].content, 'export const enabled = true;\n');
 });
+
+test('CODE council exhausts eligible independent coder proposals for a difficult repair', async () => {
+  const calls = [];
+  const good = i => ({
+    summary: 'Solution de code indépendante ' + i,
+    edits: [{ path: 'src/example.js', find: 'value = 1', replace: 'value = ' + i }],
+    tests: ['test:smoke'], confidence: 0.8,
+  });
+  const engine = new MentorEngine({
+    providerFactory: async () => [
+      sequenceProvider('coder-a', [good(2)], calls),
+      sequenceProvider('coder-b', [good(3)], calls),
+      sequenceProvider('coder-c', [good(4)], calls),
+      sequenceProvider('coder-d', [good(5)], calls),
+    ],
+  });
+  const result = await engine.propose({
+    env: {}, goal: 'Réparer un cas épineux avec plusieurs modèles CODE',
+    mode: 'repair',
+    inspectedFiles: [{ path: 'src/example.js', content: 'export const value = 1;\n' }],
+  });
+  assert.equal(result.code_council.triggered, true);
+  assert.equal(result.code_council.valid_proposals, 4);
+  assert.equal(result.code_council.attempted.length, 4);
+  assert.equal(calls.length, 4);
+});
+
+test('ordinary Mentor stops after a valid initial wave without deep CODE council', async () => {
+  const calls = [];
+  const good = {
+    summary:'Simple correction',
+    edits:[{ path:'src/example.js', find:'value = 1', replace:'value = 2' }],
+    tests:['test:smoke'],
+  };
+  const engine = new MentorEngine({ providerFactory: async () => [
+    sequenceProvider('coder-a',[good],calls),
+    sequenceProvider('coder-b',[good],calls),
+    sequenceProvider('coder-c',[good],calls),
+    sequenceProvider('coder-d',[good],calls),
+  ] });
+  const result = await engine.propose({
+    env:{}, goal:'Correction simple',
+    inspectedFiles:[{path:'src/example.js',content:'export const value = 1;\n'}],
+  });
+  assert.equal(result.code_council.triggered,false);
+  assert.equal(calls.length,3);
+});
