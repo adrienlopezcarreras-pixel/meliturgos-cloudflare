@@ -291,16 +291,22 @@ test('Professor streaming keeps Code and Conversation on distinct primaries with
   assert.deepEqual(fallbacks, [codeModel, codeBackup]);
 });
 
-test('native Professor chat routes live streamed replies by selected role and preserves Normal', async () => {
+test('native Professor streams Normal/Conversation but verifies complete Code reply before displaying it', async () => {
   const DB = sqliteD1();
   const normalModel = '@cf/test/normal-configured';
   const codeModel = '@cf/nvidia/nemotron-3-120b-a12b';
   const chatModel = '@cf/openai/gpt-oss-120b';
   const called = [];
   const env = { DB, MEL_STREAM_MODEL: normalModel, AI: {
-    async run(model) { called.push(model); return sse(['Réponse vérifiée.']); },
+    async run(model) {
+      called.push(model);
+      // Code intentionally uses a completed model response so unverified D1
+      // success claims cannot leak progressively into the conversation.
+      return model === codeModel ? { response:'Réponse vérifiée.' } : sse(['Réponse vérifiée.']);
+    },
   } };
   const send = async (suffix, intent_context = undefined) => {
+    const isCode = intent_context?.surface === 'mel-full' && intent_context?.requested_mode === 'code';
     const response = await handleNativeChat(new Request('https://mel.example/api/chat', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -310,7 +316,15 @@ test('native Professor chat routes live streamed replies by selected role and pr
         ...(intent_context ? { intent_context } : {}),
       }),
     }), env, { authorized: true });
-    assert.match(response.headers.get('content-type') || '', /application\/x-ndjson/);
+    const contentType = response.headers.get('content-type') || '';
+    if (isCode) {
+      assert.match(contentType, /application\/json/);
+      const result = await response.json();
+      assert.equal(result.ok, true, JSON.stringify(result).slice(0,200));
+      assert.ok(String(result.text || '').includes('Réponse'));
+      return result.model;
+    }
+    assert.match(contentType, /application\/x-ndjson/);
     const events = await readNdjson(response);
     assert.equal(events.at(-1).type, 'done');
     return events[0].model;
