@@ -6,6 +6,7 @@
 // no spam, no paid service), and stores a ranked report in D1. Opportunities
 // already seen are not repeated; new ones are flagged for the owner.
 
+import { discoverGithubBounties } from './github-bounty-discovery.js';
 import { createGen2Runtime } from '../core/orchestrator/gen2-runtime.js';
 import { extractModelText } from '../models/ModelRouter.js';
 
@@ -63,7 +64,7 @@ async function ensureTable(db) {
   await db.prepare('CREATE TABLE IF NOT EXISTS revenue_watch (url TEXT PRIMARY KEY, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, data TEXT NOT NULL, status TEXT NOT NULL DEFAULT \'NEW\')').run();
 }
 
-export async function runRevenueWatch(env, { now = new Date(), research = null } = {}) {
+export async function runRevenueWatch(env, { now = new Date(), research = null, githubDiscovery = discoverGithubBounties } = {}) {
   if (!env?.DB?.prepare || typeof env?.AI?.run !== 'function') return { status: 'RUNTIME_UNAVAILABLE' };
   await ensureTable(env.DB);
   const runResearch = research || (async query => {
@@ -84,7 +85,9 @@ export async function runRevenueWatch(env, { now = new Date(), research = null }
       if (parseOpportunities(text).some(o => citedUrls.has(o.url))) break;
     } catch {}
   }
-  const found = parseOpportunities(text).filter(o => citedUrls.has(o.url) && o.automation !== 'manuel');
+  const webLeads = parseOpportunities(text).filter(o => citedUrls.has(o.url) && o.automation !== 'manuel');
+  const github = await githubDiscovery({ now }).catch(() => ({ opportunities: [], errors: ['GITHUB_DISCOVERY_FAILED'] }));
+  const found = [...new Map([...webLeads, ...(github.opportunities || [])].map(o => [o.url, o])).values()];
   const today = now.toISOString().slice(0, 10);
   let fresh = 0;
   for (const o of found) {
@@ -92,7 +95,7 @@ export async function runRevenueWatch(env, { now = new Date(), research = null }
     if (existing) await env.DB.prepare('UPDATE revenue_watch SET last_seen=?, data=? WHERE url=?').bind(today, JSON.stringify(o), o.url).run();
     else { await env.DB.prepare('INSERT INTO revenue_watch (url, first_seen, last_seen, data) VALUES (?,?,?,?)').bind(o.url, today, today, JSON.stringify(o)).run(); fresh += 1; }
   }
-  return { status: 'DONE', themes: themesFor(now), found: found.length, new: fresh };
+  return { status: 'DONE', themes: themesFor(now), found: found.length, new: fresh, github: (github.opportunities || []).length, github_errors: github.errors || [] };
 }
 
 export async function readRevenueWatch(db, { limit = 30 } = {}) {
