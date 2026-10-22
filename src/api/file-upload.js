@@ -170,8 +170,9 @@ export async function handleFileUpload(request, env, options = {}) {
     if (!auth.ok) return auth.response;
   }
 
-  const parallelProofUpload = Boolean(request.headers.get('x-mel-parallel-proof'))
-    && isReleaseSmokeRequest(request, env);
+  // All authenticated release proof uploads (primary or parallel token) must obey
+  // the same exact-SHA payload restrictions and short retention policy.
+  const releaseProofUpload = isReleaseSmokeRequest(request, env);
 
   const type = String(request.headers.get('content-type') || '').toLowerCase();
   if (!type.includes('multipart/form-data')) {
@@ -191,7 +192,7 @@ export async function handleFileUpload(request, env, options = {}) {
   const mime = String(file.type || 'application/octet-stream').slice(0, 160);
   const bytes = new Uint8Array(await file.arrayBuffer());
 
-  if (parallelProofUpload) {
+  if (releaseProofUpload) {
     const proofName = /^mel-file-(normal|full)-proof\.txt$/i.exec(name);
     if (!proofName || mime.toLowerCase() !== 'text/plain' || bytes.byteLength > 16_384) {
       return Response.json({ ok:false, code:'MEL_FILE_PROOF_UPLOAD_REJECTED' }, {
@@ -214,7 +215,7 @@ export async function handleFileUpload(request, env, options = {}) {
   const sha256 = await sha256Hex(bytes);
   const id = crypto.randomUUID();
   const createdAt = new Date();
-  const ttlSeconds = parallelProofUpload ? 300 : mediaTtlSeconds(env);
+  const ttlSeconds = releaseProofUpload ? 300 : mediaTtlSeconds(env);
   const expiresAt = new Date(createdAt.getTime() + ttlSeconds * 1000);
   const key = `uploads/${new Date().toISOString().slice(0,10)}/${id}-${name}`;
   let stored = false;
