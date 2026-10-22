@@ -1,10 +1,10 @@
 import { approvedEvolutionRoadmap } from '../roadmap/evolution-autonomy-queue.js';
-import { flattenRoadmap, ROADMAP_STATUSES } from '../roadmap/master-roadmap.js';
+import { flattenRoadmap, ROADMAP_STATUSES, isClosedRoadmapStatus } from '../roadmap/master-roadmap.js';
 import { isClaimedPreparedDevBridgeJob } from '../dev/bridge-job-state.js';
 
-const TERMINAL_JOB = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
+const TERMINAL_JOB = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED', 'DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED']);
 const BLOCKED_ROADMAP = new Set([ROADMAP_STATUSES.BLOCKED_HUMAN, ROADMAP_STATUSES.BLOCKED_EXTERNAL]);
-const DONE_ROADMAP = new Set([ROADMAP_STATUSES.DONE, ROADMAP_STATUSES.VERIFIED, 'DONE', 'DONE_VERIFIED']);
+function isVerifiedRoadmap(item) { return isClosedRoadmapStatus(item?.status); }
 const PRIORITY_WEIGHT = Object.freeze({ P0: 0, P1: 10, P2: 20, P3: 30 });
 const STATUS_WEIGHT = Object.freeze({ IN_PROGRESS: 0, PARTIAL: 1, PLANNED: 2 });
 const SUPERVISED_REQUESTERS = new Set(['owner-chat', 'mel-autonomy']);
@@ -148,10 +148,12 @@ function compareActiveJobs(left, right) {
     || String(left?.id || '').localeCompare(String(right?.id || ''));
 }
 
-export function selectActionableAutonomyJob(jobs = [], { epochMs = 0 } = {}) {
+export function selectActionableAutonomyJob(jobs = [], { epochMs = 0, roadmap = flattenRoadmap() } = {}) {
+  const closedIds = new Set(roadmap.filter(isVerifiedRoadmap).map(item => item.id));
   const epoch = Number(epochMs) || 0;
   return (Array.isArray(jobs) ? jobs : [])
     .filter(isSupervisedAutonomyJob)
+    .filter(job => !closedIds.has(roadmapIdFromJob(job)))
     .filter((job) => !TERMINAL_JOB.has(String(job?.status || '').toUpperCase()))
     .filter((job) => !isPassiveRuntimeJob(job))
     .filter((job) => !epoch || Number(job?.created_at || 0) >= epoch)
@@ -161,7 +163,7 @@ export function selectActionableAutonomyJob(jobs = [], { epochMs = 0 } = {}) {
 export function manifestObjective(roadmap = flattenRoadmap()) {
   return roadmap
     .filter((item) => item?.id && (item.id.startsWith('MEL-FOUNDER-') || item.id.startsWith('MEL-MANIFEST-')))
-    .filter((item) => !DONE_ROADMAP.has(item.status))
+    .filter((item) => !isVerifiedRoadmap(item))
     .map((item) => item.id + ':' + item.status)
     .join(' ')
     .slice(0, 900);
@@ -172,9 +174,9 @@ export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedId
   const blocked = new Set(blockedIds);
   return roadmap
     .filter((item) => item && item.id)
-    .filter((item) => !DONE_ROADMAP.has(item.status))
-    .filter((item) => !BLOCKED_ROADMAP.has(item.status))
-    .filter((item) => !completed.has(item.id) && !blocked.has(item.id))
+    .filter((item) => !isVerifiedRoadmap(item))
+    .filter((item) => !BLOCKED_ROADMAP.has(String(item.status || '').trim().toUpperCase()))
+    .filter((item) => (!completed.has(item.id) || String(item.status).toUpperCase() === 'REGRESSED') && !blocked.has(item.id))
     .sort((a, b) => score(a) - score(b) || String(a.id).localeCompare(String(b.id)))[0] || null;
 }
 
@@ -212,12 +214,34 @@ export class AutonomySupervisor {
     const supervisedJobs = jobs
       .filter(isSupervisedAutonomyJob)
       .filter((job) => !this.epochMs || Number(job?.created_at || 0) >= this.epochMs);
-    const active = supervisedJobs.filter((job) => !TERMINAL_JOB.has(String(job.status || '').toUpperCase()));
-    const activeIds = active.map(roadmapIdFromJob).filter(Boolean);
+    let evolutionItems = null;
+    let evolution = { status: this.evolutionLoader ? 'NOT_CHECKED' : 'NOT_CONFIGURED', actionable_count: null, code: null };
+    const readEvolution = async () => {
+      try {
+        const rows = await this.evolutionLoader();
+        const approved = approvedEvolutionRoadmap(rows);
+        evolutionItems = rows;
+        evolution = { status: 'CONNECTED', actionable_count: approved.length, code: null };
+        return approved;
+      } catch {
+        evolutionItems = [];
+        evolution = { status: 'UNAVAILABLE', actionable_count: null, code: 'EVOLUTION_QUEUE_READ_FAILED' };
+        return [];
+      }
+    };
+    if (this.evolutionLoader && supervisedJobs.some(job => String(roadmapIdFromJob(job) || '').startsWith('EVOLUTION-'))) await readEvolution();
+    const verifiedRoadmapIds = new Set(this.roadmap.filter(isVerifiedRoadmap).map(item => item.id));
+    for (const item of evolutionItems || []) if (isClosedRoadmapStatus(item.status)) verifiedRoadmapIds.add('EVOLUTION-' + item.id);
+    const reopenedIds = new Set(this.roadmap.filter(item => String(item.status).toUpperCase() === 'REGRESSED').map(item => item.id));
+    for (const item of evolutionItems || []) if (item.status === 'REGRESSED') reopenedIds.add('EVOLUTION-' + item.id);
     const completedIds = supervisedJobs
-      .filter((job) => ['COMPLETED', 'COMMITTED'].includes(String(job.status || '').toUpperCase()))
-      .map(roadmapIdFromJob)
-      .filter(Boolean);
+      .filter(job => ['COMPLETED', 'COMMITTED'].includes(String(job.status).toUpperCase()) || isClosedRoadmapStatus(job.status))
+      .map(roadmapIdFromJob).filter(id => id && !reopenedIds.has(id));
+    const completedSet = new Set(completedIds);
+    const active = supervisedJobs.filter(job => !TERMINAL_JOB.has(String(job.status || '').toUpperCase()))
+      .filter(job => !verifiedRoadmapIds.has(roadmapIdFromJob(job)) && !completedSet.has(roadmapIdFromJob(job)))
+      .filter(job => !(evolution.status === 'UNAVAILABLE' && String(roadmapIdFromJob(job) || '').startsWith('EVOLUTION-')));
+    const activeIds = active.map(roadmapIdFromJob).filter(Boolean);
     const explicitlyBlockedIds = supervisedJobs
       .filter((job) => String(job.status || '').toUpperCase() === 'FAILED' && job?.result_json?.autonomy_blocked === true)
       .map(roadmapIdFromJob)
@@ -240,16 +264,9 @@ export class AutonomySupervisor {
       completedIds,
       blockedIds: excludedIds,
     });
-    let evolution = { status: this.evolutionLoader ? 'NOT_CHECKED' : 'NOT_CONFIGURED', actionable_count: null, code: null };
     if (!next && this.evolutionLoader) {
-      try {
-        const items = approvedEvolutionRoadmap(await this.evolutionLoader());
-        next = selectNextAutonomyItem({ roadmap: items, completedIds, blockedIds: excludedIds });
-        evolution = { status: 'CONNECTED', actionable_count: items.length, code: null };
-      } catch(error) {
-        // Failed D1 reads never certify an empty queue or generate unapproved jobs.
-        evolution = { status: 'UNAVAILABLE', actionable_count: null, code: 'EVOLUTION_QUEUE_READ_FAILED' };
-      }
+      const items = evolutionItems === null ? await readEvolution() : approvedEvolutionRoadmap(evolutionItems);
+      next = selectNextAutonomyItem({ roadmap: items, completedIds, blockedIds: excludedIds });
     }
     return { evolution,
       jobs,
@@ -266,7 +283,7 @@ export class AutonomySupervisor {
 
   async ensureNextJob() {
     const current = await this.state();
-    const actionable = selectActionableAutonomyJob(current.active, { epochMs: this.epochMs });
+    const actionable = selectActionableAutonomyJob(current.active, { epochMs: this.epochMs, roadmap: this.roadmap });
     if (actionable) return { created: false, job: actionable, next: current.next };
 
     // Teacher, Bridge execution and CI/review are validation/execution lanes,

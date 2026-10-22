@@ -1,4 +1,5 @@
 import { runAutonomyRuntimeTick as runCoreAutonomyRuntimeTick, autonomyTickAdvanced, currentAutonomyRepository } from './autonomy-runtime-core.js';
+import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
 import { getAutonomyControl } from './autonomy-control.js';
 import { AutonomySupervisor, selectActionableAutonomyJob } from './autonomy-supervisor.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
@@ -197,11 +198,12 @@ function preservePreEnsureCreation(result, preEnsure) {
   };
 }
 
-async function recordCoreRuntimeFailure(repository, error, { maxAttempts = 3, epochMs = 0 } = {}) {
-  const jobs = await currentAutonomyRepository(repository, epochMs).list();
+async function recordCoreRuntimeFailure(repository, error, { maxAttempts = 3, epochMs = 0, roadmap, evolutionLoader = null } = {}) {
+  const supervisor = new AutonomySupervisor({ repository: currentAutonomyRepository(repository, epochMs), epochMs, ...(roadmap ? { roadmap } : {}), evolutionLoader });
+  const jobs = (await supervisor.state()).active;
   const schedulerSelected = selectActionableAutonomyJob(
     jobs.filter(job => ACTIONABLE_FAILURE_STATES.has(String(job?.status || '').toUpperCase())),
-    { epochMs },
+    { epochMs, ...(roadmap ? { roadmap } : {}) },
   );
   const candidate = schedulerSelected || jobs
     .filter(supervised)
@@ -237,7 +239,7 @@ async function recordCoreRuntimeFailure(repository, error, { maxAttempts = 3, ep
       status: 'FAILED',
       result_json: result,
       error: `AUTONOMY_RUNTIME_RETRY_EXHAUSTED:${code}`,
-    });
+    }, { expected: candidate });
     return { job_id: updated.id, attempts, quarantined: true, code };
   }
 
@@ -257,7 +259,7 @@ async function runCoreResilient(env, coreOptions, repository) {
     // candidate-only deployment boundary.
     if (mustFailClosed(error)) throw error;
 
-    const failure = await recordCoreRuntimeFailure(repository, error, { epochMs: coreOptions.epochMs }).catch(() => ({
+    const failure = await recordCoreRuntimeFailure(repository, error, { epochMs: coreOptions.epochMs, roadmap: coreOptions.roadmap, evolutionLoader: coreOptions.roadmap ? null : createRuntimeEvolutionLoader(env) }).catch(() => ({
       job_id: null,
       attempts: 0,
       quarantined: false,
@@ -586,7 +588,7 @@ async function autonomyProgressSnapshot(repository, roadmap = null, epochMs = 0)
     const supervisor = new AutonomySupervisor({ repository, epochMs, ...(roadmap ? { roadmap } : {}) });
     const state = await supervisor.state();
     const active = Array.isArray(state?.active) ? state.active : [];
-    const actionable = selectActionableAutonomyJob(active, { epochMs });
+    const actionable = selectActionableAutonomyJob(active, { epochMs, ...(roadmap ? { roadmap } : {}) });
     return {
       work_remaining: active.length > 0 || Boolean(state?.next),
       active_jobs: active.length,

@@ -7,6 +7,10 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
+export function isClosedRoadmapStatus(status) {
+  return ['DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED'].includes(String(status || '').trim().toUpperCase());
+}
+
 export const ROADMAP_REGISTRY_REVISION = '2026-10-19.3';
 
 const phase = (id, title, items) => ({ id, title, items });
