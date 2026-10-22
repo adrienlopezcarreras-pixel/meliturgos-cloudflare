@@ -24,6 +24,8 @@ on:
       - '.github/workflows/release-downstream-proof-decoupled.yml'
       - 'tests/gen2/release-downstream-proof-decoupled.test.mjs'
       - 'tests/release-downstream-summary-gate.test.mjs'
+      - 'tests/verify-downstream-proof-attestation.test.mjs'
+      - 'scripts/verify-downstream-proof-attestation.mjs'
       - 'scripts/check-release-proof-shell.mjs'
       - 'scripts/check-release-council-proof.mjs'
       - 'tests/release-council-proof.test.mjs'
@@ -76,6 +78,7 @@ jobs:
           tests/gen2/runtime-observability.test.mjs
           tests/gen2/release-downstream-proof-decoupled.test.mjs
           tests/release-downstream-summary-gate.test.mjs
+          tests/verify-downstream-proof-attestation.test.mjs
           tests/gen2/sov-ai-auto-close.test.mjs
           tests/system-readiness.test.mjs
 
