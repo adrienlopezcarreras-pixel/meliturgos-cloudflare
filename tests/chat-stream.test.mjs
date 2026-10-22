@@ -291,14 +291,17 @@ test('Professor streaming keeps Code and Conversation on distinct primaries with
   assert.deepEqual(fallbacks, [codeModel, codeBackup]);
 });
 
-test('native Professor chat routes live streamed replies by selected role and preserves Normal', async () => {
+test('native Professor streams Conversation but verifies Code before returning JSON without changing Normal', async () => {
   const DB = sqliteD1();
   const normalModel = '@cf/test/normal-configured';
   const codeModel = '@cf/nvidia/nemotron-3-120b-a12b';
   const chatModel = '@cf/openai/gpt-oss-120b';
   const called = [];
   const env = { DB, MEL_STREAM_MODEL: normalModel, AI: {
-    async run(model) { called.push(model); return sse(['Réponse vérifiée.']); },
+    async run(model, input) {
+      called.push({ model, streaming: input?.stream === true });
+      return input?.stream === true ? sse(['Réponse vérifiée.']) : { response:'Réponse vérifiée.' };
+    },
   } };
   const send = async (suffix, intent_context = undefined) => {
     const response = await handleNativeChat(new Request('https://mel.example/api/chat', {
@@ -310,6 +313,14 @@ test('native Professor chat routes live streamed replies by selected role and pr
         ...(intent_context ? { intent_context } : {}),
       }),
     }), env, { authorized: true });
+    if (suffix === 'code') {
+      // Code must not stream unverified claims of code or D1 mutations.
+      assert.match(response.headers.get('content-type') || '', /application\/json/);
+      const payload = await response.json();
+      assert.equal(payload.ok, true);
+      assert.ok(String(payload.text || '').includes('Réponse vérifiée.'));
+      return payload.model;
+    }
     assert.match(response.headers.get('content-type') || '', /application\/x-ndjson/);
     const events = await readNdjson(response);
     assert.equal(events.at(-1).type, 'done');
@@ -319,7 +330,11 @@ test('native Professor chat routes live streamed replies by selected role and pr
     assert.equal(await send('normal'), normalModel);
     assert.equal(await send('assistant', { surface: 'mel-full', role: 'assistant', requested_mode: 'conversation' }), chatModel);
     assert.equal(await send('code', { surface: 'mel-full', role: 'developer', requested_mode: 'code' }), codeModel);
-    assert.deepEqual(called, [normalModel, chatModel, codeModel]);
+    assert.deepEqual(called, [
+      { model:normalModel, streaming:true },
+      { model:chatModel, streaming:true },
+      { model:codeModel, streaming:false },
+    ]);
   } finally {
     DB.close?.();
   }
