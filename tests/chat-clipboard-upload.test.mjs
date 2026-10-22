@@ -60,3 +60,21 @@ test('normal runtime preserves image MIME regex after JS string generation', () 
   assert.equal(matchMime({type:'image/jpeg'}), true);
   assert.equal(matchMime({type:'application/pdf'}), false);
 });
+
+test('full chat generated image MIME predicate executes without undefined i and identifies files', async () => {
+  const response = await renderFullInterface();
+  const html = await response.text();
+  const at = html.indexOf('isImage:');
+  assert.ok(at >= 0, 'rendered chat must contain file image predicate');
+  const end = html.indexOf(',localUrl', at);
+  assert.ok(end > at, 'predicate must be bounded by file item properties');
+  const expression = html.slice(at + 'isImage:'.length, end);
+  // Compile/evaluate the *rendered* browser expression: source syntax checks
+  // do not detect template-literal escape loss before runtime.
+  const isImage = new Function('file', 'return (' + expression + ');');
+  assert.equal(isImage({type:'image/png'}),true);
+  assert.equal(isImage({type:'IMAGE/JPEG'}),true);
+  assert.equal(isImage({type:'text/plain'}),false);
+  assert.equal(isImage({type:'application/pdf'}),false);
+});
+
