@@ -68,7 +68,7 @@ export function parseOpportunities(text) {
   try { data = JSON.parse(source.slice(start, end + 1)); } catch { return []; }
   return (Array.isArray(data?.opportunities) ? data.opportunities : [])
     .filter(o => o && typeof o.name === 'string' && /^https:\/\/[^\s"'<>]+$/.test(String(o.url || '')))
-    .slice(0, 6)
+    .slice(0, 12)
     .map(o => ({
       name: o.name.slice(0, 120), url: String(o.url).slice(0, 300),
       type: String(o.type || 'autre').slice(0, 20), how_mel_earns: String(o.how_mel_earns || '').slice(0, 400),
@@ -105,7 +105,13 @@ export async function runRevenueWatch(env, { now = new Date(), research = null, 
   }
   const webLeads = parseOpportunities(text).filter(o => citedUrls.has(o.url) && o.automation !== 'manuel');
   const github = await githubDiscovery({ now }).catch(() => ({ opportunities: [], errors: ['GITHUB_DISCOVERY_FAILED'] }));
-  const found = [...new Map([...webLeads, ...(github.opportunities || [])].map(o => [o.url, o])).values()];
+  // A discovered listing is not proof of a complete autonomous payment flow.
+  // No candidate may enter paid execution until the provider has a verified
+  // API workflow for enrollment, acceptance, delivery and payout reconciliation.
+  const found = [...new Map([...webLeads, ...(github.opportunities || [])].map(o => [o.url, o])).values()]
+    .map(o => ({ ...o, status: 'DISCOVERY_ONLY', end_to_end_automatic: false,
+      execution_eligible: false, paid: false, payment_verified: false,
+      blocked_reason: o.automation !== 'auto' ? 'HUMAN_STEP_OR_AUTOMATION_UNVERIFIED' : 'PROVIDER_END_TO_END_UNVERIFIED' }));
   const today = now.toISOString().slice(0, 10);
   let fresh = 0;
   for (const o of found) {
