@@ -34,8 +34,8 @@ export function messagesChars(messages) {
 
 // Ordre d'essai pour cette requête : un modèle forcé, sinon tous ceux dont le
 // contexte suffit (le dernier reste toujours en secours).
-export function streamModelCandidates(messages, env = {}, order = null) {
-  const forced = String(env?.MEL_STREAM_MODEL || '').trim();
+export function streamModelCandidates(messages, env = {}, order = null, { ignoreConfiguredModel = false } = {}) {
+  const forced = ignoreConfiguredModel ? '' : String(env?.MEL_STREAM_MODEL || '').trim();
   if (forced) return [forced];
   const size = messagesChars(messages);
   // `order` = latest nightly tournament ranking (src/models/model-tournament.js);
@@ -206,8 +206,18 @@ export function createToolLeakFilter({ holdLimit = 4000 } = {}) {
  * `archive(fullText, meta)` est appelé une fois la réponse terminée (ou
  * interrompue avec du texte partiel) ; il doit renvoyer true si l'archivage a réussi.
  */
-export function streamChatResponse({ env, messages, archive = async () => false, model = null, localFallback = null, modelOrder = null } = {}) {
-  const candidates = model ? [model] : streamModelCandidates(messages, env, modelOrder);
+export function streamChatResponse({ env, messages, archive = async () => false, model = null, localFallback = null, modelOrder = null, preferredModel = null } = {}) {
+  // A Professor-only preference must take precedence over the global chat model
+  // without affecting ordinary Normal chat or disabling bounded fallbacks.
+  const preferred = String(preferredModel || '').trim();
+  const roleCandidates = preferred
+    ? streamModelCandidates(messages, env, modelOrder, { ignoreConfiguredModel: true })
+    : null;
+  const candidates = model ? [model] : preferred
+    ? (roleCandidates.includes(preferred)
+      ? [preferred, ...roleCandidates.filter(id => id !== preferred)]
+      : roleCandidates)
+    : streamModelCandidates(messages, env, modelOrder);
   const maxTokens = streamOutputTokens(env);
   let fullText = '';
   let usedModel = candidates[0];
