@@ -509,7 +509,7 @@ jobs:
                   ]) + "\n"),
 
                   code_cell(wrapper),
-                  *[code_cell(monitor) for _ in range(80)],
+                  *[code_cell(monitor) for _ in range((int(os.environ["KAGGLE_KERNEL_TIMEOUT_SECONDS"]) + int(os.environ["KAGGLE_MONITOR_GRACE_SECONDS"]) + 44) // 45 + 2)],
                   code_cell(finisher),
               ],
               "metadata":{
