@@ -468,7 +468,7 @@ test('release bootstrap capability-watch proof requires a real waiting Teacher h
   assert.equal(body.production_activation_allowed,false);
   assert.equal(body.auto_approval_allowed,false);
   assert.equal(body.autonomy_started,false);
-  assert.equal(calls[0].paused,true);
+  assert.equal(calls.length,0, 'capability proof must not change MAX control');
 
   const blocked=await maybeHandleReleaseLaunchBootstrap(request(),env,{
     setControl:async()=>{},
