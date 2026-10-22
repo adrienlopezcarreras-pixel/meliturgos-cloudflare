@@ -88,3 +88,41 @@ test('Professor alone requires a verified API receipt before staging an attachme
     assert.throws(() => approved(rejected), /FILE_UPLOAD_NOT_ACKNOWLEDGED/);
   }
 });
+
+test('normal emitted browser handler stages files only after a confirmed API receipt', async () => {
+  const begin = NORMAL_RUNTIME_SOURCE.indexOf('async function handleFiles(');
+  const end = NORMAL_RUNTIME_SOURCE.indexOf('initVoice();', begin);
+  assert.ok(begin >= 0 && end > begin, 'Normal browser upload handler is emitted');
+  const factory = new Function(
+    'fetch','FormData','status','localPhotoPreview','pendingFiles','renderPendingFiles',
+    NORMAL_RUNTIME_SOURCE.slice(begin, end) + ';return handleFiles;',
+  );
+  for (const scenario of [
+    { body:{ok:true,id:'received-file',preview_text:'texte'}, expected:1 },
+    { body:{ok:true,preview_text:'unverified'}, expected:0 },
+    { body:{ok:false,id:'rejected'}, expected:0 },
+    { body:{ok:true,id:'  '}, expected:0 },
+  ]) {
+    const staged=[];
+    const status={textContent:''};
+    let renders=0;
+    const upload = factory(
+      async (url,options) => {
+        assert.equal(url,'/api/files/upload');
+        assert.equal(options.method,'POST');
+        return {ok:true,json:async()=>scenario.body};
+      },
+      class {append(name,file){assert.equal(name,'file'); assert.equal(file.name,'receipt.txt');}},
+      status,async()=>null,staged,()=>{renders++;},
+    );
+    await upload([{name:'receipt.txt',type:'text/plain'}]);
+    assert.equal(staged.length,scenario.expected);
+    assert.equal(renders,scenario.expected);
+    if (scenario.expected) {
+      assert.equal(staged[0].id,'received-file');
+      assert.match(status.textContent,/Pièce jointe prête/);
+    } else {
+      assert.match(status.textContent,/FILE_UPLOAD_NOT_ACKNOWLEDGED/);
+    }
+  }
+});
