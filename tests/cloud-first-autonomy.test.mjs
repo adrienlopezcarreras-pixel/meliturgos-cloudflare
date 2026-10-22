@@ -206,3 +206,47 @@ test('concurrent MAX cloud dispatch is idempotent for the same approved package'
   assert.equal(state.status, 'QUEUED');
   assert.equal((await repository.get(job.id)).status, 'TEACHER_APPROVED', 'an enqueue is not execution');
 });
+
+
+// [ChatGPT-GPT6 / MEL-CODE-CAS-RECOVERY] Exercise the persisted relay itself,
+// not just a test spy. One queued receipt is NOT a tested candidate commit.
+test('parallel MAX ticks create exactly one durable cloud relay row', async t => {
+  const { DB, repository, job } = await fixture(t);
+  const store = new D1GitHubActionRelayStore(DB);
+  const now = Date.now() + 1000;
+  const results = await Promise.all(
+    Array.from({ length: 5 }, () => maybeDispatchCloudBridge({ DB }, {}, { now, relay: store })),
+  );
+  const count = await DB.prepare("SELECT COUNT(*) AS n FROM github_action_relay_jobs WHERE workflow=?")
+    .bind('gen2-42-apply-ready-bridge.yml').first();
+  assert.equal(Number(count.n), 1);
+  assert.equal(results.filter(row => row.status === 'DISPATCH_QUEUED').length, 1);
+  assert.equal((await repository.get(job.id)).status, 'TEACHER_APPROVED');
+  assert.equal((await repository.get(job.id)).result_json.autonomy_completion, undefined);
+});
+
+test('a newly approved candidate package supersedes old cloud dispatch reservation once', async t => {
+  const { DB, repository, job } = await fixture(t);
+  const store = new D1GitHubActionRelayStore(DB);
+  const now = Date.now() + 1000;
+  const first = await maybeDispatchCloudBridge({ DB }, {}, { now, relay: store });
+  assert.equal(first.status, 'DISPATCH_QUEUED');
+  const current = await repository.get(job.id);
+  const next = {
+    ...current.result_json,
+    bridge_preparation: {
+      ...current.result_json.bridge_preparation,
+      created_at: new Date(now + 1000).toISOString(),
+      candidate_sha: 'b'.repeat(40),
+    },
+  };
+  await repository.update(job.id, { result_json: next }, { expected: current });
+  const second = await maybeDispatchCloudBridge({ DB }, {}, { now: now + 1001, relay: store });
+  assert.equal(second.status, 'DISPATCH_QUEUED', 'new approved SHA does not inherit old cooldown');
+  assert.notEqual(second.relay_job_id, first.relay_job_id);
+  const duplicate = await maybeDispatchCloudBridge({ DB }, {}, { now: now + 1002, relay: store });
+  assert.equal(duplicate.status, 'SKIPPED_RECENTLY_DISPATCHED');
+  const count = await DB.prepare("SELECT COUNT(*) AS n FROM github_action_relay_jobs WHERE workflow=?")
+    .bind('gen2-42-apply-ready-bridge.yml').first();
+  assert.equal(Number(count.n), 2, 'one immutable receipt per approved package revision');
+});
