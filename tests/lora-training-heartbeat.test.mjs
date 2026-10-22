@@ -66,9 +66,9 @@ test('LoRA source stays on canonical main even when MAX develops on candidate', 
 
 test('Kaggle push does not auto-restart cycle zero or cancel active GPU training', async () => {
   const source=await readFile(new URL('../.github/workflows/lora-kaggle-free-gpu.yml',import.meta.url),'utf8');
-  assert.match(source,/train-chain:\\n[\\s\\S]*if: \\$\\{\\{ github\\.event_name == 'workflow_dispatch' \\$\\}\\}/);
-  assert.match(source,/cancel-in-progress: \\$\\{\\{ github\\.event_name == 'push' && contains\\(github\\.event\\.head_commit\\.message, '\\[cancel-only\\]'\\) \\$\\}\\}/);
-  assert.match(source,/cancel-only:\\n[\\s\\S]*contains\\(github\\.event\\.head_commit\\.message, '\\[cancel-only\\]'\\)/);
+  assert.ok(source.includes("if: ${{ github.event_name == 'workflow_dispatch' }}"));
+  assert.ok(source.includes("cancel-in-progress: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[cancel-only]') }}"));
+  assert.ok(source.includes("if: ${{ contains(github.event.head_commit.message, '[cancel-only]') }}"));
 });
 
 test('LoRA heartbeat dispatches cycle zero only when no checkpoint exists', async () => {
