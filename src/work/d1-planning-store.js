@@ -88,8 +88,8 @@ export class D1PlanningStore {
 
   async init() {
     if (!this.ready) {
-      this.ready = Promise.all([
-        this.db.prepare(`CREATE TABLE IF NOT EXISTS work_plans (
+      this.ready = (async () => {
+        await this.db.prepare(`CREATE TABLE IF NOT EXISTS work_plans (
           id TEXT PRIMARY KEY,
           status TEXT NOT NULL,
           goal TEXT NOT NULL,
@@ -97,17 +97,22 @@ export class D1PlanningStore {
           record_json TEXT NOT NULL,
           created_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL
-        )`).run(),
-        this.db.prepare(`CREATE TABLE IF NOT EXISTS work_plan_events (
+        )`).run();
+        await this.db.prepare(`CREATE TABLE IF NOT EXISTS work_plan_events (
           event_id TEXT PRIMARY KEY,
           plan_id TEXT NOT NULL,
           event_type TEXT NOT NULL,
           detail_json TEXT NOT NULL,
           created_at INTEGER NOT NULL
-        )`).run(),
-      ]);
+        )`).run();
+      })();
     }
-    await this.ready;
+    try {
+      await this.ready;
+    } catch (error) {
+      this.ready = null;
+      throw error;
+    }
   }
 
   async appendEvent(planId, eventType, detail = {}) {
