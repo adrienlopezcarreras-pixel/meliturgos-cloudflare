@@ -42,7 +42,6 @@ test('full chat keeps photo preview in sent messages and does not expose a store
   const full = await source('src/pages/full-interface-v2.js');
   assert.match(full, /LOCAL_PHOTO_PREVIEW_SOURCE/);
   assert.match(full, /showSentPhotos\(node,staged\)/);
-  assert.match(full, /LOCAL_PHOTO_PREVIEW_SOURCE/);
   assert.match(full, /localUrl=await melLocalPhotoPreview\(file\)/);
   assert.match(full, /function appendLocalMedia\(host,item/);
   assert.match(full, /vision indisponible/);
