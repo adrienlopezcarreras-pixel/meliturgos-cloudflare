@@ -179,7 +179,9 @@ test('Professor Code uses developer prompt only on explicit role; Normal remains
   assert.equal(resolveProfessorChatInferenceRoute({ surface:'mel-normal', role:'developer', requested_mode:'code' }), null);
   assert.equal(resolveProfessorChatInferenceRoute({ surface:'mel-full', role:'assistant', requested_mode:'conversation' })?.task, 'GENERAL');
   assert.equal(resolveProfessorChatInferenceRoute({ surface:'mel-full', role:'developer', requested_mode:'code' })?.task, 'CODE');
-  assert.match(source, /const professorCodeChat = body\?\.intent_context\?\.surface === 'mel-full'/);
+  assert.match(source, /const professorRoute = resolveProfessorChatInferenceRoute\(body\?\.intent_context\)/);
+  assert.match(source, /const professorCodeChat = professorRoute\?\.task === 'CODE'/);
+  assert.equal((source.match(/const professorRoute = resolveProfessorChatInferenceRoute\(/g) || []).length, 1, 'model and developer prompt must share one routing decision');
   assert.match(source, /const plainChatTurn = !professorCodeChat && !releaseSmoke/);
   assert.match(source, /professorCodeChat\s*\? 'MODE PROFESSEUR — CODE/);
   assert.match(source, /Le mode Code ne supprime aucune autorisation/);
