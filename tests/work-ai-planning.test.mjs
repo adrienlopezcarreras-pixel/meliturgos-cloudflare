@@ -1,4 +1,12 @@
 import test from 'node:test';
+async function readEffectiveReleaseWorkflow() {
+  const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const script=await readFile(new URL('../scripts/release-autonomy-deep-proof.sh', import.meta.url), 'utf8');
+  const marker='          bash scripts/release-autonomy-deep-proof.sh';
+  if(!source.includes(marker)) throw new Error('RELEASE_PROOF_ENTRYPOINT_MISSING');
+  return source.replace(marker,script.split('\n').map(line=>'          '+line).join('\n'));
+}
+
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { CapabilityBus } from '../src/capabilities/capability-bus.js';
@@ -355,7 +363,7 @@ test('GEN2-38 applies a bounded no-retry scheduler only to work-plan fan-outs', 
 });
 
 test('GEN2-38 release smoke keeps real planner bounded and surfaces curl transport failures', async () => {
-  const workflow = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const workflow = await readEffectiveReleaseWorkflow();
   const source = await readFile(new URL('../src/capabilities/work-capabilities.js', import.meta.url), 'utf8');
   const start = workflow.indexOf('GEN_PLAN_CODE="$(curl');
   const end = workflow.indexOf('if [ "$GEN_PLAN_CODE" != "200" ]', start);
