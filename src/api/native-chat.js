@@ -1346,6 +1346,11 @@ export async function handleNativeChat(request, env, options = {}) {
   const conversationId = String(body.conversation_id || crypto.randomUUID());
   const deviceId = body.device_id ? String(body.device_id) : null;
   const requestedInputSource = String(body.input_source || 'text').trim().toLowerCase();
+  // Only Professor Code is allowed to claim state-changing development work.
+  // Keep the Normal and Professor Conversation paths exactly as they were.
+  const professorCodeChat = body?.intent_context?.surface === 'mel-full'
+    && body?.intent_context?.role === 'developer'
+    && body?.intent_context?.requested_mode === 'code';
   const inputSource = ['voice-server-transcription','voice-browser-recognition'].includes(requestedInputSource)
     ? requestedInputSource
     : 'text';
@@ -2278,7 +2283,9 @@ export async function handleNativeChat(request, env, options = {}) {
   // for one complete JSON reply (which made long answers hit the browser
   // timeout). Only for plain conversation: tool results, voice, Council
   // fan-out, LoRA and release smoke keep the full pipeline below.
-  if (plainChatMayStream({
+  // Code mode requires a complete verified reply before emitting claimed D1 actions.
+  // Progressive token streaming cannot retract a fabricated success already shown.
+  if (!professorCodeChat && plainChatMayStream({
     stream: body.stream === true,
     voice: voiceReply,
     releaseSmoke,
@@ -2556,6 +2563,7 @@ export async function handleNativeChat(request, env, options = {}) {
     codeAccess,
     toolResults,
     developmentQueued,
+    requireD1ExecutionReceipts: professorCodeChat,
   });
   const initialQualityAssessment = assessResponseQuality({
     userText: activeTaskText,
@@ -2625,6 +2633,7 @@ export async function handleNativeChat(request, env, options = {}) {
           codeAccess,
           toolResults,
           developmentQueued,
+          requireD1ExecutionReceipts: professorCodeChat,
         });
         const candidateAssessment = assessResponseQuality({
           userText:activeTaskText,
