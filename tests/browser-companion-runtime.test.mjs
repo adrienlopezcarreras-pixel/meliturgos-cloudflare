@@ -204,3 +204,28 @@ test('page executor rejects missing selectors for interactive actions', async ()
     code: 'BROWSER_SELECTOR_REQUIRED',
   });
 });
+
+test('MAX release file proof distinguishes a failed upload from missing attachment text without disclosing filenames', async () => {
+  const page = {
+    url: () => 'https://example.com/',
+    locator(selector) {
+      return {
+        async innerText() {
+          return selector === '#status' ? 'Échec du fichier : secret-private-name.txt · FILE_UPLOAD_FAILED' : '';
+        },
+      };
+    },
+    async waitForTimeout() {},
+  };
+  await assert.rejects(
+    () => executeBrowserStep(page, {
+      id: 'wait-normal',
+      action: 'browser.wait-text',
+      selector: '#attachments',
+      text: 'secret-private-name.txt',
+      timeout_ms: 1000,
+    }, ['https://example.com']),
+    error => error?.code === 'BROWSER_UPLOAD_UI_FAILURE'
+      && !JSON.stringify(error).includes('secret-private-name.txt'),
+  );
+});
