@@ -34,12 +34,13 @@ test('missing credentials produce a bounded sanitized artifact without querying 
   const cwd=mkdtempSync(join(tmpdir(),'mel-kaggle-status-'));
   try {
     let output='';
-    try { execFileSync('python',[script],{cwd,env:{...process.env,KAGGLE_API_TOKEN:''},encoding:'utf8'});assert.fail('missing token must fail'); }
+    try { execFileSync('python',[script],{cwd,env:{...process.env,KAGGLE_API_TOKEN:'',GITHUB_ACTIONS:'true'},encoding:'utf8'});assert.fail('missing token must fail'); }
     catch(error){assert.equal(error.status,1);output=String(error.stdout);}
     const proof=JSON.parse(readFileSync(join(cwd,'kaggle-lora-status.json'),'utf8'));
     assert.equal(proof.error_code,'KAGGLE_API_TOKEN_MISSING');
     assert.equal(proof.promotion_allowed,false);
-    assert.deepEqual(JSON.parse(output),proof);
+    assert.deepEqual(JSON.parse(output.split('\n')[0]),proof);
+    assert.match(output,/::notice title=MEL Kaggle read-only status::session_status=UNAVAILABLE;weights_verified=false;promotion_allowed=false;code=KAGGLE_API_TOKEN_MISSING/);
   } finally {rmSync(cwd,{recursive:true,force:true});}
 });
 test('existing status workflow runs offline checks on PRs and never publishes raw kernel output',()=>{

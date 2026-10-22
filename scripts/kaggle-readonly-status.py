@@ -73,6 +73,12 @@ def main():
     text = json.dumps(proof, sort_keys=True)
     Path("kaggle-lora-status.json").write_text(text + "\n", encoding="utf-8")
     print(text)
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        # Fixed-value annotation is readable through GitHub's API even when
+        # signed artifact downloads are unavailable to a cloud workspace.
+        print("::notice title=MEL Kaggle read-only status::session_status="
+              + proof["session_status"] + ";weights_verified=false;promotion_allowed=false;code="
+              + (proof["error_code"] or "NONE"))
     return 0 if proof["ok"] else 1
 
 
