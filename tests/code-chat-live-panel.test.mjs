@@ -23,12 +23,24 @@ test('Code Continue and unchecked-by-default auto-continue live next to chat but
   assert.match(section,/id="melCodeAutoContinue" type="checkbox"/);
   assert.match(section,/id="chatInterrupt"/);
   assert.ok(section.indexOf('melCodeContinue')<section.indexOf('chatInterrupt'));
-  assert.match(page,/const MEL_CODE_AUTO_MAX=5|let melCodeAutoRemaining=0/);
-  assert.match(page,/melCodeAutoRemaining=5/);
+  assert.match(page,/let melCodeAutoRepeatCount=0/);
+  assert.doesNotMatch(page,/melCodeAutoRemaining|MEL_CODE_AUTO_MAX|5 cycles au maximum/);
+  assert.match(page,/Auto-continuer activé : cycles illimités/);
   assert.match(page,/if\(d\?\.ok===false\|\|d\?\.stream_error\|\|d\?\.response_truncated===true\|\|d\?\.approval_required/);
-  assert.match(page,/if\(melCodeAutoRemaining<=0\)/);
+  assert.match(page,/if\(melCodeAutoRepeatCount>=3\)/);
+  assert.match(page,/aucune progression détectée dans les réponses répétées/);
   assert.match(page,/melCodeRequestContinue\('code-auto'\)/);
   assert.match(page,/source==='code-auto'/);
+});
+
+test('unlimited auto-continue resets only on new task and keeps owner-controlled stop conditions',()=>{
+  assert.match(page,/if\(qs\('#melCodeAutoContinue'\)\?\.checked\)\{melCodeAutoLastReply='';melCodeAutoRepeatCount=0;\}/);
+  assert.match(page,/melCodeAutoTimer=setTimeout\(/);
+  assert.match(page,/\},1500\)/);
+  assert.match(page,/melCodeCancelAuto\('Chantier déclaré terminé par MEL/);
+  assert.match(page,/melCodeCancelAuto\('Auto-continuer arrêté : confirmation/);
+  assert.match(page,/melCodeCancelAuto\('Auto-continuer désactivé par le propriétaire/);
+  assert.doesNotMatch(page,/Limite atteinte : 5 continuations/);
 });
 
 test('chat interrupt aborts the response and queued chat turns, never pauses MAX', () => {
