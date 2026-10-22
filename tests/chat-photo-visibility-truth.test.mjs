@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { inferPublicImageLookup } from '../src/api/native-chat.js';
 import { NORMAL_RUNTIME_SOURCE } from '../src/pages/mvp-runtime.js';
+import { LOCAL_PHOTO_PREVIEW_SOURCE } from '../src/pages/local-photo-preview.js';
 
 const root = new URL('../', import.meta.url);
 const source = path => readFile(new URL(path, root), 'utf8');
