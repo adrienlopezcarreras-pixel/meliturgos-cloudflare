@@ -898,7 +898,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   // Only an explicit release safety-pause may change the owner's MAX state.
   // Health/proof/readiness calls must be read-only for autonomy control;
   // otherwise a late post-release probe re-pauses MAX after owner activation.
-  const releaseControl = phase === 'pause'
+  const releaseControl = (phase === 'pause' || phase === 'all')
     ? await setControl(env?.DB, {
       paused: true,
       max_autonomy: false,
