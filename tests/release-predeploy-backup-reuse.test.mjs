@@ -3,11 +3,11 @@ import test from 'node:test';
 // [GPT] Read the effective release proof contract after moving the deep proof
 // shell into its standalone source. Do not weaken individual assertions.
 async function readExpandedReleaseWorkflow() {
-  const workflow = await readExpandedReleaseWorkflow();
+  const workflow = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
   const proof = await readFile(new URL('../scripts/release-autonomy-deep-proof.sh', import.meta.url), 'utf8');
   const marker = '          bash scripts/release-autonomy-deep-proof.sh';
   if (!workflow.includes(marker)) throw new Error('RELEASE_PROOF_ENTRYPOINT_MISSING');
-  return workflow.replace(marker, proof.split('\\n').map(line => '          ' + line).join('\\n'));
+  return workflow.replace(marker, proof.split('\n').map(line => '          ' + line).join('\n'));
 }
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
