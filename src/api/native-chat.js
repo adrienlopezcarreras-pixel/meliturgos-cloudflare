@@ -2561,8 +2561,9 @@ export async function handleNativeChat(request, env, options = {}) {
       inferenceSettings: effectiveInferenceSettings,
       activeAdapter,
       runtime,
-      taskOverride: voiceReply ? 'FAST' : 'REASONING',
-      preferredModel: voiceReply ? '@cf/zai-org/glm-4.7-flash' : (String(ai.model || '').startsWith('@cf/') ? ai.model : null),
+      // [ChatGPT-GPT6] Preserve the selected Professor role for truncated answers.
+      taskOverride: voiceReply ? 'FAST' : (professorRoute?.task || 'REASONING'),
+      preferredModel: voiceReply ? '@cf/zai-org/glm-4.7-flash' : (String(ai.model || '').startsWith('@cf/') ? ai.model : (professorRoute?.model || null)),
       timeoutMs: voiceReply ? 6000 : 12000,
       maxCalls: 1,
       deadlineAt: chatDeadlineAt,
