@@ -96,20 +96,58 @@ export async function maybeDispatchCloudBridge(env, tick, { now = Date.now(), re
     const prior = await store.get(metadata.relay_job_id).catch(() => null);
     if (prior?.status === 'FAILED') return recordCloudUnavailable(db, job, key, now, 'CLOUD_RELAY_DISPATCH_FAILED');
   }
-  // The same unchanged package is not sent twice inside 30 minutes.
-  // A package created after that dispatch is a new repair and must go out.
-  if (last && packageAt <= Number(last.last_seen || 0) && now - Number(last.last_seen || 0) < REDISPATCH_MS) return { status: 'SKIPPED_RECENTLY_DISPATCHED' };
+  // [ChatGPT-GPT6 / MEL-CODE-DISPATCH-CAS] Claim the dispatch slot *before*
+  // touching the relay. The earlier read-only cooldown is insufficient when
+  // cron and an authenticated MAX tick race in separate Worker isolates.
+  // D1's single-statement upsert is the cross-isolate compare-and-swap.
+  const createdAt = job.package_created_at || null;
+  const candidateSha = job.candidate_sha || null;
+  const latestAt = Number(last?.last_seen || 0);
+  if (last && packageAt <= latestAt && now >= latestAt && now - latestAt < REDISPATCH_MS) {
+    return { status: 'SKIPPED_RECENTLY_DISPATCHED' };
+  }
+  const attemptId = crypto.randomUUID();
+  const reservation = JSON.stringify({
+    job_id: job.id, package_created_at: createdAt, candidate_sha: candidateSha,
+    attempt_id: attemptId,
+  });
+  // New package/SHA may supersede an older reservation without waiting for
+  // its cooldown. The WHERE is evaluated atomically by D1, never in JS.
+  const reserved = await db.prepare(`INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json)
+      VALUES(?,?,?,?)
+      ON CONFLICT(bridge_id) DO UPDATE SET
+        last_seen=excluded.last_seen,status=excluded.status,metadata_json=excluded.metadata_json
+      WHERE dev_bridge_state.last_seen <= ?
+         OR COALESCE(json_extract(CASE WHEN json_valid(dev_bridge_state.metadata_json)
+           THEN dev_bridge_state.metadata_json ELSE '{}' END,'$.package_created_at'),'') <> ?
+         OR COALESCE(json_extract(CASE WHEN json_valid(dev_bridge_state.metadata_json)
+           THEN dev_bridge_state.metadata_json ELSE '{}' END,'$.candidate_sha'),'') <> ?`)
+    .bind(key, now, 'DISPATCHING', reservation, now - REDISPATCH_MS,
+      String(createdAt || ''), String(candidateSha || '')).run();
+  if (Number(reserved?.meta?.changes ?? reserved?.changes ?? 0) !== 1) {
+    return { status: 'SKIPPED_RECENTLY_DISPATCHED' };
+  }
+
   let queued;
   try {
     queued = await store.enqueue({ workflow: CLOUD_BRIDGE_WORKFLOW, ref: 'main', inputs: { job_id: String(job.id), chain_depth: '0' }, now });
     if (!queued?.id) throw new Error('CLOUD_RELAY_RECEIPT_MISSING');
   } catch {
-    return recordCloudUnavailable(db, job, key, now, 'CLOUD_RELAY_ENQUEUE_FAILED');
+    // Do not clobber a newer package's reservation if this attempt expired.
+    await db.prepare(`UPDATE dev_bridge_state
+      SET last_seen=?,status='CLOUD_UNAVAILABLE',metadata_json=?
+      WHERE bridge_id=? AND status='DISPATCHING' AND metadata_json=?`)
+      .bind(now, JSON.stringify({ ...JSON.parse(reservation), code: 'CLOUD_RELAY_ENQUEUE_FAILED' }),
+        key, reservation).run();
+    return { status: 'CLOUD_UNAVAILABLE', code: 'CLOUD_RELAY_ENQUEUE_FAILED', job_id: job.id };
   }
-  await db.prepare(`INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?)
-    ON CONFLICT(bridge_id) DO UPDATE SET last_seen=excluded.last_seen,status=excluded.status,metadata_json=excluded.metadata_json`)
-    .bind(key, now, 'QUEUED', JSON.stringify({ relay_job_id: queued.id, job_id: job.id,
-      package_created_at: job.package_created_at || job.result_json?.bridge_preparation?.created_at || null,
-      candidate_sha: job.candidate_sha || job.result_json?.bridge_preparation?.candidate_sha || null })).run();
-  return { status: 'DISPATCH_QUEUED', relay_job_id: queued?.id || null };
+  const recorded = await db.prepare(`UPDATE dev_bridge_state
+    SET last_seen=?,status='QUEUED',metadata_json=?
+    WHERE bridge_id=? AND status='DISPATCHING' AND metadata_json=?`)
+    .bind(now, JSON.stringify({ ...JSON.parse(reservation), relay_job_id: queued.id }),
+      key, reservation).run();
+  if (Number(recorded?.meta?.changes ?? recorded?.changes ?? 0) !== 1) {
+    return { status: 'SKIPPED_STALE_DISPATCH', code: 'DISPATCH_RESERVATION_SUPERSEDED' };
+  }
+  return { status: 'DISPATCH_QUEUED', relay_job_id: queued.id };
 }
