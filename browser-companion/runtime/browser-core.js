@@ -272,6 +272,9 @@ export async function executeBrowserStep(page, step, allowedOrigins) {
       // Release-file proofs must establish the actual upload response, not just
       // that Playwright populated an input. Never return response body or headers.
       const releaseFileProof = /^mel-file-(normal|full)-proof\.txt$/i.test(fileName);
+      if (releaseFileProof && typeof page.waitForResponse !== 'function') {
+        throw companionError('BROWSER_UPLOAD_RESPONSE_OBSERVER_UNAVAILABLE', 503);
+      }
       const uploadResponse = releaseFileProof && typeof page.waitForResponse === 'function'
         ? page.waitForResponse(response => {
             try {

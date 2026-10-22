@@ -231,3 +231,19 @@ test('MEL-FILE proof observes actual upload HTTP status without exposing respons
     assert.equal(observed,true);
   }
 });
+
+test('MEL-FILE proof fails closed when browser response observation is unavailable', async () => {
+  let uploadAttempted = false;
+  const page = {
+    url: () => 'https://example.com/',
+    locator: () => ({ setInputFiles: async () => { uploadAttempted = true; } }),
+  };
+  await assert.rejects(
+    executeBrowserStep(page, {
+      id: 'proof', action: 'browser.upload-file', selector: '#fileInput',
+      file_name: 'mel-file-normal-proof.txt', file_text: 'MEL_FILE_NORMAL_PROOF_abc',
+    }, ['https://example.com']),
+    { code: 'BROWSER_UPLOAD_RESPONSE_OBSERVER_UNAVAILABLE' },
+  );
+  assert.equal(uploadAttempted, false);
+});
