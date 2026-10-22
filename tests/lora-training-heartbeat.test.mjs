@@ -205,6 +205,31 @@ test('checkpoint selector refuses invalid provenance and incomplete unpublished 
   assert.equal(selectLatestCheckpointRelease([{ ...record, assets: [{ name:'kaggle-run.json', size: 0 }, { name:'mel-lora-bundle.tar.gz', size: 1024 }] }]), null);
 });
 
+test('LoRA heartbeat never restarts cycle zero when only draft or unverified checkpoints exist', async () => {
+  let dispatched = false;
+  const result = await runLoraTrainingHeartbeat(baseEnv, {
+    force: true,
+    engine: engineWith([]),
+    fetchImpl: async (url) => {
+      const href = String(url);
+      if (href.includes('/actions/workflows/') && href.includes('/runs')) return Response.json({ workflow_runs: [] });
+      if (href.includes('/releases')) return Response.json([{
+        tag_name: 'mel-lora-kaggle-1234567890ab-c000',
+        target_commitish: SHA,
+        draft: true,
+        published_at: null,
+        assets: [{ name:'mel-lora-bundle.tar.gz', size: 1024 }],
+      }]);
+      if (href.endsWith('/dispatches')) { dispatched = true; return new Response(null, { status: 204 }); }
+      throw new Error('No GitHub branch read or dispatch allowed when checkpoint is ambiguous');
+    },
+  });
+  assert.equal(result.status, 'HEARTBEAT_ERROR');
+  assert.equal(result.error, 'LORA_CHECKPOINT_CHAIN_UNVERIFIED');
+  assert.equal(result.dispatched, false);
+  assert.equal(dispatched, false);
+});
+
 test('LoRA heartbeat stops UNCENSORED relaunches once AGENTIC_READY is measured', async () => {
   let fetchCalled = false;
   const result = await runLoraTrainingHeartbeat(baseEnv, {
