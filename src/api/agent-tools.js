@@ -41,10 +41,14 @@ export function parseAgentAction(text) {
     const j = JSON.parse(match[0]);
     if (!j || typeof j !== 'object') return { final: true };
     if (j.final === true && typeof j.tool !== 'string') return { final: true };
-    if (typeof j.tool === 'string') {
+    // Some chat models emit an OpenAI-style {name, arguments} call rather
+    // than MEL's {tool, input} protocol. Normalize the same tool intent, but
+    // leave allowlisting and authorization to the existing dispatcher.
+    const tool = typeof j.tool === 'string' ? j.tool : (typeof j.name === 'string' ? j.name : null);
+    if (tool) {
       const raw = j.input ?? j.arguments ?? j.args;
-      const input = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-      return { tool: j.tool, input };
+      if (raw != null && (typeof raw !== 'object' || Array.isArray(raw))) return { final: true };
+      return { tool, input: raw ?? {} };
     }
   } catch {}
   return { final: true };
