@@ -613,6 +613,16 @@ function asksForPicture(userText) {
   return /\b(?:photo|image|portrait)\b/.test(asked.replace(/\bpapae\b/g, 'pape'));
 }
 
+export function inferPublicImageLookup(text) {
+  const value = String(text || '').trim();
+  if (!value || value.length > 280) return null;
+  const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  // Images uploaded by the owner, image generation and UI debugging are not public searches.
+  if (/\b(?:ci[- ]jointe|jointe|envoyee|televersee|uploadee|capture d'ecran|mes photos|mes images|ma photo|mon image|genere|cree|dessine|pourquoi|probleme|bug)\b/.test(normalized)) return null;
+  if (!/\b(?:montre(?:[- ]moi)?|affiche|trouve|cherche|recherche|donne[- ]moi)\b[\s\S]{0,100}\b(?:photo|image|portrait)\b/.test(normalized)) return null;
+  return { id:'web.research', input:{ query:value.slice(0,240), depth:2 } };
+}
+
 function validatedPictureUrl(toolResults) {
   const evidence = (toolResults || []).find(row => row?.capability === 'web.research' && row?.status === 'SUCCEEDED');
   const sources = Array.isArray(evidence?.result?.sources) ? evidence.result.sources : [];
@@ -624,7 +634,7 @@ function claimsDeliveredPicture(text) {
 }
 
 function withOfficialVisual(responseText, userText, toolResults) {
-  if (!asksForPicture(userText)) return responseText;
+  if (!inferPublicImageLookup(userText)) return responseText;
   const image = validatedPictureUrl(toolResults);
   let text = String(responseText || '').trim();
   if (image) {
@@ -636,10 +646,7 @@ function withOfficialVisual(responseText, userText, toolResults) {
     if (!text.includes(image)) text = `${text}\n\n![Portrait](${image})`;
     return text;
   }
-  if (claimsDeliveredPicture(text)) {
-    return 'La photo n’a pas été obtenue. Aucune image affichable n’a été validée, et aucun fichier n’a été généré. Ce texte n’est pas une image.';
-  }
-  return text;
+  return 'Je n’ai pas obtenu de photo publique vérifiée et affichable pour cette demande. Je ne vais pas prétendre qu’une image a été montrée.';
 }
 
 function responseAdmitsUncertainty(value) {
@@ -1613,6 +1620,7 @@ export async function handleNativeChat(request, env, options = {}) {
       || inferNativeComputerCapability(activeTaskText)
       || inferConnectedDataCapability(activeTaskText)
       || (!personalProfileIntent ? inferChatGPTHistoryCapability(activeTaskText) : null)
+      || inferPublicImageLookup(activeTaskText)
       || inferDirectCurrentWebCapability(activeTaskText, body.intent_context || {})
       || inferKnowledgeCapability(activeTaskText)
       || inferNativeCodeCapability(activeTaskText, recent);
@@ -2533,7 +2541,7 @@ export async function handleNativeChat(request, env, options = {}) {
   }
   const visibleModelText = stripLeakedToolCalls(rawModelText);
   const modelResponseText = !visibleModelText || responseIsBareToolCall(rawModelText)
-    ? (connectorReadsFactualAnswer(toolResults) || 'Le JSON d’appel d’outil n’est pas une réponse. Aucun résultat d’outil de cette requête ne permet de le remplacer.')
+    ? (connectorReadsFactualAnswer(toolResults) || 'Je n’ai pas obtenu de résultat exploitable pour répondre à cette demande. Aucun appel d’outil non exécuté ne sera présenté comme un résultat.')
     : visibleModelText;
   const groundedResponseText = instructionPrompt && modelResponseText.trim()
     ? modelResponseText
@@ -2657,7 +2665,7 @@ export async function handleNativeChat(request, env, options = {}) {
         assessment:effectiveQualityAssessment,
       });
   const responseText = withOfficialVisual(qualityGuardedResponseText, activeTaskText, toolResults);
-  if (asksForPicture(activeTaskText) && !releaseSmoke) {
+  if (inferPublicImageLookup(activeTaskText) && !releaseSmoke) {
     const delivered = /!\[[^\]]*\]\(https:\/\//.test(responseText);
     toolResults.push({
       capability: 'image.render',
