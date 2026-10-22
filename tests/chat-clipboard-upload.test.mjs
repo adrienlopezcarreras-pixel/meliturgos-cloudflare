@@ -60,3 +60,18 @@ test('normal runtime preserves image MIME regex after JS string generation', () 
   assert.equal(matchMime({type:'image/jpeg'}), true);
   assert.equal(matchMime({type:'application/pdf'}), false);
 });
+
+test('generated Professor upload runtime preserves executable image MIME matching', async () => {
+  const response=await renderFullInterface();
+  const html=await response.text();
+  // Test the emitted script, not its template source: JS string interpolation
+  // can silently turn /^image\//i into /^image//i and swallow the upload handler.
+  const imagePredicate=String.raw`/^image\//i.test(file.type)`;
+  const matches=html.match(/isImage:(.*?),localUrl/);
+  assert.ok(matches,'Professor upload item must expose an image MIME predicate');
+  assert.equal(matches[1],imagePredicate);
+  assert.equal(html.includes('/^image//i.test(file.type)'),false);
+  const checkImage=new Function('file','return '+matches[1]);
+  assert.equal(checkImage({type:'image/png'}),true);
+  assert.equal(checkImage({type:'text/plain'}),false);
+});
