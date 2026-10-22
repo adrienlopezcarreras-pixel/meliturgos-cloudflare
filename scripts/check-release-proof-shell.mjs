@@ -29,6 +29,11 @@ for (const name of ['CLOUDFLARE_API_TOKEN','CLOUDFLARE_ACCOUNT_ID','MEL_BACKUP_E
   if (!proofStep.includes('          ' + name + ':')) throw new Error('RELEASE_PROOF_ENV_MISSING:' + name);
 }
 if (proofStep.indexOf(invocation) > proofStep.indexOf('        env:')) throw new Error('RELEASE_PROOF_ENTRYPOINT_AFTER_ENV');
+// Contract: this script still runs inside the serialized deploy job.
+// A future asynchronous split must provide an independent exact-SHA-bound proof
+// credential and a durable gate for MAX; never silently skip this check.
+if (!proofStep.includes('        shell: bash')) throw new Error('RELEASE_PROOF_SHELL_MISSING');
+if (!proofStep.includes('          set -euo pipefail')) throw new Error('RELEASE_PROOF_FAIL_CLOSED_SHELL_MISSING');
 const body = await fs.readFile(scriptPath, 'utf8');
 if (!body.includes('MEL_RELEASE_EVIDENCE_PHASE=ALL_PROOFS_COMPLETE')) throw new Error('RELEASE_PROOF_END_MARKER_MISSING');
 const tmp = path.join(os.tmpdir(), 'mel-release-proof-bash-n.sh');
