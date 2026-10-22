@@ -66,7 +66,15 @@ function isImageLike(type, name) {
   return /^image\//i.test(type) || ['jpeg','jpg','png','webp','svg','gif','bmp'].includes(extension(name));
 }
 
+function isVideoLike(type, name) {
+  if (/^video\//i.test(type)) return true;
+  if (/^audio\//i.test(type)) return false;
+  // File picker can provide application/octet-stream for camera files.
+  return ['mp4','mov','mkv','avi','webm','m4v'].includes(extension(name));
+}
+
 function isAudioLike(type, name) {
+  if (isVideoLike(type, name)) return false;
   return /^audio\//i.test(type)
     || ['mp3','wav','m4a','aac','ogg','oga','opus','webm','flac','mp4'].includes(extension(name));
 }
@@ -275,7 +283,13 @@ export async function handleFileUpload(request, env, options = {}) {
     analysis_provider = audio.analysis_provider || null;
   }
 
-  if (preview_text === null && !isAudioLike(mime, name)) {
+  // [GPT] A video is neither an audio transcription nor a visual description.
+  // Store it privately, report video analysis unavailable, and never fake understanding.
+  if (preview_text === null && isVideoLike(mime, name)) {
+    analysis_status = 'VIDEO_RECEIVED_UNANALYZED';
+  }
+
+  if (preview_text === null && !isAudioLike(mime, name) && !isVideoLike(mime, name)) {
     const rich = await convertRichFile({ env, bytes, name, mime });
     preview_text = rich.preview_text;
     analysis_status = rich.analysis_status;
