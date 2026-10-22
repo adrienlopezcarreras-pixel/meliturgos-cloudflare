@@ -59,7 +59,9 @@ concurrency:
   # Chained workflow_dispatch cycles must queue instead of cancelling the
   # cycle that just dispatched them. Push/cancel-only runs retain the
   # ability to interrupt an active waiter.
-  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+  # A routine candidate push must never cancel an active GPU run.
+  # Only an explicit [cancel-only] push is an operator cancellation.
+  cancel-in-progress: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[cancel-only]') }}
 
 jobs:
   cancel-only:
@@ -72,7 +74,9 @@ jobs:
         run: echo "cancel-only; no Kaggle training is submitted"
 
   train-chain:
-    if: ${{ !contains(github.event.head_commit.message, '[cancel-only]') }}
+    # Only the heartbeat / an explicit dispatch can supply the immutable cycle
+    # and checkpoint parent. Candidate pushes must not restart c000.
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     environment: preview
     timeout-minutes: 240
