@@ -14,7 +14,7 @@ import { readFile } from 'node:fs/promises';
 
 test('canonical release proves a recent restore-verified backup through the ephemeral binder before deploy', async () => {
   const source = await readExpandedReleaseWorkflow();
-  assert.match(source, /owner_max_autorelease:[\s\S]{0,220}default: false/);
+  assert.match(source, /owner_max_autorelease:[\s\S]{0,220}default: true/, 'owner opts in by default for manual releases');
   const start = source.indexOf('      - name: Create verified pre-deploy production backup');
   const end = source.indexOf('      - name: Prepare encrypted Media Vault secrets for exact deployment', start);
   const block = source.slice(start, end);
@@ -249,7 +249,7 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.doesNotMatch(binderBlock, /release-launch-bootstrap/);
 });
 
-test('a release keeps MAX off unless the owner had it on before (any trigger, incl. automatic releases) or explicitly opts in', async () => {
+test('a release restores MAX only with a verified owner selection or preserved prior MAX state', async () => {
   const source = await readExpandedReleaseWorkflow();
   assert.match(source, /OWNER_MAX_AUTORELEASE: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.owner_max_autorelease && 'true' \|\| 'false' \}\}/);
   const browser = source.indexOf('      - name: Prove real production browser.execute');
