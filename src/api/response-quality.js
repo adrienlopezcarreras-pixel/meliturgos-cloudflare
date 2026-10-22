@@ -177,7 +177,7 @@ export function finalizeEvidenceAlignedResponse({
   // A model-generated claim is not a GitHub/Cloudflare receipt. Chat may
   // describe a completed PR or deployment only when this turn has verifiable
   // evidence; a queued evolution job and generic tool success do not qualify.
-  const claimsRepoDelivery = /(?:\bPR\s*#?\d+\b[^.\\n]{0,100}\b(?:fusionn[ée]e?|d[ée]ploy[ée]e?|cr[ée][ée]e?)\b|\b(?:PR|pull request)\b[^.\\n]{0,100}\b(?:fusionn[ée]e?|d[ée]ploy[ée]e?)\b|\bd[ée]ploiement\b[^.\\n]{0,80}\b(?:r[ée]ussi|effectu[ée]|termin[ée])\b)/i.test(out);
+  const claimsRepoDelivery = /(?:\bPR\s*#?\d+\b[^\n.]{0,100}(?:fusionn[ée]e?|d[ée]ploy[ée]e?|cr[ée][ée]e?)|\b(?:PR|pull request)\b[^\n.]{0,100}(?:fusionn[ée]e?|d[ée]ploy[ée]e?)|\bd[ée]ploiement\b[^\n.]{0,80}(?:r[ée]ussi|effectu[ée]|termin[ée]))/i.test(out);
   const hasReleaseReceipt = (Array.isArray(toolResults) ? toolResults : []).some(row => {
     if (row?.status !== 'SUCCEEDED') return false;
     const r = row.result || {};
