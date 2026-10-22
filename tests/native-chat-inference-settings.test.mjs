@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inferenceGenerationOptions, runNativeInference, loadCognitiveMemory, compactInferenceMessages, voiceGenerationTokenBudget, completeTruncatedNativeInference, runBoundedChatFallback } from '../src/api/native-chat.js';
+import { inferenceGenerationOptions, runNativeInference, resolveProfessorChatInferenceRoute, loadCognitiveMemory, compactInferenceMessages, voiceGenerationTokenBudget, completeTruncatedNativeInference, runBoundedChatFallback } from '../src/api/native-chat.js';
 
 test('promoted inference generation settings reach the direct AI payload', async () => {
   const calls = [];
@@ -146,4 +146,28 @@ test('bounded cloud fallback propagates real provider failures without hiding th
     runBoundedChatFallback(async () => { throw Object.assign(Error('rate limited'), { code: '429' }); }, 'x', {}, { timeoutMs: 100 }),
     { code: '429' },
   );
+});
+
+test('Professor Code and Conversation use distinct existing model primaries while Normal is unchanged', async () => {
+  const normal = resolveProfessorChatInferenceRoute({ surface: 'mel-normal', role: 'developer', requested_mode: 'code' });
+  assert.equal(normal, null, 'Normal must never inherit Professor CODE routing');
+  const conversation = resolveProfessorChatInferenceRoute({ surface: 'mel-full', role: 'assistant', requested_mode: 'conversation' });
+  const code = resolveProfessorChatInferenceRoute({ surface: 'mel-full', role: 'developer', requested_mode: 'code' });
+  assert.equal(resolveProfessorChatInferenceRoute({ surface: 'mel-full', role: 'developer', requested_mode: 'conversation' }), null);
+  assert.equal(conversation.task, 'GENERAL');
+  assert.equal(code.task, 'CODE');
+  assert.notEqual(conversation.model, code.model, 'Code model must differ from Conversation model');
+  const { standardRegistry } = await import('../src/models/ModelRegistry.js');
+  assert.ok(standardRegistry.getByCapabilities(conversation.task).some(row => row.id === conversation.model));
+  assert.ok(standardRegistry.getByCapabilities(code.task).some(row => row.id === code.model));
+  const observed = [];
+  const env = { AI: { run: async model => { observed.push(model); return { response: 'ok' }; } } };
+  for (const route of [conversation, code]) {
+    const result = await runNativeInference({
+      env, messages: [{ role: 'user', content: 'bonjour' }], text: 'bonjour',
+      taskOverride: route.task, preferredModel: route.model, parallel: false,
+    });
+    assert.equal(result.model, route.model);
+  }
+  assert.deepEqual(observed, [conversation.model, code.model]);
 });
