@@ -1,9 +1,19 @@
 import test from 'node:test';
+
+// [GPT] Read the effective release proof contract after moving the deep proof
+// shell into its standalone source. Do not weaken individual assertions.
+async function readExpandedReleaseWorkflow() {
+  const workflow = await readExpandedReleaseWorkflow();
+  const proof = await readFile(new URL('../scripts/release-autonomy-deep-proof.sh', import.meta.url), 'utf8');
+  const marker = '          bash scripts/release-autonomy-deep-proof.sh';
+  if (!workflow.includes(marker)) throw new Error('RELEASE_PROOF_ENTRYPOINT_MISSING');
+  return workflow.replace(marker, proof.split('\\n').map(line => '          ' + line).join('\\n'));
+}
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 test('canonical release proves a recent restore-verified backup through the ephemeral binder before deploy', async () => {
-  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const source = await readExpandedReleaseWorkflow();
   assert.match(source, /owner_max_autorelease:[\s\S]{0,220}default: false/);
   const start = source.indexOf('      - name: Create verified pre-deploy production backup');
   const end = source.indexOf('      - name: Prepare encrypted Media Vault secrets for exact deployment', start);
@@ -23,7 +33,7 @@ test('canonical release proves a recent restore-verified backup through the ephe
 });
 
 test('post-release proof suite is a direct release health gate and calls platform proof first', async () => {
-  const deploy = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const deploy = await readExpandedReleaseWorkflow();
   const suite = await readFile(new URL('../.github/workflows/post-release-proof-suite.yml', import.meta.url), 'utf8');
   const platform = await readFile(new URL('../.github/workflows/activate-platform-capabilities.yml', import.meta.url), 'utf8');
   assert.match(suite, /workflow_call:/);
@@ -51,7 +61,7 @@ test('post-release proof suite is a direct release health gate and calls platfor
 
 
 test('canonical release waits on bounded ShardVault progress instead of a fixed blind retry count', async () => {
-  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const source = await readExpandedReleaseWorkflow();
   assert.match(source, /CODE_SYNC_MAX_ACTIVE_ATTEMPTS=32/);
   assert.match(source, /CODE_SYNC_MAX_STALL=12/);
   assert.match(source, /CODE_SYNC_LAST_COMPLETED=-1/);
@@ -73,7 +83,7 @@ test('canonical release waits on bounded ShardVault progress instead of a fixed 
 
 
 test('exact production deploy synchronizes the canonical backup encryption key identity', async () => {
-  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const source = await readExpandedReleaseWorkflow();
   const prepare = source.indexOf('      - name: Prepare encrypted Media Vault secrets for exact deployment');
   const deploy = source.indexOf('      - name: Deploy exact approved SHA to production', prepare);
   const block = source.slice(prepare, deploy);
@@ -85,7 +95,7 @@ test('exact production deploy synchronizes the canonical backup encryption key i
 });
 
 test('Workers AI zero-cost proof is bundled into the exact immutable production deploy before autonomy proof', async () => {
-  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const source = await readExpandedReleaseWorkflow();
   const prepare = source.indexOf('      - name: Prepare encrypted Media Vault secrets for exact deployment');
   const deploy = source.indexOf('      - name: Deploy exact approved SHA to production', prepare);
   const verify = source.indexOf('      - name: Verify bundled Workers AI zero-cost proof', deploy);
@@ -240,7 +250,7 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
 });
 
 test('a release keeps MAX off unless the owner had it on before (any trigger, incl. automatic releases) or explicitly opts in', async () => {
-  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const source = await readExpandedReleaseWorkflow();
   assert.match(source, /OWNER_MAX_AUTORELEASE: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.owner_max_autorelease && 'true' \|\| 'false' \}\}/);
   const browser = source.indexOf('      - name: Prove real production browser.execute');
   const safeStop = source.indexOf('      - name: Keep MAX disabled after hardening release');
@@ -256,7 +266,7 @@ test('a release keeps MAX off unless the owner had it on before (any trigger, in
 
 
 test('automatic rollback stages a fail-safe paused state before restoring the older Worker and verifies shared D1 after propagation', async () => {
-  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const source = await readExpandedReleaseWorkflow();
   const start = source.indexOf('      - name: Automatic rollback on failed production verification');
   const block = source.slice(start);
   const preRestore = block.indexOf('restore_sha=${PREVIOUS_DEPLOYED_SHA}');
@@ -277,7 +287,7 @@ test('automatic rollback stages a fail-safe paused state before restoring the ol
 });
 
 test('durable production reads absorb transient transport resets with bounded retries', async () => {
-  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const source = await readExpandedReleaseWorkflow();
   const start = source.indexOf('          for DURABLE_CAPABILITY in timeline.list project.list event.list; do');
   const end = source.indexOf("          node - <<'NODE'", start);
   const block = source.slice(start, end);
@@ -289,7 +299,7 @@ test('durable production reads absorb transient transport resets with bounded re
 
 
 test('browser live proof uses MEL-owned deterministic public content', async () => {
-  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const source = await readExpandedReleaseWorkflow();
   const start = source.indexOf('      - name: Prove real production browser.execute');
   const end = source.indexOf('      - name: Re-enable MAX 100% after verified autonomous release', start);
   const block = source.slice(start, end);
@@ -302,7 +312,7 @@ test('browser live proof uses MEL-owned deterministic public content', async () 
 });
 
 test('canonical release accepts Teacher-proven progress while keeping blocked backlog observable', async () => {
-  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const source = await readExpandedReleaseWorkflow();
   const start = source.indexOf("const d=require('./production-capability-watch-proof.json')");
   const end = source.indexOf("console.log('GEN2-42 production Teacher handoff proof passed", start);
   const block = source.slice(start, end);
