@@ -32,6 +32,11 @@ jobs:
       - name: Verify exact tested SHA
         shell: bash
         run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      # [ChatGPT-GPT6] Full dependency closure is needed: MAX and release tests
+      # import the Mentor AST contract (acorn) via the real production runtime.
+      # Keep the exact lockfile as the single source of truth for every CI job.
+      - name: Install exact lockfile
+        run: npm ci
       - name: Verify binder tests syntax
         run: |
           node --check tests/predeploy-backup-sidecar-unique-name.test.mjs
