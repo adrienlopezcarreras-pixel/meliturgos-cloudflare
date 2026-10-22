@@ -36,4 +36,22 @@ export async function melLocalPhotoPreview(file) {
   });
 }
 
-export const LOCAL_PHOTO_PREVIEW_SOURCE = melLocalPhotoPreview.toString() + '\n';
+// One metadata-to-context contract for both chat surfaces. Preview bytes alone
+// are never proof that an image, audio or video was analyzed.
+export function melAttachmentContext(item = {}) {
+  const name = String(item.name || 'Pièce jointe');
+  const status = String(item.analysis_status || item.analysisStatus || 'UNKNOWN');
+  const provider = String(item.analysis_provider || item.analysisProvider || 'server');
+  const preview = String(item.preview || '').trim();
+  let label = '';
+  if (item.isVideo) return 'Vidéo jointe : ' + name + ' ; contenu visuel et sonore NON ANALYSÉ (statut ' + status + '). Ne prétends pas avoir visionné cette vidéo.';
+  if (item.isImage && status === 'IMAGE_DESCRIBED' && preview) label = 'Description visuelle réellement produite par le serveur';
+  else if (item.isAudio && status === 'AUDIO_TRANSCRIBED' && preview) label = 'Transcription audio réellement produite par le serveur';
+  else if (!item.isImage && !item.isAudio && preview && ['TEXT_EXTRACTED', 'RICH_TEXT_EXTRACTED'].includes(status)) label = 'Contenu extrait du fichier';
+  if (label) return label + ' : ' + name + '\n--- contenu extrait ; statut ' + status + ' ; fournisseur ' + provider + ' ---\n' + preview;
+  if (item.isImage) return 'Photo jointe : ' + name + ' ; contenu visuel NON ANALYSÉ (statut ' + status + '). Ne prétends pas voir cette photo.';
+  if (item.isAudio) return 'Audio joint : ' + name + ' ; contenu sonore NON TRANSCRIT (statut ' + status + '). Ne prétends pas l’avoir écouté.';
+  return 'Fichier privé chargé : ' + name + (item.stored && item.id ? ' · référence ' + item.id : '');
+}
+
+export const LOCAL_PHOTO_PREVIEW_SOURCE = melLocalPhotoPreview.toString() + '\n' + melAttachmentContext.toString() + '\n';
