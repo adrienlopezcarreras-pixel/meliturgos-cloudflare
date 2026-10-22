@@ -11,20 +11,38 @@ import { createGen2Runtime } from '../core/orchestrator/gen2-runtime.js';
 import { extractModelText } from '../models/ModelRouter.js';
 
 export const REVENUE_WATCH_THEMES = Object.freeze([
-  'paid GitHub issues and open-source bounties on Algora, Opire and IssueHunt, verify repository activity',
-  'legitimate small documentation, bug fix, test and translation bounties on public repositories',
-  'public API-based digital task markets explicitly allowing autonomous AI agents',
-  'paid data cleanup, structured JSON/CSV transformation and research deliverable challenges permitting AI',
-  'responsible disclosure programs with written scope and rewards, excluding intrusive unauthorized testing',
-  'open innovation prize challenges with cash awards and no entry fee or mandatory human attendance',
-  'commissioned technical writing and localization with explicit permission to use AI',
-  'small fixed-price open-source integration or automation tasks with public acceptance criteria',
-  'software documentation and accessibility remediation bounties open to machine-generated contributions',
-  'machine-readable RFPs and public calls for small digital deliverables accepting automated proposals',
-  'official bug bounty programs that explicitly authorize testing and automation within their scope',
-  'agent-to-agent remunerated services and pay-per-result work with zero upfront payment',
-  'GitHub sponsors requests offering funded milestones for reproducible code changes',
-  'free-to-enter verified competitions for code, datasets and reproducible research',
+  "funded open-source bugs and paid pull request issues explicitly accepting AI-assisted code",
+  "small paid documentation and API reference corrections with objective acceptance criteria",
+  "paid CSV cleaning, deduplication, JSON normalization and structured dataset exports",
+  "paid technical translation and localization tasks expressly accepting AI generation",
+  "paid data extraction and public-data research with machine-readable deliverables",
+  "paid testing, reproducible bug reports and automated regression test contributions",
+  "paid accessibility audits of public sites with consent and specific deliverables",
+  "fixed-price HTML landing page or simple website implementation jobs allowing automation",
+  "simple data visualization and report generation bounties with published rewards",
+  "small Python JavaScript shell script tasks and workflow automation commissions",
+  "API agent task marketplaces with direct automated submission and verified payouts",
+  "AI agent-to-agent paid requests under a public machine-readable protocol",
+  "software plugin template and tiny utility marketplaces with automated checkout",
+  "digital spreadsheet templates and commercial reusable CSV tool markets",
+  "reusable developer assets and code snippet digital product stores allowing AI authored products",
+  "open grant microfunding programs for a working open-source tool",
+  "developer bounties posted by active verified maintainers on GitHub",
+  "technical writing paid commissions with explicit AI disclosure and clear license",
+  "knowledge base migration and documentation formatting tasks with consent",
+  "paid research microdeliverables for legally accessible public information",
+  "open innovation contests cash prizes free entry asynchronous remote submission",
+  "funded issue trackers Algora Opire IssueHunt verify explicit bounty and terms",
+  "public code challenges with clear judging deadlines cash payouts and AI allowed",
+  "paid independent benchmark evaluation tasks accepting agent participants",
+  "paid design-to-code conversion jobs with machine-verifiable acceptance",
+  "public dataset cleanup and quality checks commissioned by companies",
+  "non-intrusive responsible disclosure rewards only within authorized program scope",
+  "paid localization string files PO JSON YAML with acceptance tests",
+  "freelance platforms explicitly allowing agents to autonomously accept and submit work",
+  "microservice marketplaces with hosted software API paid-per-use model",
+  "small recurring data monitoring or scheduled report subscription product niches",
+  "verified open calls for machine-readable RFPs small digital jobs permitting autonomous agents"
 ]);
 const MODEL = '@cf/openai/gpt-oss-120b';
 const FALLBACK_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
@@ -39,7 +57,7 @@ const EXTRACT = [
 
 function themesFor(date) {
   const day = Math.floor(date.getTime() / 86_400_000);
-  return [0, 3, 7, 11].map(offset => REVENUE_WATCH_THEMES[(day + offset) % REVENUE_WATCH_THEMES.length]);
+  return [0, 4, 9, 14, 19, 24].map(offset => REVENUE_WATCH_THEMES[(day + offset) % REVENUE_WATCH_THEMES.length]);
 }
 
 export function parseOpportunities(text) {
