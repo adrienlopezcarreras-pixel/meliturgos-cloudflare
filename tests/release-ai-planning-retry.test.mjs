@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const workflow = readFileSync(
-  new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url),
-  'utf8',
-);
+const canonical = readFileSync(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+const script = readFileSync(new URL('../scripts/release-autonomy-deep-proof.sh', import.meta.url), 'utf8');
+const entry = '          bash scripts/release-autonomy-deep-proof.sh';
+if (!canonical.includes(entry)) throw new Error('RELEASE_PROOF_ENTRYPOINT_MISSING');
+const workflow = canonical.replace(entry, script.split('\n').map(line => '          ' + line).join('\n'));
 
 test('production GEN2-38 model plan proof uses one bounded request and surfaces transport failures', () => {
   const start = workflow.indexOf('GEN_PLAN_CODE="$(curl');
