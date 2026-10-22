@@ -4,6 +4,23 @@ import { createDefaultCapabilityBus } from '../src/capabilities/default-bus.js';
 import { D1PlanningStore } from '../src/work/d1-planning-store.js';
 import { createWorkPlan } from '../src/work/planning-engine.js';
 
+test('D1 planning schema initializes sequentially and retries after transient failures', async () => {
+  const started = [];
+  let failOnce = true;
+  const db = { prepare(sql) {
+    const name = sql.includes('work_plan_events') ? 'events' : 'plans';
+    return { run: async () => {
+      started.push(name);
+      if (name === 'plans' && failOnce) { failOnce = false; throw new Error('D1_TRANSIENT'); }
+      return { success: true };
+    } };
+  } };
+  const store = new D1PlanningStore(db);
+  await assert.rejects(store.init(), /D1_TRANSIENT/);
+  await store.init();
+  assert.deepEqual(started, ['plans', 'plans', 'events']);
+});
+
 class Statement {
   constructor(db, sql) { this.db = db; this.sql = String(sql).trim(); this.args = []; }
   bind(...args) { this.args = args; return this; }
