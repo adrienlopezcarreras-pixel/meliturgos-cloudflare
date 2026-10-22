@@ -4,6 +4,15 @@ import { readFile } from 'node:fs/promises';
 import { rememberedReleaseMax } from '../src/evolution/autonomy-control.js';
 import { isReleaseSmokeRequest } from '../src/core/security.js';
 
+// [GPT] Preserve existing ShardVault assertions against the actual release entrypoint.
+async function readEffectiveRelease() {
+  const workflow=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  const script=await readFile(new URL('../scripts/release-autonomy-deep-proof.sh',import.meta.url),'utf8');
+  const entry='          bash scripts/release-autonomy-deep-proof.sh';
+  assert.ok(workflow.includes(entry),'release must invoke the deep proof');
+  return workflow.replace(entry,script.split('\n').map(line=>'          '+line).join('\n'));
+}
+
 const token='s'.repeat(64);
 const env={MEL_LAUNCH_BOOTSTRAP_TOKEN:token};
 
@@ -29,7 +38,7 @@ test('release smoke can prepare ShardVault only on exact status/search paths',()
 });
 
 test('release workflow requires a reconstructible 5-of-7 ShardVault quorum without weakening the 7x target',async()=>{
-  const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  const source=await readEffectiveRelease();
   const search=source.indexOf('/api/gen2/shardvault/search');
   const bootstrap=source.indexOf('/api/internal/release-launch-bootstrap',search);
   assert.ok(search>0);
@@ -68,7 +77,7 @@ test('unbounded ShardVault search keeps full live revalidation even with seven a
 
 test('temporary dev-light release accepts explicit PAUSED_FOR_ROADMAP code-sync without weakening the normal quorum proof',async()=>{
   const [source,readiness]=await Promise.all([
-    readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8'),
+    readEffectiveRelease(),
     readFile(new URL('../src/evolution/launch-readiness.js',import.meta.url),'utf8'),
   ]);
   assert.match(source,/status==='PAUSED_FOR_ROADMAP'/);
@@ -88,7 +97,7 @@ test('temporary dev-light release accepts explicit PAUSED_FOR_ROADMAP code-sync 
 
 test('ShardVault roadmap pause is either closed out or explicitly temporary dev-light only',async()=>{
   const [workflow,wrangler]=await Promise.all([
-    readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8'),
+    readEffectiveRelease(),
     readFile(new URL('../wrangler.jsonc',import.meta.url),'utf8'),
   ]);
   const pausedInRelease=/MEL_ROADMAP_SHARDVAULT_PAUSED:\s*'true'/.test(workflow);
@@ -105,7 +114,7 @@ test('ShardVault roadmap pause is either closed out or explicitly temporary dev-
 
 
 test('release code-sync waits for future retry windows without consuming the no-progress stall budget',async()=>{
-  const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  const source=await readEffectiveRelease();
   assert.match(source,/futureRetryAt=failuresList/);
   assert.match(source,/retryable===true&&row\?\.permanent!==true/);
   assert.match(source,/CODE_SYNC_WAITING_FOR_RETRY=1/);
@@ -115,7 +124,7 @@ test('release code-sync waits for future retry windows without consuming the no-
 });
 
 test('release code-sync does not burn active attempt budget while waiting on relay/retry windows',async()=>{
-  const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  const source=await readEffectiveRelease();
   assert.match(source,/CODE_SYNC_ACTIVE_ATTEMPTS=0/);
   assert.match(source,/CODE_SYNC_MAX_ACTIVE_ATTEMPTS=32/);
   assert.match(source,/CODE_SYNC_DEADLINE_EPOCH=\$\(\( \$\(date \+%s\) \+ 1200 \)\)/);
@@ -126,14 +135,14 @@ test('release code-sync does not burn active attempt budget while waiting on rel
 });
 
 test('release job timeout is long enough for bounded ShardVault retry windows',async()=>{
-  const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  const source=await readEffectiveRelease();
   const match=/jobs:\s*\n\s*deploy:[\s\S]*?timeout-minutes:\s*(\d+)/.exec(source);
   assert.ok(match,'deploy timeout must be explicit');
   assert.ok(Number(match[1])>=75,'deploy timeout must cover bounded ShardVault retry windows');
 });
 
 test('final ShardVault status tolerates bounded secret propagation',async()=>{
-  const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  const source=await readEffectiveRelease();
   assert.match(source,/SHARD_FINAL_READY=0/);
   assert.match(source,/for SHARD_FINAL_ATTEMPT in \$\(seq 1 12\)/);
   assert.match(source,/ShardVault final status propagation attempt/);
@@ -141,7 +150,7 @@ test('final ShardVault status tolerates bounded secret propagation',async()=>{
 });
 
 test('release capture normalizes legacy paused plus MAX contradiction fail-safe before rollback state is recorded',async()=>{
-  const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  const source=await readEffectiveRelease();
   assert.match(source,/const maxAutonomy=rememberedReleaseMax\(d\)/);
   assert.equal(rememberedReleaseMax({paused:true,max_autonomy:true,source:'owner-ui'}),false);
   assert.equal(rememberedReleaseMax({paused:true,max_autonomy:false,max_remembered:true,source:'release-predeploy-binder',reason:'predeploy-release-safety'}),true);
@@ -151,7 +160,7 @@ test('release capture normalizes legacy paused plus MAX contradiction fail-safe 
 });
 
 test('release rollback restores code through exact-SHA OIDC while preserving PAUSED/MAX=false safety',async()=>{
-  const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  const source=await readEffectiveRelease();
   assert.match(source,/id-token:\s*write/);
   assert.match(source,/Capture pre-deploy autonomy control/);
   assert.match(source,/\/api\/gen2\/autonomy\/control/);
@@ -186,7 +195,7 @@ test('ShardVault rejects workers.dev as an external persistence target to avoid 
 
 
 test('release code-sync treats Cloudflare 1042 as a Worker visibility gap rather than ShardVault no-progress',async()=>{
-  const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  const source=await readEffectiveRelease();
   assert.match(source,/error code: 1042/);
   assert.match(source,/transient Cloudflare Worker visibility gap 1042/);
   assert.match(source,/without consuming ShardVault attempt\/stall budget/);
@@ -197,7 +206,7 @@ test('release code-sync treats Cloudflare 1042 as a Worker visibility gap rather
 });
 
 test('rollback waits for canonical Worker visibility before staging state or invoking Wrangler rollback',async()=>{
-  const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  const source=await readEffectiveRelease();
   const rollback=source.split('Automatic rollback on failed production verification')[1]||'';
   const visible=rollback.indexOf('WORKER_VISIBLE=0');
   const preRestore=rollback.indexOf('release-rollback-restore');
