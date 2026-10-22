@@ -20,7 +20,7 @@ export function melParseNdjsonLines(buffer) {
 // Le serveur peut travailler 90 s sans nouveau fragment si un appel de modèle
 // bloque les battements. Le silence autorisé reste sous le délai client de
 // 120 s, et au-dessus de ce budget, pour ne pas couper une réponse encore en cours.
-async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 105000, signal = null } = {}) {
+async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 105000, signal = null, onProgress = null } = {}) {
   const startedAt = Date.now();
   const controller = new AbortController();
   const abortFromOwner = () => controller.abort();
@@ -75,6 +75,8 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 105000, sig
   const progress = new Map();
   let liveBox = null;
   const renderLive = () => {
+    // [GPT] Code-mode window owns live progress; keep the chat bubble light.
+    if (typeof onProgress === 'function') return;
     if (!bubble) return;
     if (!liveBox) { liveBox = document.createElement('div'); liveBox.className = 'mel-live'; bubble.insertBefore(liveBox, bubble.firstChild); }
     liveBox.textContent = '';
@@ -104,11 +106,14 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 105000, sig
         if (event.type === 'progress') {
           progress.set(String(event.id || progress.size), { label: String(event.label || ''), status: String(event.status || 'running'), detail: String(event.detail || ''), ms: Number(event.ms) || 0, kind: String(event.kind || 'step'), tool: event.tool ? String(event.tool) : '' });
           renderLive();
+          // [GPT] Forward only server-authored progress, never fabricate a tool action.
+          try { if(typeof onProgress==='function')onProgress({id:String(event.id||''),label:String(event.label||''),status:String(event.status||'running'),source:'server'}); } catch {}
           if (status && event.status === 'running') status.textContent = String(event.label || 'MEL travaille…') + '…';
           if (log) log.scrollTop = log.scrollHeight;
         }
-        else if (event.type === 'start') { if (status) status.textContent = 'MEL écrit…'; }
+        else if (event.type === 'start') { if (status) status.textContent = 'MEL écrit…'; try{if(typeof onProgress==='function')onProgress({id:'response-start',label:'Réponse démarrée par MEL',status:'running',source:'server'})}catch{} }
         else if (event.type === 'step') {
+          try{if(typeof onProgress==='function')onProgress({id:'pc-step-'+String(event.n||''),label:'PC : '+String(event.text||'étape confirmée').slice(0,115),status:'done',source:'server'})}catch{}
           const box = ensureSteps();
           if (box) { const line = document.createElement('div'); line.textContent = String(event.text || ''); box.appendChild(line); }
           if (status) status.textContent = 'MEL agit sur ton PC… étape ' + String(event.n || '');
@@ -116,6 +121,7 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 105000, sig
         } else if (event.type === 'proof') {
           const url = new URL(String(event.url || ''), location.origin);
           if (bubble && url.origin === location.origin && url.pathname === '/api/computer/v1/screenshot') {
+            try{if(typeof onProgress==='function')onProgress({id:'pc-proof-'+Date.now(),label:'Capture PC reçue',status:'done',source:'server'})}catch{}
             const img = document.createElement('img');
             img.alt = 'Capture de ton écran après l’action de MEL';
             img.src = url.href;
@@ -127,7 +133,7 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 105000, sig
           textBox.textContent = text;
           if (log) log.scrollTop = log.scrollHeight;
         } else if (event.type === 'done') meta = event;
-        else if (event.type === 'error') failure = event;
+        else if (event.type === 'error'){ failure = event; try{if(typeof onProgress==='function')onProgress({id:'server-error',label:'Erreur du serveur : '+String(event.code||'UNKNOWN').slice(0,70),status:'failed',source:'server'})}catch{} }
       }
     }
   } catch (error) {
