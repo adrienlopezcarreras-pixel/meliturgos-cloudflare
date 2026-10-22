@@ -456,3 +456,17 @@ test('D1 update rejects a concurrent executor write between read and SQL update'
     assert.equal(persisted.result_json.dev_bridge.error, 'EXECUTOR_FAILED');
   } finally { db.close(); }
 });
+
+for (const target of ['src/work/work-dag.js', 'src/not-teacher-inspected.js']) {
+  test(`CI repair prioritizes its files only inside the renewed Teacher inspection: ${target}`, async () => {
+    const f = fixture();
+    const job = await approvedJob(f.repository);
+    await f.repository.update(job.id, { result_json: { ...job.result_json,
+      candidate_ci_failure: { files: [target], base_sha: HEAD_SHA }, dev_bridge: { needs_repair: true },
+    } });
+    const proposal = await prepareApprovedImplementationProposal({ env: f.env, repository: f.repository,
+      job: await f.repository.get(job.id), fetchImpl: f.fetchImpl });
+    if (target === 'src/work/work-dag.js') assert.equal(proposal.inspected_files[0].path, target);
+    else assert.ok(!proposal.inspected_files.some(file => file.path === target));
+  });
+}

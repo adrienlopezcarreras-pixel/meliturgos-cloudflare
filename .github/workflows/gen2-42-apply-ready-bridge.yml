@@ -210,18 +210,8 @@ jobs:
           git clean -fd
           HEAD_SHA="$(git rev-parse FETCH_HEAD)"
           if [ "$HEAD_SHA" != "$CANDIDATE_SHA" ]; then
-            # The candidate moved forward (kept in sync with main). Apply on the
-            # new head only if none of the package files changed in between;
-            # otherwise the exact approved base is used and the push will refuse.
-            git fetch origin "$CANDIDATE_SHA" --depth=200 || true
-            FILES="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.env.BRIDGE_JOB_FILE,"utf8"));process.stdout.write((j.files_json||[]).map(f=>typeof f==="string"?f:f.path).filter(Boolean).join("\n"))')"
-            if git cat-file -e "${CANDIDATE_SHA}^{commit}" 2>/dev/null \
-              && git merge-base --is-ancestor "$CANDIDATE_SHA" "$HEAD_SHA" \
-              && printf '%s\n' "$FILES" | xargs -r git diff --quiet "$CANDIDATE_SHA" "$HEAD_SHA" --; then
-              echo "CANDIDATE_ADVANCED_FILES_UNCHANGED from=$CANDIDATE_SHA to=$HEAD_SHA"
-              echo "CANDIDATE_SHA=$HEAD_SHA" >> "$GITHUB_ENV"
-              CANDIDATE_SHA="$HEAD_SHA"
-            fi
+            echo "TEACHER_APPROVAL_CANDIDATE_SHA_STALE"
+            exit 1
           fi
           git checkout -B "$CANDIDATE_BRANCH" "$CANDIDATE_SHA"
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
@@ -293,7 +283,9 @@ jobs:
             if(r.status!==0) failed=true;
           }
           if(!results.some(row=>row.command==='check'&&row.executed===true&&row.passed===true)) failed=true;
-          for(const spec of job.tests_json){
+          const requested=[...(job.tests_json||[])];
+          if(!requested.some(spec=>spec.command==='test')) requested.unshift({name:'full-regression',command:'test'});
+          for(const spec of requested){
             const name=String(spec?.command||'').trim();
             if(!allowed.has(name)){
               results.push({name:String(spec?.name||name||'unnamed'),command:name,passed:false,executed:false,error:'TEST_NOT_EXECUTED'});
@@ -373,24 +365,14 @@ jobs:
           fi
           git commit -m "GEN2-42: apply approved bridge package $JOB_ID"
           NEW_SHA="$(git rev-parse HEAD)"
-          # Another executor may have pushed while tests ran. Replay this one
-          # commit on the new tip. Never force, never reset the remote branch.
+          # Test evidence and Teacher approval bind this exact base. A moving
+          # head requires fresh review; never rebase an already-tested package.
           PUSHED=0
-          for ATTEMPT in 1 2; do
-            git fetch origin "$CANDIDATE_BRANCH"
-            REMOTE_SHA="$(git rev-parse FETCH_HEAD)"
-            if ! git merge-base --is-ancestor "$REMOTE_SHA" HEAD; then
-              if ! git rebase --onto "$REMOTE_SHA" "$CANDIDATE_SHA" HEAD; then
-                git rebase --abort || true
-                break
-              fi
-              NEW_SHA="$(git rev-parse HEAD)"
-            fi
-            if git push origin "HEAD:$CANDIDATE_BRANCH"; then
-              PUSHED=1
-              break
-            fi
-          done
+          git fetch origin "$CANDIDATE_BRANCH"
+          REMOTE_SHA="$(git rev-parse FETCH_HEAD)"
+          if [ "$REMOTE_SHA" = "$CANDIDATE_SHA" ] && git push origin "HEAD:$CANDIDATE_BRANCH"; then
+            PUSHED=1
+          fi
           if [ "$PUSHED" != "1" ]; then
             node - <<'NODE'
             const fs=require('fs');

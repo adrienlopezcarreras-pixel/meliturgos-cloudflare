@@ -199,3 +199,15 @@ test('Professor declares button semantics and keyboard navigation for its tablis
   assert.match(html, /ArrowRight/);
   assert.match(html, /\.tabIndex=/);
 });
+
+test('Professor chat permits queuing followups and aborting current streaming answer', async () => {
+  const html = await (await renderProfessor()).text();
+  const stream = await read('src/pages/mel-chat-stream.js');
+  assert.match(html, /id="chatInterrupt"/);
+  assert.match(html, /id="chatPendingCount"/);
+  assert.match(html, /chatPendingTurns\.push/);
+  assert.match(html, /chatActiveController\.abort\(\)/);
+  assert.match(html, /signal:controller\.signal/);
+  assert.match(stream, /signal\?\.addEventListener\('abort'/);
+  assert.match(stream, /signal\?\.removeEventListener\('abort'/);
+});

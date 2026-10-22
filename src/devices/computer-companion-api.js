@@ -24,6 +24,17 @@ import { COMPUTER_COMMAND_STATUS } from "./computer-command-status.js";
 import { androidMaintenancePcCommand } from "./android-maintenance-companion.js";
 import { androidStagePcCommand } from "./android-apk-stage-companion.js";
 import { readAndroidTriadActivityForCompanion } from "./triad-activity-readonly.js";
+import { D1GitHubActionRelayStore } from '../platform/github-action-relay.js';
+
+// [Codex] Cloud relay is independent from Companion/Node presence. Expose no
+// relay metadata, queued work, credentials or inferred execution success.
+export async function readCompanionRelayPresence(env, now = Date.now()) {
+ try {
+  const state = await new D1GitHubActionRelayStore(env.DB).health({ now });
+  const at = Number(state.last_seen_at);
+  return { status: state.online && at > 0 && at <= now ? 'ONLINE' : 'OFFLINE', last_seen_at: at > 0 && at <= now ? at : null, observed_at: now };
+ } catch { return { status: 'UNKNOWN', last_seen_at: null, observed_at: now }; }
+}
 
 export const COMPUTER_API_BASE="/api/computer/v1";
 export const COMPUTER_ROUTES=Object.freeze({
@@ -56,7 +67,7 @@ const MIN_SOVEREIGN_AI_ENGINE_VERSION="1.4.1";
 // the PC is told to refresh itself (engine_update_required). Bump it together
 // with $Version in assets/MEL-Computer-Companion.ps1 whenever the engine changes,
 // otherwise installed Companions keep the old engine forever.
-export const CURRENT_COMPANION_ENGINE_VERSION="1.5.1";
+export const CURRENT_COMPANION_ENGINE_VERSION="1.5.2";
 
 function versionAtLeast(actual,required){
  const a=String(actual||"").match(/^\d+(?:\.\d+){0,3}/)?.[0]?.split(".").map(Number)||[];
@@ -657,8 +668,13 @@ async function heartbeat(request,env,a){
  if(typeof b.remote_access_enabled==="boolean")patch.remote_access_enabled=b.remote_access_enabled;
  // Local MEL development executor supervised by the Companion (owner opt-in).
  // GPT6 2026-10-21: status-only heartbeat metadata, no change in permissions.
- const devExecutor=String(b?.dev_executor?.status||"");
- patch.dev_executor_status=/^[A-Z_]{1,40}$/.test(devExecutor)?devExecutor:null;
+ if(engineBeat){
+  const devExecutor=String(b?.dev_executor?.status||"");
+  const executorBeat=Number(b?.dev_executor?.heartbeat_at);
+  const confirmed=Number.isSafeInteger(executorBeat)&&executorBeat>0&&executorBeat<=now&&now-executorBeat<60000;
+  patch.dev_executor_status=/^[A-Z_]{1,40}$/.test(devExecutor)?(devExecutor==='RUNNING'&&!confirmed?'UNAVAILABLE':devExecutor):null;
+  patch.dev_executor_heartbeat_at=confirmed?executorBeat:null;
+ }
  // Separate, locally controlled opt-in for optional MEL compute acceleration.
  // Remote PC access permission does not imply permission to use CPU/GPU.
  // Fail closed on every heartbeat: legacy clients and malformed values cannot
@@ -715,9 +731,11 @@ async function heartbeat(request,env,a){
  };
  const engineVersion=safe(metadata.engine_version,80)||null;
  const engineUpdateRequired=!versionAtLeast(engineVersion,CURRENT_COMPANION_ENGINE_VERSION);
+ const githubRelay=await readCompanionRelayPresence(env,now);
  return json({
    ok:true,
    server_time:now,
+   github_relay:githubRelay,
    presence,
    engine_online:engineOnline,
    local_compute_enabled:metadata.local_compute_enabled===true,

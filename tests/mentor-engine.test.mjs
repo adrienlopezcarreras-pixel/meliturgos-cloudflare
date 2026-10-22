@@ -447,7 +447,7 @@ test('mentor accepts every complete delimited file with CRLF without changing in
   const result = await engine.propose({
     env: {},
     goal: 'Propose two complete files',
-    inspectedFiles: [{ path: 'src/first.js', content: 'export const first = false;\n' }],
+    inspectedFiles: [{ path: 'src/first.js', content: 'export const first = false;\n' }, { path: 'src/second.js', content: 'export const second = false;\n' }],
   });
 
   assert.deepEqual(result.proposal.changes.map(({ path, content }) => ({ path, content })), [
@@ -467,7 +467,7 @@ test('mentor rejects the entire delimited proposal when a later file is truncate
     () => engine.propose({
       env: {},
       goal: 'Reject an incomplete multi-file implementation',
-      inspectedFiles: [{ path: 'src/first.js', content: 'export const first = false;\n' }],
+      inspectedFiles: [{ path: 'src/first.js', content: 'export const first = false;\n' }, { path: 'src/second.js', content: 'export const second = false;\n' }],
     }),
     error => {
       assert.equal(error.code, 'MENTOR_NO_VALID_CODE_PROPOSAL');
@@ -492,7 +492,7 @@ test('mentor repairs an incomplete multi-file response before accepting the full
   const result = await engine.propose({
     env: {},
     goal: 'Repair a truncated proposal as a whole',
-    inspectedFiles: [{ path: 'src/first.js', content: 'export const first = false;\n' }],
+    inspectedFiles: [{ path: 'src/first.js', content: 'export const first = false;\n' }, { path: 'src/second.js', content: 'export const second = false;\n' }],
   });
 
   assert.equal(result.council.selected_from_repair, true);
@@ -623,4 +623,97 @@ test('mentor bounds structured repair and advances after a hung repair wave', as
   assert.ok(result.council.rejected_proposals.some(x =>
     x.stage === 'repair' && x.error === 'MENTOR_PROVIDER_TIMEOUT'));
   assert.deepEqual(calls, [2, 2, 2]);
+});
+
+// ChatGPT-GPT6 / MEL-MENTOR-SCOPE: demonstrate that model context is small,
+// faithful, and the instructions produce a usable patch on inspected sources.
+test('mentor prompt contains a bounded inspected excerpt and one patch format', async () => {
+  const calls = [];
+  const prefix = 'export const target = false;\n';
+  const hidden = 'export const SECRET_TAIL_SENTINEL = 12345;\n';
+  const source = prefix + '// inspected filler, preserved by the edit\n'.repeat(350) + hidden;
+  const model = sequenceProvider('patch-author', [{
+    summary: 'A small real inspected change',
+    edits: [{ path: 'src/example.js', find: 'export const target = false;', replace: 'export const target = true;' }],
+    tests: ['test:smoke'],
+  }], calls);
+  const engine = new MentorEngine({ providerFactory: async () => [model] });
+  const result = await engine.propose({
+    env: {}, goal: 'Enable the target safely',
+    inspectedFiles: [{ path: 'src/example.js', content: source }],
+  });
+  const prompt = String(calls[0].input.input);
+  assert.match(prompt, /FORMAT OBLIGATOIRE/);
+  assert.match(prompt, /"edits"/);
+  assert.doesNotMatch(prompt, /SECRET_TAIL_SENTINEL/);
+  assert.match(prompt, /EXTRAIT PARTIEL/);
+  assert.ok(prompt.length < 12500);
+  assert.ok(result.proposal.changes[0].content.includes('export const target = true;'));
+  assert.ok(result.proposal.changes[0].content.includes(hidden), 'full inspected file preserved when applying edit');
+});
+
+test('mentor structured repair receives the same unambiguous bounded format', async () => {
+  const calls = [];
+  const source = 'export const enabled = false;\n';
+  const model = sequenceProvider('repair-author', ['No JSON here', {
+    summary: 'Fix bad response with a real edit',
+    edits: [{ path: 'src/example.js', find: 'false', replace: 'true' }],
+    tests: ['test:smoke'],
+  }], calls);
+  const engine = new MentorEngine({ providerFactory: async () => [model] });
+  const result = await engine.propose({
+    env: {}, goal: 'Enable inspected setting',
+    inspectedFiles: [{ path: 'src/example.js', content: source }],
+  });
+  assert.equal(result.council.selected_from_repair, true);
+  assert.match(String(calls[1].input.input), /FORMAT UNIQUE/);
+  assert.match(String(calls[1].input.input), /RÉPONSE_INVALIDE_À_RÉPARER/);
+  assert.equal(result.proposal.changes[0].content, 'export const enabled = true;\n');
+});
+
+test('CODE council exhausts eligible independent coder proposals for a difficult repair', async () => {
+  const calls = [];
+  const good = i => ({
+    summary: 'Solution de code indépendante ' + i,
+    edits: [{ path: 'src/example.js', find: 'value = 1', replace: 'value = ' + i }],
+    tests: ['test:smoke'], confidence: 0.8,
+  });
+  const engine = new MentorEngine({
+    providerFactory: async () => [
+      sequenceProvider('coder-a', [good(2)], calls),
+      sequenceProvider('coder-b', [good(3)], calls),
+      sequenceProvider('coder-c', [good(4)], calls),
+      sequenceProvider('coder-d', [good(5)], calls),
+    ],
+  });
+  const result = await engine.propose({
+    env: {}, goal: 'Réparer un cas épineux avec plusieurs modèles CODE',
+    mode: 'repair',
+    inspectedFiles: [{ path: 'src/example.js', content: 'export const value = 1;\n' }],
+  });
+  assert.equal(result.code_council.triggered, true);
+  assert.equal(result.code_council.valid_proposals, 4);
+  assert.equal(result.code_council.attempted.length, 4);
+  assert.equal(calls.length, 4);
+});
+
+test('ordinary Mentor stops after a valid initial wave without deep CODE council', async () => {
+  const calls = [];
+  const good = {
+    summary:'Simple correction',
+    edits:[{ path:'src/example.js', find:'value = 1', replace:'value = 2' }],
+    tests:['test:smoke'],
+  };
+  const engine = new MentorEngine({ providerFactory: async () => [
+    sequenceProvider('coder-a',[good],calls),
+    sequenceProvider('coder-b',[good],calls),
+    sequenceProvider('coder-c',[good],calls),
+    sequenceProvider('coder-d',[good],calls),
+  ] });
+  const result = await engine.propose({
+    env:{}, goal:'Correction simple',
+    inspectedFiles:[{path:'src/example.js',content:'export const value = 1;\n'}],
+  });
+  assert.equal(result.code_council.triggered,false);
+  assert.equal(calls.length,3);
 });

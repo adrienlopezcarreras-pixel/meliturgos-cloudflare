@@ -129,3 +129,34 @@ test('failed code read cannot be promoted into a successful code-access claim', 
   assert.match(out,/aucune exécution réussie/i);
   assert.doesNotMatch(out,/Oui, j’ai accès/i);
 });
+
+test('unproven merged PR is not reported as completed', () => {
+  const out = finalizeEvidenceAlignedResponse({
+    text: 'Oui, la PR #42 a bien été fusionnée automatiquement et déployée.',
+    userText: 'MEL a-t-elle fusionné sa PR ?',
+    toolResults: [{ capability: 'evolution.enqueue', status: 'SUCCEEDED', result: { status: 'QUEUED' } }],
+  });
+  assert.match(out, /ne peux donc pas présenter cette opération comme réussie/i);
+  assert.doesNotMatch(out, /a bien été fusionnée/i);
+});
+
+test('unverified Cloudflare deployment claim is downgraded', () => {
+  const out = finalizeEvidenceAlignedResponse({
+    text: 'Le déploiement Cloudflare a été effectué.',
+    userText: 'est-ce déployé ?',
+    toolResults: [],
+  });
+  assert.match(out, /reçu GitHub ou Cloudflare/i);
+});
+
+test('a confirmed GitHub merge receipt keeps the grounded claim', () => {
+  const text = 'La PR #42 a été fusionnée.';
+  const out = finalizeEvidenceAlignedResponse({
+    text, userText: 'la PR est fusionnée ?',
+    toolResults: [{
+      capability: 'github.pull_request.read', status: 'SUCCEEDED',
+      result: { html_url: 'https://github.com/example/repo/pull/42', merge_commit_sha: 'abc123' },
+    }],
+  });
+  assert.equal(out, text);
+});

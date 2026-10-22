@@ -769,6 +769,13 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       } : null,
       paused: tick?.paused === true || tick?.control?.paused === true,
       max_autonomy: tick?.control?.max_autonomy === true,
+      // ChatGPT-GPT6 / MEL-MENTOR-SCOPE: diagnostic codes only, never raw
+      // prompts, generated code, model output or other owner/private data.
+      mentor_failure_codes: bridgePreparation?.status === 'NOT_READY'
+        ? [...new Set((Array.isArray(bridgePreparation.failures) ? bridgePreparation.failures : [])
+          .map(row => String(row?.error || row?.code || ''))
+          .filter(code => /^[A-Z0-9_]{1,80}$/.test(code)))].slice(0, 12)
+        : [],
       bridge_preparation_ready: bridgeReady,
       bridge_job: bridgeReady ? {
         job_id: String(bridgeJob.id).slice(0, 180),

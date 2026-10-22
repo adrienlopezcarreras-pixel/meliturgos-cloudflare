@@ -5,6 +5,8 @@ import { prepareApprovedBridgePackage, normalizeTests } from '../src/evolution/a
 import { MentorEngine } from '../src/learning/mentor-engine.js';
 import { MentorMemoryRepository } from '../src/learning/mentor-memory.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
+import { devRuntime } from '../src/dev/runtime-api.js';
+import { maybeDispatchCloudBridge, CLOUD_BRIDGE_WORKFLOW } from '../src/evolution/cloud-bridge-dispatch.js';
 
 const SHA = 'cccccccccccccccccccccccccccccccccccccccc';
 const BRANCH = 'candidate/augmentio-core';
@@ -58,7 +60,7 @@ function mentorEngine(calls) {
         proposal: {
           summary: repairing ? 'Repair failed candidate tests.' : 'Turn the inspected file into a tested implementation.',
           changes: [{ path: 'src/example.js', content: repairing ? 'export const ready = "repaired";\n' : 'export const ready = true;\n', reason: repairing ? 'Repair failing test' : 'Implement feature' }],
-          tests: ['test:smoke', 'test:integration'],
+          tests: ['test', 'test:smoke', 'test:integration'],
           confidence: 0.94,
           lessons: ['Keep the change bounded.'],
           risks: ['Regression risk is covered by tests.'],
@@ -84,7 +86,7 @@ test('approved Teacher + multi-AI plan becomes an applyable structured bridge pa
   assert.equal(result.candidate_sha, SHA);
   assert.equal(result.teacher_request_id, REQUEST);
   assert.deepEqual(result.files, ['src/example.js']);
-  assert.deepEqual(result.tests, ['test:smoke', 'test:integration']);
+  assert.deepEqual(result.tests, ['test', 'test:smoke', 'test:integration']);
   assert.equal(result.production_deploy_allowed, false);
   assert.equal(result.human_release_approval_required, true);
   assert.equal(calls.length, 1);
@@ -93,7 +95,7 @@ test('approved Teacher + multi-AI plan becomes an applyable structured bridge pa
   assert.equal(stored.status, 'TEACHER_APPROVED');
   assert.equal(stored.files_json[0].path, 'src/example.js');
   assert.match(stored.files_json[0].content, /ready = true/);
-  assert.deepEqual(stored.tests_json.map(row => row.command), ['test:smoke', 'test:integration']);
+  assert.deepEqual(stored.tests_json.map(row => row.command), ['test', 'test:smoke', 'test:integration']);
   assert.equal(stored.patch_json.source, 'MentorEngine');
   assert.equal(stored.patch_json.mode, 'implement');
   assert.equal(stored.result_json.teacher_bridge.status, 'ANSWERED');
@@ -253,14 +255,18 @@ test('bridge preparation fails closed on stale candidate or missing Teacher appr
 });
 
 test('bridge test normalization allows only bounded named scripts', () => {
-  assert.deepEqual(normalizeTests(['test:smoke','arbitrary','test:integration','test:smoke']).map(row => row.command), ['test:smoke','test:integration']);
-  assert.deepEqual(normalizeTests([]).map(row => row.command), ['test:smoke']);
+  assert.deepEqual(normalizeTests(['test:smoke','arbitrary','test:integration','test:smoke']).map(row => row.command), ['test','test:smoke','test:integration']);
+  assert.deepEqual(normalizeTests([]).map(row => row.command), ['test']);
 });
 
 test('simulated provider output passes through the real MentorEngine repair to a persisted Teacher-approved package', async () => {
   const DB = sqliteD1();
   try {
     const repository = await approvedRepository(DB);
+    const sourceJob = await repository.get('bridge-prep-job');
+    await repository.update(sourceJob.id, { result_json: { ...sourceJob.result_json, implementation_proposal: { ...sourceJob.result_json.implementation_proposal, inspected_files: [{ path: 'src/example.js' }, { path: 'tests/example.test.mjs' }] } } });
+    const inspectedFetch = fetchImpl();
+    const readBothSources = async url => String(url).includes('raw.githubusercontent.com') && String(url).includes('tests/example.test.mjs') ? new Response("import assert from 'node:assert/strict';\nassert.equal(false, false);\n") : inspectedFetch(url);
     const incomplete = 'FILE src/example.js\n<<<MEL_FILE\nexport const ready = true;\nMEL_FILE\nFILE tests/example.test.mjs\n<<<MEL_FILE\nimport assert from';
     const complete = `${incomplete} 'node:assert/strict';\nassert.equal(true, true);\nMEL_FILE`.replace(/\n/g, '\r\n');
     const calls = [];
@@ -281,7 +287,7 @@ test('simulated provider output passes through the real MentorEngine repair to a
       env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
       repository,
       job: await repository.get('bridge-prep-job'),
-      fetchImpl: fetchImpl(),
+      fetchImpl: readBothSources,
       mentorEngine: engine,
     });
 
@@ -371,4 +377,139 @@ test('stale Mentor package cannot overwrite files or receipt after executor clai
     assert.deepEqual(persisted.result_json, receipt);
     assert.deepEqual(persisted.files_json, [{ path: 'src/owned.js', content: 'owned' }]);
   } finally { db.close(); }
+});
+
+test('candidate advancing during Mentor inference cannot persist a package against the old SHA', async () => {
+  const repository = await approvedRepository();
+  let head = SHA;
+  const read = fetchImpl();
+  const movingFetch = async url => String(url).includes('/commits/candidate%2Faugmentio-core') ? Response.json({ sha: head }) : read(url);
+  const engine = mentorEngine([]);
+  await assert.rejects(prepareApprovedBridgePackage({ env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
+    repository, job: await repository.get('bridge-prep-job'), fetchImpl: movingFetch,
+    mentorEngine: { async propose(input) { const answer = await engine.propose(input); head = 'd'.repeat(40); return answer; } },
+  }), error => error.code === 'CODE_HEAD_PIN_MISMATCH');
+  assert.deepEqual((await repository.get('bridge-prep-job')).files_json, []);
+  assert.equal((await repository.get('bridge-prep-job')).status, 'TEACHER_APPROVED');
+});
+
+test('re-approved repair reads the exact historical base without treating it as current candidate', async () => {
+  const repository = await approvedRepository();
+  const previous = await repository.get('bridge-prep-job');
+  const base = 'b'.repeat(40);
+  await repository.update(previous.id, { result_json: { ...previous.result_json,
+    teacher_bridge: { ...previous.result_json.teacher_bridge, reviewed_at: '2026-10-21T22:00:00Z' },
+    candidate_ci_failure: { candidate_sha: SHA, base_sha: base },
+    dev_bridge: { needs_repair: true, received_at: '2026-10-21T21:00:00Z', tests: [{ name: 'full-candidate-ci', passed: false }] },
+  } });
+  const calls = [];
+  const provider = { id: 'reference-repair', providerId: 'fixture', modelId: 'fixture', async invoke(request) {
+    calls.push(request);
+    return { text: JSON.stringify({ edits: [{ path: 'src/example.js', find: 'export const ready = false;', replace: 'export const ready = true;\nexport const keep = 1;' }], tests: ['test'] }) };
+  } };
+  const read = fetchImpl();
+  const fetchReference = async url => String(url).includes('raw.githubusercontent.com') && String(url).includes('/' + base + '/')
+    ? new Response('export const ready = false;\nexport const keep = 1;\n') : read(url);
+  const result = await prepareApprovedBridgePackage({ env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
+    repository, job: await repository.get(previous.id), fetchImpl: fetchReference,
+    mentorEngine: new MentorEngine({ providerFactory: async () => [provider] }),
+  });
+  assert.equal(result.mentor.mode, 'repair');
+  assert.equal(result.candidate_sha, SHA);
+  assert.match(calls[0].input, /REFERENCE src\/example.js/);
+  assert.match((await repository.get(previous.id)).files_json[0].content, /export const keep = 1/);
+  assert.equal((await repository.get(previous.id)).status, 'TEACHER_APPROVED');
+});
+
+test('an older cached package cannot bypass export validation or the mandatory full regression', async () => {
+  const repository = await approvedRepository();
+  const args = { env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH }, repository,
+    fetchImpl: fetchImpl(), mentorEngine: mentorEngine([]) };
+  await prepareApprovedBridgePackage({ ...args, job: await repository.get('bridge-prep-job') });
+  const job = await repository.get('bridge-prep-job');
+  await repository.update(job.id, { files_json: [{ path: 'src/example.js', content: 'export const replaced = true;' }] });
+  await assert.rejects(prepareApprovedBridgePackage({ ...args, job: await repository.get(job.id) }),
+    error => error.code === 'MENTOR_EXPORT_CONTRACT_REMOVED');
+  assert.equal((await repository.get(job.id)).status, 'TEACHER_APPROVED');
+});
+
+
+// [ChatGPT-GPT6 / MEL-CODE-MAX-HANDOFF] End-to-end MAX -> Mentor package ->
+// existing online GitHub dispatcher, using disposable D1 and a fake transport.
+test('an authenticated manual MAX tick queues the real Teacher-approved Mentor package through the cloud relay', async () => {
+  const DB = sqliteD1();
+  try {
+    const repository = await approvedRepository(DB);
+    const prepared = await prepareApprovedBridgePackage({
+      env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
+      repository,
+      job: await repository.get('bridge-prep-job'),
+      fetchImpl: fetchImpl(),
+      mentorEngine: mentorEngine([]),
+    });
+    assert.equal(prepared.status, 'READY');
+    const queued = [];
+    const tick = { ok: true, bridge_preparation: prepared, job: { id: 'bridge-prep-job', status: 'TEACHER_APPROVED' } };
+    const env = { DB, MEL_DEV_BRIDGE_TOKEN: 'test-cloud-bridge' };
+    let now = Date.now() + 1000;
+    const options = {
+      repository,
+      runAutonomyTick: async () => tick,
+      dispatchCloudBridge: (runtimeEnv, currentTick) => maybeDispatchCloudBridge(runtimeEnv, currentTick, {
+        now,
+        relay: {
+          async enqueue(item) {
+            queued.push(item);
+            return { id: 'online-relay-receipt-1' };
+          },
+        },
+      }),
+    };
+    const call = () => devRuntime(new Request('https://mel.example/api/dev-bridge/autonomy/tick', {
+      method: 'POST',
+      headers: { authorization: 'Bearer test-cloud-bridge', 'content-type': 'application/json' },
+      body: '{}',
+    }), env, options);
+
+    const first = await call();
+    assert.equal(first.status, 200);
+    const answer = await first.json();
+    assert.equal(answer.ok, true);
+    assert.equal(answer.cloud_dispatch.status, 'DISPATCH_QUEUED');
+    assert.equal(answer.cloud_dispatch.relay_job_id, 'online-relay-receipt-1');
+    assert.equal(queued.length, 1);
+    assert.equal(queued[0].workflow, CLOUD_BRIDGE_WORKFLOW);
+    assert.equal(queued[0].ref, 'main', 'the existing cloud workflow is the executor; no local PC endpoint');
+    assert.equal(queued[0].inputs.job_id, 'bridge-prep-job');
+    assert.equal((await repository.get('bridge-prep-job')).status, 'TEACHER_APPROVED', 'queue receipt never claims code ran');
+
+    now += 1000;
+    assert.equal((await (await call()).json()).cloud_dispatch.status, 'SKIPPED_RECENTLY_DISPATCHED');
+    assert.equal(queued.length, 1, 'a repeated MAX tick must not enqueue the same package');
+
+    const current = await repository.get('bridge-prep-job');
+    await repository.update(current.id, { status: 'CANCELLED' });
+    assert.equal((await (await call()).json()).cloud_dispatch.status, 'SKIPPED_NOT_READY');
+    assert.equal(queued.length, 1, 'a cancelled MAX job must not be dispatched');
+  } finally {
+    DB.close();
+  }
+});
+
+test('manual MAX tick reports cloud handoff failure without leaking internal transport details', async () => {
+  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+  const response = await devRuntime(new Request('https://mel.example/api/dev-bridge/autonomy/tick', {
+    method: 'POST',
+    headers: { authorization: 'Bearer test-cloud-bridge', 'content-type': 'application/json' },
+    body: '{}',
+  }), { MEL_DEV_BRIDGE_TOKEN: 'test-cloud-bridge' }, {
+    repository,
+    runAutonomyTick: async () => ({ ok: true, advanced: true }),
+    dispatchCloudBridge: async () => { throw new Error('private network authorization detail'); },
+  });
+  const answer = await response.json();
+  assert.equal(answer.tick.advanced, true, 'the MAX tick itself is preserved');
+  assert.equal(answer.cloud_dispatch.status, 'FAILED');
+  assert.equal(answer.cloud_dispatch.code, 'CLOUD_DISPATCH_FAILED');
+  assert.doesNotMatch(JSON.stringify(answer), /private network authorization detail/);
 });

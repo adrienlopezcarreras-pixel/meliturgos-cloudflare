@@ -1,6 +1,7 @@
 import http from 'node:http';
 import path from 'node:path';
 import dns from 'node:dns';
+import fs from 'node:fs';
 import { LocalDevBridge } from '../src/dev/dev-bridge.js';
 import { DevJobService } from '../src/dev/dev-job-service.js';
 import { parseSearchPaths, rankSearchPaths } from '../src/dev/search-paths.js';
@@ -75,6 +76,29 @@ const bridge = new LocalDevBridge({ repoRoot: process.cwd() });
 const jobs = new DevJobService();
 const remote = new RemoteWorkerClient({ token });
 let stopped = false;
+let activeJob = false;
+// [Codex] Local supervisor receipt: no credential, response body or job data.
+const controlDir = process.env.MEL_DEV_BRIDGE_CONTROL_DIR;
+const executorState = { pid: process.pid, session: process.env.MEL_DEV_BRIDGE_SESSION || '', repo: process.cwd(), heartbeat_at: null, code: 'STARTING' };
+function saveExecutorState(patch) {
+  Object.assign(executorState, patch);
+  if (!controlDir) return;
+  try {
+    const target = path.join(controlDir, 'status.json');
+    fs.writeFileSync(target + '.tmp', JSON.stringify(executorState), { mode: 0o600 });
+    fs.renameSync(target + '.tmp', target);
+  } catch { /* Status persistence never grants execution permission. */ }
+}
+async function confirmedHeartbeat() {
+  try {
+    const receipt = await remote.heartbeat();
+    const at = Number(receipt?.last_seen);
+    if (receipt?.bridge_id !== 'primary' || receipt?.status !== 'ONLINE' || !Number.isFinite(at) || at <= 0) throw new Error('HEARTBEAT_ACK_INVALID');
+    saveExecutorState({ heartbeat_at: at, code: 'RUNNING' });
+  } catch (error) {
+    saveExecutorState({ code: error.status === 401 || error.status === 403 ? 'CLOUD_AUTH_REQUIRED' : 'HEARTBEAT_UNCONFIRMED' });
+  }
+}
 const json = (res, status, body) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
 
 async function processRemoteJob(job) {
@@ -142,9 +166,11 @@ function resolveLocalImports(file, content) { const out = []; const re = /(?:imp
 function goalAwareSelect(goal, inspected) { const wantsUi = /interface|interface utilisateur|ui|page|écran|html|principal/i.test(String(goal)); return inspected.slice().sort((a,b) => (relevance(b.path,b.result?.content)+(wantsUi && /router/i.test(b.path)?-35:0)+(wantsUi && /(<main|<body|doctype|document\.createelement|innerhtml|page\s*=)/i.test(b.result?.content||'')?45:0)) - (relevance(a.path,a.result?.content)+(wantsUi && /router/i.test(a.path)?-35:0)+(wantsUi && /(<main|<body|doctype|document\.createelement|innerhtml|page\s*=)/i.test(a.result?.content||'')?45:0)))[0]?.path; }
 
 async function poll() {
-  if (stopped) return;
+  if (stopped || activeJob) return;
+  activeJob = true;
   try { const claimed = await remote.claim(); if (claimed?.job) await processRemoteJob(claimed.job); else if (claimed?.id || claimed?.job_id) await processRemoteJob(claimed); }
   catch (error) { if (error.status !== 401 && error.status !== 403) console.error(`MEL_DEV_BRIDGE_REMOTE_RETRY=${error.message}`); }
+  finally { activeJob = false; if (stopped) process.exit(0); }
 }
 
 const server = http.createServer(async (req, res) => {
@@ -161,10 +187,28 @@ const server = http.createServer(async (req, res) => {
   } catch (error) { return json(res, error.code === 'BRIDGE_AUTH_REQUIRED' ? 401 : 400, { error: error.code || error.message }); }
 });
 
-const heartbeatTimer = setInterval(() => remote.heartbeat().catch(error => {
-  if (error.status !== 401 && error.status !== 403) console.error(`MEL_DEV_BRIDGE_HEARTBEAT_RETRY=${error.message}`);
-}), 30000);
-const pollTimer = setInterval(poll, Number(process.env.MEL_DEV_BRIDGE_POLL_MS || 3000));
-remote.heartbeat().catch(error => console.error(`MEL_DEV_BRIDGE_HEARTBEAT_RETRY=${error.message}`));
-server.listen(Number(process.env.MEL_DEV_BRIDGE_PORT || 8788), '127.0.0.1', () => console.log(`MEL_DEV_BRIDGE_ONLINE worker=${remote.base} dns_order=${process.env.MEL_DEV_DNS_ORDER || 'ipv4first'}`));
-for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { stopped = true; clearInterval(heartbeatTimer); clearInterval(pollTimer); server.close(() => process.exit(0)); });
+let heartbeatTimer, pollTimer, controlTimer;
+function stopExecutor() {
+  if (stopped) return;
+  stopped = true;
+  clearInterval(heartbeatTimer); clearInterval(pollTimer); clearInterval(controlTimer);
+  saveExecutorState({ code: 'STOPPED' });
+  server.close(() => { if (!activeJob) process.exit(0); });
+}
+// Do not claim work or send a heartbeat until the exclusive local port was
+// acquired. A second process must not act before EADDRINUSE terminates it.
+server.once('error', () => { saveExecutorState({ code: 'LOCAL_PORT_UNAVAILABLE' }); process.exit(1); });
+server.listen(Number(process.env.MEL_DEV_BRIDGE_PORT || 8788), '127.0.0.1', () => {
+  saveExecutorState({ code: 'STARTING' });
+  void confirmedHeartbeat();
+  heartbeatTimer = setInterval(confirmedHeartbeat, 30000);
+  pollTimer = setInterval(poll, Number(process.env.MEL_DEV_BRIDGE_POLL_MS || 3000));
+  if (controlDir) controlTimer = setInterval(() => {
+    let parentGone = false;
+    const parent = Number(process.env.MEL_DEV_BRIDGE_PARENT_PID);
+    if (Number.isSafeInteger(parent) && parent > 0) { try { process.kill(parent, 0); } catch (error) { parentGone = error.code === 'ESRCH'; } }
+    if (parentGone || fs.existsSync(path.join(controlDir, 'stop'))) stopExecutor();
+  }, 500);
+  console.log(`MEL_DEV_BRIDGE_ONLINE worker=${remote.base} dns_order=${process.env.MEL_DEV_DNS_ORDER || 'ipv4first'}`);
+});
+for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, stopExecutor);

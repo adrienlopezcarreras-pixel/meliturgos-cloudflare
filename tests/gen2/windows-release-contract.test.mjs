@@ -75,7 +75,7 @@ test('native Windows Companion refreshes only its authenticated MEL engine with 
   assert.match(source, /engine_refresh_status/);
   assert.match(source, /engine_update_required/);
   assert.match(source, /MaybeRefreshCompanionEngine\(true\)/);
-  assert.match(source, /public const string Version = "2\.3\.16"/);
+  assert.match(source, /public const string Version = "2\.3\.17"/);
   assert.match(source, /StartBackgroundSupervisor/);
   assert.match(source, /System\.Threading\.Timer/);
 });
@@ -165,7 +165,9 @@ test('MINI USB chooses an installed esptool interpreter instead of blindly using
 test('Companion uses docked, responsive shell and wrapped device cards', async () => {
  const source=await read('windows-companion/MEL-Companion.cs');
  assert.match(source,/var shell=new TableLayoutPanel/);
- assert.match(source,/Dock=DockStyle.Fill,ColumnCount=1,RowCount=5/);
+ assert.match(source,/Dock=DockStyle.Fill,ColumnCount=1,RowCount=6/);
+ assert.match(source,/shell.Controls.Add\(executor,0,2\)/);
+ assert.match(source,/shell.Controls.Add\(cards,0,4\)/);
  assert.match(source,/AutoScaleMode=AutoScaleMode.None; \/\/ sizes are scaled explicitly with k/);
  assert.match(source,/readonly float k=MelApp.DpiScale\(\);/);
  assert.doesNotMatch(source,/new RowStyle\(SizeType.Absolute,\d/, "fixed rows must be DPI-scaled");

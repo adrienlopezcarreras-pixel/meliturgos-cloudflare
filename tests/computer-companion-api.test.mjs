@@ -328,7 +328,7 @@ test('Windows command engine heartbeat is independently fresh from the desktop U
     const engineHeartbeatAt=Date.now()+60000;
     response=await maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/heartbeat',{
       method:'POST',headers,
-      body:JSON.stringify({engine_version:'1.3.0',engine_heartbeat_at:engineHeartbeatAt,active_window:'MEL_TEST',local_compute_enabled:false})
+      body:JSON.stringify({engine_version:'1.3.0',engine_heartbeat_at:engineHeartbeatAt,active_window:'MEL_TEST',local_compute_enabled:false,dev_executor:{status:'RUNNING',heartbeat_at:Date.now()}})
     }),env);
     payload=await response.json();
     assert.equal(payload.engine_online,true);
@@ -342,18 +342,31 @@ test('Windows command engine heartbeat is independently fresh from the desktop U
     assert.ok(directSeen>=Date.now()-2000 && directSeen<=Date.now(),
       'PowerShell heartbeat must be recorded independently from native supervisor');
     assert.equal(Number(direct.last_seen_at),Number(seenBefore.last_seen_at));
+    assert.equal(JSON.parse(direct.metadata).dev_executor_status,'RUNNING');
+    response=await maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/heartbeat',{
+      method:'POST',headers,body:JSON.stringify({version:'2.3.17'})
+    }),env);
+    assert.equal(response.status,200);
+    const afterUi=await DB.prepare('SELECT metadata FROM computer_devices WHERE id=?').bind('pc-engine-heartbeat').first();
+    assert.equal(JSON.parse(afterUi.metadata).dev_executor_status,'RUNNING','native heartbeat cannot erase independent executor evidence');
+    response=await maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/heartbeat',{
+      method:'POST',headers,body:JSON.stringify({engine_version:'1.5.2',dev_executor:{status:'RUNNING',heartbeat_at:Date.now()-120000}})
+    }),env);
+    assert.equal(response.status,200);
+    const expired=await DB.prepare('SELECT metadata FROM computer_devices WHERE id=?').bind('pc-engine-heartbeat').first();
+    assert.equal(JSON.parse(expired.metadata).dev_executor_status,'UNAVAILABLE','process alive is not a confirmed cloud heartbeat');
   }finally{DB.close();}
 });
 
-test('Windows Companion 2.3.16 adds interactive desktop geometry and keeps engine self-refresh',async()=>{
+test('Windows Companion 2.3.17 preserves interactive desktop geometry and engine self-refresh',async()=>{
   const desktop=await readFile(new URL('../windows-companion/MEL-Companion.cs',import.meta.url),'utf8');
   const companion=await readFile(new URL('../assets/MEL-Computer-Companion.ps1',import.meta.url),'utf8');
-  assert.match(desktop,/Version = "2\.3\.16"/);
+  assert.match(desktop,/Version = "2\.3\.17"/);
   assert.match(desktop,/EnsureCompanion/);
   assert.match(desktop,/CompanionRunning/);
   assert.match(desktop,/StartBackgroundSupervisor/);
   assert.match(desktop,/System\.Threading\.Timer/);
-  assert.match(companion,/\$Version = "1\.5\.1"/);
+  assert.match(companion,/\$Version = "1\.5\.2"/);
   // Heartbeat must report the current on-disk owner switch, not a cached startup flag.
   assert.match(companion,/remote_access_enabled\s*=\s*\$remoteEnabled/);
   assert.match(companion,/try \{ Assert-LocalRemoteAccess; \$remoteEnabled = \$true \} catch \{\}/);
