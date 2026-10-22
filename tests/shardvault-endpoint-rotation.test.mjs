@@ -206,7 +206,11 @@ test('ShardVault refreshes discovery once every ready code target has already be
 
 test('bounded discovery retry preserves the 7x target while allowing a 5-of-7 release quorum', async () => {
   const runtime = await readFile(new URL('../src/continuity/shardvault-runtime.js', import.meta.url), 'utf8');
-  const workflow = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const canonical = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const proof = await readFile(new URL('../scripts/release-autonomy-deep-proof.sh', import.meta.url), 'utf8');
+  const entry = '          bash scripts/release-autonomy-deep-proof.sh';
+  assert.ok(canonical.includes(entry), 'deep proof entrypoint required');
+  const workflow = canonical.replace(entry, proof.split('\n').map(line => '          ' + line).join('\n'));
 
   assert.match(runtime, /retryActivationAfterWriteFailure/);
   assert.match(runtime, /excludeEndpointIds:\[rotation\.failedEndpointId\]/);
