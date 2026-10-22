@@ -23,7 +23,10 @@ const enc = new TextEncoder();
 const hex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 
 function bytesFrom(text) {
-  const s = String(text || '').trim().replace(/^0x/i, '');
+  const raw = String(text || '').trim();
+  // A base64 ciphertext can legitimately start with the characters '0x'.
+  // Only strip a hex prefix when the remaining payload is actually hex.
+  const s = /^0x[0-9a-f]+$/i.test(raw) && (raw.length - 2) % 2 === 0 ? raw.slice(2) : raw;
   if (/^[0-9a-f]+$/i.test(s) && s.length % 2 === 0) return Uint8Array.from(s.match(/../g), h => parseInt(h, 16));
   try {
     const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
