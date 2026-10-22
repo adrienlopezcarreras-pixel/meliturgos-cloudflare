@@ -24,10 +24,7 @@ test('release retries Skill Registry proof across bounded Worker secret propagat
 
 
 test('release retries long-context proof across bounded Worker secret propagation', async () => {
-  const workflow = await readFile(
-    new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url),
-    'utf8',
-  );
+  const workflow = await effectiveRelease();
 
   assert.match(workflow, /LONG_CONTEXT_READY=0/);
   assert.match(workflow, /for LONG_CONTEXT_ATTEMPT in \$\(seq 1 12\)/);
