@@ -24,6 +24,18 @@ async function encrypt(dek, layout) {
   return JSON.stringify({ iv: hex(iv), authTag: hex(tag), ciphertext: hex(ct) });
 }
 
+test('Base64 keystore blobs beginning with 0x are not mistaken for hex', () => {
+  // A random AES-GCM IV can produce the literal Base64 prefix "0x".
+  const blob = Buffer.alloc(80, 1);
+  blob[0] = 0xd3;
+  blob[1] = 0x10;
+  const encoded = blob.toString('base64');
+  assert.ok(encoded.startsWith('0x'));
+  const layouts = encryptedKeyLayouts(encoded);
+  assert.ok(layouts.length >= 1);
+  assert.deepEqual(Buffer.from(layouts[0][0]), blob.subarray(0, 12));
+});
+
 for (const layout of ['colon', 'blob', 'json']) {
   test('keystore unlocks like the CLI (' + layout + ' layout) and only for the right address', async () => {
     const dek = crypto.getRandomValues(new Uint8Array(32));
