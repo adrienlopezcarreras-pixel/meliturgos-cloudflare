@@ -45,5 +45,7 @@ test('full chat keeps photo preview in sent messages and does not expose a store
   assert.match(full, /localUrl=await melLocalPhotoPreview\(file\)/);
   assert.match(full, /function appendLocalMedia\(host,item/);
   assert.match(full, /vision indisponible/);
-  assert.doesNotMatch(full, /URL\.createObjectURL\(file\)/);
+  // Object URLs are local, ephemeral media previews; they are not public R2 links.
+  assert.match(full, /URL\.createObjectURL\(file\)/);
+  assert.match(full, /URL\.revokeObjectURL/);
 });
