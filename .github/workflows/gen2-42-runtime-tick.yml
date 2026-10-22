@@ -106,9 +106,11 @@ jobs:
             TICK_STATUS="$(node -p "JSON.parse(require('fs').readFileSync('tick-response.raw.json','utf8')).tick_status||''")"
             if [ "$TICK_STATUS" != "SKIPPED_LEASE_BUSY" ]; then break; fi
             if [ "$ATTEMPT" -ge 3 ]; then
-              echo "AUTONOMY_LEASE_BUSY_AFTER_RETRIES attempts=$ATTEMPT"
-              cat tick-response.raw.json
-              exit 66
+              # A protected concurrent tick owns the D1 lease. This invocation
+              # must preserve its SKIPPED_LEASE_BUSY proof rather than claiming
+              # a runtime failure or fabricating progress.
+              echo "AUTONOMY_LEASE_CONTENTION_DEFERRED attempts=$ATTEMPT"
+              break
             fi
             echo "AUTONOMY_LEASE_BUSY_RETRY attempt=$ATTEMPT"
             ATTEMPT="$((ATTEMPT + 1))"
@@ -202,6 +204,10 @@ jobs:
           BLOCK="$(node -p "JSON.parse(require('fs').readFileSync('gen2-42-runtime-tick-proof.json','utf8')).progress?.block_reason||''")"
           if [ "$ADVANCED" != "true" ] && [ "$BLOCK" = "MENTOR_NO_VALID_CODE_PROPOSAL" ]; then
             echo "AUTONOMY_CHAIN_MENTOR_REJECTED_NO_REPEAT advanced=$ADVANCED block=$BLOCK"
+            exit 0
+          fi
+          if [ "$BLOCK" = "AUTONOMY_RUNTIME_LEASE_BUSY" ]; then
+            echo "AUTONOMY_CHAIN_DEFERRED_LEASE_BUSY"
             exit 0
           fi
           if [ "$PAUSED" = "true" ] || [ "$READY" = "true" ] || [ "$WORK_REMAINING" != "true" ]; then

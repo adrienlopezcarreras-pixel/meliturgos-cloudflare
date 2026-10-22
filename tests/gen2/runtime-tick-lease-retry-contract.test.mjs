@@ -21,3 +21,12 @@ test('GEN2-42 production tick shares the release-proof concurrency group and nev
   assert.match(source, /cancel-in-progress:\s*false/);
   assert.match(source, /SKIPPED_LEASE_BUSY/);
 });
+
+test('GEN2-42 records lease contention without inventing progress or recursively dispatching', async () => {
+  const source = await readFile(new URL('../../.github/workflows/gen2-42-runtime-tick.yml', import.meta.url), 'utf8');
+  assert.match(source, /AUTONOMY_LEASE_CONTENTION_DEFERRED/);
+  assert.doesNotMatch(source, /AUTONOMY_LEASE_BUSY_AFTER_RETRIES/);
+  assert.match(source, /if \[ "\$BLOCK" = "AUTONOMY_RUNTIME_LEASE_BUSY" \]; then\s+echo "AUTONOMY_CHAIN_DEFERRED_LEASE_BUSY"\s+exit 0/);
+  assert.match(source, /tick_status:body\?\.tick_status\|\|null/);
+  assert.match(source, /advanced:body\?\.advanced===true/);
+});
