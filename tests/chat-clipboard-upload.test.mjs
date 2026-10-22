@@ -47,3 +47,16 @@ test('normal chat stages uploaded attachments and allows removal before explicit
   assert.match(NORMAL_RUNTIME_SOURCE, /const original=.*staged=pendingFiles\.splice\(0\)/);
   assert.match(NORMAL_RUNTIME_SOURCE, /pièce jointe prête/);
 });
+
+test('normal runtime preserves image MIME regex after JS string generation', () => {
+  // Regression: a single source-level backslash disappears in the generated
+  // script, making '/^image//i.test(...)' evaluate an undefined variable i.
+  const imagePredicate = String.raw`/^image\//i.test(file.type)`;
+  assert.equal(NORMAL_RUNTIME_SOURCE.split(imagePredicate).length - 1, 2);
+  assert.equal(NORMAL_RUNTIME_SOURCE.includes('/^image//i.test(file.type)'), false);
+  const expression = NORMAL_RUNTIME_SOURCE.match(/isImage:(.*?),analysisStatus:/)?.[1];
+  assert.equal(expression, imagePredicate);
+  const matchMime = new Function('file', 'return ' + expression);
+  assert.equal(matchMime({type:'image/jpeg'}), true);
+  assert.equal(matchMime({type:'application/pdf'}), false);
+});
