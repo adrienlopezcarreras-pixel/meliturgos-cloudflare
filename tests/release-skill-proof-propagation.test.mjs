@@ -1,12 +1,17 @@
 import test from 'node:test';
+async function effectiveRelease() {
+  const canonical=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  const script=await readFile(new URL('../scripts/release-autonomy-deep-proof.sh',import.meta.url),'utf8');
+  const marker='          bash scripts/release-autonomy-deep-proof.sh';
+  if(!canonical.includes(marker))throw new Error('RELEASE_PROOF_ENTRYPOINT_MISSING');
+  return canonical.replace(marker,script.split('\n').map(line=>'          '+line).join('\n'));
+}
+
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 test('release retries Skill Registry proof across bounded Worker secret propagation', async () => {
-  const workflow = await readFile(
-    new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url),
-    'utf8',
-  );
+  const workflow = await effectiveRelease();
 
   assert.match(workflow, /SKILL_REGISTRY_READY=0/);
   assert.match(workflow, /for SKILL_REGISTRY_ATTEMPT in \$\(seq 1 12\)/);
@@ -19,10 +24,7 @@ test('release retries Skill Registry proof across bounded Worker secret propagat
 
 
 test('release retries long-context proof across bounded Worker secret propagation', async () => {
-  const workflow = await readFile(
-    new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url),
-    'utf8',
-  );
+  const workflow = await effectiveRelease();
 
   assert.match(workflow, /LONG_CONTEXT_READY=0/);
   assert.match(workflow, /for LONG_CONTEXT_ATTEMPT in \$\(seq 1 12\)/);

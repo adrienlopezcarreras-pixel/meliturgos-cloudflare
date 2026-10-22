@@ -1,12 +1,17 @@
 import test from 'node:test';
+async function effectiveRelease() {
+  const canonical=await readFile(new URL('../../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  const script=await readFile(new URL('../../scripts/release-autonomy-deep-proof.sh',import.meta.url),'utf8');
+  const marker='          bash scripts/release-autonomy-deep-proof.sh';
+  if(!canonical.includes(marker))throw new Error('RELEASE_PROOF_ENTRYPOINT_MISSING');
+  return canonical.replace(marker,script.split('\n').map(line=>'          '+line).join('\n'));
+}
+
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 test('GEN2-55 production release proves integrity and maturity through CapabilityBus', async () => {
-  const workflow = await readFile(
-    new URL('../../.github/workflows/deploy-cloudflare-release.yml', import.meta.url),
-    'utf8',
-  );
+  const workflow = await effectiveRelease();
 
   assert.match(workflow, /"id":"system\.integrity"/);
   assert.match(workflow, /production-system-integrity\.json/);
@@ -17,10 +22,7 @@ test('GEN2-55 production release proves integrity and maturity through Capabilit
 });
 
 test('GEN2-55 production proof remains fail-closed and read-only', async () => {
-  const workflow = await readFile(
-    new URL('../../.github/workflows/deploy-cloudflare-release.yml', import.meta.url),
-    'utf8',
-  );
+  const workflow = await effectiveRelease();
 
   assert.match(workflow, /exit 48/);
   assert.match(workflow, /exit 49/);

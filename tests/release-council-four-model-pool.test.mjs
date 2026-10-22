@@ -5,7 +5,11 @@ import { createDefaultAugmentioPool } from '../src/augmentio/default-pool.js';
 import { standardRegistry } from '../src/models/ModelRegistry.js';
 import { evaluateCouncilReleaseProof } from '../scripts/check-release-council-proof.mjs';
 
-const workflow = readFileSync('.github/workflows/deploy-cloudflare-release.yml', 'utf8');
+const canonical = readFileSync('.github/workflows/deploy-cloudflare-release.yml', 'utf8');
+const script = readFileSync('scripts/release-autonomy-deep-proof.sh', 'utf8');
+const entry = '          bash scripts/release-autonomy-deep-proof.sh';
+if (!canonical.includes(entry)) throw new Error('RELEASE_PROOF_ENTRYPOINT_MISSING');
+const workflow = canonical.replace(entry, script.split('\n').map(line => '          ' + line).join('\n'));
 const councilSection = workflow.slice(workflow.indexOf('# MEL-COUNCIL-02: four bounded'), workflow.indexOf('# GEN2-38: prove pure planning'));
 
 test('production Council probe selects four bounded independent model candidates', () => {

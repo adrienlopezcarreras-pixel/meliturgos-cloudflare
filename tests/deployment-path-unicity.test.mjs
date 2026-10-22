@@ -30,7 +30,11 @@ test('only the canonical release workflow can mutate Cloudflare production', asy
 });
 
 test('canonical production release requires human approval and exact immutable identity', async () => {
-  const source = await readFile(path.join(WORKFLOWS, CANONICAL), 'utf8');
+  const canonical = await readFile(path.join(WORKFLOWS, CANONICAL), 'utf8');
+  const proof = await readFile(path.join(process.cwd(), 'scripts/release-autonomy-deep-proof.sh'), 'utf8');
+  const entry = '          bash scripts/release-autonomy-deep-proof.sh';
+  assert.ok(canonical.includes(entry), 'release proof entrypoint must exist');
+  const source = canonical.replace(entry, proof.split('\n').map(line => '          ' + line).join('\n'));
   assert.match(source, /workflow_dispatch:/);
   assert.match(source, /DEPLOY_APPROVED/);
   assert.match(source, /release\/\*/);

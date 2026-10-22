@@ -7,7 +7,11 @@ import { allowCodeEndpointForShard } from '../src/continuity/shardvault-code-tar
 
 const runtime=await readFile(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
 const mirrorWorkflow=await readFile(new URL('../.github/workflows/shardvault-github-code-mirror.yml',import.meta.url),'utf8');
-const releaseWorkflow=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+const releaseWorkflowBase=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+const deepProof=await readFile(new URL('../scripts/release-autonomy-deep-proof.sh',import.meta.url),'utf8');
+const proofEntrypoint='          bash scripts/release-autonomy-deep-proof.sh';
+if (!releaseWorkflowBase.includes(proofEntrypoint)) throw new Error('RELEASE_DEEP_PROOF_ENTRYPOINT_MISSING');
+const releaseWorkflow=releaseWorkflowBase.replace(proofEntrypoint,deepProof.split('\n').map(line=>'          '+line).join('\n'));
 const wrangler=await readFile(new URL('../wrangler.jsonc',import.meta.url),'utf8');
 
 test('GitHub code mirror is code-sync-only and gated to the final missing shard',()=>{

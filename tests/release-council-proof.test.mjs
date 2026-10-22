@@ -81,7 +81,11 @@ test('synthesis, provenance and zero-euro proof each remain hard gates', () => {
   assert.equal(evaluateCouncilReleaseProof(c).code, 'MEL_COUNCIL_02_ZERO_COST_PROOF_FAILED');
 });
 test('release still calls the strict verifier instead of accepting degraded Council', () => {
-  const wf = readFileSync('.github/workflows/deploy-cloudflare-release.yml', 'utf8');
+  const canonical = readFileSync('.github/workflows/deploy-cloudflare-release.yml', 'utf8');
+  const script = readFileSync('scripts/release-autonomy-deep-proof.sh', 'utf8');
+  const entry = '          bash scripts/release-autonomy-deep-proof.sh';
+  assert.ok(canonical.includes(entry), 'release must invoke deep-proof script');
+  const wf = canonical.replace(entry, script.split('\n').map(line => '          ' + line).join('\n'));
   assert.match(wf, /node scripts\/check-release-council-proof\.mjs production-mel-council-02\.json/);
   assert.match(wf, /MEL_RELEASE_DEEP_AI_PROOFS_PAUSED/);
 });

@@ -18,27 +18,21 @@ if (!(shaGate < httpGate && httpGate < downstreamDispatch && downstreamDispatch 
   throw new Error('RELEASE_PRIMARY_GATES_MUST_PRECEDE_DEEP_PROOFS');
 }
 
-const runMarker = '        run: |';
-const runAt = source.indexOf(runMarker, start);
-if (runAt < 0) throw new Error('RELEASE_PROOF_RUN_BLOCK_NOT_FOUND');
-const blockStart = source.indexOf('\n', runAt) + 1;
-const lines = source.slice(blockStart).split('\n');
-const body = [];
-for (const line of lines) {
-  if (line.startsWith('      - name: ') || line.startsWith('      - uses: ')) break;
-  if (!line.trim()) {
-    body.push('');
-    continue;
-  }
-  if (!line.startsWith('          ')) {
-    if (/^\s{6,8}[A-Za-z_-]+:/.test(line)) break;
-    throw new Error('RELEASE_PROOF_BLOCK_INDENT_INVALID:' + line.slice(0, 80));
-  }
-  body.push(line.slice(10));
+const scriptPath = new URL('./release-autonomy-deep-proof.sh', import.meta.url);
+const invocation = '          bash scripts/release-autonomy-deep-proof.sh';
+const remainder = source.slice(start);
+const nextStep = remainder.indexOf('      - name: ', marker.length);
+const proofStep = nextStep < 0 ? remainder : remainder.slice(0, nextStep);
+if (!proofStep.includes(invocation)) throw new Error('RELEASE_PROOF_ENTRYPOINT_MISSING');
+if (!proofStep.includes('        timeout-minutes: 55')) throw new Error('RELEASE_PROOF_TIMEOUT_NOT_PRESERVED');
+for (const name of ['CLOUDFLARE_API_TOKEN','CLOUDFLARE_ACCOUNT_ID','MEL_BACKUP_ENCRYPTION_KEY_B64','MEL_BACKUP_ENCRYPTION_KEY_ID','GITHUB_TOKEN']) {
+  if (!proofStep.includes('          ' + name + ':')) throw new Error('RELEASE_PROOF_ENV_MISSING:' + name);
 }
-if (!body.length) throw new Error('RELEASE_PROOF_BLOCK_EMPTY');
+if (proofStep.indexOf(invocation) > proofStep.indexOf('        env:')) throw new Error('RELEASE_PROOF_ENTRYPOINT_AFTER_ENV');
+const body = await fs.readFile(scriptPath, 'utf8');
+if (!body.includes('MEL_RELEASE_EVIDENCE_PHASE=ALL_PROOFS_COMPLETE')) throw new Error('RELEASE_PROOF_END_MARKER_MISSING');
 const tmp = path.join(os.tmpdir(), 'mel-release-proof-bash-n.sh');
-await fs.writeFile(tmp, body.join('\n') + '\n', 'utf8');
+await fs.writeFile(tmp, body, 'utf8');
 const result = spawnSync('bash', ['-n', tmp], { encoding: 'utf8' });
 if (result.status !== 0) {
   process.stderr.write(result.stderr || result.stdout || 'bash -n failed\n');

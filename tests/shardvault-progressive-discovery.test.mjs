@@ -79,7 +79,11 @@ test('bounded ShardVault qualification stays small and promotes one real shard w
 });
 
 test('release ShardVault scan probes one documented candidate per bounded request', () => {
-  const workflow=fs.readFileSync(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  const canonical=fs.readFileSync(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  const deepProof=fs.readFileSync(new URL('../scripts/release-autonomy-deep-proof.sh',import.meta.url),'utf8');
+  const entry='          bash scripts/release-autonomy-deep-proof.sh';
+  assert.ok(canonical.includes(entry),'Deep proof entrypoint must exist');
+  const workflow=canonical.replace(entry,deepProof.split('\n').map(line=>'          '+line).join('\n'));
   assert.match(workflow,/SHARD_PROBE_LIMIT=1/);
   assert.match(workflow,/SHARD_OFFSET=\$\(\( \(SHARD_ATTEMPT - 1\) % 13 \)\)/);
   assert.match(workflow,/SHARD_KNOWN_ONLY=true/);

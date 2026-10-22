@@ -17,7 +17,11 @@ test('roadmap closeout reactivates ShardVault external replication while autonom
 });
 
 test('release workflow preserves the ShardVault 7x target, a reconstructible release quorum, and only an explicit temporary dev-light pause', async () => {
-  const workflow = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const canonical=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const deepProof=await readFile(new URL('../scripts/release-autonomy-deep-proof.sh', import.meta.url), 'utf8');
+  const entry='          bash scripts/release-autonomy-deep-proof.sh';
+  assert.ok(canonical.includes(entry),'Deep proof entrypoint must exist');
+  const workflow=canonical.replace(entry,deepProof.split('\n').map(line=>'          '+line).join('\n'));
   const paused=/MEL_ROADMAP_SHARDVAULT_PAUSED: 'true'/.test(workflow);
   if(paused){
     assert.match(workflow,/TEMPORARY DEV-LIGHT MODE/);
