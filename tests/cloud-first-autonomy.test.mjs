@@ -250,3 +250,35 @@ test('a newly approved candidate package supersedes old cloud dispatch reservati
     .bind('gen2-42-apply-ready-bridge.yml').first();
   assert.equal(Number(count.n), 2, 'one immutable receipt per approved package revision');
 });
+
+
+// [ChatGPT-GPT6 / MEL-CODE-SECOND-READY] A recently dispatched job must not
+// monopolize the dispatcher when MAX has another independent approved job.
+test('a second approved MAX job is dispatched while the first awaits its cloud relay', async t => {
+  const { DB, repository, job } = await fixture(t);
+  const store = new D1GitHubActionRelayStore(DB);
+  const now = Date.now() + 1000;
+  assert.equal((await maybeDispatchCloudBridge({ DB }, {}, { now, relay: store })).status, 'DISPATCH_QUEUED');
+
+  const independent = await repository.create({
+    id: 'second-cloud-job', requested_by: 'mel-autonomy', goal: 'Second independent approved job',
+  });
+  const source = job.result_json;
+  await repository.update(independent.id, {
+    status: 'TEACHER_APPROVED',
+    files_json: [{ path: 'src/second.js', content: 'export const second = true;' }],
+    tests_json: [{ command: 'test:smoke' }],
+    result_json: {
+      ...source,
+      bridge_preparation: {
+        ...source.bridge_preparation, created_at: new Date(now + 1).toISOString(),
+      },
+    },
+  });
+  const second = await maybeDispatchCloudBridge({ DB }, {}, { now: now + 2, relay: store });
+  assert.equal(second.status, 'DISPATCH_QUEUED');
+  const queued = await DB.prepare("SELECT inputs_json FROM github_action_relay_jobs ORDER BY created_at ASC").all();
+  assert.equal(queued.results.length, 2);
+  const ids = queued.results.map(row => JSON.parse(row.inputs_json).job_id).sort();
+  assert.deepEqual(ids, [job.id, independent.id].sort());
+});
