@@ -24,9 +24,9 @@ on:
         default: false
         type: boolean
       owner_max_autorelease:
-        description: Keep MAX disabled after release unless the operator explicitly opts in
+        description: Reactivate MAX after verified release (owner/safety pauses remain authoritative)
         required: false
-        default: false
+        default: true
         type: boolean
 
 permissions:
