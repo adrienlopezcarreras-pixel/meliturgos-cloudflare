@@ -14,8 +14,8 @@ function memoryVaults() {
   return { putToken: async ({ connector_id, token_set }) => { m.set(connector_id, structuredClone(token_set)); }, getToken: async ({ connector_id }) => structuredClone(m.get(connector_id) ?? null) };
 }
 
-async function encrypt(dek, layout) {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
+async function encrypt(dek, layout, overrideIv = null) {
+  const iv = overrideIv || crypto.getRandomValues(new Uint8Array(12));
   const key = await crypto.subtle.importKey('raw', dek, 'AES-GCM', false, ['encrypt']);
   const out = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode('0x' + PK)));
   const ct = out.slice(0, -16), tag = out.slice(-16);
@@ -33,6 +33,17 @@ test('Base64 ciphertext beginning with 0x is not mistaken for hex', () => {
   const candidates = encryptedKeyLayouts(encoded);
   assert.ok(candidates.length > 0);
   assert.deepEqual(Buffer.from(candidates[0][0]), raw.subarray(0, 12));
+});
+
+test('0x-prefixed Base64 keystore unlocks with authenticated AES-GCM and address check', async () => {
+  const dek = crypto.getRandomValues(new Uint8Array(32));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  iv[0] = 0xd3; iv[1] = 0x1c;
+  const encryptedKey = await encrypt(dek, 'blob', iv);
+  assert.ok(encryptedKey.startsWith('0x'));
+  const result = await unlockWallet({ encryptedKey, walletAddress: ADDRESS }, dek);
+  assert.equal(hex(result), PK);
+  await assert.rejects(unlockWallet({ encryptedKey, walletAddress: '0x' + '1'.repeat(40) }, dek), /UNLOCK_FAILED/);
 });
 
 for (const layout of ['colon', 'blob', 'json']) {
