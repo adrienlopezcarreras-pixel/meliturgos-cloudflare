@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inferenceGenerationOptions, runNativeInference, loadCognitiveMemory, compactInferenceMessages, voiceGenerationTokenBudget, completeTruncatedNativeInference, runBoundedChatFallback } from '../src/api/native-chat.js';
+import { inferenceGenerationOptions, runNativeInference, loadCognitiveMemory, compactInferenceMessages, voiceGenerationTokenBudget, completeTruncatedNativeInference, runBoundedChatFallback, professorCodeModelPreference, PROFESSOR_CODE_PRIMARY_MODEL } from '../src/api/native-chat.js';
 
 test('promoted inference generation settings reach the direct AI payload', async () => {
   const calls = [];
@@ -146,4 +146,21 @@ test('bounded cloud fallback propagates real provider failures without hiding th
     runBoundedChatFallback(async () => { throw Object.assign(Error('rate limited'), { code: '429' }); }, 'x', {}, { timeoutMs: 100 }),
     { code: '429' },
   );
+});
+
+test('Professor Code selects a different CODE model, without altering Normal routing', async () => {
+  const env = { AI: { run: async (model) => ({ response: 'result from ' + model }) } };
+  const messages = [{ role: 'user', content: 'bonjour' }];
+  assert.equal(professorCodeModelPreference({ surface: 'mel-full', role: 'assistant', requested_mode: 'conversation' }), null);
+  assert.equal(professorCodeModelPreference({ surface: 'mel-normal', role: 'developer', requested_mode: 'code' }), null);
+  assert.equal(professorCodeModelPreference({ surface: 'mel-full', role: 'developer', requested_mode: 'code' }), PROFESSOR_CODE_PRIMARY_MODEL);
+
+  const assistant = await runNativeInference({ env, messages, text: 'bonjour' });
+  const developer = await runNativeInference({
+    env, messages, text: 'bonjour', taskOverride: 'CODE',
+    preferredModel: professorCodeModelPreference({ surface: 'mel-full', role: 'developer', requested_mode: 'code' }),
+  });
+  assert.equal(developer.task, 'CODE');
+  assert.equal(developer.model, PROFESSOR_CODE_PRIMARY_MODEL);
+  assert.notEqual(assistant.model, developer.model, 'Professor CODE must use a distinct primary from normal conversation');
 });
