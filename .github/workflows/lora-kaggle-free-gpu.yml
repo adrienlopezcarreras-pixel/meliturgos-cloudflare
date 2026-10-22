@@ -127,7 +127,6 @@ jobs:
           [[ "$SHARD_SIZE" =~ ^[0-9]+$ ]] || { echo "INVALID_SHARD_SIZE"; exit 1; }
           [[ "$MAX_CYCLES" =~ ^[0-9]+$ ]] || { echo "INVALID_MAX_CYCLES"; exit 1; }
           (( SHARD_SIZE >= 50 && SHARD_SIZE <= 3000 )) || { echo "SHARD_SIZE_OUT_OF_RANGE"; exit 1; }
-          if [[ "$SMOKE_ONLY" == "true" && "$SHARD_SIZE" -lt 92 ]]; then SHARD_SIZE="92"; fi
           (( MAX_CYCLES >= 1 && MAX_CYCLES <= 100 )) || { echo "MAX_CYCLES_OUT_OF_RANGE"; exit 1; }
 
           PAYLOAD_SLUG="mel-lora-cycle-payload-${SOURCE_SHA:0:12}-c$(printf '%03d' "$CYCLE")"
@@ -242,7 +241,20 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install -q "datasets>=2.20" "huggingface_hub>=0.25"
-          node scripts/export-canonical-lora-dataset.mjs --output /tmp/mel-canonical-50.jsonl
+          CANONICAL_EXPORT_META="/tmp/mel-canonical-export.json"
+          node scripts/export-canonical-lora-dataset.mjs --output /tmp/mel-canonical-50.jsonl > "$CANONICAL_EXPORT_META"
+          # Normalize smoke size from the actual export; never discard canonical lessons.
+          CANONICAL_MEL_COUNT="$(node -e '
+            const n=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).examples;
+            if(!Number.isSafeInteger(n)||n<50||n>3000) throw Error("CANONICAL_LORA_COUNT_INVALID");
+            process.stdout.write(String(n));
+          ' "$CANONICAL_EXPORT_META")"
+          if [[ "$SMOKE_ONLY" == "true" && "$SHARD_SIZE" -lt "$CANONICAL_MEL_COUNT" ]]; then
+            SHARD_SIZE="$CANONICAL_MEL_COUNT"
+            echo "SHARD_SIZE=$SHARD_SIZE" >> "$GITHUB_ENV"
+            echo "Smoke shard includes all $CANONICAL_MEL_COUNT canonical lessons."
+          fi
+          # Build deterministic shard with the effective size used by later stages.
           python scripts/prepare-kaggle-lora-shard.py             --cycle "$CYCLE"             --shard-size "$SHARD_SIZE"             --mel-lessons /tmp/mel-canonical-50.jsonl             --output /tmp/mel-training-shard.jsonl
           gzip -9 -c /tmp/mel-training-shard.jsonl > /tmp/mel-training-shard.jsonl.gz
           test -s /tmp/mel-training-shard.jsonl.gz
