@@ -24,6 +24,17 @@ async function encrypt(dek, layout) {
   return JSON.stringify({ iv: hex(iv), authTag: hex(tag), ciphertext: hex(ct) });
 }
 
+test('Base64 ciphertext beginning with 0x is not mistaken for hex', () => {
+  // 0x is a valid Base64 prefix and must remain part of the encoded bytes.
+  const raw = Buffer.alloc(70, 0x33);
+  raw[0] = 0xd3; raw[1] = 0x1c; // Base64 prefix: 0x
+  const encoded = raw.toString('base64');
+  assert.ok(encoded.startsWith('0x'));
+  const candidates = encryptedKeyLayouts(encoded);
+  assert.ok(candidates.length > 0);
+  assert.deepEqual(Buffer.from(candidates[0][0]), raw.subarray(0, 12));
+});
+
 for (const layout of ['colon', 'blob', 'json']) {
   test('keystore unlocks like the CLI (' + layout + ' layout) and only for the right address', async () => {
     const dek = crypto.getRandomValues(new Uint8Array(32));
