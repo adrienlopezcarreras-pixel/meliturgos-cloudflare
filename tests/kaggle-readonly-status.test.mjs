@@ -50,3 +50,18 @@ test('existing status workflow runs offline checks on PRs and never publishes ra
   assert.match(workflow,/path: kaggle-lora-status\.json/);
   assert.doesNotMatch(workflow,/kernels (?:push|output|logs)|kaggle-debug-output|kaggle-live\.log/);
 });
+
+// Kaggle's official CLI appends failure_message after the status line.
+test('documented multiline failure response preserves status without exposing provider text',()=>{
+  const proof=collect({raw:'private-owner/kernel has status "error"\nFailure message: "RuntimeError: TRAINING_BACKGROUND_TIMEOUT PRIVATE_TOKEN"'});
+  assert.equal(proof.ok,true);
+  assert.equal(proof.session_status,'ERROR');
+  assert.equal(proof.session_error_code,'TRAINING_BACKGROUND_TIMEOUT');
+});
+
+test('failure diagnostics query only session logs and emit fixed codes without raw training text',()=>{
+  const source=`import importlib.util,json,subprocess\nfrom types import SimpleNamespace\nspec=importlib.util.spec_from_file_location('status',${JSON.stringify(script)})\nm=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)\nresults=[]\nfor log,expected in [('PRIVATE_TOKEN\\nRuntimeError: TRAINING_BACKGROUND_PROCESS_GONE','TRAINING_BACKGROUND_PROCESS_GONE'),('CellTimeoutError: private details','KAGGLE_CELL_TIMEOUT'),('torch.cuda.OutOfMemoryError: CUDA out of memory PRIVATE_TOKEN','CUDA_OUT_OF_MEMORY'),('PRIVATE_TRAINING_DATA',None)]:\n def run(args,**kwargs):\n  assert args[2:5]==['kaggle','kernels','logs'] and kwargs['timeout']==45\n  return SimpleNamespace(returncode=0,stdout=log)\n value=m.read_session_error('private-owner/kernel',run)\n assert value['session_error_code']==expected\n assert set(value)=={'session_error_code','session_diagnostics_status'}\n results.append(value)\ndef timeout(*args,**kwargs):\n raise subprocess.TimeoutExpired('private command',45)\nresults.append(m.read_session_error('private-owner/kernel',timeout))\nprint(json.dumps(results))`;
+  const output=execFileSync('python',['-c',source],{encoding:'utf8'});
+  assert.doesNotMatch(output,/PRIVATE_TOKEN|PRIVATE_TRAINING_DATA|private-owner|private details|private command/);
+  assert.equal(JSON.parse(output).at(-1).session_diagnostics_status,'UNAVAILABLE');
+});
