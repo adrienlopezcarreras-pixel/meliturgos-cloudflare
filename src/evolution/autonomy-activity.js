@@ -32,7 +32,7 @@ export async function readActivityListEpoch(db, { strict = false } = {}) {
 export async function resetAutonomyActivityList(db, { now = Date.now() } = {}) {
   if (!db?.prepare) throw Object.assign(new Error('DB_BINDING_MISSING'), { code: 'DB_BINDING_MISSING' });
   const cancel = await db.prepare(`UPDATE dev_jobs SET status='CANCELLED', updated_at=?, error='ACTIVITY_LIST_RESET'
-    WHERE status NOT IN ('COMPLETED','COMMITTED','CANCELLED','FAILED')
+    WHERE status NOT IN ('COMPLETED','CANCELLED','FAILED')
     AND (requested_by='mel-autonomy' OR requested_by LIKE 'owner-chat%')`).bind(now).run();
   await db.prepare(`INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json)
     VALUES(?,?,?,?)
