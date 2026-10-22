@@ -368,7 +368,8 @@ async function followDurableMelGoal(id){
 }
 // [GPT] Only Code-mode events shown in a floating owner-controlled window.
 let melCodeLastRequest='';
-let melCodeAutoRemaining=0;
+let melCodeAutoLastReply='';
+let melCodeAutoRepeatCount=0;
 let melCodeAutoTimer=null;
 let melCodeInterrupted=false;
 function melCodeLiveRecord(event){
@@ -402,7 +403,7 @@ function melCodeLiveReceipt(d){
 function melCodeCancelAuto(reason){
   const checkbox=qs('#melCodeAutoContinue');
   if(checkbox)checkbox.checked=false;
-  melCodeAutoRemaining=0;
+  melCodeAutoLastReply='';melCodeAutoRepeatCount=0;
   if(melCodeAutoTimer!==null){clearTimeout(melCodeAutoTimer);melCodeAutoTimer=null}
   if(reason)melCodeLiveRecord({id:'auto-stop-'+Date.now(),label:reason,status:'blocked'});
 }
@@ -426,14 +427,18 @@ function melCodeScheduleAuto(d,answer,source){
   if(/CHANTIER TERMIN[ÉE]|DONE_VERIFIED/i.test(String(answer||''))){
     melCodeCancelAuto('Chantier déclaré terminé par MEL.');return;
   }
-  if(melCodeAutoRemaining<=0){melCodeCancelAuto('Limite atteinte : 5 continuations par demande.');return}
-  melCodeAutoRemaining--;
+  // [GPT] No arbitrary cycle quota: stop only on completion, blockers, or a stalled response.
+  const reply=String(answer||'').trim().replace(/\s+/g,' ').slice(0,1400);
+  if(!reply){melCodeCancelAuto('Auto-continuer arrêté : réponse vide.');return}
+  melCodeAutoRepeatCount=reply===melCodeAutoLastReply?melCodeAutoRepeatCount+1:0;
+  melCodeAutoLastReply=reply;
+  if(melCodeAutoRepeatCount>=3){melCodeCancelAuto('Auto-continuer arrêté : aucune progression détectée dans les réponses répétées.');return}
   if(melCodeAutoTimer!==null)clearTimeout(melCodeAutoTimer);
   melCodeAutoTimer=setTimeout(()=>{
     melCodeAutoTimer=null;
     if(!chatActiveController&&melChatRole==='code'&&qs('#melCodeAutoContinue')?.checked&&!melCodeInterrupted)melCodeRequestContinue('code-auto');
-  },900);
-  melCodeLiveRecord({id:'auto-next-'+Date.now(),label:'Prochaine continuation après réponse · reste '+melCodeAutoRemaining,status:'queued'});
+  },1500);
+  melCodeLiveRecord({id:'auto-next-'+Date.now(),label:'Continuation suivante programmée · aucun nombre maximal de cycles',status:'queued'});
 }
 function melCodeSetupWindow(){
   const panel=qs('#melCodeLivePanel'),header=qs('#melCodeLiveDrag');
@@ -463,7 +468,7 @@ function melCodeSetupWindow(){
   qs('#melCodeContinue').disabled=true;
   qs('#melCodeContinue').onclick=()=>{melCodeRequestContinue('code-manual')};
   qs('#melCodeAutoContinue').onchange=event=>{
-    if(event.target.checked){melCodeAutoRemaining=5;melCodeInterrupted=false;melCodeLiveRecord({id:'auto-enabled',label:'Auto-continuer activé : 5 cycles au maximum.',status:'done'})}
+    if(event.target.checked){melCodeAutoLastReply='';melCodeAutoRepeatCount=0;melCodeInterrupted=false;melCodeLiveRecord({id:'auto-enabled',label:'Auto-continuer activé : cycles illimités tant que le travail progresse.',status:'done'})}
     else melCodeCancelAuto('Auto-continuer désactivé par le propriétaire.');
   };
 }
@@ -501,7 +506,7 @@ async function sendChat(overrideText=null,source='text',queuedRole=null){
   }
 }
 async function executeChatTurn(overrideText=null,source='text',controller,role='assistant'){const input=qs('#chatInput');const originalText=String(overrideText??input.value??'').trim();let text=originalText;const staged=pendingChatFiles.splice(0);if(!text&&!staged.length)return;
-if(role==='code'&&source!=='code-auto'&&source!=='code-manual'){melCodeInterrupted=false;if(originalText&&!/^continu(?:e|er)$/i.test(originalText))melCodeLastRequest=originalText;if(qs('#melCodeContinue'))qs('#melCodeContinue').disabled=!melCodeLastRequest;if(qs('#melCodeAutoContinue')?.checked)melCodeAutoRemaining=5;}
+if(role==='code'&&source!=='code-auto'&&source!=='code-manual'){melCodeInterrupted=false;if(originalText&&!/^continu(?:e|er)$/i.test(originalText))melCodeLastRequest=originalText;if(qs('#melCodeContinue'))qs('#melCodeContinue').disabled=!melCodeLastRequest;if(qs('#melCodeAutoContinue')?.checked){melCodeAutoLastReply='';melCodeAutoRepeatCount=0;}}
 renderPendingChatFiles();for(const item of staged){const attachment=item.preview?'Fichier : '+item.name+'\\n--- contenu extrait ---\\n'+item.preview:(item.isImage?'Photo jointe : '+item.name+' ; contenu visuel NON ANALYSÉ (statut '+item.analysis_status+'). Ne prétends pas voir cette photo.':'Fichier privé chargé : '+item.name+(item.stored&&item.id?' · référence '+item.id:''));text+=(text?'\\n\\n':'Analyse ce fichier en tenant compte de son contenu.\\n\\n')+attachment}input.value='';const userLine=(originalText||'Pièce jointe')+(staged.length?' · '+staged.map(x=>'📎 '+x.name).join(', '):'');const logEl=qs('#chatlog');const lastEl=logEl&&logEl.lastElementChild;const prevEl=lastEl&&lastEl.previousElementSibling;const sameTurn=prevEl&&prevEl.classList.contains('user')&&prevEl.textContent===userLine&&lastEl.classList.contains('mel')&&/^Erreur/.test(lastEl.textContent||'');const turnId=sameTurn&&prevEl.dataset.turnId?prevEl.dataset.turnId:(crypto.randomUUID?crypto.randomUUID():String(Date.now()));if(sameTurn)lastEl.remove();else{const node=addMsg('user',userLine);if(node){node.dataset.turnId=turnId;showSentPhotos(node,staged)}}qs('#chatStatus').textContent='Réflexion…';try{const d=await melChatFetch({text,conversation_id:conversationId,device_id:deviceId,client_message_id:turnId,input_source:staged[0]?.source||source,intent_context:{surface:'mel-full',role:role==='code'?'developer':'assistant',requested_mode:role==='code'?'code':'conversation'}},{signal:controller.signal,onProgress:role==='code'?melCodeLiveRecord:null});const answer=String(d.text||d.response||'Réponse vide.');if(role==='code')melCodeLiveReceipt(d);if(!d.streamed)addMsg('mel',d.text||d.response||'Réponse vide.');if(typeof melRenderTrace==='function')melRenderTrace(d);if(d?.response_mode==='durable-work'&&d?.work?.id)void followDurableMelGoal(String(d.work.id));qs('#chatStatus').textContent=d?.computer_command?.command_id?'Capture en cours…':'Réponse reçue.';if(d?.computer_command?.command_id)void followChatComputerScreenshot(d.computer_command);if(d?.approval_required){renderChatApproval(d.approval_required,originalText,staged[0]?.source||source);qs('#chatStatus').textContent='Confirmation requise.'}if(role==='code')melCodeScheduleAuto(d,answer,source);return answer}catch(e){if(role==='code'){melCodeCancelAuto('Auto-continuer arrêté après une erreur.');melCodeLiveRecord({id:'error-'+Date.now(),label:'Chat : '+String(e.message||'erreur').slice(0,110),status:'failed'})}pendingChatFiles.unshift(...staged);renderPendingChatFiles();addMsg('mel','Erreur : '+e.message);qs('#chatStatus').textContent=e.message;return null}finally{qs('#chatSend').disabled=false;input.focus()}}
 const pendingChatFiles=[];function showSentPhotos(node,items){if(!node)return;for(const item of items){if(!item.localUrl)continue;const img=document.createElement('img');img.src=item.localUrl;img.alt='Photo jointe : '+item.name;img.style.cssText='display:block;max-width:min(320px,100%);max-height:260px;object-fit:contain;border-radius:9px;margin-top:8px';node.appendChild(img)}}function renderPendingChatFiles(){const host=qs('#chatAttachments');host.innerHTML='';pendingChatFiles.forEach((item,index)=>{const b=document.createElement('button');b.type='button';b.className='ghost';b.textContent=(item.isImage?'🖼️ ':'📎 ')+item.name+(item.isImage&&item.analysis_status!=='IMAGE_DESCRIBED'?' · vision indisponible':'')+' · retirer';if(item.localUrl){const img=document.createElement('img');img.src=item.localUrl;img.alt='Aperçu local : '+item.name;img.style.cssText='display:block;max-width:110px;max-height:90px;object-fit:contain;border-radius:6px';b.prepend(img)}b.setAttribute('aria-label','Retirer '+item.name);b.onclick=()=>{pendingChatFiles.splice(index,1);renderPendingChatFiles()};host.appendChild(b)})}async function uploadChatFiles(files,source='file-picker'){const added=[];for(const file of files){qs('#chatStatus').textContent='Envoi de '+file.name+'…';const fd=new FormData();fd.append('file',file);try{const r=await fetch('/api/files/upload',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.code||d.error||'FILE_UPLOAD_FAILED');if(d?.ok!==true||typeof d?.id!=='string'||!d.id.trim())throw Error('FILE_UPLOAD_NOT_ACKNOWLEDGED');const localUrl=await melLocalPhotoPreview(file);const item={name:file.name,source,stored:Boolean(d.stored),stored_encrypted:Boolean(d.stored_encrypted),id:d.id||null,preview:String(d.preview_text||'').slice(0,80000),analysis_status:String(d.analysis_status||''),analysis_provider:String(d.analysis_provider||''),expires_at:String(d.expires_at||''),isImage:/^image\\//i.test(file.type),localUrl};pendingChatFiles.push(item);added.push(item);renderPendingChatFiles();qs('#chatStatus').textContent=(source==='clipboard'?'Collé · ':'')+(item.isImage&&item.analysis_status!=='IMAGE_DESCRIBED'?'Photo reçue mais non analysée ('+item.analysis_status+') : ':'Pièce jointe prête : ')+file.name}catch(e){qs('#chatStatus').textContent='Échec du fichier : '+file.name+' · '+e.message}}return added}
 async function resumeLatestConversation(){const button=qs('#resumeLatestChat');if(button)button.disabled=true;qs('#chatStatus').textContent='Chargement du dernier échange…';try{const d=await jfetch('/api/mel/conversations/latest');if(!d?.conversation?.id)throw Error('Aucune conversation précédente.');conversationId=String(d.conversation.id);localStorage.setItem('mel.conversation',conversationId);qs('#chatlog').innerHTML='';for(const row of (Array.isArray(d.messages)?d.messages:[]).slice(-60)){const role=String(row?.role||'').toLowerCase();if(role==='user'||role==='assistant'||role==='mel')addMsg(role==='user'?'user':'mel',row?.content||row?.text||'')}qs('#chatStatus').textContent='Dernier échange repris.'}catch(e){qs('#chatStatus').textContent='Reprise impossible : '+e.message}finally{if(button)button.disabled=false}}
