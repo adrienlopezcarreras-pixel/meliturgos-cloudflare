@@ -20,7 +20,7 @@ export function melParseNdjsonLines(buffer) {
 // Le serveur peut travailler 90 s sans nouveau fragment si un appel de modèle
 // bloque les battements. Le silence autorisé reste sous le délai client de
 // 120 s, et au-dessus de ce budget, pour ne pas couper une réponse encore en cours.
-async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 105000, signal = null } = {}) {
+async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 105000, signal = null, onProgress = null } = {}) {
   const startedAt = Date.now();
   const controller = new AbortController();
   const abortFromOwner = () => controller.abort();
@@ -104,6 +104,8 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 105000, sig
         if (event.type === 'progress') {
           progress.set(String(event.id || progress.size), { label: String(event.label || ''), status: String(event.status || 'running'), detail: String(event.detail || ''), ms: Number(event.ms) || 0, kind: String(event.kind || 'step'), tool: event.tool ? String(event.tool) : '' });
           renderLive();
+          // [GPT] Forward only server-authored progress, never fabricate a tool action.
+          try { if(typeof onProgress==='function')onProgress({id:String(event.id||''),label:String(event.label||''),status:String(event.status||'running'),source:'server'}); } catch {}
           if (status && event.status === 'running') status.textContent = String(event.label || 'MEL travaille…') + '…';
           if (log) log.scrollTop = log.scrollHeight;
         }
