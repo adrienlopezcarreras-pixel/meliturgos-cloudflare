@@ -23,7 +23,8 @@ const enc = new TextEncoder();
 const hex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 
 function bytesFrom(text) {
-  const s = String(text || '').trim().replace(/^0x/i, '');
+  const original = String(text || '').trim();
+  const s = /^0x[0-9a-f]+$/i.test(original) ? original.slice(2) : original;
   if (/^[0-9a-f]+$/i.test(s) && s.length % 2 === 0) return Uint8Array.from(s.match(/../g), h => parseInt(h, 16));
   try {
     const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
