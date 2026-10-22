@@ -291,14 +291,14 @@ test('Professor streaming keeps Code and Conversation on distinct primaries with
   assert.deepEqual(fallbacks, [codeModel, codeBackup]);
 });
 
-test('native Professor chat routes live streamed replies by selected role and preserves Normal', async () => {
+test('Normal and Professor Conversation stream; Professor Code waits for verified final response', async () => {
   const DB = sqliteD1();
   const normalModel = '@cf/test/normal-configured';
   const codeModel = '@cf/nvidia/nemotron-3-120b-a12b';
   const chatModel = '@cf/openai/gpt-oss-120b';
   const called = [];
   const env = { DB, MEL_STREAM_MODEL: normalModel, AI: {
-    async run(model) { called.push(model); return sse(['Réponse vérifiée.']); },
+    async run(model) { called.push(model); return model === codeModel ? { response: 'Réponse vérifiée.' } : sse(['Réponse vérifiée.']); },
   } };
   const send = async (suffix, intent_context = undefined) => {
     const response = await handleNativeChat(new Request('https://mel.example/api/chat', {
@@ -310,6 +310,14 @@ test('native Professor chat routes live streamed replies by selected role and pr
         ...(intent_context ? { intent_context } : {}),
       }),
     }), env, { authorized: true });
+    if (suffix === 'code') {
+      // Code requires final evidence checking; generated tokens must not claim
+      // success before complete tool/receipt validation.
+      assert.match(response.headers.get('content-type') || '', /application\/json/);
+      const data = await response.json();
+      assert.equal(data.ok, true);
+      return data.model;
+    }
     assert.match(response.headers.get('content-type') || '', /application\/x-ndjson/);
     const events = await readNdjson(response);
     assert.equal(events.at(-1).type, 'done');
