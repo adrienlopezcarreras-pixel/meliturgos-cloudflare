@@ -169,7 +169,7 @@ test('MEL must not fabricate successful d1.get results or a MAX approval flag', 
     'Résultat obtenu : {"success":true,"message":"clé ajoutée"}.',
     'La configuration a été mise à jour avec succès. Le mode MAX est désormais configuré pour approuver automatiquement les PR et déploiements.',
   ].join('\n');
-  const text=finalizeEvidenceAlignedResponse({text:fake,userText:'corrige le mode MAX',toolResults:[]});
+  const text=finalizeEvidenceAlignedResponse({text:fake,requireD1ExecutionReceipts:true,userText:'corrige le mode MAX',toolResults:[]});
   assert.match(text,/Aucun reçu d’exécution D1 correspondant/);
   assert.match(text,/ne constitue pas une autorisation technique/);
   assert.doesNotMatch(text,/Action exécutée|clé ajoutée|désormais configuré pour approuver/);
@@ -178,7 +178,7 @@ test('MEL must not fabricate successful d1.get results or a MAX approval flag', 
 test('a model-generated success JSON is not a signed D1 receipt', () => {
   const text=finalizeEvidenceAlignedResponse({
     text:'J’ai exécuté d1.write : {"success": true, "approved": true}.',
-    userText:'mets à jour cette clé',
+    requireD1ExecutionReceipts:true,userText:'mets à jour cette clé',
     toolResults:[{capability:'d1.write',status:'FAILED',error:'EXPLICIT_APPROVAL_REQUIRED'}],
   });
   assert.match(text,/d1\.write: FAILED/);
@@ -188,7 +188,7 @@ test('a model-generated success JSON is not a signed D1 receipt', () => {
 test('a truly approved and changed D1 row can be reported without claiming MAX privileges', () => {
   const response='J’ai exécuté d1.write pour modifier une ligne autorisée.';
   const text=finalizeEvidenceAlignedResponse({
-    text:response,userText:'modifie la ligne test',
+    text:response,requireD1ExecutionReceipts:true,userText:'modifie la ligne test',
     toolResults:[{capability:'d1.write',status:'SUCCEEDED',result:{approved:true,changes:1,operation:'update',table:'test_jobs'}}],
   });
   assert.equal(text,response);
@@ -197,7 +197,7 @@ test('a truly approved and changed D1 row can be reported without claiming MAX p
 test('MAX authorization claim remains unproven even if a D1 row was actually written', () => {
   const text=finalizeEvidenceAlignedResponse({
     text:'La clé max_auto_approval est mise à jour, MAX peut désormais approuver automatiquement les PR.',
-    userText:'état des validations MAX',
+    requireD1ExecutionReceipts:true,userText:'état des validations MAX',
     toolResults:[{capability:'d1.write',status:'SUCCEEDED',result:{approved:true,changes:1,operation:'insert',table:'mel_config'}}],
   });
   assert.match(text,/ne constitue pas une autorisation technique/);
@@ -205,5 +205,14 @@ test('MAX authorization claim remains unproven even if a D1 row was actually wri
 
 test('a proposed D1 operation and an ordinary code example are not reported as executed', () => {
   const text='Pour tester d1.write, commence par obtenir une approbation explicite, puis vérifie la réponse.';
-  assert.equal(finalizeEvidenceAlignedResponse({text,userText:'comment tester la base ?',toolResults:[]}),text);
+  assert.equal(finalizeEvidenceAlignedResponse({text,requireD1ExecutionReceipts:true,userText:'comment tester la base ?',toolResults:[]}),text);
+});
+
+test('Normal interface evidence-aligner remains untouched unless Professor Code opts in', () => {
+  const ordinaryText='J’ai exécuté d1.write dans un exemple de conversation.';
+  assert.equal(finalizeEvidenceAlignedResponse({
+    text:ordinaryText,
+    userText:'parlons du modèle de code',
+    toolResults:[],
+  }),ordinaryText);
 });
