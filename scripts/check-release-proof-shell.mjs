@@ -24,6 +24,11 @@ const remainder = source.slice(start);
 const nextStep = remainder.indexOf('      - name: ', marker.length);
 const proofStep = nextStep < 0 ? remainder : remainder.slice(0, nextStep);
 if (!proofStep.includes(invocation)) throw new Error('RELEASE_PROOF_ENTRYPOINT_MISSING');
+if (!proofStep.includes('        timeout-minutes: 55')) throw new Error('RELEASE_PROOF_TIMEOUT_NOT_PRESERVED');
+for (const name of ['CLOUDFLARE_API_TOKEN','CLOUDFLARE_ACCOUNT_ID','MEL_BACKUP_ENCRYPTION_KEY_B64','MEL_BACKUP_ENCRYPTION_KEY_ID','GITHUB_TOKEN']) {
+  if (!proofStep.includes('          ' + name + ':')) throw new Error('RELEASE_PROOF_ENV_MISSING:' + name);
+}
+if (proofStep.indexOf(invocation) > proofStep.indexOf('        env:')) throw new Error('RELEASE_PROOF_ENTRYPOINT_AFTER_ENV');
 const body = await fs.readFile(scriptPath, 'utf8');
 if (!body.includes('MEL_RELEASE_EVIDENCE_PHASE=ALL_PROOFS_COMPLETE')) throw new Error('RELEASE_PROOF_END_MARKER_MISSING');
 const tmp = path.join(os.tmpdir(), 'mel-release-proof-bash-n.sh');
