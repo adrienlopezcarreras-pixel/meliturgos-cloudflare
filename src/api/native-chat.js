@@ -620,7 +620,11 @@ export function inferPublicImageLookup(text) {
   // Images uploaded by the owner, image generation and UI debugging are not public searches.
   if (/\b(?:ci[- ]jointe|jointe|envoyee|televersee|uploadee|capture d'ecran|mes photos|mes images|ma photo|mon image|genere|cree|dessine|pourquoi|probleme|bug)\b/.test(normalized)) return null;
   if (!/\b(?:montre(?:[- ]moi)?|affiche|trouve|cherche|recherche|donne[- ]moi)\b[\s\S]{0,100}\b(?:photo|image|portrait)\b/.test(normalized)) return null;
-  return { id:'web.research', input:{ query:value.slice(0,240), depth:2 } };
+  const policy = inferCurrentFactVerificationPolicy(value);
+  const input={query:value.slice(0,240),depth:2};
+  if(policy?.preferred_domains?.length)input.domains=policy.preferred_domains.slice(0,3);
+  if(policy?.official_seed_urls?.length)input.seed_urls=policy.official_seed_urls.slice(0,6);
+  return {id:'web.research',input};
 }
 
 function validatedPictureUrl(toolResults) {
@@ -646,7 +650,8 @@ function withOfficialVisual(responseText, userText, toolResults) {
     if (!text.includes(image)) text = `${text}\n\n![Portrait](${image})`;
     return text;
   }
-  return 'Je n’ai pas obtenu de photo publique vérifiée et affichable pour cette demande. Je ne vais pas prétendre qu’une image a été montrée.';
+  if (claimsDeliveredPicture(text)) return 'La photo n’a pas été obtenue. Aucune image affichable n’a été validée, et aucun fichier n’a été généré. Ce texte n’est pas une image.';
+  return text;
 }
 
 function responseAdmitsUncertainty(value) {
