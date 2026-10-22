@@ -200,6 +200,7 @@ export function finalizeEvidenceAlignedResponse({
   codeAccess,
   toolResults=[],
   developmentQueued=null,
+  requireD1ExecutionReceipts=false,
 }={}) {
   let out=stripMetaPreamble(text);
   const codeEvidence=successfulCodeEvidence(toolResults);
@@ -235,7 +236,7 @@ export function finalizeEvidenceAlignedResponse({
     out = 'Je ne dispose pas, dans les résultats vérifiés de cette requête, d’un reçu GitHub ou Cloudflare attestant la création, la fusion ou le déploiement annoncé. Je ne peux donc pas présenter cette opération comme réussie. Consulte les journaux persistants et les outils autorisés pour obtenir une preuve réelle.';
   }
 
-  out = guardClaimedD1Execution(out, toolResults);
+  if (requireD1ExecutionReceipts === true) out = guardClaimedD1Execution(out, toolResults);
 
   const knowledgeEvidence=successfulKnowledgeEvidence(toolResults);
   if(knowledgeEvidence && deniesKnowledgeAction(out)){
