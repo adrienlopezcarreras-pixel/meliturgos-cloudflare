@@ -21,6 +21,7 @@ import { createProviderEscapeCapsule, providerEscapeSummary, validateProviderEsc
 import { boundRecentMessages, compileHistoricalDecisionCapsule, buildContext } from '../core/orchestrator/context-builder.js';
 import { proveEcosystemTeacherHandoff } from '../evaluation/capability-watch-runtime.js';
 import { runAutonomyRuntimeTick } from './autonomy-runtime.js';
+import { AUTONOMY_RUNTIME_LEASE_MS } from './autonomy-runtime-lease.js';
 import { maybeHandleConnectionSettingsApi } from '../api/connection-settings-api.js';
 import { D1AlternativeRegistryStore } from '../portability/d1-alternative-registry-store.js';
 import { eligibleAlternatives, sovereigntyCoverageFromRegistry } from '../portability/prevalidated-alternative-registry.js';
@@ -731,7 +732,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   }
 
   if (phase === 'gen2-42-runtime-tick') {
-    const tick = await runAutonomyTick(env);
+    const tick = await runAutonomyTick(env, { ownerLeaseWaitMs: AUTONOMY_RUNTIME_LEASE_MS });
     const completions = tick?.completions || tick?.passive_completions || {};
     const completed = Array.isArray(completions?.completed) ? completions.completed : [];
     const rejected = Array.isArray(completions?.rejected) ? completions.rejected : [];
