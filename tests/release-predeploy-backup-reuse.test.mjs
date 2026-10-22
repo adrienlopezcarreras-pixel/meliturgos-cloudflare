@@ -334,3 +334,24 @@ test('predeploy binder retries only Cloudflare 1042 propagation while enforcing 
  assert.match(block,/predeploy-backup-verified\.marker/);
  assert.doesNotMatch(block,/for ATTEMPT in \$\(seq 1 4\)/);
 });
+
+
+test('ephemeral refresher uses the same bounded 10007-only deploy visibility retry as the binder', async () => {
+  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const start = source.indexOf('      - name: Refresh current production backup through ephemeral worker');
+  const end = source.indexOf('      - name: Capture current production rollback target', start);
+  assert.ok(start >= 0 && end > start);
+  const block = source.slice(start, end);
+  assert.match(block, /trap 'cleanup_refresher \|\| true' EXIT/);
+  assert.match(block, /REFRESH_CREATED=1/);
+  assert.match(block, /REFRESH_DEPLOYED=0/);
+  assert.match(block, /for DEPLOY_ATTEMPT in \$\(seq 1 8\)/);
+  assert.match(block, /timeout 180s npx wrangler deploy --config/);
+  assert.match(block, /grep -Eq 'code: 10007/);
+  assert.match(block, /exit 53/);
+  assert.match(block, /test "\$\{REFRESH_DEPLOYED\}" = "1" \|\| exit 53/);
+  assert.match(block, /SIDECAR_STABLE_PROBES/);
+  assert.match(block, /restore_candidate_verified/);
+  assert.match(block, /if ! cleanup_refresher; then/);
+  assert.doesNotMatch(block, /npx wrangler deploy[\s\S]{0,180}\|\| true/);
+});
