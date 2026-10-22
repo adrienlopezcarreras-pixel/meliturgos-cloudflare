@@ -112,7 +112,8 @@ test('generated Normal upload handler stages image and text files, and surfaces 
     assert.equal(pendingFiles[0].localUrl, expectedImage ? 'blob:preview' : null);
     assert.equal(renders, 1);
     assert.match(status.textContent, /pièce jointe prête/);
-    assert.deepEqual(messages, [{ role: 'user', text: '📎 ' + file.name }]);
+    // Staging must not fabricate a sent user message before explicit send.
+    assert.deepEqual(messages, []);
   }
 
   const pendingFiles = [];
