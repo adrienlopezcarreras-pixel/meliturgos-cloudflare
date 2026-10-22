@@ -12,8 +12,9 @@ if (start < 0) throw new Error('RELEASE_PROOF_STEP_NOT_FOUND');
 // health must be verified before slower post-deployment autonomy probes.
 const shaGate = source.indexOf('      - name: Verify owner auth binding and exact deployment immediately');
 const httpGate = source.indexOf('      - name: Verify production HTTP');
+const downstreamDispatch = source.indexOf('      - name: Dispatch decoupled downstream production proofs');
 if (shaGate < 0 || httpGate < 0) throw new Error('RELEASE_PRIMARY_GATES_MISSING');
-if (!(shaGate < httpGate && httpGate < start)) {
+if (!(shaGate < httpGate && httpGate < downstreamDispatch && downstreamDispatch < start)) {
   throw new Error('RELEASE_PRIMARY_GATES_MUST_PRECEDE_DEEP_PROOFS');
 }
 
