@@ -406,3 +406,27 @@ test('three failed attempts quarantine one roadmap item and advance safely', asy
   assert.notEqual(next.job.optional_context.roadmap_id, 'MEL-WORK-01');
   assert.equal(next.job.optional_context.roadmap_id, 'GEN2-17');
 });
+
+
+test('MAX never reprioritizes accepted DONE_VERIFIED roadmap work or its stale queued job', async () => {
+  const repo = isolatedRepo();
+  await repo.create({ id: 'already-accepted', requested_by: 'mel-autonomy', goal: 'old work', optional_context: { roadmap_id: 'MEL-WORK-01' } });
+  const supervisor = new AutonomySupervisor({ repository: repo, roadmap: [
+    { id: 'MEL-WORK-01', title: 'Accepted', status: 'DONE_VERIFIED', priority: 'P0' },
+    { id: 'GEN2-17', title: 'Next task', status: 'PLANNED', priority: 'P1' },
+  ] });
+  const state = await supervisor.state();
+  assert.equal(state.next?.id, 'GEN2-17');
+  assert.equal(state.active.some(job => job.id === 'already-accepted'), false);
+  const result = await supervisor.ensureNextJob();
+  assert.equal(result.next?.id, 'GEN2-17');
+  assert.notEqual(result.job?.id, 'already-accepted');
+});
+
+test('MAX recognizes accepted, verified and DONE_VERIFIED states regardless of case', () => {
+  assert.equal(selectNextAutonomyItem({ roadmap: [
+    { id: 'MEL-WORK-01', status: 'done_verified' },
+    { id: 'GEN2-17', status: 'accepted' },
+    { id: 'MEL-FOUNDER-01', status: 'verified' },
+  ] }), null);
+});
