@@ -139,3 +139,51 @@ test('equivalent reordered tool inputs cannot execute the same action twice in t
   assert.equal(calls.length, 1);
   assert.equal(rows.length, 1);
 });
+
+test('OpenAI-style name/arguments tool intent is recognized and not shown as prose', () => {
+  const raw = '{"name":"web.research","arguments":{"query":"MEL GitHub PR"}}';
+  assert.deepEqual(parseAgentAction(raw), { tool: 'web.research', input: { query: 'MEL GitHub PR' } });
+  assert.equal(responseIsBareToolCall(raw), true);
+  assert.equal(stripLeakedToolCalls(raw), '');
+});
+
+test('a model name/arguments read uses the existing approved dispatcher', async () => {
+  const calls = [];
+  const localBus = {
+    list: () => [{ id: 'autonomy.status', input_schema: { type: 'object' } }],
+    async execute(id, input) { calls.push([id, input]); return { ok: true }; },
+  };
+  const result = await runAgentToolLoop({
+    env: ai(['{"name":"autonomy.status","arguments":{}}', '{"final":true}']),
+    bus: localBus, text: 'vérifie ton autonomie',
+  });
+  assert.deepEqual(calls, [['autonomy.status', {}]]);
+  assert.equal(result[0].status, 'SUCCEEDED');
+});
+
+test('name/arguments mutation does not execute through leaked-read recovery', async () => {
+  const calls = [];
+  const rows = await executeLeakedReads({
+    bus: { async execute(id) { calls.push(id); return {}; } },
+    text: '{"name":"evolution.enqueue","arguments":{"goal":"unsafe"}}',
+  });
+  assert.deepEqual(rows, []);
+  assert.deepEqual(calls, []);
+  assert.equal(stripLeakedToolCalls('{"name":"evolution.enqueue","arguments":{"goal":"unsafe"}}'), '');
+});
+
+test('unknown named tools cannot escape the agent allowlist', async () => {
+  const calls = [];
+  const rows = await runAgentToolLoop({
+    env: ai(['{"name":"github.repository.read","arguments":{"repo":"meliturgos-cloudflare"}}', '{"final":true}']),
+    bus: bus(calls), text: 'vérifie Github',
+  });
+  assert.equal(rows[0].error, 'AGENT_TOOL_NOT_ALLOWED');
+  assert.deepEqual(calls, []);
+});
+
+test('nested data with a name field remains data rather than a tool request', () => {
+  const raw = JSON.stringify({ data: { name: 'web.research', arguments: { query: 'x' } } });
+  assert.equal(responseIsBareToolCall(raw), false);
+  assert.equal(stripLeakedToolCalls(raw), raw);
+});
