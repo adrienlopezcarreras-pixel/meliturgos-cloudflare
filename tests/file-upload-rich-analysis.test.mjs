@@ -239,3 +239,45 @@ test('parallel MEL-FILE proof rejects a payload for a different deployed SHA', a
   assert.equal(response.status,403);
   assert.equal(body.code,'MEL_FILE_PROOF_PAYLOAD_INVALID');
 });
+
+test('primary release smoke token enforces exact-SHA upload proof and 300-second retention', async () => {
+  const token='r'.repeat(64);
+  const sha='e'.repeat(40);
+  const uploads=[];
+  const env={
+    ...MEDIA_ENV,
+    MELITURGOS_USER:'owner',
+    MELITURGOS_PASSWORD:'owner-password',
+    MEL_LAUNCH_BOOTSTRAP_TOKEN:token,
+    MEL_DEPLOYED_GIT_SHA:sha,
+    MEDIA_BUCKET:{ async put(key,content,options){ uploads.push({key,options}); } },
+  };
+  const post=async(file)=> {
+    const form=new FormData();
+    form.append('file',file);
+    return handleFileUpload(new Request('https://mel.test/api/files/upload',{
+      method:'POST',
+      headers:{'x-mel-release-smoke':'1','x-mel-launch-bootstrap':token},
+      body:form,
+    }),env);
+  };
+  const bad=await post(new File(['not the signed proof'],'other.txt',{type:'text/plain'}));
+  assert.equal(bad.status,403);
+  assert.equal((await bad.json()).code,'MEL_FILE_PROOF_UPLOAD_REJECTED');
+  assert.equal(uploads.length,0);
+
+  const mismatched=await post(new File(['MEL_FILE_NORMAL_PROOF_'+('f'.repeat(40))],
+    'mel-file-normal-proof.txt',{type:'text/plain'}));
+  assert.equal(mismatched.status,403);
+  assert.equal((await mismatched.json()).code,'MEL_FILE_PROOF_PAYLOAD_INVALID');
+  assert.equal(uploads.length,0);
+
+  const accepted=await post(new File(['MEL_FILE_NORMAL_PROOF_'+sha],
+    'mel-file-normal-proof.txt',{type:'text/plain'}));
+  assert.equal(accepted.status,200);
+  const body=await accepted.json();
+  assert.equal(body.ok,true);
+  assert.equal(body.stored,true);
+  assert.equal(body.ttl_seconds,300);
+  assert.equal(uploads.length,1);
+});
