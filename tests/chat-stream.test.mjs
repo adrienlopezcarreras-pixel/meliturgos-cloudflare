@@ -291,14 +291,17 @@ test('Professor streaming keeps Code and Conversation on distinct primaries with
   assert.deepEqual(fallbacks, [codeModel, codeBackup]);
 });
 
-test('native Professor chat routes live streamed replies by selected role and preserves Normal', async () => {
+test('Normal and Professor Conversation stream; Professor Code returns an evidence-checked JSON response on its own model', async () => {
   const DB = sqliteD1();
   const normalModel = '@cf/test/normal-configured';
   const codeModel = '@cf/nvidia/nemotron-3-120b-a12b';
   const chatModel = '@cf/openai/gpt-oss-120b';
   const called = [];
   const env = { DB, MEL_STREAM_MODEL: normalModel, AI: {
-    async run(model) { called.push(model); return sse(['Réponse vérifiée.']); },
+    async run(model, input) {
+      called.push(model);
+      return input?.stream === true ? sse(['Réponse vérifiée.']) : {response:'Un soir, j’ai retrouvé une vieille lettre au fond d’un livre et j’ai souri en la relisant.'};
+    },
   } };
   const send = async (suffix, intent_context = undefined) => {
     const response = await handleNativeChat(new Request('https://mel.example/api/chat', {
@@ -310,6 +313,17 @@ test('native Professor chat routes live streamed replies by selected role and pr
         ...(intent_context ? { intent_context } : {}),
       }),
     }), env, { authorized: true });
+    // [GPT] A Code answer must pass the D1 proof/quality guard before
+    // anything is emitted. Unlike ordinary chat, it cannot stream provisional
+    // claims that might later fail verification.
+    if (intent_context?.requested_mode === 'code') {
+      assert.match(response.headers.get('content-type') || '', /application\/json/);
+      const verified = await response.json();
+      assert.equal(response.status, 200, JSON.stringify(verified));
+      assert.equal(verified.ok, true, JSON.stringify(verified));
+      assert.notEqual(verified.streamed, true);
+      return verified.model;
+    }
     assert.match(response.headers.get('content-type') || '', /application\/x-ndjson/);
     const events = await readNdjson(response);
     assert.equal(events.at(-1).type, 'done');
