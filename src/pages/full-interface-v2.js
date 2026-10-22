@@ -496,7 +496,7 @@ async function sendChat(overrideText=null,source='text',queuedRole=null){
     const input=qs('#chatInput');
     const value=String(overrideText??input.value??'').trim();
     if(!value&&!pendingChatFiles.length)return null;
-    chatPendingTurns.push({text:value,source,role:melChatRole,files:pendingChatFiles.splice(0)});
+    chatPendingTurns.push({text:value,source,role:queuedRole||melChatRole,files:pendingChatFiles.splice(0)});
     input.value='';renderPendingChatFiles();chatQueueStatus();
     qs('#chatStatus').textContent='Message ajouté à la file ; envoyé à la fin de la réponse en cours.';
     return null;
