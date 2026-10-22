@@ -6,7 +6,7 @@
 // cloud-bridge / GitHub Action relay dispatches and the last MEL WORK cycles.
 // Nothing here starts or changes anything.
 
-import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
+import { D1DevJobRepository, isPreparedDevBridgeJob } from '../dev/d1-dev-job-repository.js';
 import { D1EvolutionLedger } from './evolution-ledger.js';
 import { getAutonomyControl } from './autonomy-control.js';
 import { readAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
@@ -57,8 +57,8 @@ const STATUS_TEXT = Object.freeze({
   QUEUED: 'En file : attend que le cycle minute le choisisse.',
   PLANNING: 'Plan en cours d’écriture par le conseil de modèles.',
   WAITING_TEACHER: 'Plan écrit, attend la validation (MAX la donne automatiquement).',
-  TEACHER_APPROVED: 'Plan validé ; code écrit puis paquet préparé pour le pont cloud.',
-  CLAIMED: 'Pris par le pont cloud : application sur la branche candidate.',
+  TEACHER_APPROVED: 'Plan approuvé ; implémentation ou vérification du code à confirmer.',
+  CLAIMED: 'Pris en charge : exécuteur et application sur la candidate à confirmer.',
   APPLIED: 'Appliqué sur la candidate ; tests en cours.',
   TESTING: 'Tests de la candidate en cours.',
   COMMITTED: 'Commit sur la candidate ; attend CI et promotion.',
@@ -114,15 +114,37 @@ export function jobPipeline(job) {
   const prep = r.bridge_preparation || {};
   const impl = r.implementation_proposal || {};
   const requestId = obj(r.teacher_bridge).request?.request_id || null;
-  const implMatches = !requestId || !impl.teacher_request_id || impl.teacher_request_id === requestId;
+  const teacher = obj(r.teacher_bridge);
+  const planApproved = teacher.status === 'ANSWERED' && Boolean(requestId)
+    && review.request_id === requestId && review.verdict === 'APPROVE_PLAN'
+    && review.development_allowed === true;
+  // An implementation proposal is a plan. Actual Mentor changes and test
+  // commands are persisted only with the correlated structured Bridge package.
+  const packageReady = planApproved && impl.status === 'READY'
+    && impl.teacher_request_id === requestId
+    && impl.candidate_sha === prep.candidate_sha
+    && isPreparedDevBridgeJob({ ...job, status: 'TEACHER_APPROVED' });
+  const sha = value => /^[a-f0-9]{40}$/i.test(String(value || ''));
+  const ci = obj(completion.ci);
+  const verified = planApproved && completion.status === 'VERIFIED'
+    && completion.request_id === requestId && sha(completion.candidate_sha)
+    && ci.verified === true && ci.workflow === 'full-candidate-ci'
+    && ci.head_sha === completion.candidate_sha && ci.conclusion === 'success'
+    && Number(ci.run_id) > 0;
+  const existingVerified = verified && impl.decision === 'VERIFY_EXISTING';
+  const bridge = obj(r.dev_bridge);
+  const published = packageReady && bridge.mode === 'GITHUB_CLOUD_BRIDGE'
+    && bridge.status === 'READY_FOR_REVIEW' && bridge.needs_repair === false
+    && Number(bridge.github_run_id) > 0 && sha(bridge.candidate_sha);
+
   const steps = [
     { key: 'chosen', label: 'Chantier choisi', done: true },
-    { key: 'plan', label: 'Plan validé' + (review.owner_override === true || r.owner_max_autonomy ? ' (par MAX)' : ''), done: review.verdict === 'APPROVE_PLAN' || ['TEACHER_APPROVED', 'CLAIMED', 'APPLIED', 'TESTING', 'COMMITTED', 'COMPLETED'].includes(status) },
-    { key: 'code', label: 'Code écrit', done: (String(impl.status || '').toUpperCase() === 'READY' && implMatches) || ['CLAIMED', 'APPLIED', 'TESTING', 'COMMITTED', 'COMPLETED'].includes(status) },
-    { key: 'package', label: 'Paquet prêt pour le pont', done: String(prep.status || '').toUpperCase() === 'READY' || ['CLAIMED', 'APPLIED', 'TESTING', 'COMMITTED', 'COMPLETED'].includes(status) },
-    { key: 'candidate', label: 'Appliqué sur la candidate', done: Boolean(completion.candidate_sha) || ['APPLIED', 'TESTING', 'COMMITTED', 'COMPLETED'].includes(status) },
-    { key: 'ci', label: 'CI complète verte', done: String(completion.ci?.conclusion || completion.ci?.status || '').toLowerCase() === 'success' || status === 'COMPLETED' },
-    { key: 'done', label: 'Terminé (promotion puis release automatiques)', done: status === 'COMPLETED' },
+    { key: 'plan', label: 'Plan validé' + (review.owner_override === true || r.owner_max_autonomy ? ' (par MAX)' : ''), done: planApproved },
+    { key: 'code', label: existingVerified ? 'Code existant vérifié' : 'Code écrit', done: packageReady || existingVerified },
+    { key: 'package', label: existingVerified ? 'Vérification sans nouveau paquet' : 'Paquet prêt pour le pont', done: packageReady || existingVerified },
+    { key: 'candidate', label: 'Appliqué sur la candidate', done: published || verified },
+    { key: 'ci', label: 'CI complète verte', done: verified },
+    { key: 'done', label: 'Travail vérifié (candidate et CI)', done: status === 'COMPLETED' && verified },
   ];
   const current = steps.findIndex(step => !step.done);
   return steps.map((step, index) => ({ ...step, state: step.done ? 'done' : index === current ? (status === 'FAILED' || status === 'BLOCKED' ? 'blocked' : 'current') : 'todo' }));

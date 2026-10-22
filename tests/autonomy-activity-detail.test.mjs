@@ -6,8 +6,8 @@ import { buildAutonomyActivity, jobPipeline, foldLedger, describeJob } from '../
 const now = 1_792_325_000_000;
 const approved = {
   id: 'ecosystem-watch-1', status: 'TEACHER_APPROVED', requested_by: 'mel-autonomy', goal: 'Débloquer media.image.analyze',
-  created_at: now - 86_400_000, updated_at: now - 600_000, files_json: ['src/a.js'], tests_json: ['tests/a.test.mjs'],
-  result_json: { teacher_bridge: { review: { verdict: 'APPROVE_PLAN', owner_override: true } }, implementation_proposal: { status: 'READY' }, bridge_preparation: { status: 'READY', candidate_branch: 'candidate/mel-clean-autonomy', candidate_sha: 'a'.repeat(40) } },
+  created_at: now - 86_400_000, updated_at: now - 600_000, files_json: [{path:'src/a.js',content:'export const result = 1;'}], tests_json: [{command:'test:smoke'}],
+  result_json: { teacher_bridge: { status:'ANSWERED',request:{request_id:'teacher-1'},review: { request_id:'teacher-1',verdict: 'APPROVE_PLAN',development_allowed:true,owner_override: true } }, implementation_proposal: { status: 'READY',teacher_request_id:'teacher-1',candidate_sha:'a'.repeat(40) }, bridge_preparation: { status: 'READY',teacher_request_id:'teacher-1',candidate_branch: 'candidate/mel-clean-autonomy', candidate_sha: 'a'.repeat(40) } },
 };
 
 test('pipeline shows where a MAX job stands', () => {
@@ -127,4 +127,51 @@ test('COMMITTED supervised job remains active until COMPLETED', async () => {
   assert.equal(view.counts.active, 1);
   assert.equal(view.counts.by_status.COMMITTED, 1);
   assert.equal(view.jobs.find(job => job.id === 'commit-1').pipeline.at(-1).done, false);
+});
+
+test('CLAIMED alone proves neither plan, generated code, package nor cloud execution', () => {
+  const job={status:'CLAIMED',result_json:{},files_json:[],tests_json:[]};
+  const stages=jobPipeline(job);
+  assert.deepEqual(stages.map(s=>s.done),[true,false,false,false,false,false,false]);
+  assert.doesNotMatch(describeJob(job).status_text,/Pris par le pont cloud/);
+});
+
+test('a READY implementation plan is not generated code and a stale Teacher package is not ready', () => {
+  const noCode={...approved,files_json:[],result_json:{...approved.result_json,bridge_preparation:null}};
+  assert.deepEqual(jobPipeline(noCode).map(s=>s.done),[true,true,false,false,false,false,false]);
+  const stale=structuredClone(approved);stale.result_json.bridge_preparation.teacher_request_id='older-teacher';
+  assert.equal(jobPipeline(stale).find(s=>s.key==='code').done,false);
+  assert.equal(jobPipeline(stale).find(s=>s.key==='package').done,false);
+  const wrongBase=structuredClone(approved);wrongBase.result_json.implementation_proposal.candidate_sha='b'.repeat(40);
+  assert.equal(jobPipeline(wrongBase).find(s=>s.key==='package').done,false);
+});
+
+test('a claim preserves existing package evidence but never implies a published candidate', () => {
+  const job={...approved,status:'CLAIMED'};
+  assert.deepEqual(jobPipeline(job).map(s=>s.done),[true,true,true,true,false,false,false]);
+  const local=structuredClone(job);local.result_json.dev_bridge={mode:'STRUCTURED_MENTOR_WORK',changed:true,status:'READY_FOR_REVIEW',candidate_sha:'c'.repeat(40)};
+  assert.equal(jobPipeline(local).find(s=>s.key==='candidate').done,false);
+  local.result_json.dev_bridge={mode:'GITHUB_CLOUD_BRIDGE',needs_repair:false,status:'READY_FOR_REVIEW',github_run_id:123,candidate_sha:'c'.repeat(40)};
+  assert.equal(jobPipeline(local).find(s=>s.key==='candidate').done,true);
+  assert.equal(jobPipeline(local).find(s=>s.key==='ci').done,false);
+});
+
+test('COMPLETED and an uncorrelated green CI cannot manufacture verified completion', () => {
+  const job=structuredClone(approved);job.status='COMPLETED';
+  assert.equal(jobPipeline(job).find(s=>s.key==='done').done,false);
+  job.result_json.autonomy_completion={status:'VERIFIED',request_id:'teacher-1',candidate_sha:'c'.repeat(40),ci:{verified:true,workflow:'full-candidate-ci',run_id:12,head_sha:'d'.repeat(40),conclusion:'success'}};
+  assert.equal(jobPipeline(job).find(s=>s.key==='ci').done,false);
+  job.result_json.autonomy_completion.ci.head_sha='c'.repeat(40);
+  assert.equal(jobPipeline(job).find(s=>s.key==='done').done,true);
+  assert.doesNotMatch(jobPipeline(job).find(s=>s.key==='done').label,/release automatiques/);
+});
+
+test('verified existing code is described without claiming that Mentor generated a new package', () => {
+  const job=structuredClone(approved);job.status='COMPLETED';job.files_json=[];
+  job.result_json.implementation_proposal.decision='VERIFY_EXISTING';
+  job.result_json.autonomy_completion={status:'VERIFIED',request_id:'teacher-1',candidate_sha:'c'.repeat(40),ci:{verified:true,workflow:'full-candidate-ci',run_id:12,head_sha:'c'.repeat(40),conclusion:'success'}};
+  const stages=jobPipeline(job);
+  assert.equal(stages.find(s=>s.key==='code').label,'Code existant vérifié');
+  assert.equal(stages.find(s=>s.key==='package').label,'Vérification sans nouveau paquet');
+  assert.ok(stages.every(s=>s.done));
 });
