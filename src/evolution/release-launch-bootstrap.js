@@ -803,7 +803,15 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     // pause wins, including an owner action while readiness is being checked.
     const releaseRestore = url.searchParams.get('release_restore') === 'true';
     const beforeRestore = releaseRestore ? await readControl(env?.DB) : null;
-    if (releaseRestore && !isReleaseAutonomyPause(beforeRestore)) {
+    // A release opt-in is an explicit owner instruction. Do not mistake a
+    // pre-existing non-safety pause for a later owner intervention.
+    // The trusted release flow may resume an existing pause, but never a
+    // rollback, default fail-closed state, or a pause recorded by safety logic.
+    const source = String(beforeRestore?.source || '').toLowerCase();
+    const reason = String(beforeRestore?.reason || '').toLowerCase();
+    const safetyStop = /rollback|safety|watchdog|emergency|fail.closed|security|incident|circuit.breaker/.test(source + ' ' + reason)
+      || source === 'default-d1-fail-closed';
+    if (releaseRestore && !isReleaseAutonomyPause(beforeRestore) && safetyStop) {
       return Response.json({ ok: true, status: 'RELEASE_OWNER_CONTROL_PRESERVED', restore_skipped: true,
         paused: beforeRestore.paused, max_autonomy: beforeRestore.max_autonomy,
         autonomy_started: false }, { headers: { 'cache-control': 'no-store' } });
