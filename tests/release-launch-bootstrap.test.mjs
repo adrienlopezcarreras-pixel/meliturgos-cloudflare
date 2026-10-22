@@ -931,7 +931,8 @@ test('GEN2-42 runtime tick phase preserves autonomy control and delegates to can
     {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB:{}},
     {
       setControl:async()=>{controlCalls+=1; throw new Error('GEN2_42_TICK_MUST_NOT_TOUCH_CONTROL');},
-      runAutonomyTick:async()=>{
+      runAutonomyTick:async(_env,options)=>{
+        assert.equal(options.ownerLeaseWaitMs,90_000);
         tickCalls+=1;
         return {
           ok:true,
