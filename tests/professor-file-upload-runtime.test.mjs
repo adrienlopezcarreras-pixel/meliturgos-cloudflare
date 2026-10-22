@@ -14,7 +14,7 @@ test('Professor browser upload handler stages a real successful text and image u
   // [GPT] This function now comes from the shared emitted photo module.
   assert.match(html, /async function melLocalPhotoPreview\(file\)/);
   const compile = new Function(
-    'qs', 'fetch', 'FormData', 'melLocalPhotoPreview', 'pendingChatFiles', 'renderPendingChatFiles',
+    'qs', 'fetch', 'FormData', 'melLocalPhotoPreview', 'localPlayableMedia', 'pendingChatFiles', 'renderPendingChatFiles',
     handler + ';return uploadChatFiles;',
   );
   for (const [type, expectedImage] of [['text/plain', false], ['image/png', true]]) {
@@ -36,7 +36,7 @@ test('Professor browser upload handler stages a real successful text and image u
           preview_text: expectedImage ? '' : 'Texte réel',
         }) };
       },
-      TestFormData, async () => null, pending, () => { renders++; },
+      TestFormData, async () => null, () => ({isVideo:false,isAudio:false,mediaUrl:null}), pending, () => { renders++; },
     );
     const file = { name: expectedImage ? 'image.png' : 'preuve.txt', type };
     const result = await upload([file], 'file-picker');
@@ -57,14 +57,14 @@ test('Professor rejected upload cannot appear as a staged attachment', async () 
   const start = html.indexOf('async function uploadChatFiles(');
   const end = html.indexOf('async function resumeLatestConversation()', start);
   const compile = new Function(
-    'qs','fetch','FormData','melLocalPhotoPreview','pendingChatFiles','renderPendingChatFiles',
+    'qs','fetch','FormData','melLocalPhotoPreview','localPlayableMedia','pendingChatFiles','renderPendingChatFiles',
     html.slice(start, end) + ';return uploadChatFiles;',
   );
   const pending = [];
   const status = { textContent: '' };
   const upload = compile(
     () => status, async () => ({ ok: false, json: async () => ({ code: 'FILE_TOO_LARGE' }) }),
-    class { append() {} }, async () => null, pending, () => {},
+    class { append() {} }, async () => null, () => ({isVideo:false,isAudio:false,mediaUrl:null}), pending, () => {},
   );
   const result = await upload([{ name: 'too-large.txt', type: 'text/plain' }]);
   assert.equal(pending.length, 0);
@@ -77,7 +77,7 @@ test('Professor does not stage HTTP 200 without API-confirmed receipt', async ()
   const start = html.indexOf('async function uploadChatFiles(');
   const end = html.indexOf('async function resumeLatestConversation()', start);
   const build = new Function(
-    'qs','fetch','FormData','melLocalPhotoPreview','pendingChatFiles','renderPendingChatFiles',
+    'qs','fetch','FormData','melLocalPhotoPreview','localPlayableMedia','pendingChatFiles','renderPendingChatFiles',
     html.slice(start,end)+';return uploadChatFiles;',
   );
   for (const receipt of [{ok:true}, {ok:false,id:'bad'}, {ok:true,id:' '}]) {
@@ -85,7 +85,7 @@ test('Professor does not stage HTTP 200 without API-confirmed receipt', async ()
     const status = {textContent:''};
     const upload = build(
       () => status, async () => ({ok:true,json:async()=>receipt}),
-      class {append(){}}, async()=>null,pending,()=>{throw Error('UNVERIFIED_STAGING');},
+      class {append(){}}, async()=>null,()=>({isVideo:false,isAudio:false,mediaUrl:null}),pending,()=>{throw Error('UNVERIFIED_STAGING');},
     );
     const added = await upload([{name:'proof.txt',type:'text/plain'}]);
     assert.equal(added.length,0);
