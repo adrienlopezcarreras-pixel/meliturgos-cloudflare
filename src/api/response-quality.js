@@ -236,7 +236,9 @@ export function finalizeEvidenceAlignedResponse({
     out = 'Je ne dispose pas, dans les résultats vérifiés de cette requête, d’un reçu GitHub ou Cloudflare attestant la création, la fusion ou le déploiement annoncé. Je ne peux donc pas présenter cette opération comme réussie. Consulte les journaux persistants et les outils autorisés pour obtenir une preuve réelle.';
   }
 
+  const beforeD1Guard = out;
   if (requireD1ExecutionReceipts === true) out = guardClaimedD1Execution(out, toolResults);
+  const d1EvidenceCorrectionApplied = out !== beforeD1Guard;
 
   const knowledgeEvidence=successfulKnowledgeEvidence(toolResults);
   if(knowledgeEvidence && deniesKnowledgeAction(out)){
@@ -245,7 +247,7 @@ export function finalizeEvidenceAlignedResponse({
   }
 
   const failure=latestFailure(toolResults);
-  if(failure && /\b(?:je\s+n['’]?ai\s+pas\s+acc[eè]s|je\s+ne\s+peux\s+pas)\b/i.test(out)){
+  if(failure && !d1EvidenceCorrectionApplied && /\b(?:je\s+n['’]?ai\s+pas\s+acc[eè]s|je\s+ne\s+peux\s+pas)\b/i.test(out)){
     out=`L’opération ${failure.capability} a échoué cette fois (${failure.error}). Cet échec ponctuel ne prouve pas une incapacité générale ; les autres capacités restent décrites par leur état runtime courant.`;
   }
 
