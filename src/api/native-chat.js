@@ -28,7 +28,7 @@ import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse,
 import { buildResponseQualityInstruction, finalizeEvidenceAlignedResponse, inferResponseMode } from './response-quality.js';
 import { buildConversationFocusInstruction, deriveConversationFocus } from './conversation-focus.js';
 import { loadConversationFocusState, saveConversationFocusState } from './conversation-focus-store.js';
-import { assessResponseQuality, enforceResponseQuality, persistResponseQualityEvent } from './response-quality-audit.js';
+import { assessResponseQuality, enforceResponseQuality, persistResponseQualityEvent, replaceUnusableResponse, UNUSABLE_RESPONSE_CODES } from './response-quality-audit.js';
 import { inferKnowledgeCapability } from './knowledge-intent.js';
 import { plainChatMayStream, streamChatResponse } from './chat-stream.js';
 import { instrumentBus } from './chat-progress.js';
@@ -810,6 +810,8 @@ export function shouldEscalateNativeChatToCouncil({
   if (privateConnectedDataRequest(userText)) return false;
   const issues = Array.isArray(assessment?.issues) ? assessment.issues : [];
   if (issues.some(issue => issue?.code === 'EXCLUDED_SCOPE_ACTION')) return false;
+  // An empty reply or a copy of the question is a failed answer: retry it.
+  if (issues.some(issue => UNUSABLE_RESPONSE_CODES.includes(String(issue?.code || '')))) return true;
   const failedTools = (Array.isArray(toolResults) ? toolResults : []).filter(row => row?.status === 'FAILED');
   if (failedTools.length) return true;
   // Response-quality issues alone are handled by the normal quality guard.
@@ -2731,7 +2733,7 @@ export async function handleNativeChat(request, env, options = {}) {
 
   const effectiveQualityAssessment = automaticRecoveredAssessment || initialQualityAssessment;
   const qualityGuardedResponseText = (plainChatTurn || autonomyActivityObserved || autonomyRuntimeObserved || devBridgeStatusObserved || capabilityAuditObserved)
-    ? qualityCandidateText
+    ? replaceUnusableResponse(qualityCandidateText, effectiveQualityAssessment)
     : enforceResponseQuality({
         responseText:qualityCandidateText,
         userText:activeTaskText,

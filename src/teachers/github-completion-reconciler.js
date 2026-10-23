@@ -108,12 +108,13 @@ async function fetchJson(fetchImpl, url, env = {}) {
       'x-github-api-version': '2022-11-28',
       ...(env.MEL_GITHUB_TOKEN ? { authorization: 'Bearer ' + String(env.MEL_GITHUB_TOKEN) } : {}),
     },
-    redirect: 'error',
+    // Workers does not implement redirect:'error' (TypeError before sending).
+    redirect: 'manual',
     signal: AbortSignal.timeout(20_000),
   }); } catch {
     throw Object.assign(new Error('COMPLETION_GITHUB_TRANSPORT_FAILED'), { code: 'COMPLETION_GITHUB_TRANSPORT_FAILED' });
   }
-  if (!response.ok) {
+  if (!response.ok || (response.status >= 300 && response.status < 400)) {
     const error = new Error(`COMPLETION_GITHUB_VERIFY_FAILED_${response.status}`);
     error.code = 'COMPLETION_GITHUB_VERIFY_FAILED';
     error.status = response.status;

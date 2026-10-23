@@ -9,7 +9,7 @@ test('exact green full CI is read with the configured credential and reused, nev
  const run=await findGreenFullCandidateRun(env,sha,{fetchImpl:async(url,init)=>{
   assert.equal(new URL(url).hostname,'api.github.com');assert.equal(init.method,undefined);
   assert.equal(init.headers.authorization,'Bearer synthetic-test-token');
-  assert.equal(init.redirect,'error');assert.ok(init.signal);
+  assert.equal(init.redirect,'manual');assert.ok(init.signal); // Workers rejects redirect:'error'
   return Response.json({workflow_runs:[green]});
  }});assert.equal(run,123);
 });
@@ -40,4 +40,8 @@ test('the final completion verifier uses the same authentication and exact ident
   assert.equal(init.headers.authorization,'Bearer synthetic-test-token');return Response.json(green);
  }});assert.equal(checked.verified,true);
  await assert.rejects(verifyCompletionEvidence(completion,env,{fetchImpl:async()=>Response.json({...green,head_sha:'b'.repeat(40)})}),error=>error.code==='COMPLETION_CI_EVIDENCE_INVALID');
+});
+
+test('a GitHub redirect is a failure, never evidence (redirect:manual on Workers)',async()=>{
+ await assert.rejects(findGreenFullCandidateRun(env,sha,{fetchImpl:async()=>new Response(null,{status:302,headers:{location:'https://example.com'}})}),{code:'COMPLETION_GITHUB_VERIFY_FAILED',status:302});
 });
