@@ -17,3 +17,11 @@ test('invalid progress clocks never create a false green', () => {
   assert.throws(() => assertStressProgressFresh(2_000, 1_000),
     /CAPABILITY_STRESS_PROGRESS_CLOCK_INVALID/);
 });
+
+test('persistent stress transport retries never bypass durable terminal verification', async () => {
+  const source = await readFile(new URL('../scripts/persistent-capability-stress-live-proof.mjs', import.meta.url), 'utf8');
+  assert.match(source, /CAPABILITY_STRESS_TRANSPORT_RETRY/);
+  assert.match(source, /CAPABILITY_STRESS_TRANSPORT_UNAVAILABLE/);
+  assert.match(source, /await callCapabilityResilient\(\{ id: 'capability.audit.status'/);
+  assert.match(source, /const r = validateTerminal\(terminalBody, jobId\)/);
+});
