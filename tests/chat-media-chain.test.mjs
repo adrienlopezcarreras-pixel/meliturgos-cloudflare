@@ -109,3 +109,12 @@ test('an ordinary Code-mode question does not expose the model tool protocol',as
  const data=await response.json();assert.doesNotMatch(data.text,/capability|args|web\.research/);assert.equal(data.media.length,1);
  const {host}=browser(t,data.text,data);assert.equal(host.querySelectorAll('img').length,1);assert.equal(host.querySelectorAll('pre').length,0);
 });
+
+test('accepted asynchronous work never becomes a completed media result',()=>{
+ const media=[{type:'video',url:'https://example.org/accepted-video',mime:'video/mp4'}];
+ for(const status of ['QUEUED','ACCEPTED','PENDING','RUNNING','PROCESSING']) {
+  assert.deepEqual(collectChatMedia([{capability:'media.video.generate',status:'SUCCEEDED',result:{status,media}}]),{media:[],references:[]});
+ }
+ assert.equal(collectChatMedia([{capability:'media.video.generate',status:'FAILED',result:{media}}]).media.length,0);
+ assert.equal(collectChatMedia([{capability:'media.video.generate',status:'SUCCEEDED',result:{status:'COMPLETED',media}}]).media.length,1);
+});
