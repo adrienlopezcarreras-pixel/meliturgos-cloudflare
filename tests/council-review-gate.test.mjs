@@ -40,7 +40,10 @@ test('council verdicts and majority rule', async () => {
   const env = { AI: { async run(m) { return { response: m.includes('gemma') ? 'oops' : '{"verdict":"REJECT","blocking":["import inexistant"]}' }; } } };
   assert.equal((await runCouncilReview(env, { diff: '+x' })).decision, 'REJECTED');
   const wf = await readFile(new URL('../.github/workflows/mel-candidate-promotion.yml', import.meta.url), 'utf8');
-  assert.ok(wf.indexOf('/api/internal/council-review') > 0 && wf.indexOf('git push origin "$CAND:refs/heads/main"') > wf.indexOf('/api/internal/council-review'));
+  assert.ok(wf.indexOf('/api/internal/council-review') > 0 && wf.lastIndexOf('git push origin "$CAND:refs/heads/main"') > wf.indexOf('/api/internal/council-review'));
+  // The only push before the Council is the no-content fast-forward (empty diff).
+  const early = wf.indexOf('git push origin "$CAND:refs/heads/main"');
+  assert.ok(early === wf.lastIndexOf('git push origin "$CAND:refs/heads/main"') || wf.lastIndexOf('git diff --quiet "$MAIN" "$CAND"', early) > wf.lastIndexOf('fi', early - 200));
   assert.match(wf, /DECISION" != "APPROVED"/);
 });
 
