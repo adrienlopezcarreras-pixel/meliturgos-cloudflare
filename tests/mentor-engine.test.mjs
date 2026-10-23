@@ -735,3 +735,16 @@ test('mentor gives each model 50 s but keeps the whole proposal inside its time 
     return true;
   });
 });
+
+test('a rejected proposal keeps a short reason: the refused path or the start of the reply', async () => {
+  const engine = new MentorEngine({ providerFactory: async () => [
+    provider('prose', 'Je pense qu’il faudrait modifier le superviseur pour gérer le bail.'),
+    provider('denied', { changes: [{ path: '.env', content: 'X=1' }] }),
+  ] });
+  await assert.rejects(engine.propose({ env: {}, goal: 'Changer la valeur lue', inspectedFiles: [{ path: 'src/example.js', content: 'export const a = 1;\n' }] }), (error) => {
+    const byProvider = Object.fromEntries((error.failures || []).filter(row => row.stage === 'initial').map(row => [row.provider, row.detail]));
+    assert.match(byProvider.prose, /^reply=Je pense qu’il faudrait/);
+    assert.match(byProvider.denied, /^path=\.env/);
+    return true;
+  });
+});

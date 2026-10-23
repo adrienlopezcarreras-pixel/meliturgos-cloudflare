@@ -27,6 +27,17 @@ function bounded(value, max) {
   return text.length > max ? text.slice(0, max) : text;
 }
 
+// Short, non-secret evidence of why a proposal was rejected: the refused path,
+// or the start of the unusable answer. Codes alone could not explain
+// MENTOR_PATH_DENIED / MENTOR_JSON_REQUIRED on production jobs.
+function mentorFailureDetail(error, raw) {
+  const message = String(error?.message || '');
+  const path = /^MENTOR_(?:PATH_DENIED|INVALID_CHANGE|UNINSPECTED_EDIT|LONG_FILE_REQUIRES_EDIT):(.+)$/.exec(message)?.[1];
+  if (path) return 'path=' + path.slice(0, 160);
+  const text = String(typeof raw === 'string' ? raw : JSON.stringify(raw ?? '')).replace(/\s+/g, ' ').trim();
+  return text ? 'reply=' + text.slice(0, 160) : null;
+}
+
 function mentorFailureCode(error, fallback = 'MENTOR_PROVIDER_FAILED') {
   const rawCode = String(error?.code || '').trim().toUpperCase();
   if (/^[A-Z0-9_]{1,80}$/.test(rawCode)) return rawCode;
@@ -543,7 +554,7 @@ export class MentorEngine {
           proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: false });
         } catch (error) {
           const failure = mentorFailureCode(error, 'MENTOR_PROPOSAL_INVALID');
-          failures.push({ provider: provider.id, error: failure, stage: 'initial' });
+          failures.push({ provider: provider.id, error: failure, stage: 'initial', detail: mentorFailureDetail(error, raw) });
           repairInputs.push({ provider, raw: bounded(raw, 20_000), failure });
         }
       });
@@ -596,6 +607,7 @@ export class MentorEngine {
               provider: provider.id,
               error: mentorFailureCode(error, 'MENTOR_REPAIRED_PROPOSAL_INVALID'),
               stage: 'repair',
+              detail: mentorFailureDetail(error, result.value.output?.text ?? result.value.output),
             });
           }
         });

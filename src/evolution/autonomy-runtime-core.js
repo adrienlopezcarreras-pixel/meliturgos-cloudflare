@@ -278,6 +278,8 @@ export async function persistBridgePreparationDiagnostic(repository, jobId, diag
     ? diagnostic.failures.slice(0, 8).map((row) => ({
         stage: String(row?.stage || '').slice(0, 24),
         code: safeDiagnosticCode({ code: row?.error || row?.code }, 'MENTOR_PROPOSAL_REJECTED'),
+        ...(row?.provider ? { provider: String(row.provider).slice(0, 80) } : {}),
+        ...(row?.detail ? { detail: String(row.detail).slice(0, 180) } : {}),
       }))
     : [];
   const next = {
