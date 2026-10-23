@@ -405,12 +405,17 @@ async function boundedMentorInvoke(provider, request, limitMs) {
 }
 
 export class MentorEngine {
-  constructor({ memory, providerFactory, invokeTimeoutMs = 25_000, repairTimeoutMs = 12_000 } = {}) {
+  // Workers AI models need 50-100 s for a chat answer in production: a 25 s
+  // cut stopped most code proposals (MENTOR_PROVIDER_TIMEOUT on every job).
+  // A whole proposal still fits the 90 s runtime lease through proposeBudgetMs.
+  constructor({ memory, providerFactory, invokeTimeoutMs = 50_000, repairTimeoutMs = 20_000, proposeBudgetMs = 75_000, now = () => Date.now() } = {}) {
     this.memory = memory || new MentorMemoryRepository(null);
     this.providerFactory = providerFactory;
     // ChatGPT-GPT6 / MEL-MENTOR-TIMEOUT: deadlines below the 180-second MAX request.
-    this.invokeTimeoutMs = Math.max(10, Math.min(30_000, Number(invokeTimeoutMs) || 25_000));
-    this.repairTimeoutMs = Math.max(10, Math.min(30_000, Number(repairTimeoutMs) || 12_000));
+    this.invokeTimeoutMs = Math.max(10, Math.min(60_000, Number(invokeTimeoutMs) || 50_000));
+    this.repairTimeoutMs = Math.max(10, Math.min(30_000, Number(repairTimeoutMs) || 20_000));
+    this.proposeBudgetMs = Math.max(20, Math.min(80_000, Number(proposeBudgetMs) || 75_000));
+    this.now = typeof now === 'function' ? now : () => Date.now();
   }
 
   async _providers(env, { codeCouncil = false } = {}) {
@@ -489,8 +494,15 @@ export class MentorEngine {
         providerWaves.push(tier.slice(offset, offset + 3));
       }
     }
+    const startedAt = this.now();
+    const remaining = () => this.proposeBudgetMs - (this.now() - startedAt);
     for (const wave of providerWaves) {
       if (!codeCouncil && proposals.length) break;
+      // A new wave never starts once it could not finish inside the budget.
+      if (attemptedProviders.length && remaining() < Math.min(this.invokeTimeoutMs, 20_000)) {
+        failures.push({ provider: 'mentor', error: 'MENTOR_TIME_BUDGET_EXHAUSTED', stage: 'initial' });
+        break;
+      }
       const waveOffset = attemptedProviders.length;
       attemptedProviders.push(...wave.map(provider => provider.id));
       const settled = await Promise.allSettled(wave.map((provider, index) => {
@@ -511,7 +523,7 @@ export class MentorEngine {
             inference_settings: learned.inference,
             ...(lora ? { lora } : {}),
           },
-        }, this.invokeTimeoutMs).then(output => ({ output, visibleScope }));
+        }, Math.max(10, Math.min(this.invokeTimeoutMs, remaining()))).then(output => ({ output, visibleScope }));
       }));
 
       const repairInputs = [];
@@ -556,7 +568,7 @@ export class MentorEngine {
               inference_settings: learned.inference,
               ...(lora ? { lora } : {}),
             },
-          }, this.repairTimeoutMs).then(output => ({ output, visibleScope }));
+          }, Math.max(10, Math.min(this.repairTimeoutMs, remaining()))).then(output => ({ output, visibleScope }));
         }));
         repaired.forEach((result, index) => {
           const { provider } = repairInputs[index];
