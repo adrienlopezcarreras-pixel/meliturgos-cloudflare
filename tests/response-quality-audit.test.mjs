@@ -121,3 +121,12 @@ test('quality guard still blocks an action on an explicitly excluded topic', () 
   assert.notEqual(guarded, responseText);
   assert.match(guarded, /explicitement exclu/i);
 });
+
+
+test('quality enforcement preserves renderable Markdown and requested code formatting', async () => {
+  const { enforceResponseQuality } = await import('../src/api/response-quality-audit.js');
+  const text='Voici le résultat.\n\n![image](https://example.org/image.jpg)\n\n```js\nif (ready) {\n    run();\n}\n```\n\n| A | B |\n| --- | --- |\n| 1 | 2 |';
+  for (const issues of [[],[{code:'POSSIBLE_OFF_TOPIC',severity:'high'}]]) {
+    assert.equal(enforceResponseQuality({responseText:text,assessment:{issues}}),text);
+  }
+});
