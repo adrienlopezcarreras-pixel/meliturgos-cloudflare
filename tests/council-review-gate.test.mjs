@@ -98,3 +98,22 @@ test('online models first; after 10 short reviews the PC alone, then the owner',
     assert.equal((await approveCouncilReviewByOwner({ DB }, key)).code, 'COUNCIL_OWNER_APPROVAL_NOT_PENDING', 'only a pending PC approval can be validated');
   } finally { DB.close(); }
 });
+
+test('VERIFY_EXISTING reviewers get evidence instructions, not code-diff instructions', async () => {
+  const { reviewVerificationEvidence, VERIFY_SYSTEM } = await import('../src/evolution/council-review.js');
+  const { sqliteD1 } = await import('./helpers/sqlite-d1.mjs');
+  const DB = sqliteD1();
+  try {
+    await DB.prepare('CREATE TABLE dev_bridge_state(bridge_id TEXT PRIMARY KEY, last_seen INTEGER, status TEXT, metadata_json TEXT)').run();
+    const seen = [];
+    const review = async (_env, input) => { seen.push(input.system); return { decision: 'APPROVED', reviews: [] }; };
+    await reviewVerificationEvidence({ DB }, { job: { id: 'j', goal: 'g' }, implementation: { candidate_sha: 'a'.repeat(40), selected: { text: 'DECISION: VERIFY_EXISTING' } }, ciRunId: 1, liveChecks: [], review });
+    assert.equal(seen[0], VERIFY_SYSTEM);
+    assert.match(VERIFY_SYSTEM, /Ne rejette jamais pour absence de modification de code/);
+    const asked = [];
+    const env = { AI: { async run(_m, { messages }) { asked.push(messages[0].content); return { response: '{"verdict":"APPROVE","summary":"preuves suffisantes"}' }; } } };
+    const { runCouncilReview } = await import('../src/evolution/council-review.js');
+    await runCouncilReview(env, { diff: 'preuves', system: VERIFY_SYSTEM, companion: null });
+    assert.ok(asked.length && asked.every(text => text === VERIFY_SYSTEM));
+  } finally { DB.close(); }
+});
