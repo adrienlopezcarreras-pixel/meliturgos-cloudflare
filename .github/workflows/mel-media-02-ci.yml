@@ -11,6 +11,10 @@ on:
       - 'src/roadmap/master-roadmap.js'
       - 'tests/*media*.test.mjs'
       - 'tests/procedural-audio-capabilities.test.mjs'
+      - 'tests/chat-audio-video-execution.test.mjs'
+      - 'scripts/verify-chat-media-browser.mjs'
+      - 'src/api/*media*.js'
+      - 'src/pages/chat-rich-renderer.js'
       - '.github/workflows/workers-ai-zero-cost-proof-refresh.yml'
       - '.github/workflows/mel-media-02-ci.yml'
   push:
@@ -26,6 +30,10 @@ on:
       - 'src/roadmap/master-roadmap.js'
       - 'tests/*media*.test.mjs'
       - 'tests/procedural-audio-capabilities.test.mjs'
+      - 'tests/chat-audio-video-execution.test.mjs'
+      - 'scripts/verify-chat-media-browser.mjs'
+      - 'src/api/*media*.js'
+      - 'src/pages/chat-rich-renderer.js'
       - '.github/workflows/workers-ai-zero-cost-proof-refresh.yml'
       - '.github/workflows/mel-media-02-ci.yml'
 
@@ -61,6 +69,15 @@ jobs:
           tests/media-capability-truth-matrix.test.mjs
           tests/creative-media-capabilities.test.mjs
           tests/release-launch-bootstrap.test.mjs
+          tests/chat-audio-video-execution.test.mjs
+          tests/chat-media-chain.test.mjs
+      - name: Prove local browser decoding, playback and private media seeking
+        shell: bash
+        env:
+          MEL_TEST_BROWSER_PATH: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          node scripts/verify-chat-media-browser.mjs
 
   media-adjacent-full-suite:
     runs-on: ubuntu-24.04

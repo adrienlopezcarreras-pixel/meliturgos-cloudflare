@@ -1,10 +1,11 @@
 import { classifySemanticOwnerIntent, shouldSemanticIntentCheck } from './semantic-intent.js';
 import { createConversationService } from '../conversations/conversation-service.js';
 import { inferKnowledgeCapability } from '../api/knowledge-intent.js';
+import { inferChatMediaCapability } from '../api/chat-media-intent.js';
 
 export function isEvolutionDevelopmentIntent(text) {
   const value = String(text || '').trim();
-  if (!value) return false;
+  if (!value || inferChatMediaCapability(value)) return false;
   // Teaching the owner is a conversation, not a request for MEL to build a skill.
   if (/\bapprends[-\s]moi\b/i.test(value)) return false;
 
@@ -220,6 +221,9 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
   if (!body || typeof body !== 'object' || body.capability?.id) return request;
   const text = String(body.text ?? body.message ?? body.prompt ?? '').trim();
   if (!text) return request;
+  // A concrete media request is executed by native chat, even when its
+  // subject mentions tests, code or UI. It is not a development order.
+  if (inferChatMediaCapability(text)) return request;
   const requestKey = body.client_message_id ?? body.message_id ?? body.request_id ?? body.id ?? '';
   // A long instruction may mention « travaux » and « état » without asking
   // for the status sheet. Only an explicit state question keeps that route.

@@ -56,3 +56,21 @@ for(const kind of ['empty','timeout'])test('audio/video '+kind+' never invents p
  const f=fixture();f.env.MEL_WEB_FETCH=async()=>{if(kind==='timeout')throw new Error('upstream timeout');return Response.json({query:{pages:{}}});};
  const data=await (await worker.fetch(req('/api/chat',{text:'Montre moi une vidéo de mer'}),f.env)).json();assert.equal(data.media.length,0);assert.match(data.text,kind==='empty'?/Aucun son ou vidéo/:/MEDIA_PROVIDER_TIMEOUT/);
 });
+
+test('private playback supports seeking only after authorization and authenticated decryption',async()=>{
+ const f=fixture();
+ const chat=await (await worker.fetch(req('/api/chat',{text:'Génère un son de notification'}),f.env)).json();
+ const url=new URL(chat.media[0].url),path=url.pathname+url.search;
+ const full=new Uint8Array(await (await worker.fetch(req(path),f.env)).arrayBuffer());
+ const withRange=(range,extra={})=>{const r=req(path);const headers=new Headers(r.headers);headers.set('range',range);for(const [key,value]of Object.entries(extra))headers.set(key,value);return new Request(r,{headers});};
+ for(const [range,start,end]of [['bytes=0-3',0,3],['bytes=44-',44,full.length-1],['bytes=-8',full.length-8,full.length-1],['bytes=0-999999999',0,full.length-1]]){
+  const response=await worker.fetch(withRange(range),f.env);assert.equal(response.status,206,range);assert.equal(response.headers.get('content-range'),`bytes ${start}-${end}/${full.length}`);assert.equal(Number(response.headers.get('content-length')),end-start+1);assert.deepEqual(new Uint8Array(await response.arrayBuffer()),full.slice(start,end+1));
+ }
+ for(const range of ['bytes=-0','bytes=9-2','bytes=','bytes=0-1,3-4','bytes='+full.length+'-','other=0-1']){
+  const response=await worker.fetch(withRange(range),f.env);assert.equal(response.status,416,range);assert.equal(response.headers.get('content-range'),'bytes */'+full.length);assert.equal((await response.arrayBuffer()).byteLength,0);
+ }
+ const head=await worker.fetch(new Request(req(path),{method:'HEAD'}),f.env);assert.equal(head.status,200);assert.equal(head.headers.get('accept-ranges'),'bytes');assert.equal(Number(head.headers.get('content-length')),full.length);assert.equal((await head.arrayBuffer()).byteLength,0);
+ assert.equal((await worker.fetch(withRange('bytes=0-3',{'if-range':'"unknown-validator"'}),f.env)).status,200);
+ const denied=req(path,null,false);const headers=new Headers(denied.headers);headers.set('range','bytes=0-3');const before=f.reads();assert.equal((await worker.fetch(new Request(denied,{headers}),f.env)).status,401);assert.equal(f.reads(),before);
+ const stored=[...f.objects.values()][0];stored.bytes[0]^=1;const corrupt=await worker.fetch(withRange('bytes=0-3'),f.env);assert.equal(corrupt.status,409);assert.equal(corrupt.headers.get('content-range'),null);
+});

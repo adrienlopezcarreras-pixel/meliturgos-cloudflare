@@ -4,11 +4,11 @@ export function inferChatMediaCapability(text) {
   const value=String(text||'').trim();
   if(!value||value.length>2000)return null;
   const normalized=value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
-  if(/\b(?:pourquoi|comment|exemple|syntaxe|bug|ci[- ]jointe?|envoye|televerse|mon fichier|ma video|mon audio)\b/.test(normalized))return null;
+  if(/^(?:pourquoi|comment)\b|\b(?:exemple|syntaxe|bug|ci[- ]jointe?|envoye|televerse|mon fichier|ma video|mon audio)\b/.test(normalized))return null;
   if(/https?:\/\//i.test(value))return null;
   const speak=value.match(/^(?:lis|prononce|dis)\s+(?:ceci\s+)?(?:[àa]\s+voix\s+haute|oralement)\s*[:：]\s*([\s\S]+)$/i);
   if(speak)return {id:'media.audio.synthesize',input:{text:speak[1].slice(0,4000)}};
-  const create=/^(?:peux[- ]tu\s+)?(?:genere|cree|compose|dessine|fabrique)\b/.test(normalized);
+  const create=/^(?:peux[- ]tu\s+)?(?:genere|cree|compose|dessine|fabrique)\s+(?:(?:moi|nous)\s+)?(?:(?:un|une|des|du|de la)\s+)?(?:(?:petit|petite|court|courte|nouveau|nouvelle)\s+)?(?:musique|melodie|composition musicale|jingle|videos?|clips?|animation|sons?|audio|bruitage|enregistrement|images?|photos?|dessin|illustration)\b/.test(normalized);
   const music=/\b(?:musique|melodie|composition musicale|jingle)\b/.test(normalized);
   const video=/\b(?:videos?|clips?|animation)\b/.test(normalized);
   const audio=/\b(?:sons?|audio|bruitage|enregistrement)\b/.test(normalized);

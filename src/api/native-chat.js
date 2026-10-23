@@ -620,7 +620,7 @@ export function inferPublicImageLookup(text) {
   if (!value || value.length > 280) return null;
   const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   // Images uploaded by the owner, image generation and UI debugging are not public searches.
-  if (/\b(?:ci[- ]jointe|jointe|envoyee|televersee|uploadee|capture d'ecran|mes photos|mes images|ma photo|mon image|genere|cree|dessine|pourquoi|probleme|bug)\b/.test(normalized)) return null;
+  if (/^(?:pourquoi|comment)\b|\b(?:ne\s+(?:me\s+)?(?:montre|cherche|recherche|affiche)|ci[- ]jointe|jointe|envoyee|televersee|uploadee|capture d'ecran|mes photos|mes images|ma photo|mon image|genere|cree|dessine|probleme|bug)\b/.test(normalized)) return null;
   if (!/\b(?:montre(?:[- ]moi)?|affiche|trouve|cherche|recherche|donne[- ]moi)\b[\s\S]{0,100}\b(?:photos?|images?|portraits?)\b/.test(normalized)) return null;
   const number=normalized.match(/\b([1-6])\s+(?:photos?|images?|portraits?)\b/);
   const word=normalized.match(/\b(deux|trois|quatre|cinq|six)\s+(?:photos?|images?|portraits?)\b/);
@@ -661,7 +661,11 @@ function withOfficialVisual(responseText, userText, toolResults) {
     const source=evidence.result?.sources?.find(row=>/^https:\/\//.test(String(row.url||'')));
     return 'Aucune photo affichable n’a été obtenue ('+String(evidence.result?.code||'IMAGE_SEARCH_EMPTY')+').'+(source?'\n\n[Consulter la source]('+source.url+')':' Tu peux préciser le sujet ou réessayer.');
   }
-  return (evidence.result?.sources?.[0]?.title ? String(evidence.result.sources[0].title).replace(/[\[\]<>`*_{}()#!~|]/g,'').slice(0,180)+'\n\n' : '')+images.map((image,index)=>'![Photo '+(index+1)+']('+image.url+')\n\n[Source '+(index+1)+']('+image.source_url+')').join('\n\n');
+  // Keep requested explanations, but only provider-confirmed URLs may create
+  // media or citations here. A generated URL is not retrieval evidence.
+  const wantsExplanation=/\b(?:explique|expliquer|compare|comparer|d[ée]cris|d[ée]crire|r[ée]sume|r[ée]sumer|pr[ée]sente|pr[ée]senter)\b/i.test(userText);
+  const explanation=wantsExplanation?stripLeakedToolCalls(responseText).replace(/!\[[^\]]*\]\([^)]*\)/g,'').replace(/\[([^\]]*)\]\([^)]*\)/g,'$1').replace(/https?:\/\/\S+/g,'').trim().slice(0,6000):'';
+  return (explanation?explanation+'\n\n':'')+(evidence.result?.sources?.[0]?.title ? String(evidence.result.sources[0].title).replace(/[\[\]<>`*_{}()#!~|]/g,'').slice(0,180)+'\n\n' : '')+images.map((image,index)=>'![Photo '+(index+1)+']('+image.url+')\n\n[Source '+(index+1)+']('+image.source_url+')').join('\n\n');
 }
 
 function responseAdmitsUncertainty(value) {

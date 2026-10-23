@@ -118,3 +118,11 @@ test('accepted asynchronous work never becomes a completed media result',()=>{
  assert.equal(collectChatMedia([{capability:'media.video.generate',status:'FAILED',result:{media}}]).media.length,0);
  assert.equal(collectChatMedia([{capability:'media.video.generate',status:'SUCCEEDED',result:{status:'COMPLETED',media}}]).media.length,1);
 });
+
+test('a photo request with an explanation preserves prose and only retrieved media URLs',async t=>{
+ const environment=env(async()=>Response.json({query:{pages:{1:{title:'Chat',imageinfo:[{url:'https://upload.wikimedia.org/real-cat.jpg',descriptionurl:'https://commons.wikimedia.org/wiki/File:RealCat',mime:'image/jpeg'}]}}}}));
+ environment.AI.run=async()=>({response:'Les chats ronronnent dans plusieurs situations ; le contexte compte.\n\n![Photo inventée](https://example.org/invented.jpg)'});
+ const data=await (await worker.fetch(request('Montre moi une photo de chat et explique pourquoi les chats ronronnent'),environment)).json();
+ assert.match(data.text,/Les chats ronronnent/);assert.doesNotMatch(data.text,/invented\.jpg/);assert.equal(data.media.length,1);
+ const {host}=browser(t,data.text,data);assert.equal(host.querySelectorAll('img').length,1);assert.equal(host.querySelector('img').src,'https://upload.wikimedia.org/real-cat.jpg');
+});
