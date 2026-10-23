@@ -32,7 +32,7 @@ html body{background-image:radial-gradient(circle at 82% 12%,rgba(34,211,238,.13
 .mel-live-explanation{margin-top:7px;color:#dbeafe;line-height:1.45;font-size:.92rem}.mel-live-narrative{margin:0 0 12px;padding:12px 14px;border:1px solid rgba(96,165,250,.20);border-radius:14px;background:rgba(4,15,30,.62);color:#e0f2fe;line-height:1.45}.mel-live-narrative strong{color:#7dd3fc}
 @media(max-width:1200px){html body{background-attachment:scroll!important}.shell{display:block!important}.sidebar{position:fixed!important;z-index:100!important;left:0!important;right:0!important;top:auto!important;bottom:0!important;width:100%!important;height:auto!important;border-right:0!important;border-top:1px solid var(--line)!important;padding:7px 7px calc(7px + env(safe-area-inset-bottom))!important}.main{margin-left:0!important;width:100%!important;padding:18px 11px calc(104px + env(safe-area-inset-bottom))!important}.brand,.home{display:none!important}.nav{display:flex!important;overflow-x:auto!important;gap:4px!important}.nav .nav-entry{min-width:84px!important;flex:0 0 auto!important;flex-direction:column!important;text-align:center!important;font-size:.78rem!important;padding:7px!important}.top{width:100%!important}.card,.card.third,.card.wide{grid-column:1/-1!important}.hero{grid-template-columns:94px minmax(0,1fr)!important}.hero img{width:90px!important;height:90px!important;min-width:90px!important;min-height:90px!important;max-width:90px!important;max-height:90px!important}}
 
-.mel-code-chat-layout{display:block}.mel-code-chat-layout .card.wide{grid-column:auto}.mel-code-live-panel{position:fixed;top:92px;right:22px;z-index:80;width:350px;min-width:255px;min-height:125px;max-width:calc(100vw - 16px);max-height:calc(100vh - 25px);resize:both;overflow:auto;border:1px solid rgba(34,211,238,.35);border-radius:16px;background:rgba(9,20,35,.96);box-shadow:0 16px 45px rgba(0,0,0,.38);padding:12px;backdrop-filter:blur(10px)}.mel-code-live-panel[hidden]{display:none!important}.mel-code-live-header{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:move;touch-action:none;user-select:none}.mel-code-live-header strong{font-size:.88rem}.mel-code-live-controls{display:flex;align-items:center;gap:5px}.mel-code-live-controls button{min-height:28px;padding:4px 7px;font-size:.72rem}.mel-code-live-panel.is-collapsed{width:230px!important;height:auto!important;min-height:0;resize:none;overflow:hidden}.mel-code-live-panel.is-collapsed #melCodeLiveStatus,.mel-code-live-panel.is-collapsed #melCodeLiveEvents,.mel-code-live-panel.is-collapsed .mel-code-live-foot{display:none}.mel-code-live-events{margin-top:10px;display:grid;gap:7px;overflow:auto;max-height:calc(100% - 95px)}.mel-code-live-event{border-left:3px solid #60a5fa;padding:7px 9px;background:rgba(255,255,255,.045);border-radius:6px;font-size:.8rem;overflow-wrap:anywhere;white-space:pre-wrap}.mel-code-live-done{border-left-color:#34d399}.mel-code-live-failed,.mel-code-live-blocked{border-left-color:#fb7185}.mel-code-live-meta{font-size:.71rem;color:var(--muted);margin-top:3px}.mel-code-autocheck{display:inline-flex;align-items:center;gap:6px;padding:0 4px;font-size:.78rem;white-space:nowrap}.mel-code-autocheck input{width:17px;height:17px;accent-color:var(--cyan)}#melCodeContinue[hidden],.mel-code-autocheck[hidden]{display:none!important}@media(max-width:700px){.mel-code-live-panel{width:min(315px,calc(100vw - 20px));right:10px;top:65px;max-height:55vh}.mel-code-live-header strong{font-size:.78rem}}</style><style id="mel-control-center-style">
+.mel-code-chat-layout{display:block}.mel-code-chat-layout .card.wide{grid-column:auto}.mel-code-live-panel{position:fixed;top:92px;right:22px;z-index:80;width:350px;min-width:255px;min-height:125px;max-width:calc(100vw - 16px);max-height:calc(100vh - 25px);resize:both;overflow:auto;border:1px solid rgba(34,211,238,.35);border-radius:16px;background:rgba(9,20,35,.96);box-shadow:0 16px 45px rgba(0,0,0,.38);padding:12px;backdrop-filter:blur(10px)}.mel-code-live-panel[hidden]{display:none!important}.mel-code-live-header{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:move;touch-action:none;user-select:none}.mel-code-live-header strong{font-size:.88rem}.mel-code-live-controls{display:flex;align-items:center;gap:5px}.mel-code-live-controls button{min-height:28px;padding:4px 7px;font-size:.72rem}.mel-code-live-panel.is-collapsed{width:230px!important;height:auto!important;min-height:0;resize:none;overflow:hidden}.mel-code-live-panel.is-collapsed #melCodeLiveStatus,.mel-code-live-panel.is-collapsed #melCodeLiveEvents,.mel-code-live-panel.is-collapsed .mel-code-live-foot{display:none}.mel-code-live-events{margin-top:10px;display:grid;gap:7px;overflow:auto;max-height:calc(100% - 95px)}.mel-code-live-event{border-left:3px solid #60a5fa;padding:7px 9px;background:rgba(255,255,255,.045);border-radius:6px;font-size:.8rem;overflow-wrap:anywhere;white-space:pre-wrap}.mel-code-live-done{border-left-color:#34d399}.mel-code-live-failed,.mel-code-live-blocked{border-left-color:#fb7185}.mel-code-live-detail{margin-top:7px}.mel-code-live-detail summary{cursor:pointer;color:#93c5fd}.mel-code-live-detail pre{white-space:pre-wrap;overflow:auto;max-height:380px;font-size:.72rem;user-select:text}.mel-code-live-meta{font-size:.71rem;color:var(--muted);margin-top:3px}.mel-code-autocheck{display:inline-flex;align-items:center;gap:6px;padding:0 4px;font-size:.78rem;white-space:nowrap}.mel-code-autocheck input{width:17px;height:17px;accent-color:var(--cyan)}#melCodeContinue[hidden],.mel-code-autocheck[hidden]{display:none!important}@media(max-width:700px){.mel-code-live-panel{width:min(315px,calc(100vw - 20px));right:10px;top:65px;max-height:55vh}.mel-code-live-header strong{font-size:.78rem}}</style><style id="mel-control-center-style">
 .mel-unified-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}.mel-unified-tabs button.active{background:linear-gradient(135deg,#2563eb,#1d4ed8)}[data-mode-panel][hidden]{display:none!important}
 .connection-card .skill-head{align-items:center}.connection-status{margin-top:10px}.connection-note{margin-top:8px;font-size:.82rem;color:var(--muted);line-height:1.45}.connection-app-config{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}.connection-app-config .wide-field{grid-column:1/-1}.connection-form-grid{display:grid;grid-template-columns:2fr .7fr 1fr;gap:9px;margin-top:10px}.connection-form-grid.smtp{margin-top:9px}.connection-provider-state{font-size:.8rem;color:#cbd5e1;margin-top:7px}.connection-banner{margin:0 0 14px;padding:12px 14px;border:1px solid rgba(96,165,250,.24);border-radius:14px;background:rgba(37,99,235,.08);color:#dbeafe}.connection-banner.good{border-color:rgba(52,211,153,.28);background:rgba(16,185,129,.08);color:#a7f3d0}.connection-banner.bad{border-color:rgba(251,113,133,.3);background:rgba(190,24,93,.08);color:#fecdd3}@media(max-width:760px){.connection-app-config,.connection-form-grid{grid-template-columns:1fr}.connection-app-config .wide-field{grid-column:auto}}
 .canonical-autonomy-controls{display:flex;gap:7px;align-items:center;flex-wrap:wrap;grid-column:1/-1}.canonical-autonomy-controls .button,.canonical-autonomy-controls button{min-height:42px;font-weight:800}.canonical-autonomy-controls .max-active{background:#b91c1c}.canonical-watch-link{background:linear-gradient(135deg,#0f766e,#155e75)}
@@ -379,6 +379,60 @@ let melCodeAutoRepeatCount=0;
 let melCodeAutoTaskVersion=0;
 let melCodeAutoTimer=null;
 let melCodeInterrupted=false;
+// Show only recorded server evidence. Redact credentials before rendering any nested details.
+function melCodeSafeDetail(value){
+  let raw=typeof value==='string'?value:JSON.stringify(value,null,2);
+  raw=String(raw||'');
+  raw=raw.replace(/(Bearer\\s+)[A-Za-z0-9._~+\\/-]+/gi,'$1[MASQUÉ]')
+    .replace(/((?:token|secret|password|authorization|api[_-]?key|cookie|credential)\\s*[:=]\\s*["']?)[^\\s,"'}]+/gi,'$1[MASQUÉ]')
+    .replace(/(gh[pousr]_[A-Za-z0-9]{12,}|github_pat_[A-Za-z0-9_]{12,})/g,'[MASQUÉ]');
+  return raw.slice(0,18000);
+}
+let melCodeActivitySeen=new Map(),melCodeActivityPolling=false,melCodeActivityTimer=null;
+function melCodeActivityTime(value){
+  const n=Number(value);return Number.isFinite(n)&&n>0?new Date(n).toLocaleTimeString('fr-FR'):String(value||'');
+}
+async function melCodeRefreshActivity(){
+  if(melCodeActivityPolling||melChatRole!=='code'||document.hidden||qs('#melCodeLivePanel')?.hidden)return;
+  melCodeActivityPolling=true;
+  try{
+    const data=await jfetch('/api/gen2/autonomy/activity');
+    if(!data?.ok)return;
+    const events=[];
+    for(const row of Array.isArray(data.timeline)?data.timeline:[]){
+      events.push({id:'ledger-'+String(row.evolution_id||row.job_id||'')+'-'+String(row.stage||'')+'-'+String(row.occurred_at||''),label:'MEL · '+String(row.stage_text||row.stage||'Transition enregistrée')+' · '+String(row.evolution_id||row.job_id||''),status:/FAIL|BLOCK|ERROR/i.test(String(row.status||''))?'failed':/DONE|COMPLETE|SUCCESS/i.test(String(row.status||''))?'done':'running',source:'server',detail:row});
+    }
+    for(const job of Array.isArray(data.jobs)?data.jobs:[]){
+      const status=String(job.status||'');
+      events.push({id:'job-'+String(job.id)+'-'+String(job.updated_at||status),label:'Tâche '+String(job.id)+' · '+status+' · '+String(job.goal||''),status:/FAIL|ERROR/.test(status)?'failed':/COMPLETE|VERIFIED/.test(status)?'done':'running',source:'server',detail:job});
+    }
+    for(const row of Array.isArray(data.execution_evidence)?data.execution_evidence:[]){
+      for(const [i,step] of (Array.isArray(row.steps)?row.steps:[]).entries()){
+        events.push({id:'exec-step-'+row.job_id+'-'+row.updated_at+'-'+i,label:'Exécution · '+String(step.capability||'action')+(step.path?' · '+step.path:''),status:step.passed?'done':'running',source:'server',detail:step});
+      }
+      for(const [i,result] of (Array.isArray(row.tests)?row.tests:[]).entries()){
+        events.push({id:'exec-test-'+row.job_id+'-'+row.updated_at+'-'+i,label:'Commande test · '+String(result.command||'')+' · '+(result.passed?'réussie':'échec ou résultat non confirmé'),status:result.passed?'done':'failed',source:'server',detail:result});
+      }
+      if(row.diff)events.push({id:'exec-diff-'+row.job_id+'-'+row.updated_at,label:'Diff de code enregistré · '+row.job_id,status:'done',source:'server',detail:row.diff});
+    }
+    for(const row of Array.isArray(data.workflow_dispatches)?data.workflow_dispatches:[]){
+      events.push({id:'workflow-'+String(row.id)+'-'+String(row.status),label:'GitHub Actions · '+String(row.workflow||row.id)+' · '+String(row.status||''),status:/FAIL|ERROR/.test(String(row.status||''))?'failed':/SUCCESS|COMPLETE/.test(String(row.status||''))?'done':'running',source:'server',detail:row});
+    }
+    for(const row of Array.isArray(data.cloud_bridge_dispatches)?data.cloud_bridge_dispatches:[]){
+      events.push({id:'bridge-'+String(row.job_id)+'-'+String(row.status),label:'Passerelle cloud · '+String(row.job_id)+' · '+String(row.status||''),status:/FAIL|ERROR/.test(String(row.status||''))?'failed':'running',source:'server',detail:row});
+    }
+    for(const row of Array.isArray(data.work_cycles)?data.work_cycles:[]){
+      events.push({id:'work-'+String(row.at)+'-'+String(row.state),label:'MEL WORK · '+String(row.mission||row.status||row.state),status:/FAIL|ERROR/.test(String(row.state||''))?'failed':/DONE|SUCCESS/.test(String(row.state||''))?'done':'running',source:'server',detail:row});
+    }
+    for(const event of events.reverse()){
+      if(melCodeActivitySeen.has(event.id))continue;
+      melCodeActivitySeen.set(event.id,true);
+      if(melCodeActivitySeen.size>400)melCodeActivitySeen.delete(melCodeActivitySeen.keys().next().value);
+      melCodeLiveRecord(event);
+    }
+  }catch(error){const status=qs('#melCodeLiveStatus');if(status)status.textContent='Flux d’activité indisponible : '+String(error?.message||error).slice(0,140)}
+  finally{melCodeActivityPolling=false}
+}
 function melCodeLiveRecord(event){
   const panel=qs('#melCodeLivePanel'),host=qs('#melCodeLiveEvents');
   if(!panel||!host||melChatRole!=='code'||panel.hidden)return;
@@ -388,7 +442,12 @@ function melCodeLiveRecord(event){
   const status=['done','failed','running','blocked','queued'].includes(event?.status)?event.status:'running';
   node.className='mel-code-live-event mel-code-live-'+status;
   const icon=status==='done'?'✓':status==='failed'?'✗':status==='blocked'?'⛔':status==='queued'?'◷':'⏳';
-  node.textContent=icon+' '+String(event?.label||'Activité reçue').slice(0,160);
+  node.textContent=icon+' '+String(event?.label||'Activité reçue').slice(0,200);
+  if(event?.detail!==undefined&&event?.detail!==null){
+    const details=document.createElement('details');details.className='mel-code-live-detail';
+    const summary=document.createElement('summary');summary.textContent='Détails de l’événement';details.appendChild(summary);
+    const pre=document.createElement('pre');pre.textContent=melCodeSafeDetail(event.detail);details.appendChild(pre);node.appendChild(details);
+  }
   const stamp=document.createElement('div');stamp.className='mel-code-live-meta';
   stamp.textContent=new Date().toLocaleTimeString('fr-FR')+' · '+(event?.source==='server'?'Serveur MEL':'Interface')+' · '+status;
   node.appendChild(stamp);
@@ -454,7 +513,8 @@ function melCodeScheduleAuto(d,answer,source){
 function melCodeSetupWindow(){
   const panel=qs('#melCodeLivePanel'),header=qs('#melCodeLiveDrag');
   if(!panel||!header)return;
-  qs('#melCodeLiveClear').onclick=()=>{qs('#melCodeLiveEvents').textContent='';qs('#melCodeLiveStatus').textContent='Historique affiché effacé.'};
+  if(melCodeActivityTimer===null){melCodeRefreshActivity();melCodeActivityTimer=setInterval(melCodeRefreshActivity,5000)}
+  qs('#melCodeLiveClear').onclick=()=>{melCodeActivitySeen.clear();qs('#melCodeLiveEvents').textContent='';qs('#melCodeLiveStatus').textContent='Historique affiché effacé.'};
   qs('#melCodeLiveCollapse').onclick=()=>{
     panel.classList.toggle('is-collapsed');
     const open=!panel.classList.contains('is-collapsed');

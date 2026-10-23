@@ -246,6 +246,41 @@ async function rows(db, sql, ...binds) {
   try { return (await db.prepare(sql).bind(...binds).all())?.results || []; } catch { return []; }
 }
 
+// Evidence produced by the structured executor, not synthesized from job status.
+// Exclude file bodies and redact sensitive command/output strings before exposure.
+function safeExecutionText(value, limit = 4000) {
+  return String(value ?? '').replace(/(Bearer\\s+)[^\\s]+/gi, '$1[MASQUÉ]')
+    .replace(/(gh[pousr]_[A-Za-z0-9]{12,}|github_pat_[A-Za-z0-9_]{12,})/g, '[MASQUÉ]')
+    .replace(/((?:token|secret|password|authorization|api[_-]?key|cookie|credential)\\s*[:=]\\s*["']?)[^\\s,"'}]+/gi, '$1[MASQUÉ]')
+    .slice(0, limit);
+}
+function executionEvidence(job) {
+  const raw = obj(job?.result_json);
+  const bridge = obj(raw.dev_bridge);
+  const packageResult = obj(bridge.result_json || bridge);
+  const steps = Array.isArray(packageResult.steps) ? packageResult.steps : [];
+  const tests = Array.isArray(packageResult.tests) ? packageResult.tests : (Array.isArray(job?.tests_json) ? job.tests_json : []);
+  const diff = packageResult.diff_summary || bridge.diff_summary;
+  if (!steps.length && !tests.length && !diff) return null;
+  return {
+    job_id: String(job.id),
+    updated_at: num(job.updated_at),
+    steps: steps.slice(0, 30).map(row => ({
+      capability: safeExecutionText(row.capability, 120),
+      path: safeExecutionText(row.path, 300),
+      passed: row.passed === true || row.applied === true,
+      before: row.before ? { chars: Number(row.before.chars || 0), new_file: row.before.new_file === true } : null,
+    })),
+    tests: tests.slice(0, 12).map(row => ({
+      command: safeExecutionText(row.command, 300),
+      passed: row.passed === true,
+      exit_code: Number.isFinite(Number(row.exit_code)) ? Number(row.exit_code) : null,
+      stdout: safeExecutionText(row.stdout, 3000),
+      stderr: safeExecutionText(row.stderr || row.error, 3000),
+    })),
+    diff: diff ? safeExecutionText(diff, 10000) : null,
+  };
+}
 export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30, repository = null } = {}) {
   const db = env?.DB;
   if (!db?.prepare) throw Object.assign(new Error('DB_BINDING_MISSING'), { status: 503 });
@@ -297,6 +332,7 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
       by_status: byStatus,
     },
     jobs,
+    execution_evidence: supervised.slice(0, Math.max(1, Math.min(60, limit))).map(executionEvidence).filter(Boolean),
     timeline: foldLedger(recentLedger.filter(event => atOrAfter(event?.occurred_at, epoch)), 40),
     activity_list_epoch: epoch || null,
     cloud_bridge_dispatches: dispatches.filter(row => atOrAfter(row.last_seen, epoch)).map(row => ({ job_id: String(row.bridge_id).slice('cloud-bridge-dispatch:'.length), status: row.status, at: num(row.last_seen), relay_job_id: obj(row.metadata_json).relay_job_id || null })),
