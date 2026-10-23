@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { assertStressProgressFresh } from '../scripts/persistent-capability-stress-live-proof.mjs';
 
 test('recent verified progress remains eligible for polling', () => {
