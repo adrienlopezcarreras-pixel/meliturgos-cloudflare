@@ -135,7 +135,7 @@ function safeDiagnosticCode(error, fallback = 'IMPLEMENTATION_PLANNING_FAILED') 
 // CODEX: preserve nonterminal work and let independent roadmap work proceed.
 export function providerDeferral(code, now = Date.now()) {
   const value = String(code || '');
-  return /^(?:WORKERS_AI_BINDING_UNAVAILABLE|NO_ZERO_COST|MENTOR_NO_ZERO_COST|NO_ELIGIBLE|MODEL_UNAVAILABLE|COUNCIL_(?:UNAVAILABLE|NOT_ENOUGH|REQUIRED_ROLE|MEL_SYNTHESIS|PROVIDER_NOT_FOUND))/.test(value)
+  return /^(?:WORKERS_AI_BINDING_UNAVAILABLE|NO_ZERO_COST|MENTOR_NO_ZERO_COST|NO_ELIGIBLE|MODEL_UNAVAILABLE|MENTOR_PROVIDER_TIMEOUT|MENTOR_NO_VALID_CODE_PROPOSAL|MENTOR_JSON_INVALID|MENTOR_JSON_REQUIRED|COUNCIL_(?:UNAVAILABLE|NOT_ENOUGH|REQUIRED_ROLE|MEL_SYNTHESIS|PROVIDER_NOT_FOUND))/.test(value)
     ? { code: value, observed_at: now, retry_after: now + 5 * 60_000 } : null;
 }
 
