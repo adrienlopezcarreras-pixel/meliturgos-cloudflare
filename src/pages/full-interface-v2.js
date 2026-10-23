@@ -1,3 +1,4 @@
+import { isReleaseAutonomyPause } from '../evolution/autonomy-control.js';
 import { CHAT_RICH_RENDERER_CSS, CHAT_RICH_RENDERER_SOURCE } from './chat-rich-renderer.js';
 import { MEL_AUTO_RELAUNCH_SOURCE } from './mel-auto-relaunch.js';
 import { MEL_CHAT_STREAM_SOURCE } from './mel-chat-stream.js';
@@ -793,6 +794,7 @@ qs('#chatgptImport').onclick=async()=>{
     btn.disabled=!(chatgptPrepared?.preview?.coverage_can_be_confirmed===true);
   }
 };
+${isReleaseAutonomyPause.toString()}
 let autonomyControl={paused:true,max_autonomy:false,status:'UNKNOWN'};
 function renderAutonomy(state){
   const control=state?.control||state||{};
@@ -804,7 +806,7 @@ function renderAutonomy(state){
   const badge=qs('#autonomyBadge');
   let badgeText='SUPERVISÉE',badgeKind='warn',modeText='Autonomie supervisée';
   const awaitingOwnerLaunch=autonomyControl.paused===true&&autonomyControl.reason==='NEW_RELEASE_AWAITING_OWNER_LAUNCH';
-  const releasePause=autonomyControl.paused===true&&!awaitingOwnerLaunch&&(autonomyControl.reason==='predeploy-release-safety'||/^release-/.test(String(autonomyControl.source||'')));
+  const releasePause=autonomyControl.paused===true&&!awaitingOwnerLaunch&&isReleaseAutonomyPause(autonomyControl);
   if(awaitingOwnerLaunch){badgeText='À ACTIVER';modeText='Release terminée. Active MAX ou reprends MEL.'}
   else if(releasePause){badgeText='MISE EN PROD';modeText='Pause de release · validation requise'+(autonomyControl.max_remembered?' · choix MAX conservé':'')}
   else if(autonomyControl.paused===true){badgeText='PAUSE';modeText='En pause'+(autonomyControl.reason?' · '+autonomyControl.reason:'')}
