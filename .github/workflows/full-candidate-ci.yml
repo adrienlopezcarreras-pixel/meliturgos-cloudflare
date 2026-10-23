@@ -53,3 +53,25 @@ jobs:
           name: full-test-report
           path: test-report.log
           retention-days: 1
+
+  # A run dispatched with the workflow token never fires workflow_run, and
+  # GitHub skips most hourly schedules, so a green exact-SHA candidate waited
+  # hours for promotion. Promotion keeps its own MAX and exact-SHA checks.
+  request-promotion:
+    needs: full-suite
+    if: github.ref == 'refs/heads/candidate/mel-clean-autonomy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch candidate promotion
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          code="$(curl --silent --show-error --max-time 30 --request POST \
+            --header "Authorization: Bearer $GH_TOKEN" --header "Accept: application/vnd.github+json" \
+            --data '{"ref":"main"}' --output /dev/null --write-out '%{http_code}' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/mel-candidate-promotion.yml/dispatches" || true)"
+          echo "PROMOTION_DISPATCH http=$code"
+          test "$code" = "204"
