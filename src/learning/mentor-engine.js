@@ -79,7 +79,9 @@ function safeInspectionPath(path) {
 
 function safePath(path) {
   const value = normalizedRepositoryPath(path);
-  if (!ALLOWED_TEXT_PATH.test(value)) {
+  // The Bridge pushes with a GitHub App token that may not touch workflows,
+  // so a workflow edit passes every test and is then rejected at push.
+  if (!ALLOWED_TEXT_PATH.test(value) || value.startsWith('.github/workflows/')) {
     const error = new Error(`MENTOR_PATH_DENIED:${value}`);
     error.code = 'MENTOR_PATH_DENIED';
     throw error;
