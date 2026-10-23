@@ -268,6 +268,18 @@ export async function reviewVerificationEvidence(env, { job, implementation, ciR
   return record;
 }
 
+export function councilRejectionCulprits(diff, packages = {}) {
+  const diffPaths = new Set([...String(diff || '').matchAll(/^diff --git a\/(\S+) b\//gm)].map(m => m[1]));
+  // packages follow git log order (newest first): the newest package touching
+  // a path wrote what the Council read; older ones were overwritten.
+  const culprits = new Set();
+  for (const path of diffPaths) {
+    const owner = Object.entries(packages).find(([, files]) => Array.isArray(files) && files.some(file => String(file?.path || '') === path));
+    if (owner) culprits.add(owner[0]);
+  }
+  return culprits;
+}
+
 export async function handleCouncilReviewRequest(request, env, { now = Date.now(), review = runCouncilReview } = {}) {
   const oidc = await authorizeGitHubActionsOidcRequest(request, env, {
     allowedWorkflows: ['mel-candidate-promotion.yml'],
@@ -297,8 +309,18 @@ export async function handleCouncilReviewRequest(request, env, { now = Date.now(
   if (result.decision === 'REJECTED' || RETRYABLE.has(result.decision) || result.decision === OWNER_APPROVAL_REQUIRED) {
     const objections = result.reviews.filter(r => r.verdict === 'REJECT').flatMap(r => (r.blocking || []).map(b => r.model.split('/').pop() + ' : ' + b)).slice(0, 12);
     const unavailable = result.reviews.filter(r => !r.verdict).map(r => String(r.model || '').split('/').pop() + ' : ' + (r.error || 'NO_VERDICT')).slice(0, 8);
-    const repair = result.decision === 'REJECTED';
+    const rejected = result.decision === 'REJECTED';
+    // The log lists every bridge package since main, including ones a later
+    // commit already reverted. Only a job whose files are in the reviewed diff
+    // caused the objections; the others only record the review.
+    const packages = {};
     for (const id of jobs) {
+      const row = await env.DB.prepare('SELECT files_json FROM dev_jobs WHERE id=?').bind(id).first().catch(() => null);
+      try { packages[id] = JSON.parse(row?.files_json || '[]'); } catch { packages[id] = []; }
+    }
+    const culprits = councilRejectionCulprits(body.diff, packages);
+    for (const id of jobs) {
+      const repair = rejected && (!culprits.size || culprits.has(id));
       const reviewJson = JSON.stringify({ decision: result.decision, head, objections, unavailable, reviewed_at: now });
       const sql = repair
         ? `UPDATE dev_jobs SET result_json=json_set(json_set(COALESCE(result_json,'{}'),'$.council_review',json(?)),'$.dev_bridge.needs_repair',json('true')), error=?, status=CASE WHEN status IN ('READY_FOR_REVIEW','CLAIMED','TEACHER_APPROVED') THEN 'REPAIR_REQUIRED' ELSE status END, updated_at=? WHERE id=?`
