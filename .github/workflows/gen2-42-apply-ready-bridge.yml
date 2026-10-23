@@ -292,7 +292,8 @@ jobs:
               if(stat.size>keep) process.stdout.write('\n[GPT6] TEST_OUTPUT_TRUNCATED bytes='+stat.size+'\n');
               const failedFiles=tail.split(/\r?\n/).filter(line=>/✗ .*\.test\.mjs|[0-9]+ passed, [1-9][0-9]* failed|::error title=Test file timed out/.test(line)).slice(-8);
               const errorCode=String(result.error?.code|| (result.signal ? 'PROCESS_SIGNAL_'+result.signal : '') || '');
-              const diagnostic=[errorCode,...failedFiles].filter(Boolean).join(' | ').slice(0,1200);
+              const diagnosticLines=tail.split(/\r?\n/).map(line=>line.trim()).filter(line=>/Unresolved import|SyntaxError|Error:|Cannot find|ERR_/i.test(line)).slice(-8);
+              const diagnostic=[errorCode,...failedFiles,...diagnosticLines].filter(Boolean).join(' | ').slice(0,1200);
               return {
                 status:result.status,signal:result.signal||null,error_code:errorCode||null,
                 executed:!result.error || result.error.code!=='ENOENT',
