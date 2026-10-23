@@ -260,7 +260,7 @@ export async function reviewVerificationEvidence(env, { job, implementation, ciR
 export async function handleCouncilReviewRequest(request, env, { now = Date.now(), review = runCouncilReview } = {}) {
   const oidc = await authorizeGitHubActionsOidcRequest(request, env, {
     allowedWorkflows: ['mel-candidate-promotion.yml'],
-    allowedEvents: ['schedule', 'workflow_dispatch'],
+    allowedEvents: ['schedule', 'workflow_dispatch', 'workflow_run'],
   });
   if (!oidc.ok) return Response.json({ ok: false, code: oidc.code }, { status: oidc.status || 401 });
   const body = await request.json().catch(() => ({}));

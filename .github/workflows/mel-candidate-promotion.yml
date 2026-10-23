@@ -11,6 +11,11 @@ on:
   schedule:
     - cron: '37 * * * *'
   workflow_dispatch:
+  # GitHub skips most hourly runs (observed 01:52, 07:54, 13:46): promote as
+  # soon as the candidate full CI finishes green.
+  workflow_run:
+    workflows: [full-candidate-ci]
+    types: [completed]
 
 permissions:
   contents: write
@@ -27,6 +32,7 @@ env:
 
 jobs:
   promote:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -82,6 +88,14 @@ jobs:
           OK="$(printf '%s' "$RUNS" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s||"[]");process.stdout.write(r.some(x=>x.s==="completed"&&x.c==="success")?"success":r.some(x=>x.s!=="completed")?"running":"none")})')"
           if [ "$OK" = "running" ]; then echo "FULL_CANDIDATE_CI_RUNNING $CAND"; exit 0; fi
           if [ "$OK" != "success" ]; then echo "FULL_CANDIDATE_CI_REQUESTED $CAND http=$(dispatch_ci)"; exit 0; fi
+          # Candidate ahead only by syncs/reverts: no content to review. The Council
+          # refuses an empty diff (COUNCIL_REVIEW_INPUT_INVALID), which used to
+          # freeze promotion forever. Fast-forward main; no code changes.
+          if git diff --quiet "$MAIN" "$CAND"; then
+            git push origin "$CAND:refs/heads/main"
+            echo "::notice title=MEL candidate::EMPTY_NET_DIFF_FAST_FORWARD main $MAIN -> $CAND (no content change)"
+            exit 0
+          fi
           TOKEN="$(curl -fsSL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=meliturgos-worker" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).value||""))')"
           git diff "$MAIN" "$CAND" -- . ':(exclude)bridge-apply-result.json' | head -c 48000 > council.diff
           git log --format=%s "$MAIN..$CAND" > council.log
