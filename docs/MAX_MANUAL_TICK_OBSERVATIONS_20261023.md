@@ -85,3 +85,17 @@ Vérification GitHub du workflow run [39924542106](https://github.com/adrienlope
 Le code `src/evolution/autonomy-runtime.js` confirme que `runAutonomyRuntimeTick` obtient un bail exclusif. Si l'acquisition échoue, le moteur répond `SKIPPED_LEASE_BUSY` et `advanced=false`, puis libère son propre bail dans un `finally` lorsqu'il l'a acquis. Les 16 `lease_busy_skips` de l'export ne sont donc **pas** automatiquement 16 défaillances : ils peuvent indiquer des collisions entre déclencheurs pendant des cycles légitimement longs. Il faut corréler propriétaire/expiration/durée du bail, cadence cron, exécution manuelle et GitHub relay avant de conclure.
 
 Hypothèse nouvelle à tester : chevauchement de triggers autonomes, relay GitHub et long fan-out AI causant de nombreux `LEASE_BUSY` tandis que les écritures asynchrones restent sujettes aux conflits CAS. Ne pas déduire la causalité du seul chevauchement temporel. Ajouter un test de déclencheurs simultanés et comptage distinct tentative de tick / cycle ayant obtenu le bail / progression métier durable.
+
+## Deuxième export de production — 23/10/2026 11:04:03 Europe/Paris
+
+Un nouvel instantané fourni par le propriétaire indique `observed_at=2026-10-23T09:04:03.288Z` et `source=production_d1`. Comparaison avec l'export `08:56:55Z` : `ticks 32→37` (+5), `advanced_ticks 5→6` (+1), `blocked_ticks 6→6`, `lease_busy_skips 16→18` (+2), `jobs_completed=0` inchangé, `active=3` inchangé. Ces compteurs ne sont pas des catégories exhaustives ou nécessairement mutuellement exclusives.
+
+Le watchdog est passé de `LEASE_BUSY` à `WAITING_EXTERNAL`, avec `last_block_reason=FULL_CANDIDATE_CI_LOOKUP_FAILED`, `waiting_external=true`, `tripped=false` et `last_advanced_at=2026-10-23T09:00:46.691Z`. **Distinguer impossibilité de lire les preuves CI et CI effectivement échouée : aucune CI rouge n'est démontrée par cet export.**
+
+FOUNDER-02 est repassé à `CLAIMED` avec étapes `code=true`, `package=true`, `candidate=false`, `ci=false`, `done=false` ; candidate `candidate/mel-clean-autonomy`, base `cb11f5afa1ea8810effdb64e998e77853bbe4347`, `error=null`. FOUNDER-01 reste `TEACHER_APPROVED` avec `AUTONOMY_RUNTIME_RETRY:JOB_UPDATE_CONFLICT`, et FOUNDER-03 reste `TEACHER_APPROVED` en attente de code.
+
+Le journal a un nouvel événement pour FOUNDER-01 : mise à jour de `result_json` à `1792746182500` (l'erreur de conflit persiste). FOUNDER-02 a de nouvelles mises à jour de `files_json,patch_json,result_json,tests_json` à `1792746027729` et une autre mise à jour de `result_json` à `1792745948117`; l'état `CLAIMED` est visible dans le snapshot même si la liste bornée des événements ne détaille pas la transition correspondante.
+
+Le nombre de `workflow_dispatches` visibles passe de 2 à 3 pour le même `run_id=39924542106`; les IDs de relais sont distincts. Le job GitHub `relay` était toujours `in_progress` lors de la consultation suivante, `contract` était `skipped`. **Priorité** : auditer la correspondance entre ces relay IDs et les exécutions réelles ; vérifier origine précise de `FULL_CANDIDATE_CI_LOOKUP_FAILED`, statut du run et éligibilité de candidate à l'application, sans déclarer une CI verte ni réinitialiser les tâches.
+
+Le nouveau résultat confirme une progression intermédiaire (FOUNDER-02 réclamé, paquet prêt) et un changement de blocage (lookup CI), **mais toujours aucune clôture**.
