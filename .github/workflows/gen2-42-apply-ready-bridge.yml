@@ -116,15 +116,21 @@ jobs:
           set -euo pipefail
           MAIN_SHA="$(git rev-parse HEAD)"
           echo "main_sha=$MAIN_SHA" >> "$GITHUB_OUTPUT"
+          git cat-file -e "$CANDIDATE_SHA^{commit}" 2>/dev/null || git fetch --no-tags origin "$CANDIDATE_SHA"
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           import path from 'node:path';
+          import { spawnSync } from 'node:child_process';
           const job=JSON.parse(fs.readFileSync(process.env.BRIDGE_JOB_FILE,'utf8'));
           let exact=true;
           for(const item of job.files_json||[]){
             const rel=String(item?.path||'').replace(/\\/g,'/');
             const target=path.resolve(process.cwd(),rel);
             if(!fs.existsSync(target)||fs.readFileSync(target,'utf8')!==String(item?.content??'')){ exact=false; break; }
+            // A package equal to main still repairs a candidate that diverged
+            // from main; only cancel when the candidate already matches too.
+            const onCandidate=spawnSync('git',['show',`${process.env.CANDIDATE_SHA}:${rel}`],{encoding:'utf8',maxBuffer:64*1024*1024});
+            if(onCandidate.status!==0||onCandidate.stdout!==String(item?.content??'')){ exact=false; break; }
           }
           fs.writeFileSync('bridge-main-exact.txt',exact?'true':'false');
           NODE
