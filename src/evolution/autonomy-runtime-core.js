@@ -884,8 +884,14 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
           code: safeDiagnosticCode(error, 'BRIDGE_PREPARATION_FAILED'),
           failures: Array.isArray(error?.failures) ? error.failures : [],
         };
-        await persistBridgePreparationDiagnostic(jobRepository, job.id, bridgePreparation);
-        job = await jobRepository.get(job.id);
+        // [GPT6] A stale approved SHA must restart Teacher review even when
+        // detected by Bridge preparation rather than implementation planning.
+        if (STALE_TEACHER_APPROVAL_CODES.has(bridgePreparation.code)) {
+          job = await requeueStaleTeacherApproval(jobRepository, job.id, bridgePreparation.code);
+        } else {
+          await persistBridgePreparationDiagnostic(jobRepository, job.id, bridgePreparation);
+          job = await jobRepository.get(job.id);
+        }
       }
     }
   }
