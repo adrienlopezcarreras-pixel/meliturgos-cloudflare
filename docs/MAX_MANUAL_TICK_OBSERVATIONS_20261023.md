@@ -215,3 +215,9 @@ Ne pas interpréter un vieux commit GEN2-42 préexistant comme le résultat de F
 5. Exiger preuve candidate commit SHA + full CI sur SHA exact + revue + état terminal vérifié avant d'affirmer réussite. MAX reste activé ; ne pas modifier son contrôle pour masquer l'échec.
 
 **Statut de cette entrée : analyse corroborée par export D1 et code GitHub, ajoutée au rapport ; elle ne prétend pas que le correctif Mentor ou Bridge a déjà été appliqué.**
+
+## Vérification GitHub supplémentaire — 23/10/2026
+
+Contrôle du correctif #2453 : workflow `Professor UI audit` run `39932821448`, job `professor-audit` **completed/success**. Comparaison `main...fix/max-activity-bridge-diagnostics-20261023` **ahead=2**, **behind=0**. La liste de reviews de la PR #2453 est vide au moment du contrôle. Le workflow ciblé GEN2-17 était antérieurement passé, mais `gen2-17-full-suite` avait été `skipped` : ne pas assimiler ce résultat à un bilan de CI exhaustive. Le correctif reste à intégrer puis à prouver sur production; ne pas anticiper ce résultat dans le présent rapport.
+
+La prochaine action structurelle utile est d'interroger les jobs enfants sur leur `github_run_id` dans D1 (une fois #2453 intégré), et non de chercher ce numéro dans les reçus du parent `github-action-relay`. Sans ces preuves, aucune cause d'échec de Bridge ne peut être déclarée confirmée.
