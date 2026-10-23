@@ -51,3 +51,31 @@ test('valid READY_FOR_REVIEW with approved Teacher and dev package stays untouch
   assert.equal(result.recovered.length, 0);
   assert.equal((await repository.get(job.id)).status, 'READY_FOR_REVIEW');
 });
+
+test('exhausted approved Mentor work wakes only on a new deployed SHA and preserves a concurrent claim', async () => {
+  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+  const job=await repository.create({id:'mentor-exhausted',requested_by:'mel-autonomy',goal:'persistent A'});
+  const result={teacher_bridge:{status:'ANSWERED',request:{request_id:'review-A',target_sha:OLD_SHA},review:{verdict:'APPROVE_PLAN',development_allowed:true,target_sha:OLD_SHA}},
+    implementation_proposal:{candidate_sha:OLD_SHA},autonomy_deferral:{exhausted:true,attempts:3},preserved:'journal'};
+  await repository.update(job.id,{status:'TEACHER_APPROVED',result_json:result});
+  const before=structuredClone(await repository.get(job.id));
+  assert.equal((await recoverPassiveRuntimeStates(repository,{canonicalSha:OLD_SHA})).recovered.length,0);
+  assert.deepEqual(await repository.get(job.id),before);
+  assert.equal((await recoverPassiveRuntimeStates(repository,{canonicalSha:NEW_SHA})).recovered.length,1);
+  const recovered=await repository.get(job.id);
+  assert.equal(recovered.status,'QUEUED');
+  assert.equal(recovered.result_json.autonomy_deferral,undefined);
+  assert.equal(recovered.result_json.implementation_proposal,undefined);
+  assert.equal(recovered.result_json.teacher_bridge,null,'fresh Council/Teacher review is required');
+  assert.equal(recovered.result_json.preserved,'journal');
+  assert.equal(recovered.result_json.teacher_bridge_history.length,1);
+  await repository.update(job.id,{status:'TEACHER_APPROVED',result_json:result});
+  const racing={list:repository.list.bind(repository),async update(id,patch,options){
+    await repository.update(id,{status:'CLAIMED',result_json:{...result,dev_bridge:{github_run_id:4242}}});
+    return repository.update(id,patch,options);
+  }};
+  const conflict=await recoverPassiveRuntimeStates(racing,{canonicalSha:NEW_SHA});
+  assert.equal(conflict.recovered.length,0);
+  assert.equal(conflict.failed[0].code,'JOB_UPDATE_CONFLICT');
+  assert.equal((await repository.get(job.id)).status,'CLAIMED');
+});
