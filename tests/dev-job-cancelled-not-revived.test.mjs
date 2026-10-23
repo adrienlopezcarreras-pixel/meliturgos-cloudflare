@@ -18,3 +18,22 @@ test('a tick that read a job before it was cancelled cannot revive it', async ()
     db?.close();
   }
 });
+
+// json_set()/other writers store JSON text that JSON.stringify(parse()) does
+// not reproduce; the CAS fence must compare the stored text, or every update
+// of that job is a permanent JOB_UPDATE_CONFLICT (MEL-FOUNDER-03 FAILED).
+test('a job whose stored JSON is not in JSON.stringify form can still be updated, real conflicts still fail', async () => {
+  const db = sqliteD1();
+  try {
+    const repository = new D1DevJobRepository(db);
+    await repository.create({ id: 'job-raw', requested_by: 'mel-autonomy', goal: 'x' });
+    for (const raw of ['{"a":"\\u00e9"}', '{"a": 1}', '{"x":1.0}']) {
+      await db.prepare("UPDATE dev_jobs SET result_json=? WHERE id='job-raw'").bind(raw).run();
+      const updated = await repository.update('job-raw', { error: null });
+      assert.equal(updated.id, 'job-raw');
+    }
+    const stale = await repository.get('job-raw');
+    await repository.update('job-raw', { status: 'CLAIMED' });
+    await assert.rejects(repository.update('job-raw', { status: 'QUEUED' }, { expected: stale }), { code: 'JOB_UPDATE_CONFLICT' });
+  } finally { db.close(); }
+});
