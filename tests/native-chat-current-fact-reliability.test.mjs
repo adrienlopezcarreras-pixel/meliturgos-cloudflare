@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/index.js';
+import { JSDOM } from 'jsdom';
+import { CHAT_RICH_RENDERER_SOURCE } from '../src/pages/chat-rich-renderer.js';
 import { inferCurrentFactVerificationPolicy } from '../src/api/current-fact-reliability.js';
 
 function authHeaders() {
@@ -188,4 +190,35 @@ test('historical officeholder questions are not mislabeled as current facts', as
   assert.equal(aiCalls, 1);
   assert.equal(webCalls.length, 0);
   assert.notEqual(data.model, 'deterministic-current-fact-guard');
+});
+
+
+for (const [label, modelText] of [
+  ['already visible image', '![portrait](https://www.vatican.va/portrait.jpg)'],
+  ['image syntax as inline code', '`![portrait](https://www.vatican.va/portrait.jpg)`'],
+  ['URL cited as prose', 'Source : https://www.vatican.va/portrait.jpg'],
+  ['image syntax inside code', '```markdown\n![portrait](https://www.vatican.va/portrait.jpg)\n```'],
+]) test('public image delivery renders a validated image despite ' + label, async () => {
+  const env = {
+    MELITURGOS_USER:'test', MELITURGOS_PASSWORD:'test-only', MEL_WEB_MIN_INTERVAL_MS:0,
+    MEL_WEB_FETCH: async () => new Response('<html><head><title>Léon XIV</title><meta property="og:image" content="https://www.vatican.va/portrait.jpg"></head><body>Léon XIV</body></html>', {headers:{'content-type':'text/html'}}),
+    AI:{async run(){return {response:modelText};}},
+  };
+  const response = await worker.fetch(new Request('https://mel.example/api/chat', {
+    method:'POST',headers:authHeaders(),body:JSON.stringify({text:'montre moi une image du pape',conversation_id:'media-'+label}),
+  }),env);
+  const data=await response.json();
+  assert.equal(response.status,200);
+  const outsideCode=data.text.replace(/```[\s\S]*?```/g,'');
+  assert.match(outsideCode,/!\[[^\]]*\]\(https:\/\/www\.vatican\.va\/portrait\.jpg\)/);
+  assert.equal(data.tool_results.find(row=>row.capability==='image.render')?.status,'SUCCEEDED',JSON.stringify(data.text));
+  const dom=new JSDOM('<div id="host"></div>',{url:'https://mel.example/',runScripts:'outside-only'});
+  try {
+    dom.window.eval(CHAT_RICH_RENDERER_SOURCE);
+    const host=dom.window.document.getElementById('host');
+    assert.equal(dom.window.melRenderRichText(host,data.text),true);
+    assert.equal(host.querySelectorAll('img').length,1,'one actual image element, no duplicate or code-only image');
+    assert.equal(host.querySelector('img').src,'https://www.vatican.va/portrait.jpg');
+  } finally { dom.window.close(); }
+
 });
