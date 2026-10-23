@@ -406,6 +406,15 @@ async function melCodeRefreshActivity(){
       const status=String(job.status||'');
       events.push({id:'job-'+String(job.id)+'-'+String(job.updated_at||status),label:'Tâche '+String(job.id)+' · '+status+' · '+String(job.goal||''),status:/FAIL|ERROR/.test(status)?'failed':/COMPLETE|VERIFIED/.test(status)?'done':'running',source:'server',detail:job});
     }
+    for(const row of Array.isArray(data.execution_evidence)?data.execution_evidence:[]){
+      for(const [i,step] of (Array.isArray(row.steps)?row.steps:[]).entries()){
+        events.push({id:'exec-step-'+row.job_id+'-'+row.updated_at+'-'+i,label:'Exécution · '+String(step.capability||'action')+(step.path?' · '+step.path:''),status:step.passed?'done':'running',source:'server',detail:step});
+      }
+      for(const [i,result] of (Array.isArray(row.tests)?row.tests:[]).entries()){
+        events.push({id:'exec-test-'+row.job_id+'-'+row.updated_at+'-'+i,label:'Commande test · '+String(result.command||'')+' · '+(result.passed?'réussie':'échec ou résultat non confirmé'),status:result.passed?'done':'failed',source:'server',detail:result});
+      }
+      if(row.diff)events.push({id:'exec-diff-'+row.job_id+'-'+row.updated_at,label:'Diff de code enregistré · '+row.job_id,status:'done',source:'server',detail:row.diff});
+    }
     for(const row of Array.isArray(data.workflow_dispatches)?data.workflow_dispatches:[]){
       events.push({id:'workflow-'+String(row.id)+'-'+String(row.status),label:'GitHub Actions · '+String(row.workflow||row.id)+' · '+String(row.status||''),status:/FAIL|ERROR/.test(String(row.status||''))?'failed':/SUCCESS|COMPLETE/.test(String(row.status||''))?'done':'running',source:'server',detail:row});
     }
