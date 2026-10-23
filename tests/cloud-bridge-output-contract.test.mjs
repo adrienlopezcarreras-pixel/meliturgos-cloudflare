@@ -43,3 +43,7 @@ test('[GPT6] launch failure is not misreported as an executed passing test',()=>
 test('[GPT6] report explicitly marks requested test commands as executed',()=>{
  assert.match(workflow,/passed:r\.status===0,executed:r\.executed,exit_code:/);
 });
+
+test('[GPT6] long full-suite timeout is larger than individual suite timeout',()=>{
+ assert.match(workflow,/timeout:args\[1\]==='test'\?600000:180000/);
+});
