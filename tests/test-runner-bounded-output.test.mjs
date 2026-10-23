@@ -25,3 +25,10 @@ test('[GPT6] deadline failure overrides a child exit code zero',()=>{
  const source=fs.readFileSync('scripts/run-tests.mjs','utf8');
  assert.match(source,/deadlineExceeded \? 1 : \(closed\.code \?\? 1\)/);
 });
+
+test('[GPT6] externally signalled passing TAP child is not silently accepted',()=>{
+ const source=fs.readFileSync('scripts/run-tests.mjs','utf8');
+ assert.match(source,/let summaryCleanupTriggered = false/);
+ assert.match(source,/summaryCleanupTriggered = true/);
+ assert.match(source,/!deadlineExceeded && summaryCleanupTriggered && completeTapSummary/);
+});
