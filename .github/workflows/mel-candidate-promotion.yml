@@ -46,6 +46,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          MEL_WORKFLOW_TOKEN: ${{ secrets.MEL_WORKFLOW_TOKEN }}
         run: |
           set -euo pipefail
           git config user.name "mel-autonomy[bot]"
@@ -92,7 +93,7 @@ jobs:
           # refuses an empty diff (COUNCIL_REVIEW_INPUT_INVALID), which used to
           # freeze promotion forever. Fast-forward main; no code changes.
           if git diff --quiet "$MAIN" "$CAND"; then
-            git push origin "$CAND:refs/heads/main"
+            git -c http.https://github.com/.extraheader= push "https://x-access-token:${MEL_WORKFLOW_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$CAND:refs/heads/main"
             echo "::notice title=MEL candidate::EMPTY_NET_DIFF_FAST_FORWARD main $MAIN -> $CAND (no content change)"
             exit 0
           fi
@@ -104,5 +105,5 @@ jobs:
           DECISION="$(printf '%s' "$REVIEW" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)}catch{};process.stdout.write(String(j.decision||j.code||"REVIEW_UNAVAILABLE"))})')"
           echo "COUNCIL_REVIEW $CAND -> $DECISION"
           if [ "$DECISION" != "APPROVED" ]; then echo "::warning title=MEL candidate::Council $DECISION for $CAND - not promoted."; exit 0; fi
-          git push origin "$CAND:refs/heads/main"
+          git -c http.https://github.com/.extraheader= push "https://x-access-token:${MEL_WORKFLOW_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$CAND:refs/heads/main"
           echo "::notice title=MEL promoted::main $MAIN -> $CAND ($AHEAD commit(s), full-candidate-ci green). Production release follows within the hour."
