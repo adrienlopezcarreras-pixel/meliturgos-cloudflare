@@ -60,3 +60,20 @@ Aucune suppression de CAS, aucune écriture D1 hors mécanisme autorisé, aucun 
 ## Suite du relevé manuel
 
 Comparer les captures suivantes aux mêmes IDs et ne compter qu'un tick distinct prouvé à chaque fois. À chaque nouvelle capture : heure du tick, heure du dernier progrès, statut des jobs, journal nouveau, raison du blocage, `created/completed/blocked`, preuve de modification réellement durable. Ce document couvre les constats disponibles jusqu'à la capture de ~10:50, pas des ticks futurs.
+
+## Complément — export direct de l'API de production (23/10/2026 10:56:55 Europe/Paris)
+
+L'utilisateur a fourni la réponse de `GET /api/gen2/autonomy/activity`, dont l'enveloppe indique `ok: true`, `source: production_d1`, `observed_at: 2026-10-23T08:56:55.398Z`. Il s'agit d'un **instantané fourni par le propriétaire**, et non d'un accès autonome de cet agent à D1. Les champs source pouvant contenir des données privées ne sont pas reproduits ici.
+
+- Contrôle: `paused=false`, `max_autonomy=true`, `status=MAX_AUTONOMY`, SHA autorisé `cb11f5afa1ea8810effdb64e998e77853bbe4347`.
+- Watchdog: `LEASE_BUSY`, `tripped=false`, `consecutive_stalls=0`, dernier tick `08:56:27Z`, dernière progression `08:52:09Z`, `last_block_reason=AUTONOMY_RUNTIME_LEASE_BUSY`, travail ciblé FOUNDER-02 en `REPAIR_REQUIRED`.
+- Compteurs depuis l'époque courante de la liste: `ticks=32`, `advanced_ticks=5`, `jobs_created=1`, `jobs_completed=0`, `blocked_ticks=6`, `lease_busy_skips=16`. Les catégories peuvent se recouper ; ne pas additionner comme des partitions.
+- Trois travaux supervisés actifs (`FOUNDER-01`, `FOUNDER-02`, `FOUNDER-03`), tous `TEACHER_APPROVED`. Pour chacun : étapes code, paquet, candidat, CI, achèvement `done=false` dans cet instantané. FOUNDER-01 conserve `AUTONOMY_RUNTIME_RETRY:JOB_UPDATE_CONFLICT`, alors que FOUNDER-02 et FOUNDER-03 affichent `error=null`. L'écart `jobs_created=1` vs trois créations visibles dans le ledger nécessite une explication sur la portée temporelle/les resets et définitions des compteurs.
+- Le ledger atteste maintenant la création de FOUNDER-03, puis `QUEUED → COUNCIL_COMPLETE → WAITING_TEACHER → TEACHER_APPROVED`, pendant que les deux chantiers antérieurs ne sont pas terminés.
+- FOUNDER-02 : deux événements distincts `CLAIMED → REPAIR_REQUIRED`, un premier autour de 10:48 et un autre autour de 10:55 (horaires Paris convertis des millisecondes API). On observe donc une **répétition de l'échec de Bridge/exécuteur**, mais le code d'erreur profond manque dans cet export compact.
+- Le panneau `workflow_dispatches` présente deux entrées `DISPATCHED` de `gen2-42-apply-ready-bridge.yml` pointant vers le **même `run_id=39924542106`**. Cela demande vérification des corrélations relay/workflow : deux relais ne prouvent pas deux exécutions distinctes.
+- `work_cycles=[]` : cet instantané ne fournit aucune preuve de cycle Work achevé.
+
+**Questions de suivi prioritaires :** Pourquoi `lease_busy_skips=16/32` ? Quelle durée et quel détenteur du bail, quel déclencheur concurrent ? Pourquoi une deuxième transition FOUNDER-02 `CLAIMED → REPAIR_REQUIRED` et quelle erreur d'exécution ? Pourquoi la création de FOUNDER-03 sans clôture des deux premiers ? Les writes de preuve/diagnostic font-ils échouer la proposition sur CAS ? Les compteurs `jobs_created` et ledger ont-ils des fenêtres différentes ? Quelles preuves externes correspondent au run GitHub 39924542106 ?
+
+**Politique d'interprétation :** `advanced_ticks=5` atteste des événements classés comme progrès par le moteur, pas une preuve de cinq résultats fonctionnels. `tripped=false` ne signifie pas que les travaux avancent. Aucun `DONE_VERIFIED` prouvé.
