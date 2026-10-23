@@ -15,7 +15,7 @@ async function sendOrdinaryChat(text) {
     AI: {
       async run(model, payload) {
         calls.push({model, payload});
-        return {response: 'Réponse naturelle et utile : ' + text.slice(0, 100)};
+        return {response: 'Réponse naturelle et utile, avec une explication claire et des exemples concrets : ' + text.slice(0, 100)};
       }
     }
   };
