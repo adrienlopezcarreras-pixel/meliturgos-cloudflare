@@ -199,7 +199,11 @@ export class D1DevJobRepository {
   async update(id, patch, { expected = null } = {}) {
     await this.init();
     // In-memory CAS must re-read and compare without an intervening await.
-    const j = this.db ? await this.get(id) : this.memory.get(id) || null;
+    // The fence compares the stored text itself: a re-serialized JSON differs
+    // from rows written by json_set()/other writers (\u escapes, spacing) and
+    // used to make every later update a permanent JOB_UPDATE_CONFLICT.
+    const raw = this.db ? await this.db.prepare('SELECT * FROM dev_jobs WHERE id=?').bind(id).first() : null;
+    const j = this.db ? this._row(raw ? { ...raw } : raw) : this.memory.get(id) || null;
     if (!j) throw Object.assign(new Error('JOB_NOT_FOUND'), { code: 'JOB_NOT_FOUND' });
     // A cancelled job stays cancelled: a tick that read it before "Vider la
     // liste" must not write it back to life (CANCELLED -> COUNCIL_COMPLETE).
@@ -218,7 +222,7 @@ export class D1DevJobRepository {
       return n;
     }
     const write = await this.db.prepare('UPDATE dev_jobs SET updated_at=?,status=?,plan_json=?,files_json=?,patch_json=?,tests_json=?,result_json=?,candidate_branch=?,approval_status=?,error=? WHERE id=? AND (status IS NULL OR status<>\'CANCELLED\') AND updated_at=? AND status IS ? AND COALESCE(result_json,\'null\')=? AND COALESCE(plan_json,\'null\')=?')
-      .bind(n.updated_at, n.status, JSON.stringify(n.plan_json), JSON.stringify(n.files_json || []), JSON.stringify(n.patch_json), JSON.stringify(n.tests_json || []), JSON.stringify(n.result_json), n.candidate_branch, n.approval_status, n.error, id, j.updated_at, j.status, JSON.stringify(j.result_json), JSON.stringify(j.plan_json))
+      .bind(n.updated_at, n.status, JSON.stringify(n.plan_json), JSON.stringify(n.files_json || []), JSON.stringify(n.patch_json), JSON.stringify(n.tests_json || []), JSON.stringify(n.result_json), n.candidate_branch, n.approval_status, n.error, id, raw.updated_at, raw.status, raw.result_json ?? 'null', raw.plan_json ?? 'null')
       .run();
     if (write.meta?.changes === 0) throw conflict();
     const updated = await this.get(id);
