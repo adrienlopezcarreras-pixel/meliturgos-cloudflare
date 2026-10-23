@@ -290,7 +290,7 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
     else if (openWork) routeDeterministic(body, openWork, 'OPEN_WORK');
     else if (moduleProposal) routeDeterministic(body, moduleProposal, 'MODULE_PROPOSAL');
     else if (webResearch) routeDeterministic(body, webResearch, 'WEB_RESEARCH');
-    else if (knowledge) routeDeterministic(body, knowledge, 'KNOWLEDGE');
+    else if (persistentKnowledge) routeDeterministic(body, knowledge, 'KNOWLEDGE');
     else {
       // No semantic fanout for plain chat. The classifier is reserved for
       // explicit unresolved action/research turns that passed the cheap gate.

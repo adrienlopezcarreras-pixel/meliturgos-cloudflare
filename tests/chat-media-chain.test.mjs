@@ -100,7 +100,7 @@ test('ordinary research remains text with real references instead of image routi
  const environment=env(async()=>new Response('<html><head><title>Rome</title></head><body>Rome est la capitale italienne.</body></html>',{headers:{'content-type':'text/html'}}));
  environment.AI.run=async()=>({response:'Rome est la capitale de l’Italie. Les sources consultées sont jointes.'});
  const response=await worker.fetch(request('Recherche des informations sur Rome'),environment);
- const data=await response.json();assert.equal(response.status,200);assert.match(data.text,/Rome/);assert.equal(data.media.length,0);assert.ok(data.references.length>0);
+ const data=await response.json();assert.equal(response.status,200);assert.match(data.text,/Rome/);assert.equal(data.media.length,0);assert.ok(data.references.length>0,JSON.stringify(data.tool_results));
  const {host}=browser(t,data.text,data);assert.equal(host.querySelectorAll('img,video,audio').length,0);assert.ok(host.querySelectorAll('a').length>0);
 });
 

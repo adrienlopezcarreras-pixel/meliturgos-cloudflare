@@ -49,6 +49,8 @@ function intentBonuses(objective, row, haystack) {
   const explicitWeb = /\b(?:web|internet|online|en ligne|sur le net)\b/.test(normalizedGoal);
 
   let bonus = 0;
+  // Finding public photos cannot satisfy visual analysis of an input image.
+  if (id === 'web.images.search' && /\b(?:vision|analy[sz]e|analyser|analyse|recognition|ocr)\b/.test(normalizedGoal) && !searchContext) return -100;
   if (codeContext && searchContext) {
     if (id === 'code.search' || (category === 'development' && haystack.includes('search'))) bonus += 8;
     if (id === 'web.research' && !explicitWeb) bonus -= 4;

@@ -1355,10 +1355,12 @@ function inferDirectCurrentWebCapability(text, intentContext = {}) {
   const verificationPolicy = inferCurrentFactVerificationPolicy(value);
   const currentInfo = Boolean(verificationPolicy) || /\b(?:m[ée]t[ée]o|quel\s+temps|temp[ée]rature|pluie|vent|pr[ée]visions?|actualit[ée]s?|news|aujourd['’]hui|demain|ce\s+soir|maintenant|actuellement|en\s+ce\s+moment|derni[eè]res?\s+(?:infos?|nouvelles?|donn[ée]es?)|latest|r[ée]cent(?:e|es|s)?|prix|tarif|cours|cotation|bourse|bitcoin|crypto|taux\s+de\s+change|horaires?|ouvert|ouverte|fermeture|trafic|score|r[ée]sultat|classement|programme|disponibilit[ée]|disponible|date\s+de\s+sortie|pr[ée]sident\s+actuel|ministre\s+actuel|maire\s+actuel|pdg\s+actuel|ceo\s+actuel)\b/i.test(value);
   const nearbyInfo = /\b(?:pr[eè]s\s+de\s+moi|proche\s+de\s+moi|[àa]\s+proximit[ée]|aux\s+alentours|le\s+plus\s+proche|la\s+plus\s+proche|restaurants?|pizzerias?|pharmacies?|caf[ée]s?|stations?\s+service|supermarch[ée]s?|magasins?)\b/i.test(value);
-  if (!currentInfo && !nearbyInfo) return null;
+  const knowledgeRequest=inferKnowledgeCapability(value);
+  const publicResearch=knowledgeRequest?.id==='knowledge.research' && knowledgeRequest.input?.save_file!==true && knowledgeRequest.input?.remember!==true;
+  if (!currentInfo && !nearbyInfo && !publicResearch) return null;
 
   const approximateLocation = String(intentContext?.approximate_location || '').trim().slice(0, 240);
-  const query = nearbyInfo && approximateLocation
+  const query = publicResearch && !currentInfo && !nearbyInfo ? knowledgeRequest.input.query : nearbyInfo && approximateLocation
     ? `${value} — zone réseau approximative: ${approximateLocation}`
     : value;
   const input = { query: query.slice(0, 2000), depth: 2 };
