@@ -118,10 +118,22 @@ const GOAL_TERMS = [
   ['drive', 'drive'],
   ['council', 'council'],
   ['oauth', 'oauth'],
+  // Code search only reads files whose path matches beyond a small prefix, so
+  // roadmap themes must map to path words or the mentor sees unrelated files.
+  ['restaur', 'restore'],
+  ['restor', 'restore'],
+  ['sauvegard', 'backup'],
+  ['backup', 'backup'],
+  ['audit', 'audit'],
+  ['compétence', 'capability'],
+  ['capacité', 'capability'],
+  ['ledger', 'ledger'],
+  ['mel work', 'work'],
 ];
 
 export function inspectionGoalTerms(job) {
-  const text = String(job?.goal || '').toLowerCase();
+  // The appended manifest status list is not part of this item's subject.
+  const text = String(job?.goal || '').replace(/\s*\|\s*OBJECTIF\s[\s\S]*$/, '').toLowerCase();
   const terms = [];
   for (const [needle, term] of GOAL_TERMS) {
     if (text.includes(needle) && !terms.includes(term)) terms.push(term);

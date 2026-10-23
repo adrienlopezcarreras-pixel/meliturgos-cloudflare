@@ -470,3 +470,8 @@ for (const target of ['src/work/work-dag.js', 'src/not-teacher-inspected.js']) {
     else assert.ok(!proposal.inspected_files.some(file => file.path === target));
   });
 }
+
+test('inspection terms follow the roadmap item theme and ignore the manifest status list', () => {
+  assert.deepEqual(inspectionGoalTerms({ goal: '[MEL-FOUNDER-07] Prouver une restauration isolée du patrimoine — Restaurer evolution_ledger. | OBJECTIF MEL-FOUNDER-01:IN_PROGRESS gmail audit' }), ['restore', 'ledger']);
+  assert.deepEqual(inspectionGoalTerms({ goal: '[MEL-MANIFEST-05] Prouver un audit profond | OBJECTIF drive' }), ['audit']);
+});
