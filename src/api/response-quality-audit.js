@@ -189,7 +189,7 @@ export async function persistResponseQualityEvent(env = {}, {
 
 
 export function enforceResponseQuality({ responseText='', userText='', focus=null, assessment=null } = {}) {
-  const original = clean(responseText);
+  const original = String(responseText || '').replace(/\r\n?/g, '\n').trim();
   const issues = Array.isArray(assessment?.issues) ? assessment.issues : [];
   const severe = issues.filter(issue => issue?.severity === 'high').map(issue => String(issue.code || ''));
   if (!severe.length) return original;

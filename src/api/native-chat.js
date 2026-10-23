@@ -637,6 +637,22 @@ function claimsDeliveredPicture(text) {
   return /\b(?:g[ée]n[ée]r\w*|voici la photo|voici l['’]image|appara[iî]tra ici|outil de g[ée]n[ée]ration)\b/i.test(String(text || ''));
 }
 
+function hasVisibleImage(text, image) {
+  let fence = null;
+  const visible = [];
+  for (const line of String(text || '').split('\n')) {
+    const marker = line.match(/^\s*(`{3,}|~{3,})/);
+    if (marker) {
+      if (!fence) fence = marker[1];
+      else if (marker[1][0] === fence[0] && marker[1].length >= fence.length) fence = null;
+      continue;
+    }
+    if (!fence) visible.push(line.replace(/`[^`\n]*`/g, ''));
+  }
+  return [...visible.join('\n').matchAll(/!\[[^\]\n]*\]\((https:\/\/[^)\s]+)\)/g)]
+    .some(match => match[1] === image);
+}
+
 function withOfficialVisual(responseText, userText, toolResults) {
   if (!inferPublicImageLookup(userText)) return responseText;
   const image = validatedPictureUrl(toolResults);
@@ -647,7 +663,7 @@ function withOfficialVisual(responseText, userText, toolResults) {
       const title = String(sources.find(source => source?.title)?.title || '').replace(/\s+/g, ' ').trim().slice(0, 180);
       text = title ? `Image trouvée. Source : ${title}.` : 'Image trouvée.';
     }
-    if (!text.includes(image)) text = `${text}\n\n![Portrait](${image})`;
+    if (!hasVisibleImage(text, image)) text = `${text}\n\n![Portrait](${image})`;
     return text;
   }
   if (claimsDeliveredPicture(text)) {
@@ -2673,7 +2689,8 @@ export async function handleNativeChat(request, env, options = {}) {
           taskOverride:'REASONING',
           deadlineAt:chatDeadlineAt,
         });
-        const recoveredRaw = stripInternalCounters(recoveredAi.text);
+        const recoveredRaw = stripLeakedToolCalls(stripInternalCounters(recoveredAi.text));
+        if (!recoveredRaw) throw new Error('COUNCIL_RECOVERY_NO_VISIBLE_RESPONSE');
         const recoveredAligned = finalizeEvidenceAlignedResponse({
           text:recoveredRaw,
           userText:activeTaskText,
@@ -2714,7 +2731,7 @@ export async function handleNativeChat(request, env, options = {}) {
       });
   const responseText = withOfficialVisual(qualityGuardedResponseText, activeTaskText, toolResults);
   if (inferPublicImageLookup(activeTaskText) && !releaseSmoke) {
-    const delivered = /!\[[^\]]*\]\(https:\/\//.test(responseText);
+    const delivered = hasVisibleImage(responseText, validatedPictureUrl(toolResults));
     toolResults.push({
       capability: 'image.render',
       status: delivered ? 'SUCCEEDED' : 'FAILED',
