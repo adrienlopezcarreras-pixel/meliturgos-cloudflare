@@ -748,3 +748,29 @@ test('a rejected proposal keeps a short reason: the refused path or the start of
     return true;
   });
 });
+
+test('mentor rejects an edit that leaves the inspected file unchanged and hides the manifest status list', async () => {
+  const source = "const ORDER = [\n  'MEL-MANIFEST-05',\n];\n";
+  const calls = [];
+  const engine = new MentorEngine({
+    providerFactory: async () => [sequenceProvider('noop', [{
+      summary: 'Correction de la duplication de MEL-MANIFEST-05.',
+      edits: [{ path: 'src/order.js', find: "  'MEL-MANIFEST-05',\n", replace: "  'MEL-MANIFEST-05',\n" }],
+    }], calls)],
+  });
+  await assert.rejects(() => engine.propose({
+    env: {},
+    goal: '[MEL-FOUNDER-05] Livrer un travail | OBJECTIF MEL-FOUNDER-01:IN_PROGRESS MEL-MANIFEST-05:PLANNED',
+    inspectedFiles: [{ path: 'src/order.js', content: source }],
+  }), error => {
+    assert.equal(error.code, 'MENTOR_NO_VALID_CODE_PROPOSAL');
+    assert.ok(error.failures.some(failure => failure.error === 'MENTOR_NO_OP_CHANGE'));
+    return true;
+  });
+  assert.ok(calls.length > 0);
+  for (const call of calls) {
+    const prompt = JSON.stringify(call.input);
+    assert.ok(prompt.includes('[MEL-FOUNDER-05] Livrer un travail'));
+    assert.ok(!prompt.includes('MEL-FOUNDER-01:IN_PROGRESS'));
+  }
+});

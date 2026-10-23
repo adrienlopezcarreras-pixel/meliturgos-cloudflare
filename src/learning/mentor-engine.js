@@ -274,6 +274,10 @@ function normalizeProposal(value, provenance = {}, inspectedFiles = [], previous
   }
   if (!changes.length) throw Object.assign(new Error('MENTOR_CHANGES_REQUIRED'), { code: 'MENTOR_CHANGES_REQUIRED' });
   }
+  // A proposal identical to the inspected source is an empty diff: the Bridge
+  // would cancel it as already satisfied, so reject it while retries remain.
+  changes = changes.filter(change => inspectedFiles.find(file => file.path === change.path)?.content !== change.content);
+  if (!changes.length) throw Object.assign(new Error('MENTOR_NO_OP_CHANGE'), { code: 'MENTOR_NO_OP_CHANGE' });
   const tests = [...new Set((Array.isArray(parsed.tests) ? parsed.tests : []).map(String).filter(name => ALLOWED_TESTS.has(name)))].slice(0, 4);
   if (!tests.length) tests.push('test:smoke');
   for (const change of changes) {
@@ -467,7 +471,9 @@ export class MentorEngine {
   }
 
   async propose({ env, jobId, goal, inspectedFiles = [], previousAttempts = [], mode = 'implement', repairReferences = [] } = {}) {
-    const objective = bounded(goal, 12_000).trim();
+    // The supervisor appends the whole manifest status list; models mistake it
+    // for the task and "fix" roadmap ID lists, so only the item itself is sent.
+    const objective = bounded(goal, 12_000).replace(/\s*\|\s*OBJECTIF\s[\s\S]*$/, '').trim();
     if (!objective) throw Object.assign(new Error('MENTOR_GOAL_REQUIRED'), { code: 'MENTOR_GOAL_REQUIRED', status: 400 });
     const files = normalizeInspectedFiles(inspectedFiles);
     if (!files.length) throw Object.assign(new Error('MENTOR_INSPECTION_REQUIRED'), { code: 'MENTOR_INSPECTION_REQUIRED', status: 422 });
