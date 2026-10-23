@@ -34,8 +34,14 @@ async function runFile(file) {
       MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS: "1",
     }
   });
+  // [GPT6] TAP summaries fit in a bounded tail; never retain the whole test log.
   let out = "";
+  const TAP_TAIL_LIMIT = 64 * 1024;
   let completeTapSummary = false;
+  // [GPT6] A deadline kill is failure even if a passing TAP summary was printed.
+  let deadlineExceeded = false;
+  // [GPT6] Only our own TAP leak cleanup may turn a signal termination into success.
+  let summaryCleanupTriggered = false;
   let summaryCleanupTimer = null;
   let fileDeadlineTimer = null;
   let forceKillTimer = null;
@@ -60,6 +66,7 @@ async function runFile(file) {
       // the serial suite continue without turning an assertion failure green.
       summaryCleanupTimer = setTimeout(() => {
         if (cp.exitCode === null && cp.signalCode === null) {
+          summaryCleanupTriggered = true;
           console.warn(`⚠ ${file}: complete passing TAP summary but child remained alive; terminating leaked handle`);
           cp.kill("SIGTERM");
           forceKillTimer = setTimeout(() => {
@@ -80,13 +87,13 @@ async function runFile(file) {
 
   cp.stdout.on("data", (b) => {
     const chunk = b.toString();
-    out += chunk;
+    out = (out + chunk).slice(-TAP_TAIL_LIMIT);
     process.stdout.write(b);
     inspectTapSummary();
   });
   cp.stderr.on("data", (b) => {
     const chunk = b.toString();
-    out += chunk;
+    out = (out + chunk).slice(-TAP_TAIL_LIMIT);
     process.stderr.write(b);
     inspectTapSummary();
   });
@@ -95,6 +102,7 @@ async function runFile(file) {
   // production release indefinitely. Slower integration tests get 3 minutes.
   fileDeadlineTimer = setTimeout(() => {
     if (cp.exitCode === null && cp.signalCode === null) {
+      deadlineExceeded = true;
       console.error(`::error title=Test file timed out::${file} exceeded 180 seconds`);
       cp.kill("SIGTERM");
       forceKillTimer = setTimeout(() => {
@@ -113,11 +121,11 @@ async function runFile(file) {
 
   // A child killed only after a complete passing TAP summary is considered
   // assertion-successful; keep a warning in the logs for the handle leak.
-  const rc = closed.code === 0 ||
-    (completeTapSummary && closed.code === null && ["SIGTERM", "SIGKILL"].includes(closed.signal))
+  const rc = (!deadlineExceeded && closed.code === 0) ||
+    (!deadlineExceeded && summaryCleanupTriggered && completeTapSummary && closed.code === null && ["SIGTERM", "SIGKILL"].includes(closed.signal))
       ? 0
-      : (closed.code ?? 1);
-  return { file, rc, out, timed_out: !completeTapSummary && closed.code === null };
+      : (deadlineExceeded ? 1 : (closed.code ?? 1));
+  return { file, rc, out, timed_out: deadlineExceeded || (!completeTapSummary && closed.code === null) };
 }
 
 for (const file of files) {
