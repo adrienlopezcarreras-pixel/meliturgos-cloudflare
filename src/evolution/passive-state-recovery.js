@@ -19,7 +19,11 @@ async function requeueStaleTeacher(repository, job, canonicalSha) {
   const bridge = job?.result_json?.teacher_bridge;
   const request = bridge?.request || {};
   const targetSha = String(request.target_sha || request?.candidate?.sha || '').toLowerCase();
-  if (upper(job?.status) !== 'WAITING_TEACHER' || bridge?.status !== 'WAITING_TEACHER') return null;
+  const exhaustedApproval = upper(job?.status) === 'TEACHER_APPROVED'
+    && bridge?.status === 'ANSWERED' && bridge?.review?.development_allowed === true
+    && bridge?.review?.verdict === 'APPROVE_PLAN'
+    && job?.result_json?.autonomy_deferral?.exhausted === true;
+  if (!exhaustedApproval && (upper(job?.status) !== 'WAITING_TEACHER' || bridge?.status !== 'WAITING_TEACHER')) return null;
   if (!SHA40.test(canonicalSha) || !SHA40.test(targetSha) || targetSha === canonicalSha.toLowerCase()) return null;
 
   const now = new Date().toISOString();
@@ -41,6 +45,7 @@ async function requeueStaleTeacher(repository, job, canonicalSha) {
   result.teacher_bridge = null;
   delete result.implementation_proposal;
   delete result.bridge_package;
+  if (exhaustedApproval) delete result.autonomy_deferral;
 
   const plan = cloneObject(job.plan_json);
   plan.preflight = null;
@@ -57,8 +62,8 @@ async function requeueStaleTeacher(repository, job, canonicalSha) {
     plan_json: plan,
     result_json: result,
     error: null,
-  });
-  return { job_id: updated.id, from: 'WAITING_TEACHER', to: 'QUEUED', reason: 'STALE_CANDIDATE_SHA' };
+  }, { expected: job });
+  return { job_id: updated.id, from: upper(job.status), to: 'QUEUED', reason: 'STALE_CANDIDATE_SHA' };
 }
 
 async function requeueOrphanReview(repository, job) {
