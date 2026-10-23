@@ -108,3 +108,15 @@ Le nouveau résultat confirme une progression intermédiaire (FOUNDER-02 réclam
 - La mention `FULL_CANDIDATE_CI_LOOKUP_FAILED` signifie que le runtime n'a pas établi la preuve de la CI complète; elle ne démontre pas que des tests ont exécuté puis échoué.
 
 **Action Codex / Claude** : corréler `cloud_bridge_dispatches` avec le véritable job GitHub qui applique le correctif, prouver son SHA de sortie et la suite CI associée; vérifier pourquoi la branche candidate est strictement identique à la base malgré les passages `CLAIMED` / paquet `READY`. Ne pas forcer `DONE_VERIFIED` ni faire de faux SUCCESS.
+
+## Troisième export de production — 23/10/2026 11:07:07 Europe/Paris
+
+Nouvel export fourni par le propriétaire : `observed_at=2026-10-23T09:07:07.483Z`, `source=production_d1`. Par rapport à 11:04: `ticks 37→38`, `advanced_ticks 6→6`, `lease_busy_skips 18→19`, `blocked_ticks 6→6`, `jobs_completed 0→0`, `active 3→3`. Le watchdog retourne `LEASE_BUSY` (`last_tick_at=09:06:17.789Z`, `last_advanced_at=09:00:46.691Z`). Un saut de compteur de bail n'est pas une défaillance intrinsèque.
+
+**Événement nouveau critique :** FOUNDER-02 était `CLAIMED` dans le snapshot 11:04, puis le journal montre `CLAIMED → REPAIR_REQUIRED` à `1792746295956`, suivi de `REPAIR_REQUIRED → TEACHER_APPROVED` à `1792746384128`. C'est le **troisième passage visible** `CLAIMED → REPAIR_REQUIRED` sur le même ID depuis le début de la séquence d'exports (les deux précédents : `1792745336740` et `1792745720511`). Les étapes code et paquet repassent à `done=false` dans le résumé du pipeline; `candidate=null` et `completion=null`. L'export ne fournit toujours pas la cause racine de l'échec Bridge ni la comparaison détaillée du patch entre les tentatives.
+
+FOUNDER-01 et FOUNDER-03 restent `TEACHER_APPROVED`; le premier conserve son erreur `AUTONOMY_RUNTIME_RETRY:JOB_UPDATE_CONFLICT`. FOUNDER-02 est `TEACHER_APPROVED` avec `error=null` après sa réouverture. Ainsi, une erreur nulle dans la fiche courante ne signifie pas absence d'échecs historiques.
+
+Une nouvelle demande `workers-ai-zero-cost-proof-refresh.yml` apparaît dans `workflow_dispatches`, portant la liste visible de 3 à 4 entrées, toutes associées au même `run_id=39924542106`. Cette réutilisation d'identifiant pour des workflows de noms distincts est suspecte et exige de déterminer la sémantique exacte du champ `run_id` et sa provenance : il pourrait s'agir du run relay parent, pas du run enfant. Ne pas présumer que 4 runs ont été exécutés.
+
+**Action d'investigation prioritaire :** instrumenter le code de retour `CLAIMED → REPAIR_REQUIRED` pour exposer, de manière non sensible, le code d'erreur exact, le SHA candidat avant/après, l'ID du relay, le workflow enfant réel et la raison pour laquelle le paquet `READY` n'est pas appliqué durablement. Comparer les trois répétitions sur le même FOUNDER-02; empêcher les boucles sans perte des protections CAS.
