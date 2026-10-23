@@ -90,3 +90,14 @@ for (const decision of ['COUNCIL_UNAVAILABLE', 'INSUFFICIENT_REVIEWERS']) test(`
   const persisted = await DB.prepare('SELECT status FROM dev_bridge_state WHERE bridge_id=?').bind(`council-review:verify:${id}:${SHA}`).first();
   assert.equal(persisted.status, decision);
 });
+
+test('retryable Mentor provider failures receive a persistent bounded deferral', async () => {
+  const { providerDeferral } = await import('../src/evolution/autonomy-runtime-core.js');
+  const now = 1792749000000;
+  for (const code of ['MENTOR_PROVIDER_TIMEOUT','MENTOR_NO_VALID_CODE_PROPOSAL','MENTOR_JSON_INVALID','MENTOR_JSON_REQUIRED']) {
+    const result = providerDeferral(code, now);
+    assert.equal(result.code, code);
+    assert.equal(result.retry_after, now + 300000);
+  }
+  assert.equal(providerDeferral('MENTOR_UNINSPECTED_EDIT', now), null);
+});
