@@ -180,6 +180,29 @@ test('a transient core failure is attributed to the current job, then resumes it
   } finally { f.DB.close(); }
 });
 
+test('a write conflict is not a job failure: it never quarantines a healthy job', async () => {
+  const f = await fixture();
+  try {
+    const current = await f.repository.create({ id: 'current-queued', requested_by: 'mel-autonomy', goal: 'current work', optional_context: { roadmap_id: ROADMAP[0].id } });
+    let reads = 0;
+    const repository = Object.create(f.repository);
+    repository.list = async () => {
+      reads += 1;
+      if (reads % 3 === 0) throw Object.assign(new Error('JOB_UPDATE_CONFLICT'), { code: 'JOB_UPDATE_CONFLICT' });
+      return f.repository.list();
+    };
+    for (let i = 0; i < 4; i += 1) {
+      reads = 0;
+      const tick = await f.tick({ repository });
+      assert.equal(tick.status, 'CORE_RETRY_PENDING');
+      assert.equal(tick.retry.quarantined, false);
+    }
+    const stored = await f.repository.get(current.id);
+    assert.notEqual(stored.status, 'FAILED');
+    assert.equal(stored.result_json?.runtime_retry, undefined, 'a conflict does not count as a failed attempt');
+  } finally { f.DB.close(); }
+});
+
 test('the supervisor creates one job per objective in each epoch without reusing an older primary key', async () => {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
   const original = await new AutonomySupervisor({ repository, roadmap: ROADMAP }).ensureNextJob();
