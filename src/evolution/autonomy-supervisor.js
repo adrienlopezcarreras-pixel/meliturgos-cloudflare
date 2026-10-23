@@ -61,8 +61,19 @@ function isWaitingTeacher(job) {
 }
 
 // CODEX: a durable, bounded provider delay is passive, not a global MAX lock.
+export function providerRetryContext(job) {
+  const result = job?.result_json || {};
+  return JSON.stringify([job?.candidate_branch || null,
+    result.teacher_bridge?.review?.target_sha || null,
+    result.teacher_bridge?.review?.request_id || null,
+    result.implementation_proposal?.candidate_sha || null,
+    result.implementation_proposal?.teacher_request_id || null]);
+}
+
 function providerDeferred(job) {
-  return Number(job?.result_json?.autonomy_deferral?.retry_after || 0) > Date.now();
+  const delay = job?.result_json?.autonomy_deferral;
+  if (delay?.context && delay.context !== providerRetryContext(job)) return false;
+  return delay?.exhausted === true || Number(delay?.retry_after || 0) > Date.now();
 }
 
 function isPassiveRuntimeJob(job) {

@@ -1,6 +1,6 @@
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
-import { AutonomySupervisor } from './autonomy-supervisor.js';
+import { AutonomySupervisor, providerRetryContext } from './autonomy-supervisor.js';
 import { prepareDevelopmentRequest } from './development-preflight.js';
 import { createGitHubCodeReader } from '../capabilities/github-code-capabilities.js';
 import { createTeacherReviewRequest } from '../teachers/teacher-request.js';
@@ -135,7 +135,14 @@ function safeDiagnosticCode(error, fallback = 'IMPLEMENTATION_PLANNING_FAILED') 
 // CODEX: preserve nonterminal work and let independent roadmap work proceed.
 export function providerDeferral(code, now = Date.now()) {
   const value = String(code || '');
-  return /^(?:WORKERS_AI_BINDING_UNAVAILABLE|NO_ZERO_COST|MENTOR_NO_ZERO_COST|NO_ELIGIBLE|MODEL_UNAVAILABLE|COUNCIL_(?:UNAVAILABLE|NOT_ENOUGH|REQUIRED_ROLE|MEL_SYNTHESIS|PROVIDER_NOT_FOUND))/.test(value)
+  const retryable = new Set([
+    'WORKERS_AI_BINDING_UNAVAILABLE', 'NO_ZERO_COST_PROVIDER_AVAILABLE',
+    'MENTOR_NO_ZERO_COST_CODE_PROVIDER', 'NO_ELIGIBLE_PROVIDER', 'MODEL_UNAVAILABLE',
+    'MENTOR_PROVIDER_TIMEOUT', 'MENTOR_NO_VALID_CODE_PROPOSAL', 'MENTOR_JSON_INVALID', 'MENTOR_JSON_REQUIRED',
+    'COUNCIL_UNAVAILABLE', 'COUNCIL_NOT_ENOUGH_ZERO_COST_PROVIDERS', 'COUNCIL_NOT_ENOUGH_MEMBERS',
+    'COUNCIL_REQUIRED_ROLE_RESPONSES_MISSING', 'COUNCIL_MEL_SYNTHESIS_REQUIRED', 'COUNCIL_PROVIDER_NOT_FOUND',
+  ]);
+  return retryable.has(value.split(':')[0])
     ? { code: value, observed_at: now, retry_after: now + 5 * 60_000 } : null;
 }
 
@@ -157,22 +164,59 @@ export async function persistVerificationWait(repository, jobId, { code, liveChe
   } }, { expected: latest });
 }
 
-async function persistImplementationDiagnostic(repository, jobId, diagnostic) {
+// Retry only diagnostic persistence, never the provider call or job transition.
+async function persistDiagnosticResult(repository, latest, result, field) {
+  try {
+    return await repository.update(latest.id, { result_json: result }, { expected: latest });
+  } catch (error) {
+    if (error?.code !== 'JOB_UPDATE_CONFLICT') throw error;
+    const fresh = await repository.get(latest.id);
+    const identity = job => JSON.stringify([
+      job?.id, job?.status, job?.approval_status, job?.candidate_branch, job?.plan_json,
+      job?.files_json, job?.patch_json, job?.tests_json,
+      job?.result_json?.teacher_bridge, job?.result_json?.implementation_proposal,
+      job?.result_json?.bridge_preparation, job?.result_json?.dev_bridge,
+      job?.result_json?.autonomy_deferral, job?.result_json?.[field],
+    ]);
+    if (!fresh || identity(fresh) !== identity(latest)) return fresh;
+    const merged = { ...fresh.result_json, [field]: result[field] };
+    if (result.autonomy_deferral) merged.autonomy_deferral = result.autonomy_deferral;
+    else delete merged.autonomy_deferral;
+    return repository.update(fresh.id, { result_json: merged }, { expected: fresh });
+  }
+}
+
+export async function persistImplementationDiagnostic(repository, jobId, diagnostic) {
   const latest = await repository.get(jobId);
-  if (!latest) return null;
+  if (latest?.status !== 'TEACHER_APPROVED') return latest;
   const result = latest.result_json && typeof latest.result_json === 'object' ? { ...latest.result_json } : {};
   const next = {
     status: diagnostic.status === 'READY' ? 'READY' : 'NOT_READY',
     code: diagnostic.status === 'READY' ? null : safeDiagnosticCode({ code: diagnostic.code }),
     observed_at: new Date().toISOString(),
   };
-  if (sameDiagnostic(result.implementation_planning_diagnostic, next)
-      && (!providerDeferral(next.code) || Number(result.autonomy_deferral?.retry_after) > Date.now())) return latest;
-  result.implementation_planning_diagnostic = next;
+  const previous = result.implementation_planning_diagnostic;
   const deferred = providerDeferral(next.code);
-  if (deferred) result.autonomy_deferral = deferred;
-  else if (next.status === 'READY') delete result.autonomy_deferral;
-  return repository.update(jobId, { result_json: result }, { expected: latest });
+  const owned = result.autonomy_deferral?.phase === 'implementation'
+    || (!result.autonomy_deferral?.phase && previous?.code != null
+      && result.autonomy_deferral?.code === previous.code);
+  if (sameDiagnostic(previous, next)
+      && (deferred ? owned && result.autonomy_deferral?.context === providerRetryContext(latest)
+        && Number(result.autonomy_deferral?.retry_after) > Date.now() : !owned)) return latest;
+  result.implementation_planning_diagnostic = next;
+  if (deferred) {
+    const context = providerRetryContext(latest);
+    const previousDelay = latest.result_json?.autonomy_deferral;
+    const attempts = owned && previousDelay?.code === next.code && previousDelay?.context === context
+      ? Number(previousDelay.attempts || 0) + 1 : 1;
+    const structural = (next.mentor_failure_codes || []).some(row =>
+      ['MENTOR_INVALID_CHANGE','MENTOR_UNINSPECTED_EDIT','MENTOR_UNINSPECTED_PATH'].includes(row.code));
+    const maxAttempts = structural ? 1 : 3;
+    result.autonomy_deferral = { ...deferred, phase: 'implementation', context, attempts,
+      max_attempts: maxAttempts, exhausted: attempts >= maxAttempts };
+  }
+  else if (owned) delete result.autonomy_deferral;
+  return persistDiagnosticResult(repository, latest, result, 'implementation_planning_diagnostic');
 }
 
 async function requeueStaleTeacherApproval(repository, jobId, diagnosticCode) {
@@ -223,9 +267,9 @@ async function requeueStaleTeacherApproval(repository, jobId, diagnosticCode) {
   }, { expected: latest });
 }
 
-async function persistBridgePreparationDiagnostic(repository, jobId, diagnostic) {
+export async function persistBridgePreparationDiagnostic(repository, jobId, diagnostic) {
   const latest = await repository.get(jobId);
-  if (!latest) return null;
+  if (latest?.status !== 'TEACHER_APPROVED') return latest;
   const result = latest.result_json && typeof latest.result_json === 'object' ? { ...latest.result_json } : {};
   const failures = Array.isArray(diagnostic?.failures)
     ? diagnostic.failures.slice(0, 8).map((row) => ({
@@ -239,13 +283,28 @@ async function persistBridgePreparationDiagnostic(repository, jobId, diagnostic)
     mentor_failure_codes: failures,
     observed_at: new Date().toISOString(),
   };
-  if (sameDiagnostic(result.bridge_preparation_diagnostic, next)
-      && (!providerDeferral(next.code) || Number(result.autonomy_deferral?.retry_after) > Date.now())) return latest;
-  result.bridge_preparation_diagnostic = next;
+  const previous = result.bridge_preparation_diagnostic;
   const deferred = providerDeferral(next.code);
-  if (deferred) result.autonomy_deferral = deferred;
-  else if (next.status === 'READY') delete result.autonomy_deferral;
-  return repository.update(jobId, { result_json: result }, { expected: latest });
+  const owned = result.autonomy_deferral?.phase === 'bridge'
+    || (!result.autonomy_deferral?.phase && previous?.code != null
+      && result.autonomy_deferral?.code === previous.code);
+  if (sameDiagnostic(previous, next)
+      && (deferred ? owned && result.autonomy_deferral?.context === providerRetryContext(latest)
+        && Number(result.autonomy_deferral?.retry_after) > Date.now() : !owned)) return latest;
+  result.bridge_preparation_diagnostic = next;
+  if (deferred) {
+    const context = providerRetryContext(latest);
+    const previousDelay = latest.result_json?.autonomy_deferral;
+    const attempts = owned && previousDelay?.code === next.code && previousDelay?.context === context
+      ? Number(previousDelay.attempts || 0) + 1 : 1;
+    const structural = (next.mentor_failure_codes || []).some(row =>
+      ['MENTOR_INVALID_CHANGE','MENTOR_UNINSPECTED_EDIT','MENTOR_UNINSPECTED_PATH'].includes(row.code));
+    const maxAttempts = structural ? 1 : 3;
+    result.autonomy_deferral = { ...deferred, phase: 'bridge', context, attempts,
+      max_attempts: maxAttempts, exhausted: attempts >= maxAttempts };
+  }
+  else if (owned) delete result.autonomy_deferral;
+  return persistDiagnosticResult(repository, latest, result, 'bridge_preparation_diagnostic');
 }
 
 function deployedInspectionSha(env = {}) {
