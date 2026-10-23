@@ -194,3 +194,24 @@ Les logs du relais parent `39924542106` prouvent HTTP 204 pour cinq `workflow_di
 **Proposition de correction vérifiable, non encore appliquée** : ajouter à `describeJob()` une projection *à liste blanche*, bornée et sans secrets, de `dev_bridge.github_run_id`, `dev_bridge.mode`, `dev_bridge.diff_summary`, `dev_bridge.needs_repair`, `dev_bridge.tests` résumés (`name,command,passed,exit_code,error` tronqués), `repair_cycle.source`, `repair_cycle.attempts`, `runtime_retry.last_error`. Ajouter tests de sérialisation/sanitation. Ne jamais exposer `stdout/stderr` brut, `patch_json`, prompts, jetons OIDC ou `result_json` complet. Avec cet export, nous pourrions obtenir la cause exacte à la prochaine observation au lieu de deviner.
 
 Ne pas interpréter un vieux commit GEN2-42 préexistant comme le résultat de FOUNDER-02/03 : chercher le SHA dans le `dev_bridge` du job exact.
+
+## Actualisation de l'analyse — 23/10/2026, export 11:35 Paris et chaîne Mentor
+
+**Dernier export utilisateur :** `observed_at=2026-10-23T09:35:17.112Z` (`production_d1`). Contrôle `paused=false`, `max_autonomy=true`, watchdog `ADVANCING`, `tripped=false`, dernier tick et dernière progression `09:35:04.551Z`. Compteurs : `ticks=71`, `advanced_ticks=14`, `jobs_created=1`, `jobs_completed=0`, `blocked_ticks=9`, `lease_busy_skips=37`, `active=3`. Une progression de watchdog ne doit pas être interprétée comme une implémentation validée.
+
+**FOUNDER-02** : `CLAIMED`, paquet/code `done=true`, candidate `candidate/mel-clean-autonomy` sur base `cb11f5afa1ea8810effdb64e998e77853bbe4347`, `candidate.done=false`, `ci.done=false`, `completion=null`. Nouveau diagnostic de génération `MENTOR_NO_VALID_CODE_PROPOSAL` et plusieurs `MENTOR_PROVIDER_TIMEOUT`, malgré l'état du paquet. Il faut séparer un paquet READY déjà persisté des échecs ultérieurs de Mentor, et rechercher quel déclenchement provoque de nouvelles tentatives.
+
+**FOUNDER-03** : `TEACHER_APPROVED`, code/paquet `done=false`, `completion=null`. Diagnostics `MENTOR_NO_VALID_CODE_PROPOSAL`, `MENTOR_JSON_REQUIRED`, `MENTOR_UNINSPECTED_EDIT`, `MENTOR_JSON_INVALID`, `MENTOR_PROVIDER_TIMEOUT`. Le journal contient encore `CLAIMED→REPAIR_REQUIRED` puis `REPAIR_REQUIRED→TEACHER_APPROVED`, donc ce chantier démontre à la fois des difficultés de fabrication d'un paquet et de reprise de Bridge. **FOUNDER-01** reste `TEACHER_APPROVED`, code absent, `AUTONOMY_RUNTIME_RETRY:JOB_UPDATE_CONFLICT`. Aucune tâche `DONE_VERIFIED`.
+
+**Investigation source effective :** `src/learning/mentor-engine.js` lève `MENTOR_NO_VALID_CODE_PROPOSAL` après tentative de réparation lorsque `proposals.length===0`, avec un tableau `failures` qui précise provider, étape `initial`/`repair`, code ; conserver et analyser ce tableau avant changement. La fonction de validation lève `MENTOR_UNINSPECTED_EDIT` lorsqu'un `edit.find` ne figure dans aucun fichier visible inspecté. Elle protège la provenance des modifications : **ne pas désactiver**. `mentorFailureCode` normalise les erreurs `MENTOR_JSON_REQUIRED`, `MENTOR_JSON_INVALID`, `MENTOR_PROVIDER_TIMEOUT` ; les codes sont réellement distincts. Investiguer l'adéquation schéma/prompt/réponse, les fichiers inspectés et les budgets/timeouts par fournisseur. Ne pas traiter une proposition invalide comme une réalisation.
+
+**CI PR #2453 (observabilité)** : `gen2-17-targeted` `completed/success`, logs avec sous-ensembles `56 pass/0 fail` et `158 pass/0 fail`; `gen2-17-full-suite` `skipped`. Le workflow `Professor UI audit` (run `39932821448`) est désormais `completed/success`. PR #2453 prête à revue et précédemment `mergeable=true`, **pas encore de preuve de fusion ni de déploiement**. Une CI ciblée réussie ne suffit pas à déclarer une release générale vérifiée.
+
+**Priorités de la prochaine passe Codex :**
+1. Réconcilier/finaliser #2453 suivant gates/CI, déployer proprement si autorisé, puis lire `bridge_diagnostics` sur FOUNDER-02/03.
+2. Corréler `dev_bridge.github_run_id` au véritable job enfant, lire ses logs (checkout, tests, commit, report). Ne pas confondre `relay_run_id` parent et GitHub run enfant.
+3. Tracer chaque `mentor-engine.propose()` et le tableau d'échecs borné : inputs réellement inspectés, validité du JSON, repli fournisseurs, budget de tentative ; ajouter tests prouvant le choix d'une proposition valide et préservant `MENTOR_UNINSPECTED_EDIT`.
+4. Revoir les écritures D1 CAS de FOUNDER-01, sans désactiver `expected`, et le budget de réparations pour éviter des cycles infinis.
+5. Exiger preuve candidate commit SHA + full CI sur SHA exact + revue + état terminal vérifié avant d'affirmer réussite. MAX reste activé ; ne pas modifier son contrôle pour masquer l'échec.
+
+**Statut de cette entrée : analyse corroborée par export D1 et code GitHub, ajoutée au rapport ; elle ne prétend pas que le correctif Mentor ou Bridge a déjà été appliqué.**
