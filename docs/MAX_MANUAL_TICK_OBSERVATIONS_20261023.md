@@ -142,3 +142,11 @@ Contrôle connecté répété : run GitHub `39924542106`, job `relay` toujours `
 `src/evolution/cloud-bridge-dispatch.js` déclare `REDISPATCH_MS = 30 * 60 * 1000` et précise que l'accusé de mise en file du relais ne vaut pas preuve d'exécution ; seul le claim D1 atomique arbitre l'exécuteur. À l'inverse, la durée prolongée du job relay GitHub peut être inhérente à sa boucle de heartbeat ; ne pas prétendre qu'il est figé faute de conclusion/mesures supplémentaires.
 
 **Prochain diagnostic prouvant la cause :** inspection non sensible de `dev_bridge.error`, `dev_bridge.tests`, `repair_cycle.source`, `runtime_retry.last_error`, `bridge_preparation.candidate_sha` de FOUNDER-02 ; distinguer échec exécuteur sans tests, échec de tests, échec de claim et échec d'accès à la CI. Corréler une exécution enfant GitHub réelle au paquet et à son SHA.
+
+## Cinquième export production — 23/10/2026 à 11:11:47 Europe/Paris
+
+Source fournie par le propriétaire : `observed_at=2026-10-23T09:11:47.965Z`, `source=production_d1`. Depuis 11:09 : `ticks 40→42` (+2), `advanced_ticks 6→7` (+1), `lease_busy_skips 20→21` (+1), `blocked_ticks=6`, `jobs_completed=0`, `active=3`; `last_advanced_at=2026-10-23T09:09:04.170Z`. `watchdog.status=LEASE_BUSY`, `tripped=false`, contrôle MAX toujours actif.
+
+FOUNDER-02 est à nouveau `CLAIMED`, `code.done=true`, `package.done=true`, `candidate.done=false`, `ci.done=false`, `completion=null`, avec `candidate/mel-clean-autonomy` et SHA de base `cb11f5afa1ea8810effdb64e998e77853bbe4347`. Aucun nouvel événement `CLAIMED → REPAIR_REQUIRED` dans cet export, mais sa prochaine issue reste à confirmer. FOUNDER-03 a reçu deux mises à jour `result_json` groupées (dernier `1792746673824`, premier `1792746670088`) : statut `TEACHER_APPROVED`, code non validé, aucun fichier/test présenté. FOUNDER-01 est inchangé, `TEACHER_APPROVED`, `AUTONOMY_RUNTIME_RETRY:JOB_UPDATE_CONFLICT`.
+
+Les quatre entrées de `workflow_dispatches` et le `run_id=39924542106` restent les mêmes; `work_cycles=[]`. Ce fichier ne prouve aucun nouveau commit, ni tests passés, ni CI verte, ni travail terminé. Surveiller en priorité si le retour de FOUNDER-02 en `CLAIMED` produit cette fois un SHA candidat ou un quatrième échec `REPAIR_REQUIRED`. La progression compteur +1 n'est pas une validation fonctionnelle.
