@@ -120,3 +120,13 @@ FOUNDER-01 et FOUNDER-03 restent `TEACHER_APPROVED`; le premier conserve son err
 Une nouvelle demande `workers-ai-zero-cost-proof-refresh.yml` apparaît dans `workflow_dispatches`, portant la liste visible de 3 à 4 entrées, toutes associées au même `run_id=39924542106`. Cette réutilisation d'identifiant pour des workflows de noms distincts est suspecte et exige de déterminer la sémantique exacte du champ `run_id` et sa provenance : il pourrait s'agir du run relay parent, pas du run enfant. Ne pas présumer que 4 runs ont été exécutés.
 
 **Action d'investigation prioritaire :** instrumenter le code de retour `CLAIMED → REPAIR_REQUIRED` pour exposer, de manière non sensible, le code d'erreur exact, le SHA candidat avant/après, l'ID du relay, le workflow enfant réel et la raison pour laquelle le paquet `READY` n'est pas appliqué durablement. Comparer les trois répétitions sur le même FOUNDER-02; empêcher les boucles sans perte des protections CAS.
+
+## Quatrième export production — 23/10/2026 à 11:09:02 Europe/Paris
+
+Document propriétaire `Markdown collé(4).md` : `observed_at=2026-10-23T09:09:02.408Z`, `source=production_d1`. Versus 11:07 : `ticks=40` (+2), `advanced_ticks=6` (0), `lease_busy_skips=20` (+1), `blocked_ticks=6` (0), `active=3` (0), `jobs_completed=0` (0). `last_advanced_at=09:00:46.691Z` inchangé, `status=WAITING_EXTERNAL`, `last_block_reason=FULL_CANDIDATE_CI_LOOKUP_FAILED`.
+
+FOUNDER-02 est de nouveau `TEACHER_APPROVED` et les étapes code/paquet sont `done=true`, à la suite d'une mise à jour `files_json,patch_json,result_json,tests_json` avec pont `READY` horodatée `1792746536358`. `candidate/mel-clean-autonomy` affichée, mais `candidate.done=false`, `ci.done=false`, `done.done=false`, `completion=null`. FOUNDER-01 reste `TEACHER_APPROVED` et inscrit une nouvelle écriture de `result_json` en conservant `AUTONOMY_RUNTIME_RETRY:JOB_UPDATE_CONFLICT` (`1792746516349`). FOUNDER-03 reste `TEACHER_APPROVED` sans code démontré.
+
+Aucun événement nouveau `DONE_VERIFIED` ; les 4 dispatchs de workflow affichés dans l'export précédent sont toujours présents avec le même `run_id=39924542106`, trois `gen2-42-apply-ready-bridge.yml` et un `workers-ai-zero-cost-proof-refresh.yml`. L'absence de changement dans le résumé de dispatchs ne prouve pas qu'aucune exécution GitHub supplémentaire n'existe en dehors de cet export.
+
+**Diagnostic longitudinal :** depuis 11:00:46, 0 progrès supplémentaire reconnu malgré de nouvelles préparations de paquet. Le cycle récurrent FOUNDER-02 `TEACHER_APPROVED → CLAIMED → REPAIR_REQUIRED → TEACHER_APPROVED` demeure la priorité; surveiller le SHA candidat réellement commité et la cause de `FULL_CANDIDATE_CI_LOOKUP_FAILED`, sans confondre le refresh d'un diagnostic avec un progrès livré.
