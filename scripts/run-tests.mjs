@@ -121,7 +121,7 @@ async function runFile(file) {
   const rc = (!deadlineExceeded && closed.code === 0) ||
     (!deadlineExceeded && completeTapSummary && closed.code === null && ["SIGTERM", "SIGKILL"].includes(closed.signal))
       ? 0
-      : (closed.code ?? 1);
+      : (deadlineExceeded ? 1 : (closed.code ?? 1));
   return { file, rc, out, timed_out: deadlineExceeded || (!completeTapSummary && closed.code === null) };
 }
 
