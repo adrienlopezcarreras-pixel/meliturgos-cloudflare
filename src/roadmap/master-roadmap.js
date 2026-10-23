@@ -4,8 +4,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   PARTIAL: 'PARTIAL',
   PLANNED: 'PLANNED',
   BLOCKED_HUMAN: 'BLOCKED_HUMAN',
-  BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL',
-  DONE: 'DONE'
+  BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
 export function isClosedRoadmapStatus(status) {
