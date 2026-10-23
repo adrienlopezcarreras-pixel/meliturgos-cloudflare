@@ -72,3 +72,13 @@ test('[GPT6] candidate without dispatched full CI cannot enter ready-for-review'
  assert.match(section,/FULL_CANDIDATE_CI_DISPATCH_FAILED/);
  assert.match(section,/echo "candidate_ready=false"/);
 });
+
+test('[GPT6] no-diff candidate also dispatches full candidate CI',()=>{
+ const start=workflow.indexOf('      - name: Commit and push exact candidate change');
+ const end=workflow.indexOf('      - name: Report cloud bridge result to production D1',start);
+ const stage=workflow.slice(start,end);
+ assert.match(stage,/NO_CHANGES=true/);
+ assert.match(stage,/\[ "\$NO_CHANGES" = "true" \] \|\| git push/);
+ assert.ok(stage.indexOf('NO_CHANGES=true')<stage.indexOf('full-candidate-ci.yml/dispatches'));
+ assert.doesNotMatch(stage.slice(stage.indexOf('NO_CHANGES=true'),stage.indexOf('full-candidate-ci.yml/dispatches')),/no_changes=true.*exit 0/s);
+});
