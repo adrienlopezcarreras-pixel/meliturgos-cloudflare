@@ -14,7 +14,7 @@ test('MEL candidate is kept in sync with main and promoted only under MAX with g
   assert.match(s, /full-candidate-ci\.yml\/runs\?head_sha=\$CAND/);
   assert.match(s, /x\.c==="success"/);
   // Promotion is a fast-forward of main (never a force push) and comes last.
-  const promote = s.indexOf('git push origin "$CAND:refs/heads/main"');
+  const promote = s.indexOf('git -c http.https://github.com/.extraheader= push');
   assert.ok(promote > s.indexOf('if [ "$MAX" != "true" ]') && promote > s.indexOf('if [ "$OK" != "success" ]'));
   assert.doesNotMatch(s, /push --force|push -f /);
 });
