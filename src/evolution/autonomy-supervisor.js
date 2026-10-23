@@ -110,11 +110,6 @@ function hasLiveExternalProgress(job) {
 
 function executionReadyRank(job) {
   const status = String(job?.status || '').toUpperCase();
-  // [MEL-MANIFEST-06] Un job QUEUED ne doit être repris que s'il est né de l'époque d'activité actuelle.
-  // Si le job est QUEUED mais trop vieux (avant l'epoch de l'objectif), il est ignoré pour éviter les boucles infinies sur du travail annulé.
-  if (status === 'QUEUED' && job?.created_at && job?.epoch_timestamp && job.epoch_timestamp < (job.last_activity_timestamp || 0)) {
-    return -1;
-  }
   // Already-approved implementation or an explicit repair can make concrete
   // candidate progress immediately. Prefer that over preflight-only work so a
   // queue of CLAIMED/QUEUED owner requests cannot starve an approved internal
