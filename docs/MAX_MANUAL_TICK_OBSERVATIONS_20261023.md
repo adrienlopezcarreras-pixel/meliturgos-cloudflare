@@ -1,3 +1,30 @@
+# CODEX — INTERVENTION COURTE À CRÉDITS LIMITÉS (LIRE CECI EN PREMIER)
+
+**But : réparer, pas réauditer. Budget limité : ne relis pas toute l'histoire ni n'ouvre plusieurs chantiers parallèles.** Les preuves et les hypothèses sont ci-dessous. Réconcilie `main` une fois ; commence par le défaut le plus susceptible de débloquer un vrai commit candidat.
+
+## Intervention 1 — diagnostics Bridge, puis réparation exacte
+
+- **Ne réécris pas** `src/evolution/autonomy-activity.js` : correctif déjà créé dans **PR #2453**, branche `fix/max-activity-bridge-diagnostics-20261023`, commit `d2412ec337c3a5342f10264f262412468ffe6058`. GEN2-17 ciblée passée ; Professor UI audit passée ; full-suite GEN2-17 `skipped`. Vérifie état actuel des PR/CI/reviews et fusionne si toutes les portes requises sont franchies ; déploie avec le circuit officiel seulement après gates.
+- Dans le premier export D1 disponible après intégration, lire `jobs[].bridge_diagnostics.github_run_id`, `mode`, `status`, `tests[].error_code`, `repair_source`, `repair_attempts`. **Attention :** les IDs `workflow_dispatches[].run_id` (ex. `39924542106`) sont ceux du **relais parent**, pas des enfants.
+- Si `github_run_id` renseigné : inspecte immédiatement le **job GitHub enfant** `gen2-42-apply-ready-bridge.yml` et sa première étape échouée. Si absent : remonte la chaîne `scripts/github-action-relay-runner.mjs` → workflow enfant → `POST /api/dev-bridge/claim` → `POST /api/dev-bridge/result` et vérifie le `report_emergency` ; les dispatchs HTTP 204 du relais sont déjà prouvés.
+- Corrige **cette première erreur vérifiée** dans le fichier source concerné. Ajoute un test reproduisant l'échec, vérifie tests ciblés, PR puis circuit de release. Ne lance pas des cycles supplémentaires d'analyse sans patch.
+
+## Intervention 2 — Mentor (seulement si nécessaire pour passer FOUNDER-02/03)
+
+`src/learning/mentor-engine.js` : `MENTOR_NO_VALID_CODE_PROPOSAL` signifie `proposals.length===0` après génération/réparation ; le tableau `failures` indique provider/stage/code. Les exports D1 montrent `MENTOR_JSON_REQUIRED`, `MENTOR_JSON_INVALID`, `MENTOR_UNINSPECTED_EDIT`, `MENTOR_PROVIDER_TIMEOUT`. Inspecte une **seule** tentative représentative (FOUNDER-03 prioritaire pour Mentor), compare prompt/schéma/JSON du fournisseur et contenu `inspectedFiles` ; corrige le contrat à la source. `MENTOR_UNINSPECTED_EDIT` est un garde-fou volontaire, **ne le retire pas**. Tests : `tests/mentor-engine.test.mjs`, `tests/mentor-candidate-safety.test.mjs`, `tests/autonomy-bridge-preparer.test.mjs`.
+
+## Intervention 3 — conflit CAS FOUNDER-01 (si les deux premiers débloqués)
+
+`src/dev/d1-dev-job-repository.js` : `update(id,patch,{expected})` vérifie version, status, result_json et plan_json à la lecture puis **dans l'UPDATE SQL atomique** ; `JOB_UPDATE_CONFLICT` est donc un véritable conflit de snapshot, pas une simple erreur à masquer. Trace l'écrivain concurrent et le site d'appel obsolète ; rafraîchis avant un patch dérivé du dernier état, ou sérialise le propriétaire de l'écriture. **Ne désactive ni CAS ni ses conditions SQL**, ne refais pas aveuglément un patch complet périmé. Ajoute test de concurrence/reprise.
+
+## Arrêt et preuve de réussite
+
+Priorité maximale : **au moins un job** produit réellement commit SHA candidat + CI complète verte sur ce SHA + preuve terminale ; ne pas utiliser le compteur `advanced_ticks` ni le statut `READY` comme preuve. Ne marque jamais `DONE_VERIFIED` sans validation. Une fois la correction vérifiée, retire le job achevé des priorités. Rends un bilan minimal : **cause exacte → fichiers modifiés → tests → PR/commit → release → preuve en production ou blocage précis**.
+
+**Ne touche pas aux contrôles MAX : `paused=false` et `max_autonomy=true` étaient vrais dans le dernier export (11:35 Paris), mais ce constat n'est pas une garantie de l'état actuel. La release doit conserver MAX activé selon l'autorisation du propriétaire, avec les gates normaux.**
+
+---
+
 # MEL MAX — compte rendu d'observation manuelle (23 octobre 2026)
 
 Destinataires : Codex, Claude et agents de développement MEL. Document d'observation, **pas** une autorisation de modifier les verrous ou de déployer.
