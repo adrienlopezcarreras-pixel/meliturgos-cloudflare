@@ -294,9 +294,10 @@ test('simulated provider output passes through the real MentorEngine repair to a
     const stored = await new D1DevJobRepository(DB).get('bridge-prep-job');
     assert.equal(prepared.status, 'READY');
     assert.equal(prepared.mentor.council.selected_from_repair, true);
-    assert.deepEqual(prepared.mentor.council.rejected_proposals, [
+    assert.deepEqual(prepared.mentor.council.rejected_proposals.map(({ detail, ...row }) => row), [
       { provider: 'simulated-code-provider', error: 'MENTOR_INVALID_CHANGE', stage: 'initial' },
     ]);
+    assert.match(prepared.mentor.council.rejected_proposals[0].detail, /^reply=FILE src\/example\.js/);
     assert.equal(calls.length, 2);
     assert.match(calls[1].input, /ERREUR_DE_VALIDATION: MENTOR_INVALID_CHANGE/);
     assert.deepEqual(stored.files_json.map(file => file.path), ['src/example.js', 'tests/example.test.mjs']);
