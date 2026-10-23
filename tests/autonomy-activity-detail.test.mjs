@@ -190,3 +190,33 @@ test('activity reset includes COMMITTED but excludes terminal job states', async
   assert.ok(statements[0].includes("status NOT IN ('COMPLETED','CANCELLED','FAILED')"));
   assert.doesNotMatch(statements[0], /'COMMITTED'/);
 });
+
+test('activity exposes bounded bridge diagnostics without secret-bearing output', () => {
+  const job = structuredClone(approved);
+  job.result_json.dev_bridge = {
+    status: 'REPAIR_REQUIRED', mode: 'GITHUB_CLOUD_BRIDGE_EMERGENCY',
+    github_run_id: 39924660001, needs_repair: true,
+    tests: [{name:'npm test',passed:false,executed:true,exit_code:1,error:'TEST_COMMAND_FAILED',stderr:'secret-token'}],
+    diff_summary:'secret-token', token:'secret-token'
+  };
+  job.result_json.repair_cycle = {source:'OWNER_MAX_EXECUTOR_FAILURE',attempts:3};
+  job.result_json.runtime_retry = {last_error:'CLOUD_BRIDGE_EXECUTOR_FAILURE'};
+  const activity = describeJob(job, now);
+  assert.equal(activity.bridge_diagnostics.github_run_id,39924660001);
+  assert.equal(activity.bridge_diagnostics.mode,'GITHUB_CLOUD_BRIDGE_EMERGENCY');
+  assert.equal(activity.bridge_diagnostics.repair_source,'OWNER_MAX_EXECUTOR_FAILURE');
+  assert.equal(activity.bridge_diagnostics.repair_attempts,3);
+  assert.equal(activity.bridge_diagnostics.tests[0].error_code,'TEST_COMMAND_FAILED');
+  assert.ok(!JSON.stringify(activity).includes('secret-token'));
+});
+
+test('activity redacts unstructured error text in bridge diagnostics', () => {
+  const job = structuredClone(approved);
+  job.result_json.dev_bridge = {tests:[{error:'Access denied token=private'}],github_run_id:'abc',mode:'text with secrets'};
+  job.result_json.runtime_retry={last_error:'HTTP 403 bearer private'};
+  const activity=describeJob(job,now);
+  assert.equal(activity.bridge_diagnostics.github_run_id,null);
+  assert.equal(activity.bridge_diagnostics.mode,null);
+  assert.equal(activity.bridge_diagnostics.tests[0].error_code,null);
+  assert.equal(activity.bridge_diagnostics.retry_error_code,null);
+});
