@@ -63,3 +63,12 @@ test('[GPT6] exact-main reconciliation enforces check and bounded commands',()=>
  assert.match(stage,/spawnSync\('npm',\['run','check'\]/);
  assert.match(stage,/timeout:name==='test'\?600000:180000/);
 });
+
+test('[GPT6] candidate without dispatched full CI cannot enter ready-for-review',()=>{
+ const start=workflow.indexOf('      - name: Commit and push exact candidate change');
+ const end=workflow.indexOf('      - name: Report cloud bridge result to production D1',start);
+ const section=workflow.slice(start,end);
+ assert.match(section,/if \[ "\$code" != "204" \]; then/);
+ assert.match(section,/FULL_CANDIDATE_CI_DISPATCH_FAILED/);
+ assert.match(section,/echo "candidate_ready=false"/);
+});
