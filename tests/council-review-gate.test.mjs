@@ -117,3 +117,15 @@ test('VERIFY_EXISTING reviewers get evidence instructions, not code-diff instruc
     assert.ok(asked.length && asked.every(text => text === VERIFY_SYSTEM));
   } finally { DB.close(); }
 });
+
+test('a Council rejection repairs only the packages whose files are in the reviewed diff', async () => {
+  const { councilRejectionCulprits } = await import('../src/evolution/council-review.js');
+  const diff = 'diff --git a/src/evolution/autonomy-supervisor.js b/src/evolution/autonomy-supervisor.js\n+x\n';
+  const culprits = councilRejectionCulprits(diff, {
+    'manifest-06': [{ path: 'src/evolution/autonomy-supervisor.js' }],
+    'manifest-01-older-same-file': [{ path: 'src/evolution/autonomy-supervisor.js' }],
+    'manifest-04-reverted': [{ path: 'src/core/orchestrator/gen2-runtime.js' }],
+    'no-files': [],
+  });
+  assert.deepEqual([...culprits], ['manifest-06']);
+});
