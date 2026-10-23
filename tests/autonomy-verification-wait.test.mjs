@@ -101,3 +101,71 @@ test('retryable Mentor provider failures receive a persistent bounded deferral',
   }
   assert.equal(providerDeferral('MENTOR_UNINSPECTED_EDIT', now), null);
 });
+
+for (const phase of ['implementation','bridge']) test(`diagnostic deferral ownership and safe CAS recovery: ${phase}`, async t => {
+  const { persistImplementationDiagnostic, persistBridgePreparationDiagnostic } = await import('../src/evolution/autonomy-runtime-core.js');
+  const persist = phase === 'bridge' ? persistBridgePreparationDiagnostic : persistImplementationDiagnostic;
+  const other = phase === 'bridge' ? persistImplementationDiagnostic : persistBridgePreparationDiagnostic;
+  const { repository, id } = await fixture(t);
+  await persist(repository,id,{status:'NOT_READY',code:'MENTOR_PROVIDER_TIMEOUT'});
+  const first = await repository.get(id);
+  assert.equal(first.result_json.autonomy_deferral.phase,phase);
+  await other(repository,id,{status:'READY'});
+  assert.deepEqual((await repository.get(id)).result_json.autonomy_deferral,first.result_json.autonomy_deferral);
+  await persist(repository,id,{status:'NOT_READY',code:'MENTOR_UNINSPECTED_EDIT'});
+  assert.equal((await repository.get(id)).result_json.autonomy_deferral,undefined,'nonreportable error clears its obsolete delay');
+  let calls=0;
+  const concurrent={get:repository.get.bind(repository),async update(jobId,patch,options){
+    calls++;
+    if(calls===1) await repository.update(jobId,{result_json:{...(await repository.get(jobId)).result_json,unrelated:'preserved'}});
+    return repository.update(jobId,patch,options);
+  }};
+  await persist(concurrent,id,{status:'NOT_READY',code:'MENTOR_JSON_INVALID'});
+  assert.equal(calls,2,'one CAS retry of persistence only');
+  assert.equal((await repository.get(id)).result_json.unrelated,'preserved');
+  calls=0;
+  const claimed={get:repository.get.bind(repository),async update(jobId,patch,options){
+    calls++;
+    await repository.update(jobId,{status:'CLAIMED',result_json:{...(await repository.get(jobId)).result_json,dev_bridge:{github_run_id:4242}}});
+    return repository.update(jobId,patch,options);
+  }};
+  await persist(claimed,id,{status:'NOT_READY',code:'MENTOR_JSON_REQUIRED'});
+  assert.equal(calls,1,'a newer Bridge transition is never retried or overwritten');
+  assert.equal((await repository.get(id)).status,'CLAIMED');
+  assert.equal((await repository.get(id)).result_json.dev_bridge.github_run_id,4242);
+});
+
+test('retry code matching rejects invented prefix extensions and structural failures', async () => {
+  const {providerDeferral}=await import('../src/evolution/autonomy-runtime-core.js');
+  for(const code of ['MENTOR_PROVIDER_TIMEOUT_UNSAFE','MENTOR_JSON_INVALID_EXTRA','NO_ELIGIBLE_MISSION','MENTOR_UNINSPECTED_PATH','MENTOR_INVALID_CHANGE']) assert.equal(providerDeferral(code),null,code);
+});
+
+test('identical provider retries exhaust per context, let B advance, and wake on a new approved context', async t => {
+  const {persistBridgePreparationDiagnostic}=await import('../src/evolution/autonomy-runtime-core.js');
+  const {repository,id}=await fixture(t);
+  const now=Date.now;
+  let clock=now();
+  try {
+    Date.now=()=>clock;
+    for(let attempt=1;attempt<=3;attempt++) {
+      await persistBridgePreparationDiagnostic(repository,id,{status:'NOT_READY',code:'MENTOR_PROVIDER_TIMEOUT'});
+      const delay=(await repository.get(id)).result_json.autonomy_deferral;
+      assert.equal(delay.attempts,attempt);
+      assert.equal(delay.exhausted,attempt===3);
+      clock=delay.retry_after+1;
+    }
+    const roadmap=[{id:'MEL-FOUNDER-01',title:'A',status:'IN_PROGRESS',priority:'P0'},
+      {id:'MEL-FOUNDER-02',title:'B',status:'PLANNED',priority:'P0'}];
+    const supervisor=new AutonomySupervisor({repository,roadmap});
+    const other=await supervisor.ensureNextJob();
+    assert.equal(other.job.optional_context.roadmap_id,'MEL-FOUNDER-02');
+    await repository.update(other.job.id,{status:'CANCELLED'});
+    supervisor.roadmap=[roadmap[0]];
+    assert.equal((await supervisor.ensureNextJob()).job,null,'expiry alone cannot grant unlimited identical retries');
+    const current=await repository.get(id);
+    await repository.update(id,{result_json:{...current.result_json,implementation_proposal:{...current.result_json.implementation_proposal,candidate_sha:'b'.repeat(40)}}});
+    assert.equal((await supervisor.ensureNextJob()).job.id,id,'changed context can be selected, without bypassing runtime SHA gate');
+    await persistBridgePreparationDiagnostic(repository,id,{status:'NOT_READY',code:'MENTOR_PROVIDER_TIMEOUT'});
+    assert.equal((await repository.get(id)).result_json.autonomy_deferral.attempts,1);
+  } finally {Date.now=now;}
+});

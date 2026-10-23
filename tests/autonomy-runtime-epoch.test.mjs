@@ -12,12 +12,14 @@ const SHA = 'a'.repeat(40);
 const BRANCH = 'candidate/mel-clean-autonomy';
 const ROADMAP = [{ id: 'TEST-EPOCH-01', title: 'Current activity only', status: 'PLANNED', priority: 'P0' }];
 
-async function fixture({ maxAutonomy = false } = {}) {
+async function fixture({ maxAutonomy = false, roadmap = ROADMAP } = {}) {
   const DB = sqliteD1();
   const repository = new D1DevJobRepository(DB);
   await setAutonomyControl(DB, { paused: false, max_autonomy: maxAutonomy, launch_approved_sha: SHA });
   let epoch = Date.now() - 1000;
   let replies = '';
+  let providerCalls = 0;
+  let forbiddenSearches = 0;
   const env = {
     DB,
     MEL_DEPLOYED_GIT_SHA: SHA,
@@ -25,14 +27,14 @@ async function fixture({ maxAutonomy = false } = {}) {
     MEL_GITHUB_REPOSITORY: 'owner/repo',
     MEL_GITHUB_BRANCH: BRANCH,
     MEL_TEACHER_BRANCH: BRANCH,
-    AI: { async run(model) { return { response: `FICHIERS: src/evolution/autonomy-runtime.js\nCHANGEMENTS: bounded proposal from ${model}\nREUTILISATION: existing scheduler\nTESTS: npm test\nRISQUES: low\nROLLBACK: revert\nCRITERES_DE_FIN: green CI` }; } },
+    AI: { async run(model) { providerCalls++; return { response: `FICHIERS: src/evolution/autonomy-runtime.js\nCHANGEMENTS: bounded proposal from ${model}\nREUTILISATION: existing scheduler\nTESTS: npm test\nRISQUES: low\nROLLBACK: revert\nCRITERES_DE_FIN: green CI` }; } },
   };
   const fetchImpl = async (url) => {
     const target = String(url);
     if (target.includes('teacher-bridge/replies.jsonl')) return new Response(replies);
     if (target.includes('teacher-bridge/completions.jsonl')) return new Response('');
     if (target.includes('/commits/candidate%2Fmel-clean-autonomy')) return Response.json({ sha: SHA });
-    if (target.startsWith('https://api.github.com/')) return new Response('fixture restricted', { status: 403 });
+    if (target.startsWith('https://api.github.com/')) { forbiddenSearches++; return new Response('fixture restricted', { status: 403 }); }
     if (target.startsWith('https://raw.githubusercontent.com/')) return new Response('export const fixture = true;\n// immutable inspected source\n');
     return new Response('not found', { status: 404 });
   };
@@ -47,9 +49,9 @@ async function fixture({ maxAutonomy = false } = {}) {
     await DB.prepare('UPDATE dev_jobs SET created_at=?,updated_at=? WHERE id=?').bind(epoch - 2000, epoch - 1000, id).run();
     return repository.get(id);
   }
-  const tick = (options = {}) => runAutonomyRuntimeTick(env, { repository, fetchImpl, roadmap: ROADMAP, ...options });
+  const tick = (options = {}) => runAutonomyRuntimeTick(env, { repository, fetchImpl, roadmap, ...options });
   await saveEpoch();
-  return { DB, repository, env, tick, oldJob, saveEpoch, get epoch() { return epoch; }, setReplies(value) { replies = value; } };
+  return { DB, repository, env, tick, oldJob, saveEpoch, get epoch() { return epoch; }, get providerCalls() { return providerCalls; }, get forbiddenSearches() { return forbiddenSearches; }, setReplies(value) { replies = value; } };
 }
 
 test('the real runtime ignores old approved/queued work and preserves its journal', async () => {
@@ -110,8 +112,24 @@ test('a current job resumes with its journal and the runtime releases its lease 
     const second = await f.tick();
     assert.equal(second.job.id, first.job.id);
     assert.equal(second.job.status, 'TEACHER_APPROVED');
+    assert.equal(second.bridge_preparation.code, 'MENTOR_NO_VALID_CODE_PROPOSAL');
+    const before = await f.repository.get(first.job.id);
+    assert.ok(before.result_json.bridge_preparation_diagnostic.mentor_failure_codes.every(row => row.code === 'MENTOR_JSON_REQUIRED'));
+    assert.ok(f.forbiddenSearches > 0, 'restricted GitHub fixture was exercised');
+    const calls = f.providerCalls;
     const third = await f.tick();
-    assert.equal(third.job.id, first.job.id);
+    assert.equal(third.job, null);
+    assert.equal(third.progress.block_reason, 'DEFERRED_PROVIDER_RETRY_PENDING');
+    assert.equal(third.progress.waiting_external, true);
+    assert.equal(f.providerCalls, calls, 'deferred tick must not call Mentor or Council again');
+    assert.deepEqual(await f.repository.get(first.job.id), before, 'job and journal persist unchanged');
+    const now = Date.now;
+    try {
+      Date.now = () => before.result_json.autonomy_deferral.retry_after + 1;
+      const resumed = await f.tick();
+      assert.equal(resumed.job.id, first.job.id);
+      assert.ok(f.providerCalls > calls, 'provider retry is allowed after expiry');
+    } finally { Date.now = now; }
     assert.equal((await f.repository.list()).length, 1);
     const stored = await f.repository.get(first.job.id);
     assert.equal(stored.result_json.teacher_bridge.review.request_id, requestId);
@@ -218,4 +236,23 @@ test('an unreadable activity epoch cannot make historical jobs actionable', asyn
     assert.deepEqual(await f.repository.get(old.id), old);
     assert.equal((await f.repository.list()).length, 1);
   } finally { f.DB.close(); }
+});
+
+
+test('a real runtime tick advances B while Mentor A remains durably deferred', async () => {
+  const f=await fixture({roadmap:[...ROADMAP,{id:'TEST-EPOCH-02',title:'Independent B',status:'PLANNED',priority:'P0'}]});
+  try {
+    const first=await f.tick();
+    f.setReplies(JSON.stringify({kind:'TEACHER_REPLY',request_id:first.teacher.request_id,target_sha:SHA,verdict:'APPROVE_PLAN',feedback:'Proceed on exact candidate.'}));
+    await f.tick();
+    const a=await f.repository.get(first.job.id);
+    assert.equal(a.result_json.autonomy_deferral.code,'MENTOR_NO_VALID_CODE_PROPOSAL');
+    const next=await f.tick();
+    assert.equal(next.job.roadmap_id,'TEST-EPOCH-02');
+    assert.equal(next.job.status,'WAITING_TEACHER');
+    assert.deepEqual(await f.repository.get(a.id),a);
+    const lease=await tryAcquireAutonomyRuntimeLease({db:f.DB,owner:'after-independent-tick'});
+    assert.equal(lease.acquired,true);
+    await releaseAutonomyRuntimeLease({db:f.DB,owner:'after-independent-tick'});
+  } finally {f.DB.close();}
 });
