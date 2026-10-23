@@ -34,7 +34,9 @@ async function runFile(file) {
       MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS: "1",
     }
   });
+  // [GPT6] TAP summaries fit in a bounded tail; never retain the whole test log.
   let out = "";
+  const TAP_TAIL_LIMIT = 64 * 1024;
   let completeTapSummary = false;
   let summaryCleanupTimer = null;
   let fileDeadlineTimer = null;
@@ -80,13 +82,13 @@ async function runFile(file) {
 
   cp.stdout.on("data", (b) => {
     const chunk = b.toString();
-    out += chunk;
+    out = (out + chunk).slice(-TAP_TAIL_LIMIT);
     process.stdout.write(b);
     inspectTapSummary();
   });
   cp.stderr.on("data", (b) => {
     const chunk = b.toString();
-    out += chunk;
+    out = (out + chunk).slice(-TAP_TAIL_LIMIT);
     process.stderr.write(b);
     inspectTapSummary();
   });
