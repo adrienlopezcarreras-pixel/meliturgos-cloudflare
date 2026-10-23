@@ -774,3 +774,13 @@ test('mentor rejects an edit that leaves the inspected file unchanged and hides 
     assert.ok(!prompt.includes('MEL-FOUNDER-01:IN_PROGRESS'));
   }
 });
+
+test('mentor refuses workflow edits the Bridge token cannot push', async () => {
+  const engine = new MentorEngine({ providerFactory: async () => [provider('workflow', {
+    edits: [{ path: '.github/workflows/restore.yml', find: 'name: old', replace: 'name: new' }],
+  })] });
+  await assert.rejects(() => engine.propose({ env: {}, goal: 'Prouver une restauration', inspectedFiles: [{ path: '.github/workflows/restore.yml', content: 'name: old\n' }] }), error => {
+    assert.equal(error.code, 'MENTOR_NO_VALID_CODE_PROPOSAL');
+    return true;
+  });
+});
