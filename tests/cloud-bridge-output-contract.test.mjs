@@ -55,3 +55,11 @@ test('[GPT6] already-satisfied reconciliation requires full regression and accur
  assert.match(stage,/if\(!requested\.some\(spec=>spec\.command==='test'\)\) requested\.unshift/);
  assert.match(stage,/executed:!r\.error/);
 });
+
+test('[GPT6] exact-main reconciliation enforces check and bounded commands',()=>{
+ const start=workflow.indexOf('      - name: Reconcile package already satisfied on main');
+ const end=workflow.indexOf('      - name: Report already-satisfied reconciliation',start);
+ const stage=workflow.slice(start,end);
+ assert.match(stage,/spawnSync\('npm',\['run','check'\]/);
+ assert.match(stage,/timeout:name==='test'\?600000:180000/);
+});
