@@ -21,6 +21,6 @@ test('complete passing TAP with a leaked child handle is bounded and logged', ()
 
 test('incomplete or timed-out test files fail closed instead of hanging the release', () => {
   assert.ok(runner.includes('exceeded 180 seconds'));
-  assert.ok(runner.includes('timed_out: !completeTapSummary && closed.code === null'));
+  assert.ok(runner.includes('timed_out: deadlineExceeded || (!completeTapSummary && closed.code === null)'));
   assert.ok(runner.includes('(closed.code ?? 1)'));
 });
