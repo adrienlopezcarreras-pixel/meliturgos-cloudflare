@@ -6,8 +6,9 @@ export const REPO = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
 const SHA40 = /^[0-9a-f]{40}$/i;
 
 export function assertNoActiveDeploy(runs) {
+  // The API endpoint is scoped to deploy-cloudflare-release.yml; do not trust mutable display names.
   if (!Array.isArray(runs)) throw new Error('RELEASE_RUN_LIST_MISSING');
-  if (runs.some(row => row?.name === 'deploy-cloudflare-release' && String(row?.status || '').toLowerCase() !== 'completed')) {
+  if (runs.some(row => String(row?.status || '').toLowerCase() !== 'completed')) {
     throw new Error('PRODUCTION_DEPLOY_ALREADY_ACTIVE');
   }
 }
@@ -68,7 +69,7 @@ export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo 
     assertNoActiveDeploy(releaseRuns);
   } catch (error) {
     if (error?.message !== 'PRODUCTION_DEPLOY_ALREADY_ACTIVE') throw error;
-    const active = releaseRuns.find(row => row?.name === 'deploy-cloudflare-release' && String(row?.status || '').toLowerCase() !== 'completed');
+    const active = releaseRuns.find(row => String(row?.status || '').toLowerCase() !== 'completed');
     return { accepted: false, reason: 'PRODUCTION_DEPLOY_ALREADY_ACTIVE', main_sha: mainSha, release_branch: RELEASE_BRANCH,
       blocking_run_id: Number.isSafeInteger(active?.id) ? active.id : null,
       blocking_run_sha: SHA40.test(String(active?.head_sha || '')) ? active.head_sha : null,
@@ -79,7 +80,7 @@ export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo 
   // must not schedule a duplicate after that SHA failed. A manual dispatch
   // remains possible for an intentional, supervised retry.
   if ((completedSha || skipPreviouslyCompletedSha) && releaseRuns.some(row =>
-    row?.name === 'deploy-cloudflare-release' && row?.head_sha === mainSha &&
+    row?.head_sha === mainSha &&
     row?.status === 'completed'
   )) {
     return { accepted:false, reason:'LATEST_MAIN_ALREADY_ATTEMPTED', main_sha:mainSha, release_branch:RELEASE_BRANCH };
@@ -88,7 +89,6 @@ export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo 
   // A prior pointer update can succeed while the subsequent confirmation or
   // workflow dispatch fails. Only a successful exact-SHA release is current.
   const alreadyReleased = releaseRuns.some(row =>
-    row?.name === 'deploy-cloudflare-release' &&
     row?.head_sha === mainSha &&
     row?.status === 'completed' && row?.conclusion === 'success'
   );
