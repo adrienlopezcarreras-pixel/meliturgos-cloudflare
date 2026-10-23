@@ -13,3 +13,9 @@ test('leaves normal replies untouched', () => {
   const input = 'Je peux lire mes compétences et continuer à travailler.';
   assert.equal(stripInternalCounters(input), input);
 });
+
+
+test('counter removal preserves Markdown image boundaries and code indentation', () => {
+  const input='```markdown\n![portrait](https://example.org/portrait.jpg)\n```\n\n```js\nif (ready) {\n    run();\n}\n```';
+  assert.equal(stripInternalCounters(input),input);
+});

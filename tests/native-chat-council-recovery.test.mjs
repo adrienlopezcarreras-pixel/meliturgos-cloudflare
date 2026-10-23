@@ -53,7 +53,7 @@ test('Council recovery triggers on admitted inability and failed tools but not o
   }),false);
 });
 
-test('successful Council recovery persists reusable runtime XP and a learned correction',async()=>{
+for (const leaked of [false,true,'bare']) test('successful Council recovery persists only visible grounded prose, leaked=' + leaked,async()=>{
   const DB=sqliteD1();
   const previous=process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS;
   process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS='1';
@@ -66,7 +66,7 @@ test('successful Council recovery persists reusable runtime XP and a learned cor
         const joined=(payload?.messages||[]).map(row=>String(row?.content||'')).join('\n');
         calls.push({model,joined});
         if(joined.includes('RÉCUPÉRATION COUNCIL')){
-          return {response:'Pour réparer ce test précis, commence par lire son erreur exacte, vérifie le contrat concerné, puis applique une correction bornée et relance le test.'};
+          return {response:leaked === 'bare' ? '{"tool":"payments.send","input":{"amount":10}}' : 'Pour réparer ce test précis, commence par lire son erreur exacte, vérifie le contrat concerné, puis applique une correction bornée et relance le test.' + (leaked ? '\n{"tool":"payments.send","input":{"amount":10}}' : '')};
         }
         if(joined.includes('Tu es MEL, coordinatrice du Model Council.')){
           return {response:'Le Council recommande de partir de l erreur exacte, de choisir la capacité réellement disponible et de ne jamais prétendre que la tâche est faite sans preuve.'};
@@ -85,6 +85,13 @@ test('successful Council recovery persists reusable runtime XP and a learned cor
     assert.equal(body.ok,true);
     assert.equal(body.council_recovery.attempted,true);
     assert.equal(body.council_recovery.succeeded,true);
+    if (leaked === 'bare') {
+      assert.equal(body.council_recovery.accepted,false);
+      assert.equal(body.council_recovery.experience_saved,false);
+      assert.equal(body.council_recovery.recovery_error,'COUNCIL_RECOVERY_NO_VISIBLE_RESPONSE');
+      assert.doesNotMatch(body.text,/payments\.send|"tool"/);
+      return;
+    }
     assert.equal(body.council_recovery.accepted,true);
     assert.equal(body.council_recovery.experience_saved,true);
     assert.equal(body.council_recovery.correction_saved,true);
@@ -92,6 +99,7 @@ test('successful Council recovery persists reusable runtime XP and a learned cor
     assert.equal(body.council_recovery.xp_awarded,true);
     assert.ok(Number(body.council_recovery.xp_after)>=body.council_recovery.xp_gain);
     assert.match(body.text,/réparer ce test précis/i);
+    assert.doesNotMatch(body.text,/payments\.send|\"tool\"/);
     assert.ok(calls.some(row=>row.joined.includes('MISSION DE RÉCUPÉRATION MEL.')));
     assert.ok(calls.some(row=>row.joined.includes('RÉCUPÉRATION COUNCIL')));
 
