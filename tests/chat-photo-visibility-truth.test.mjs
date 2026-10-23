@@ -10,7 +10,7 @@ const source = path => readFile(new URL(path, root), 'utf8');
 
 test('explicit public photo requests are researched, not guessed by the base chat model', () => {
   const item = inferPublicImageLookup('montre moi une photo du pape');
-  assert.equal(item?.id, 'web.research');
+  assert.equal(item?.id, 'web.images.search');
   assert.match(item.input.query, /pape/);
   assert.equal(inferPublicImageLookup('analyse cette photo ci-jointe'), null);
   assert.equal(inferPublicImageLookup('pourquoi la photo ne s affiche pas ?'), null);
@@ -21,7 +21,7 @@ test('explicit public photo requests are researched, not guessed by the base cha
 test('native chat does not turn an unexecuted tool JSON into an apparent answer or invent a delivered image', async () => {
   const native = await source('src/api/native-chat.js');
   assert.match(native, /inferPublicImageLookup\(activeTaskText\)/);
-  assert.match(native, /La photo n.a pas été obtenue/);
+  assert.match(native, /Aucune photo affichable n.a été obtenue/);
   assert.match(native, /Aucun appel d.outil non exécuté ne sera présenté comme un résultat/);
   assert.match(native, /validatedPictureUrl\(toolResults\)/);
   assert.doesNotMatch(native, /Le JSON d.appel d.outil n.est pas une réponse/);

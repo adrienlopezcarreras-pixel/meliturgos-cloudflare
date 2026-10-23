@@ -207,3 +207,12 @@ test('GPT6: do not steal new code work, status questions, or generic chat', asyn
     'Raconte-moi une histoire de voyage.',
   ]) assert.equal(inferApprovedAutonomyExecutionIntent(text), null, text);
 });
+
+
+test('explanation questions never become mutation ticks because they mention an action verb', () => {
+  for(const text of ['dis moi pourquoi max ne termine pas ses déploiement et pourquoi tu ne peux pas afficher une image','Pourquoi MAX ne termine pas ses travaux ?','Explique comment relancer MAX sans le faire.']) {
+    assert.deepEqual(inferAutonomyControlIntent(text),{id:'autonomy.status',input:{}},text);
+  }
+  assert.deepEqual(inferAutonomyControlIntent('Pourquoi MAX est bloqué ? Puis relance MAX.'),{id:'autonomy.tick',input:{}});
+  assert.deepEqual(inferAutonomyControlIntent('Peux-tu relancer MAX ?'),{id:'autonomy.tick',input:{}});
+});

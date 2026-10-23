@@ -1,10 +1,11 @@
 import { classifySemanticOwnerIntent, shouldSemanticIntentCheck } from './semantic-intent.js';
 import { createConversationService } from '../conversations/conversation-service.js';
 import { inferKnowledgeCapability } from '../api/knowledge-intent.js';
+import { inferChatMediaCapability } from '../api/chat-media-intent.js';
 
 export function isEvolutionDevelopmentIntent(text) {
   const value = String(text || '').trim();
-  if (!value) return false;
+  if (!value || inferChatMediaCapability(value)) return false;
   // Teaching the owner is a conversation, not a request for MEL to build a skill.
   if (/\bapprends[-\s]moi\b/i.test(value)) return false;
 
@@ -38,7 +39,8 @@ export function inferAutonomyControlIntent(text, context = '') {
   const history = String(context || '').slice(-8000);
 
   const currentAutonomyDomain = /\b(autonom(?:e|ie|isation)|auto[- ]?d[ée]veloppement|self[- ]?development|feuille\s+de\s+route|roadmap|d[ée]veloppement\s+(?:de\s+)?(?:mel|ton|tes|du\s+programme)|programme\s+mel)\b/i.test(value)
-    || isMaxModeMention(value);
+    || isMaxModeMention(value)
+    || (/\bmax\b/i.test(value) && /\b(?:d[ée]ploiements?|travaux|cycles?|termine|bloqu[ée]|relance|r[ée]active)\b/i.test(value));
   // Elliptical follow-ups inherit only an explicit autonomy/release context.
   // Generic MEL/code/branch context must still reach semantic task routing.
   const contextualAutonomyDomain = /\b(?:autonomie|auto[- ]?d[ée]veloppement|self[- ]?development|feuille\s+de\s+route|roadmap|launch\s+gate|DEPLOY_APPROVED|release|d[ée]ploiement|workflow\s+de\s+release|PR\s*#?\d+)\b/i.test(history);
@@ -52,7 +54,10 @@ export function inferAutonomyControlIntent(text, context = '') {
 
   const asksAdvance = /\b(?:continue|continuer|reprends?|reprendre|avance|avancer|poursuis|poursuivre|travaille|travailler|encha[iî]ne|encha[iî]ner|relance|relancer|r[ée]concilie(?:r)?|d[ée]ploie(?:r)?|synchronise(?:r)?|termine(?:r)?)\b/i.test(value);
   // A request containing both status and action must execute the action.
-  if (asksAdvance) return { id: 'autonomy.tick', input: {} };
+  const explicitAdvance = /(?:^|[;.!?]\s*|\b(?:et|puis|ensuite)\s+)(?:continue|reprends?|avance|poursuis|travaille|encha[iî]ne|relance|r[ée]concilie|d[ée]ploie|synchronise|termine)\b/i.test(value)
+    || /^\s*(?:peux|pourrais|veux)[- ]tu\s+(?:continuer|reprendre|avancer|relancer|d[ée]ployer|terminer)\b/i.test(value);
+  if (asksAdvance && (!asksHow || explicitAdvance)) return { id: 'autonomy.tick', input: {} };
+  if (asksHow && currentAutonomyDomain) return { id: 'autonomy.status', input: {} };
 
   const asksStatus = /\b(o[uù]\s+en\s+(?:es|est|sommes)|statut|status|[ée]tat|pr[êe]te?|ready|bloqu[ée]e?|reste|avancement|progression|niveau)\b/i.test(value)
     // A question about what MAX is/does is answered from the real runtime, not model memory.
@@ -216,6 +221,9 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
   if (!body || typeof body !== 'object' || body.capability?.id) return request;
   const text = String(body.text ?? body.message ?? body.prompt ?? '').trim();
   if (!text) return request;
+  // A concrete media request is executed by native chat, even when its
+  // subject mentions tests, code or UI. It is not a development order.
+  if (inferChatMediaCapability(text)) return request;
   const requestKey = body.client_message_id ?? body.message_id ?? body.request_id ?? body.id ?? '';
   // A long instruction may mention « travaux » and « état » without asking
   // for the status sheet. Only an explicit state question keeps that route.
@@ -286,7 +294,7 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
     else if (openWork) routeDeterministic(body, openWork, 'OPEN_WORK');
     else if (moduleProposal) routeDeterministic(body, moduleProposal, 'MODULE_PROPOSAL');
     else if (webResearch) routeDeterministic(body, webResearch, 'WEB_RESEARCH');
-    else if (knowledge) routeDeterministic(body, knowledge, 'KNOWLEDGE');
+    else if (persistentKnowledge) routeDeterministic(body, knowledge, 'KNOWLEDGE');
     else {
       // No semantic fanout for plain chat. The classifier is reserved for
       // explicit unresolved action/research turns that passed the cheap gate.

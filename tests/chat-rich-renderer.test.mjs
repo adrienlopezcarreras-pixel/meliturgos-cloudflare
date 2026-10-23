@@ -83,9 +83,9 @@ test('rich renderer shows an image, a sound, a video and a page, and keeps raw H
   assert.equal(host.querySelector('audio')?.src, 'https://example.com/note.mp3');
   assert.equal(host.querySelector('video')?.src, 'https://example.com/clip.mp4');
   const frames = [...host.querySelectorAll('iframe')];
-  assert.equal(frames.length, 2);
+  assert.equal(frames.length, 1);
   assert.equal(frames[0].src, 'https://www.youtube-nocookie.com/embed/abcdefghijk');
-  assert.equal(frames[1].src, 'https://www.vatican.va/content/vatican/fr/holy-father.html');
+  assert.ok([...host.querySelectorAll('a')].some(link=>link.href==='https://www.vatican.va/content/vatican/fr/holy-father.html'));
   for (const frame of frames) {
     assert.equal(frame.getAttribute('sandbox'), 'allow-scripts allow-popups allow-presentation');
     assert.equal(frame.getAttribute('sandbox').includes('allow-same-origin'), false);
@@ -119,7 +119,7 @@ test('rich renderer keeps raw HTML inert and refuses unsafe link schemes', () =>
 test('normal chat runtime renders only MEL messages as rich text', () => {
   assert.match(NORMAL_RUNTIME_SOURCE, /window\.melRenderRichText=renderRichText/);
   assert.match(NORMAL_RUNTIME_SOURCE, /role==='user'\|\|typeof melRenderRichText!=='function'/);
-  assert.match(NORMAL_RUNTIME_SOURCE, /else melRenderRichText\(c,String\(text\?\?''\)\)/);
+  assert.match(NORMAL_RUNTIME_SOURCE, /else melRenderRichText\(c,String\(text\?\?''\),metadata\)/);
 });
 
 test('full mode enhancer richifies current and future MEL bubbles', () => {

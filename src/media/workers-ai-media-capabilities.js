@@ -405,7 +405,7 @@ async function imageProcess(env, input = {}) {
   });
 }
 
-export async function readPrivateArtifactBytes(env = {}, keyInput = '') {
+export async function readPrivateArtifactBytes(env = {}, keyInput = '', { expectedOwner = null, now = Date.now() } = {}) {
   const key = clean(keyInput, 1200);
   if (!key || !key.startsWith('generated/')) throw mediaError('MEDIA_ARTIFACT_KEY_INVALID', 400);
   if (!env?.MEDIA_BUCKET || typeof env.MEDIA_BUCKET.get !== 'function') throw mediaError('MEDIA_VAULT_UNAVAILABLE', 503);
@@ -413,6 +413,11 @@ export async function readPrivateArtifactBytes(env = {}, keyInput = '') {
   if (!object) throw mediaError('MEDIA_ARTIFACT_NOT_FOUND', 404);
   const ciphertext = new Uint8Array(await object.arrayBuffer());
   const metadata = object.customMetadata || {};
+  if (expectedOwner !== null) {
+    if (!metadata.owner || metadata.owner !== expectedOwner) throw mediaError('MEDIA_ARTIFACT_NOT_FOUND', 404);
+    const expires = Date.parse(metadata.expiresAt || '');
+    if (!Number.isFinite(expires) || expires <= now) throw mediaError('MEDIA_ARTIFACT_EXPIRED', 410);
+  }
   const id = clean(metadata.id, 200) || clean(key.split('/').pop()?.split('.')[0], 200);
   const owner = clean(metadata.owner || env.MELITURGOS_USER || 'owner', 200) || 'owner';
   const capability = clean(metadata.capability, 160);

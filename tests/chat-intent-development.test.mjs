@@ -309,3 +309,13 @@ test('semantic classifier has no hidden global AI fallback', async () => {
   });
   assert.equal(result, null);
 });
+
+test('concrete media creation is not enqueued as development when its subject mentions tests or code',async()=>{
+ for(const text of ['Crée une image de test','Génère une vidéo qui explique le code','Compose une musique pour mon interface']){
+  assert.equal(isEvolutionDevelopmentIntent(text),false,text);
+  const request=new Request('https://mel.example/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text})});
+  const prepared=await injectEvolutionPreflightCapability(request);
+  assert.equal((await prepared.json()).capability,undefined,text);
+ }
+ for(const text of ['Crée un module de génération vidéo','Crée un test pour le générateur audio','Ajoute un bouton pour afficher une image'])assert.equal(isEvolutionDevelopmentIntent(text),true,text);
+});
