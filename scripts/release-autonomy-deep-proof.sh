@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # [GPT] Extracted without changing release safety semantics; called synchronously.
 set -euo pipefail
+# Name the failing line: a bare curl timeout (exit 28) used to fail the release
+# with no hint of which production proof timed out. Only reads are retried.
+trap 'rc=$?; echo "::error title=release-autonomy-deep-proof::failed at line ${LINENO} (exit ${rc})"' ERR
 # Keep explicit, non-sensitive progress markers for long live proof phases.
 # Do not log credentials or response bodies.
 echo "MEL_RELEASE_EVIDENCE_PHASE=START $(date -u +%FT%TZ)"
@@ -780,7 +783,7 @@ console.log('Production MEL-EVOL-05 CapabilityBus -> D1 Skill Registry read proo
 NODE
 
 # GEN2-51: prove the deployed semantic v1 facade with release-only auth.
-curl --silent --show-error --max-time 60 \
+curl --silent --show-error --retry 2 --retry-all-errors --retry-delay 3 --max-time 60 \
   --header "x-mel-release-smoke: 1" \
   --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
   --dump-header production-gen2-51-version.headers \
@@ -927,7 +930,7 @@ if(read?.ok!==true || read?.result?.id!==saved?.result?.id || !Array.isArray(rea
 console.log('Production GEN2-38 planning + zero-cost generation + D1 persistence proof passed.');
 NODE
 
-OBS_READINESS_CODE="$(curl --silent --show-error --max-time 60 \
+OBS_READINESS_CODE="$(curl --silent --show-error --retry 2 --retry-all-errors --retry-delay 3 --max-time 60 \
   --header "x-mel-release-smoke: 1" \
   --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
   --output production-observability-readiness.json \
@@ -958,7 +961,7 @@ if(!component || component?.evidence?.query_ok!==true) throw new Error('PRODUCTI
 console.log('Production D1 observability metrics smoke passed.');
 NODE
 
-GEN1_STATUS_CODE="$(curl --silent --show-error --max-time 60 \
+GEN1_STATUS_CODE="$(curl --silent --show-error --retry 2 --retry-all-errors --retry-delay 3 --max-time 60 \
   --header "x-mel-release-smoke: 1" \
   --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
   --output production-gen1-migration-before.json \
@@ -1024,7 +1027,7 @@ if [ "$GEN1_COVERAGE" != "1" ]; then
   test "$GEN1_DONE" = "1"
 fi
 
-GEN1_FINAL_CODE="$(curl --silent --show-error --max-time 60 \
+GEN1_FINAL_CODE="$(curl --silent --show-error --retry 2 --retry-all-errors --retry-delay 3 --max-time 60 \
   --header "x-mel-release-smoke: 1" \
   --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
   --output production-gen1-migration-final.json \
@@ -1055,7 +1058,7 @@ console.log(JSON.stringify({
 },null,2));
 NODE
 
-CHATGPT_STATUS_CODE="$(curl --silent --show-error --max-time 60 \
+CHATGPT_STATUS_CODE="$(curl --silent --show-error --retry 2 --retry-all-errors --retry-delay 3 --max-time 60 \
   --header "x-mel-release-smoke: 1" \
   --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
   --output production-chatgpt-archive-status.json \
@@ -1107,7 +1110,7 @@ console.log(JSON.stringify({
 },null,2));
 NODE
 
-CHATGPT_MEMORY_STATUS_CODE="$(curl --silent --show-error --max-time 60 \
+CHATGPT_MEMORY_STATUS_CODE="$(curl --silent --show-error --retry 2 --retry-all-errors --retry-delay 3 --max-time 60 \
   --header "x-mel-release-smoke: 1" \
   --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
   --output production-chatgpt-memory-before.json \
@@ -1146,7 +1149,7 @@ if [ "$CHATGPT_MEMORY_DONE" != "1" ]; then
   test "$CHATGPT_MEMORY_DONE" = "1"
 fi
 
-CHATGPT_MEMORY_FINAL_CODE="$(curl --silent --show-error --max-time 60 \
+CHATGPT_MEMORY_FINAL_CODE="$(curl --silent --show-error --retry 2 --retry-all-errors --retry-delay 3 --max-time 60 \
   --header "x-mel-release-smoke: 1" \
   --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
   --output production-chatgpt-memory-final.json \
@@ -1172,7 +1175,7 @@ console.log(JSON.stringify({
 },null,2));
 NODE
 
-SELF_CODE="$(curl --silent --show-error --max-time 60 \
+SELF_CODE="$(curl --silent --show-error --retry 2 --retry-all-errors --retry-delay 3 --max-time 60 \
   --header "x-mel-release-smoke: 1" \
   --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
   --output production-code-self-check.json \
@@ -1184,7 +1187,7 @@ if [ "$SELF_CODE" != "200" ]; then
   exit 33
 fi
 
-MEMORY_CODE="$(curl --silent --show-error --max-time 60 \
+MEMORY_CODE="$(curl --silent --show-error --retry 2 --retry-all-errors --retry-delay 3 --max-time 60 \
   --header "x-mel-release-smoke: 1" \
   --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
   --output production-memory-status.json \
@@ -1196,7 +1199,7 @@ if [ "$MEMORY_CODE" != "200" ]; then
   exit 34
 fi
 
-PROFESSOR_CODE="$(curl --silent --show-error --max-time 60 \
+PROFESSOR_CODE="$(curl --silent --show-error --retry 2 --retry-all-errors --retry-delay 3 --max-time 60 \
   --header "x-mel-release-smoke: 1" \
   --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
   --output production-professor.html \
@@ -1204,7 +1207,7 @@ PROFESSOR_CODE="$(curl --silent --show-error --max-time 60 \
   "${BASE_URL}/professor")"
 test "$PROFESSOR_CODE" = "200"
 
-RUNTIME_CODE="$(curl --silent --show-error --max-time 60 \
+RUNTIME_CODE="$(curl --silent --show-error --retry 2 --retry-all-errors --retry-delay 3 --max-time 60 \
   --header "x-mel-release-smoke: 1" \
   --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
   --output production-normal-runtime.js \
