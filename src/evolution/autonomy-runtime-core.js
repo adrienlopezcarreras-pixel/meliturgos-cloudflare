@@ -111,6 +111,9 @@ const STALE_TEACHER_APPROVAL_CODES = new Set([
   'TEACHER_APPROVAL_CANDIDATE_SHA_REQUIRED',
   'TEACHER_APPROVAL_CANDIDATE_BRANCH_MISMATCH',
   'TEACHER_APPROVAL_CANDIDATE_BRANCH_REQUIRED',
+  // [GPT6] The Bridge preparer reports SHA drift under its own diagnostic codes.
+  'BRIDGE_PREPARATION_CANDIDATE_STALE',
+  'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION',
 ]);
 
 // A diagnostic that has not changed is not rewritten every minute: each
