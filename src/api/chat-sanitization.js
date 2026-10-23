@@ -3,8 +3,7 @@ export function stripInternalCounters(value) {
   return value
     .replace(/[^.!?\n]*\binteraction_count\b\s*[:=]?\s*\d+[^.!?\n]*[.!?]?/gi, ' ')
     .replace(/\binteraction_count\b\s*[:=]?\s*\d+/gi, ' ')
-    .replace(/[ \t]{2,}/g, ' ')
-    .replace(/\s+([,.;!?])/g, '$1')
+    .replace(/[ \t]+([,.;!?])/g, '$1')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
