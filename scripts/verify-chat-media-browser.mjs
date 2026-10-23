@@ -3,7 +3,7 @@
 // does not certify any production provider, quota or deployed Worker.
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
-import {spawn,execFileSync} from 'node:child_process';
+import {spawn} from 'node:child_process';
 import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -21,9 +21,8 @@ const env={MELITURGOS_USER:'local-owner',MELITURGOS_PASSWORD:'local-fixture-pass
 };
 let browser,server;
 try{
- const videoPath=join(directory,'fixture.webm');
- execFileSync(process.env.MEL_TEST_FFMPEG_PATH||'ffmpeg',['-hide_banner','-loglevel','error','-f','lavfi','-i','color=c=blue:s=320x180:r=12','-t','2','-c:v','libvpx','-an','-y',videoPath],{timeout:20000});
- const video=await storePrivateArtifact(env,new Uint8Array(await readFile(videoPath)),{capability:'media.video.generate',model:'local-ffmpeg-fixture',mime:'video/webm',extension:'webm'});
+ const videoBytes=await readFile(new URL('../tests/fixtures/media/blue-vp8.webm',import.meta.url));
+ const video=await storePrivateArtifact(env,new Uint8Array(videoBytes),{capability:'media.video.generate',model:'local-ffmpeg-fixture',mime:'video/webm',extension:'webm'});
  const png=Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aV1sAAAAASUVORK5CYII=','base64'));
  const image=await storePrivateArtifact(env,png,{capability:'media.image.generate',model:'local-png-fixture',mime:'image/png',extension:'png'});
  env.MEL_MEDIA_CAPABILITIES={
