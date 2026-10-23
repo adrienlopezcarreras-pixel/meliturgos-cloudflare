@@ -20,3 +20,8 @@ test('[GPT6] deadline termination never counts as passing TAP cleanup', () => {
  assert.match(source,/!deadlineExceeded && completeTapSummary/);
  assert.match(source,/timed_out: deadlineExceeded/);
 });
+
+test('[GPT6] deadline failure overrides a child exit code zero',()=>{
+ const source=fs.readFileSync('scripts/run-tests.mjs','utf8');
+ assert.match(source,/deadlineExceeded \? 1 : \(closed\.code \?\? 1\)/);
+});
