@@ -248,6 +248,8 @@ export function validateRoadmap() {
   const itemIds = new Set();
   const titles = new Map();
   const validStatuses = new Set(Object.values(ROADMAP_STATUSES));
+  // [GPT6] A candidate must not silently restore legacy terminal statuses.
+  if (validStatuses.has('DONE')) issues.push({ type: 'LEGACY_DONE_ENUM_FORBIDDEN' });
 
   for (const p of MASTER_ROADMAP) {
     if (phaseIds.has(p.id)) issues.push({ type: 'DUPLICATE_PHASE_ID', id: p.id });

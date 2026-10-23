@@ -82,3 +82,8 @@ test('[GPT6] no-diff candidate also dispatches full candidate CI',()=>{
  assert.ok(stage.indexOf('NO_CHANGES=true')<stage.indexOf('full-candidate-ci.yml/dispatches'));
  assert.doesNotMatch(stage.slice(stage.indexOf('NO_CHANGES=true'),stage.indexOf('full-candidate-ci.yml/dispatches')),/no_changes=true.*exit 0/s);
 });
+
+test('[GPT6] bounded Bridge diagnostics preserve unresolved import evidence',()=>{
+ assert.match(workflow,/Unresolved import\|SyntaxError\|Error:/);
+ assert.match(workflow,/\.slice\(-8\)/);
+});
