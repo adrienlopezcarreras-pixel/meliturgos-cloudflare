@@ -47,3 +47,11 @@ test('[GPT6] report explicitly marks requested test commands as executed',()=>{
 test('[GPT6] long full-suite timeout is larger than individual suite timeout',()=>{
  assert.match(workflow,/timeout:args\[1\]==='test'\?600000:180000/);
 });
+
+test('[GPT6] already-satisfied reconciliation requires full regression and accurate execution evidence',()=>{
+ const start=workflow.indexOf('      - name: Reconcile package already satisfied on main');
+ const end=workflow.indexOf('      - name: Report already-satisfied reconciliation',start);
+ const stage=workflow.slice(start,end);
+ assert.match(stage,/if\(!requested\.some\(spec=>spec\.command==='test'\)\) requested\.unshift/);
+ assert.match(stage,/executed:!r\.error/);
+});
