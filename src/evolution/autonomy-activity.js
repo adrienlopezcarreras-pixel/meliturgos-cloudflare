@@ -150,6 +150,34 @@ export function jobPipeline(job) {
   return steps.map((step, index) => ({ ...step, state: step.done ? 'done' : index === current ? (status === 'FAILED' || status === 'BLOCKED' ? 'blocked' : 'current') : 'todo' }));
 }
 
+function bridgeDiagnostics(result) {
+  const bridge = obj(result?.dev_bridge);
+  const repair = obj(result?.repair_cycle);
+  const retry = obj(result?.runtime_retry);
+  const code = value => {
+    const raw = String(value || '');
+    return /^[A-Z][A-Z0-9_:-]{0,119}$/.test(raw) ? raw : null;
+  };
+  const runId = Number(bridge.github_run_id || bridge.result_json?.github_run_id || 0);
+  const tests = Array.isArray(bridge.tests) ? bridge.tests.slice(0, 4).map(row => ({
+    name: clip(row?.name, 100),
+    passed: row?.passed === true,
+    executed: row?.executed === true,
+    exit_code: Number.isInteger(Number(row?.exit_code)) ? Number(row.exit_code) : null,
+    error_code: code(row?.error),
+  })) : [];
+  return {
+    github_run_id: Number.isSafeInteger(runId) && runId > 0 ? runId : null,
+    mode: code(bridge.mode),
+    status: code(bridge.status),
+    needs_repair: bridge.needs_repair === true,
+    tests,
+    repair_source: code(repair.source),
+    repair_attempts: Number.isSafeInteger(Number(repair.attempts)) ? Number(repair.attempts) : null,
+    retry_error_code: code(retry.last_error),
+  };
+}
+
 export function describeJob(job, now = Date.now()) {
   const r = obj(job?.result_json);
   const status = String(job?.status || 'UNKNOWN').toUpperCase();
@@ -175,6 +203,7 @@ export function describeJob(job, now = Date.now()) {
     tests: Array.isArray(job?.tests_json) ? job.tests_json.slice(0, 4).map(t => clip(typeof t === 'string' ? t : t?.path || t?.command, 160)) : [],
     candidate: prep.candidate_branch ? { branch: clip(prep.candidate_branch, 120), base_sha: clip(prep.candidate_sha, 40) } : null,
     completion: completion.status ? { status: clip(completion.status, 60), sha: clip(completion.candidate_sha, 40), ci_run_id: num(completion.ci?.run_id) } : null,
+    bridge_diagnostics: bridgeDiagnostics(r),
     diagnostics: [diagnostic(r.implementation_planning_diagnostic), diagnostic(r.bridge_preparation_diagnostic)].filter(Boolean),
     error: clip(job?.error, 400),
   };
