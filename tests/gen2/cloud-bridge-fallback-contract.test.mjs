@@ -66,3 +66,9 @@ test('cloud bridge normalizes trailing whitespace before hygiene and tests', asy
   assert.ok(normalizePos >= 0 && hygienePos > normalizePos && testStepPos > hygienePos);
 });
 
+
+test('bridge cancels as already satisfied only when the candidate also matches the package', async () => {
+  const source = await readFile(new URL('../../.github/workflows/gen2-42-apply-ready-bridge.yml', import.meta.url), 'utf8');
+  const reconcile = source.slice(source.indexOf('Reconcile package already satisfied on main'), source.indexOf('bridge-main-exact.txt'));
+  assert.match(reconcile, /git',\['show',`\$\{process\.env\.CANDIDATE_SHA\}:\$\{rel\}`\]/);
+});
