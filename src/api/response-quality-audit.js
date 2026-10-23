@@ -94,7 +94,16 @@ export function assessResponseQuality({
   const anchor = clean(focus?.anchor || userText);
   const relevance = overlap(anchor, response);
 
-  if (!response) issues.push({ code:'EMPTY_RESPONSE', severity:'high' });
+  // Markdown-only or invisible output (no letter, no digit) is an empty answer.
+  if (!/[\p{L}\p{N}]/u.test(response)) issues.push({ code:'EMPTY_RESPONSE', severity:'high' });
+  // A reply that only repeats one of the owner's recent messages answers nothing.
+  const ownTexts = [userText, ...(Array.isArray(recent) ? recent : []).filter(row => row?.role === 'user').slice(-3).map(row => row?.content)]
+    .map(normalize).filter(text => text.length >= 15);
+  const normalizedResponse = normalize(response);
+  const leftover = text => (normalizedResponse.split(text).join(' ').match(/[\p{L}\p{N}]/gu) || []).length;
+  if (ownTexts.some(text => normalizedResponse.includes(text) && leftover(text) < 40)) {
+    issues.push({ code:'ECHOED_USER_TEXT', severity:'high' });
+  }
   if (/^(?:en\s+tant\s+qu['’](?:ia|intelligence\s+artificielle)|je\s+dois\s+pr[ée]ciser)/i.test(response)) {
     issues.push({ code:'META_PREAMBLE', severity:'medium' });
   }
@@ -188,11 +197,23 @@ export async function persistResponseQualityEvent(env = {}, {
 }
 
 
+export const UNUSABLE_RESPONSE_CODES = Object.freeze(['EMPTY_RESPONSE', 'ECHOED_USER_TEXT']);
+
+/** Never show an empty reply or a mere copy of the question as MEL's answer. */
+export function replaceUnusableResponse(responseText = '', assessment = null) {
+  const codes = (Array.isArray(assessment?.issues) ? assessment.issues : []).map(issue => String(issue?.code || ''));
+  if (!codes.some(code => UNUSABLE_RESPONSE_CODES.includes(code))) return String(responseText || '').trim();
+  return codes.includes('EMPTY_RESPONSE')
+    ? 'Je n’ai pas produit de réponse exploitable (réponse vide du modèle). Relance la question : je repartirai avec un autre modèle.'
+    : 'Ma réponse ne faisait que reprendre ta question, sans y répondre. Relance-la : je repartirai avec un autre modèle.';
+}
+
 export function enforceResponseQuality({ responseText='', userText='', focus=null, assessment=null } = {}) {
   const original = String(responseText || '').replace(/\r\n?/g, '\n').trim();
   const issues = Array.isArray(assessment?.issues) ? assessment.issues : [];
   const severe = issues.filter(issue => issue?.severity === 'high').map(issue => String(issue.code || ''));
   if (!severe.length) return original;
+  if (severe.some(code => UNUSABLE_RESPONSE_CODES.includes(code))) return replaceUnusableResponse(original, assessment);
 
   // POSSIBLE_OFF_TOPIC is a heuristic signal, not a safe basis for replacing
   // an otherwise usable answer. Lexical overlap is intentionally conservative:
