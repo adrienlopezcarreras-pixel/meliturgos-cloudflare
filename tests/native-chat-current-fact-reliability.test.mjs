@@ -46,10 +46,11 @@ test('current pope identity is forced through the stable Vatican source and reac
   const data = await response.json();
 
   assert.equal(response.status, 200, JSON.stringify(data));
-  assert.equal(data.text, 'Le pape actuel est Léon XIV (Robert Francis Prevost), d’après le Vatican.');
+  assert.match(data.text,/IMAGE_SEARCH_EMPTY/);
+  assert.doesNotMatch(data.text,/!\[/);
   assert.deepEqual(webCalls, ['https://www.vatican.va/content/vatican/fr/holy-father.html']);
   assert.equal(aiCalls.length, 1);
-  assert.ok(data.capability_used.includes('web.research'));
+  assert.ok(data.capability_used.includes('web.images.search'));
   const system = aiCalls[0].messages.find(message => message.role === 'system')?.content || '';
   assert.match(system, /FAIT ACTUEL STRICT/);
   assert.match(system, /Léon XIV/);
@@ -104,7 +105,7 @@ test('a model that claims a generated pope photo is not reported as an image', a
   }), env);
   const data = await response.json();
   assert.equal(response.status, 200, JSON.stringify(data));
-  assert.match(data.text, /n’a pas été obtenue|n'a pas été obtenue/);
+  assert.match(data.text, /n’a (?:pas )?été obtenue|n'a pas été obtenue/);
   assert.doesNotMatch(data.text, /générée|affichera l’image/);
   assert.equal(data.tool_results.find(row => row.capability === 'image.render')?.status, 'FAILED');
   assert.equal(data.tool_results.find(row => row.capability === 'image.render')?.error, 'IMAGE_NOT_DELIVERED');
@@ -211,7 +212,7 @@ for (const [label, modelText] of [
   assert.equal(response.status,200);
   const outsideCode=data.text.replace(/```[\s\S]*?```/g,'');
   assert.match(outsideCode,/!\[[^\]]*\]\(https:\/\/www\.vatican\.va\/portrait\.jpg\)/);
-  assert.equal(data.tool_results.find(row=>row.capability==='image.render')?.status,'SUCCEEDED',JSON.stringify(data.text));
+  assert.equal(data.tool_results.find(row=>row.capability==='image.render')?.status,'READY_FOR_RENDER',JSON.stringify(data.text));
   const dom=new JSDOM('<div id="host"></div>',{url:'https://mel.example/',runScripts:'outside-only'});
   try {
     dom.window.eval(CHAT_RICH_RENDERER_SOURCE);

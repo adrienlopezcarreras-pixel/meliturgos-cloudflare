@@ -31,6 +31,7 @@ import { runMelSelfAuditSupervisor } from "./diagnostics/self-audit-supervisor.j
 import { resumeActivePersistentCapabilityStress } from "./diagnostics/persistent-capability-stress.js";
 import { handleVoiceTranscription } from "./api/voice-transcribe.js";
 import { handleFileUpload } from "./api/file-upload.js";
+import { handleGeneratedMedia } from "./api/generated-media.js";
 import { runExpiredMediaCleanup } from "./media/media-vault-cleanup.js";
 import { readLastSafeWorkJob, writeLastSafeWorkJob } from "./dev/dev-bridge-state-store.js";
 import { buildVerifiedWorkComputerContext, interpretWorkScreenCapture, revokeWorkScreenConsent, workScreenErrorResponse } from "./work/companion-screen-evidence.js";
@@ -478,6 +479,8 @@ async function fetchResolvedRequest(request, env, ctx) {
         const voiceResponse = await handleVoiceTranscription(request, env);
         if (voiceResponse) return voiceResponse;
       }
+
+      if (path === '/api/media/generated') return handleGeneratedMedia(request, env);
 
       if (path === '/api/files/upload') {
         const fileResponse = await handleFileUpload(request, env);

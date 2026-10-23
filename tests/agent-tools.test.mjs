@@ -187,3 +187,24 @@ test('nested data with a name field remains data rather than a tool request', ()
   assert.equal(responseIsBareToolCall(raw), false);
   assert.equal(stripLeakedToolCalls(raw), raw);
 });
+
+
+test('capability/args envelope is executed once by the existing reader and never displayed as JSON', async () => {
+  const raw=JSON.stringify({capability:'web.research',args:{query:'photo du pape François',max_results:5,pages:1}});
+  assert.deepEqual(parseAgentAction(raw),{tool:'web.research',input:{query:'photo du pape François',max_results:5,pages:1}});
+  assert.equal(stripLeakedToolCalls(raw),'');
+  let calls=0;
+  const rows=await executeLeakedReads({bus:{async execute(){calls++;return {sources:[]};}},text:raw});
+  assert.equal(calls,1);assert.equal(rows.length,1);
+  await executeLeakedReads({bus:{async execute(){calls++;}},text:raw,already:[{capability:'web.images.search',status:'SUCCEEDED'}]});
+  assert.equal(calls,1,'already executed image search must not be replaced by a second historical query');
+});
+
+test('documenting a tool protocol never executes the example',async()=>{
+  let calls=0;
+  const rows=await runAgentToolLoop({env:{AI:{async run(){calls++;return {response:'{"capability":"gmail.messages.read","args":{}}'};}}},bus:bus([]),text:'Donne un exemple JSON d’appel outil pour lire Gmail'});
+  assert.deepEqual(rows,[]);assert.equal(calls,0);
+  assert.deepEqual(parseAgentAction('{"capability":"web.research","args":"{\\"query\\":\\"Rome\\"}"}'),{tool:'web.research',input:{query:'Rome'}});
+  const malformed='{"capability":"web.research","args":"not json"}';
+  assert.equal(parseAgentAction(malformed).final,true);assert.equal(stripLeakedToolCalls(malformed),'');
+});
