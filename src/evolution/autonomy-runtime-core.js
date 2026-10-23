@@ -844,8 +844,9 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         ciRunId = await findGreenFullCandidateRun(env, implementation.candidate_sha, { fetchImpl });
       } catch (error) {
         const status = Number(error?.status || 0);
+        const cause = /^[A-Z0-9_]{1,60}$/.test(String(error?.code || '')) ? ':' + error.code : '';
         ciLookupFailure = 'FULL_CANDIDATE_CI_LOOKUP_FAILED'
-          + (Number.isInteger(status) && status >= 400 && status <= 599 ? '_HTTP_' + status : '');
+          + (Number.isInteger(status) && status >= 300 && status <= 599 ? '_HTTP_' + status : cause);
       }
       const required = requiredLiveChecks(job?.goal, implementation?.selected?.text);
       const liveChecks = ciRunId ? await runLiveChecks(env, required).catch(() => []) : [];
