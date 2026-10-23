@@ -17,7 +17,7 @@ test('[GPT6] deadline termination never counts as passing TAP cleanup', () => {
  const source=fs.readFileSync('scripts/run-tests.mjs','utf8');
  assert.match(source,/let deadlineExceeded = false/);
  assert.match(source,/deadlineExceeded = true/);
- assert.match(source,/!deadlineExceeded && completeTapSummary/);
+ assert.match(source,/!deadlineExceeded && summaryCleanupTriggered && completeTapSummary/);
  assert.match(source,/timed_out: deadlineExceeded/);
 });
 
