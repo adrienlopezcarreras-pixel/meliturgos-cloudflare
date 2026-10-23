@@ -100,18 +100,25 @@ export function parseCompletionJsonl(text) {
 }
 
 async function fetchJson(fetchImpl, url, env = {}) {
-  let response;
-  try { response = await fetchImpl(url, {
+  const request = (token) => fetchImpl(url, {
     headers: {
       accept: 'application/vnd.github+json',
       'user-agent': 'meliturgos-completion-reconciler',
       'x-github-api-version': '2022-11-28',
-      ...(env.MEL_GITHUB_TOKEN ? { authorization: 'Bearer ' + String(env.MEL_GITHUB_TOKEN) } : {}),
+      ...(token ? { authorization: 'Bearer ' + String(token) } : {}),
     },
     // Workers does not implement redirect:'error' (TypeError before sending).
     redirect: 'manual',
     signal: AbortSignal.timeout(20_000),
-  }); } catch {
+  });
+  let response;
+  try {
+    response = await request(env.MEL_GITHUB_TOKEN);
+    // The repository is public: a token without Actions read access (seen in
+    // production as FULL_CANDIDATE_CI_LOOKUP_FAILED_HTTP_403) must not hide
+    // public CI evidence. The same read is retried once without the token.
+    if (env.MEL_GITHUB_TOKEN && (response.status === 401 || response.status === 403)) response = await request(null);
+  } catch {
     throw Object.assign(new Error('COMPLETION_GITHUB_TRANSPORT_FAILED'), { code: 'COMPLETION_GITHUB_TRANSPORT_FAILED' });
   }
   if (!response.ok || (response.status >= 300 && response.status < 400)) {

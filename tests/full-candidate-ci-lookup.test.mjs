@@ -45,3 +45,13 @@ test('the final completion verifier uses the same authentication and exact ident
 test('a GitHub redirect is a failure, never evidence (redirect:manual on Workers)',async()=>{
  await assert.rejects(findGreenFullCandidateRun(env,sha,{fetchImpl:async()=>new Response(null,{status:302,headers:{location:'https://example.com'}})}),{code:'COMPLETION_GITHUB_VERIFY_FAILED',status:302});
 });
+
+test('a token refused by GitHub (403) falls back to the public read of the same run',async()=>{
+ const seen=[];
+ const run=await findGreenFullCandidateRun(env,sha,{fetchImpl:async(_url,init)=>{
+  seen.push(init.headers.authorization||null);
+  return seen.length===1?new Response('{}',{status:403}):Response.json({workflow_runs:[green]});
+ }});
+ assert.equal(run,123);
+ assert.deepEqual(seen,['Bearer synthetic-test-token',null]);
+});
