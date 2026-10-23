@@ -2589,7 +2589,16 @@ export async function handleNativeChat(request, env, options = {}) {
   const modelResponseText = !visibleModelText || responseIsBareToolCall(rawModelText)
     ? (connectorReadsFactualAnswer(toolResults) || 'Je n’ai pas obtenu de résultat exploitable pour répondre à cette demande. Aucun appel d’outil non exécuté ne sera présenté comme un résultat.')
     : visibleModelText;
-  const groundedResponseText = instructionPrompt && modelResponseText.trim()
+  // Leaked read-only tool calls are executed after the earlier runtime snapshot.
+  // Ground bare tool-call replies in the actual late execution result, not in
+  // the stale snapshot or a generic "no usable result" fallback.
+  const lateAutonomyRead = (!visibleModelText || responseIsBareToolCall(rawModelText))
+    ? toolResults.find((row) => row.capability === 'autonomy.status' && row.status === 'SUCCEEDED'
+        && row.result && typeof row.result === 'object')
+    : null;
+  const groundedResponseText = lateAutonomyRead
+    ? formatVerifiedAutonomyRuntimeResponse(lateAutonomyRead.result, { operation: 'status', explainMax: isMaxModeMention(text) })
+    : instructionPrompt && modelResponseText.trim()
     ? modelResponseText
     : communicationAuditObserved
     ? formatCommunicationAuditResponse(communicationAuditObserved, { fallback: modelResponseText })

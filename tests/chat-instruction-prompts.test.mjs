@@ -20,7 +20,9 @@ test('a short explicit status question still gets its verified status tool', () 
 
 test('a canned status sheet never replaces the model answer to a long instruction', async () => {
   const source = await readFile(new URL('../src/api/native-chat.js', import.meta.url), 'utf8');
-  assert.match(source, /const groundedResponseText = instructionPrompt && modelResponseText\.trim\(\)\n\s*\? modelResponseText/);
+  assert.match(source, /const groundedResponseText = lateAutonomyRead\n\s*\? formatVerifiedAutonomyRuntimeResponse\(lateAutonomyRead\.result/);
+  assert.match(source, /: instructionPrompt && modelResponseText\.trim\(\)\n\s*\? modelResponseText/);
+  assert.match(source, /lateAutonomyRead = \(!visibleModelText \|\| responseIsBareToolCall\(rawModelText\)\)/);
   assert.ok(source.includes(': instructionPrompt\n    ? (() => {'));
   assert.ok(source.includes("explicitCodeRead?.id === 'code.read'"));
 });
