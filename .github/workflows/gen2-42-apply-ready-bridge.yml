@@ -423,6 +423,21 @@ jobs:
             --data "{\"ref\":\"$CANDIDATE_BRANCH\"}" --output /dev/null --write-out '%{http_code}' \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/full-candidate-ci.yml/dispatches" || true)"
           echo "FULL_CANDIDATE_CI_DISPATCH http=$code sha=$NEW_SHA"
+          # [GPT6] A pushed candidate without dispatched CI is not ready for review.
+          if [ "$code" != "204" ]; then
+            node - <<'NODE'
+          const fs=require('fs');
+          const current=JSON.parse(fs.readFileSync('bridge-apply-result.json','utf8'));
+          const tests=Array.isArray(current.tests)?[...current.tests]:[];
+          tests.push({name:'full candidate CI dispatch',command:'github.actions.workflow_dispatch',passed:false,executed:true,error:'FULL_CANDIDATE_CI_DISPATCH_FAILED'});
+          fs.writeFileSync('bridge-apply-result.json',JSON.stringify({...current,status:'REPAIR_REQUIRED',needs_repair:true,tests},null,2));
+          NODE
+            echo "candidate_ready=false" >> "$GITHUB_OUTPUT"
+            echo "candidate_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
+            echo "candidate_branch=$CANDIDATE_BRANCH" >> "$GITHUB_OUTPUT"
+            echo "no_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           echo "candidate_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
           echo "candidate_branch=$CANDIDATE_BRANCH" >> "$GITHUB_OUTPUT"
           echo "no_changes=false" >> "$GITHUB_OUTPUT"
