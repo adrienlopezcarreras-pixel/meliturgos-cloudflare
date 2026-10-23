@@ -270,7 +270,7 @@ jobs:
               const fd=fsSync.openSync(logfile,'w');
               try {
                 result=spawnSync(args[0],args.slice(1),{
-                  shell:false,stdio:['ignore',fd,fd],timeout:180000
+                  shell:false,stdio:['ignore',fd,fd],timeout:args[1]==='test'?600000:180000
                 });
               } finally { fsSync.closeSync(fd); }
               const stat=fsSync.statSync(logfile);
