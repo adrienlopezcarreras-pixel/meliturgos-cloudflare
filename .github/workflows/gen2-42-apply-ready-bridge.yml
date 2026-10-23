@@ -381,25 +381,24 @@ jobs:
             echo "candidate_ready=false" >> "$GITHUB_OUTPUT"
             echo "candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
             echo "candidate_branch=$CANDIDATE_BRANCH" >> "$GITHUB_OUTPUT"
-            echo "no_changes=false" >> "$GITHUB_OUTPUT"
+            echo "no_changes=$NO_CHANGES" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          echo "candidate_ready=true" >> "$GITHUB_OUTPUT"
+          # [GPT6] Even a no-diff candidate must dispatch full exact-SHA CI.
+          NO_CHANGES=false
           if [ -z "$(git diff --cached --name-only)" ]; then
+            NO_CHANGES=true
             NEW_SHA="$(git rev-parse HEAD)"
-            echo "candidate_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
-            echo "candidate_branch=$CANDIDATE_BRANCH" >> "$GITHUB_OUTPUT"
-            echo "no_changes=true" >> "$GITHUB_OUTPUT"
-            exit 0
+          else
+            git commit -m "GEN2-42: apply approved bridge package $JOB_ID"
+            NEW_SHA="$(git rev-parse HEAD)"
           fi
-          git commit -m "GEN2-42: apply approved bridge package $JOB_ID"
-          NEW_SHA="$(git rev-parse HEAD)"
           # Test evidence and Teacher approval bind this exact base. A moving
           # head requires fresh review; never rebase an already-tested package.
           PUSHED=0
           git fetch origin "$CANDIDATE_BRANCH"
           REMOTE_SHA="$(git rev-parse FETCH_HEAD)"
-          if [ "$REMOTE_SHA" = "$CANDIDATE_SHA" ] && git push origin "HEAD:$CANDIDATE_BRANCH"; then
+          if [ "$REMOTE_SHA" = "$CANDIDATE_SHA" ] && { [ "$NO_CHANGES" = "true" ] || git push origin "HEAD:$CANDIDATE_BRANCH"; }; then
             PUSHED=1
           fi
           if [ "$PUSHED" != "1" ]; then
@@ -413,7 +412,7 @@ jobs:
             echo "candidate_ready=false" >> "$GITHUB_OUTPUT"
             echo "candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
             echo "candidate_branch=$CANDIDATE_BRANCH" >> "$GITHUB_OUTPUT"
-            echo "no_changes=false" >> "$GITHUB_OUTPUT"
+            echo "no_changes=$NO_CHANGES" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # A push made with the workflow token does not start other workflows:
@@ -435,12 +434,12 @@ jobs:
             echo "candidate_ready=false" >> "$GITHUB_OUTPUT"
             echo "candidate_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
             echo "candidate_branch=$CANDIDATE_BRANCH" >> "$GITHUB_OUTPUT"
-            echo "no_changes=false" >> "$GITHUB_OUTPUT"
+            echo "no_changes=$NO_CHANGES" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "candidate_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
           echo "candidate_branch=$CANDIDATE_BRANCH" >> "$GITHUB_OUTPUT"
-          echo "no_changes=false" >> "$GITHUB_OUTPUT"
+          echo "no_changes=$NO_CHANGES" >> "$GITHUB_OUTPUT"
 
       - name: Report cloud bridge result to production D1
         id: report_result
