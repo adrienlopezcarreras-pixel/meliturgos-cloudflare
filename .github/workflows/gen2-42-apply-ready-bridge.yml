@@ -140,7 +140,10 @@ jobs:
           const job=JSON.parse(fs.readFileSync(process.env.BRIDGE_JOB_FILE,'utf8'));
           const results=[];
           let failed=false;
-          for(const spec of job.tests_json||[]){
+          // [GPT6] The exact-on-main branch must apply the same mandatory full-regression gate.
+          const requested=[...(job.tests_json||[])];
+          if(!requested.some(spec=>spec.command==='test')) requested.unshift({name:'full-regression',command:'test'});
+          for(const spec of requested){
             const name=String(spec?.command||'').trim();
             if(!allowed.has(name)){
               results.push({name:String(spec?.name||name||'unnamed'),command:name,passed:false,executed:false,error:'TEST_NOT_EXECUTED'});
@@ -149,7 +152,7 @@ jobs:
             }
             const args=name==='test'?['test']:['run',name];
             const r=spawnSync('npm',args,{stdio:'inherit',shell:false});
-            const row={name:String(spec?.name||name),command:name,passed:r.status===0,exit_code:r.status??1};
+            const row={name:String(spec?.name||name),command:name,passed:r.status===0,executed:!r.error,exit_code:r.status??1,error_code:r.error?.code||null,signal:r.signal||null};
             results.push(row); if(r.status!==0) failed=true;
           }
           fs.writeFileSync('bridge-main-tests.json',JSON.stringify(results,null,2));
