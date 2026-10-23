@@ -99,3 +99,12 @@ Le journal a un nouvel événement pour FOUNDER-01 : mise à jour de `result_jso
 Le nombre de `workflow_dispatches` visibles passe de 2 à 3 pour le même `run_id=39924542106`; les IDs de relais sont distincts. Le job GitHub `relay` était toujours `in_progress` lors de la consultation suivante, `contract` était `skipped`. **Priorité** : auditer la correspondance entre ces relay IDs et les exécutions réelles ; vérifier origine précise de `FULL_CANDIDATE_CI_LOOKUP_FAILED`, statut du run et éligibilité de candidate à l'application, sans déclarer une CI verte ni réinitialiser les tâches.
 
 Le nouveau résultat confirme une progression intermédiaire (FOUNDER-02 réclamé, paquet prêt) et un changement de blocage (lookup CI), **mais toujours aucune clôture**.
+
+## Contrôle CI / branche candidate lié à FOUNDER-02 (23/10)
+
+- GitHub Actions [run 39924542106](https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/actions/runs/39924542106) : job `relay` id `120317610076` toujours `in_progress` à la consultation; job `contract` id `120317611261` `skipped`. Aucun artifact listé. La lecture des logs du job relay n'a pas été possible (erreur HTTP 404 BlobNotFound côté téléchargement), donc ne pas inventer la sortie des tests.
+- Comparaison GitHub `cb11f5afa1ea8810effdb64e998e77853bbe4347...candidate/mel-clean-autonomy`: `identical`, `ahead_by=0`, `behind_by=0`, `files=[]`. **Aucun commit candidat issu de FOUNDER-02 n'était visible sur cette branche à la consultation.**
+- Statuts combinés GitHub du SHA de base : `statuses=[]`. Recherche de runs via la commande GitHub connectée pour ce commit (filtrée aux événements pull request par le connecteur) : `workflow_runs=[]`. Ce résultat **n'est pas** une preuve globale d'absence de toute CI GitHub, seulement d'absence de ces catégories dans les contrôles effectués.
+- La mention `FULL_CANDIDATE_CI_LOOKUP_FAILED` signifie que le runtime n'a pas établi la preuve de la CI complète; elle ne démontre pas que des tests ont exécuté puis échoué.
+
+**Action Codex / Claude** : corréler `cloud_bridge_dispatches` avec le véritable job GitHub qui applique le correctif, prouver son SHA de sortie et la suite CI associée; vérifier pourquoi la branche candidate est strictement identique à la base malgré les passages `CLAIMED` / paquet `READY`. Ne pas forcer `DONE_VERIFIED` ni faire de faux SUCCESS.
