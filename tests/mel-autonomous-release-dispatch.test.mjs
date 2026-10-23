@@ -440,3 +440,21 @@ test('unknown or empty release statuses fail closed before a concurrent deployme
   }
   assert.doesNotThrow(() => assertNoActiveDeploy([{ name: 'deploy-cloudflare-release', status: 'completed', conclusion: 'failure' }]));
 });
+
+
+test('workflow-scoped run guard blocks renamed active releases and deduplicates renamed successful runs', async () => {
+  assert.throws(() => assertNoActiveDeploy([{ name: 'Renamed production release', status: 'in_progress' }]), /PRODUCTION_DEPLOY_ALREADY_ACTIVE/);
+  const calls=[];
+  const fakeFetch=async(url,req)=>{
+    const path=new URL(url).pathname;
+    calls.push(req.method+' '+path);
+    if(path.endsWith('/branches/main')||path.endsWith('/branches/'+RELEASE_BRANCH))
+      return {ok:true,status:200,json:async()=>({protected:true,commit:{sha:MAIN_SHA}})};
+    if(path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs'))
+      return {ok:true,status:200,json:async()=>({workflow_runs:[{name:'Renamed production release',head_sha:MAIN_SHA,status:'completed',conclusion:'success'}]})};
+    throw Error('UNEXPECTED_MUTATION:'+path);
+  };
+  const result=await requestAutonomousRelease({token:'TEST_ONLY',fetchImpl:fakeFetch,requireProtectedRefs:true});
+  assert.equal(result.reason,'ALREADY_CURRENT');
+  assert.ok(calls.every(x=>x.startsWith('GET ')));
+});
