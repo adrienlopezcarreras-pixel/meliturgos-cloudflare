@@ -1,3 +1,4 @@
+import { searchImages } from '../search/image-search.js';
 import InternetService from '../services/internet-service.js';
 
 export function registerWebResearchCapability(bus, env = {}) {
@@ -34,4 +35,15 @@ export function registerWebResearchCapability(bus, env = {}) {
       input.seed_urls || null,
     );
   });
+  bus.discover({
+    id:'web.images.search',name:'Recherche de photos sourcées',category:'research',version:'1.0.0',provider:'mel',
+    description:'Retrieve real public images with source URLs; no image generation or private-file access.',
+    input_schema:{type:'object',properties:{query:{type:'string',minLength:1,maxLength:2000},max_images:{type:'integer',minimum:1,maximum:6}},required:['query'],additionalProperties:false},
+    output_schema:{type:'object',additionalProperties:true},risk:'LOW',permissions:[],health:'HEALTHY',enabled:true,
+  },async input=>{
+    const service=new InternetService(env);
+    service.minInterval=Math.max(0,Math.min(5000,Number(env.MEL_WEB_MIN_INTERVAL_MS??1000)||0));
+    return searchImages(service,input);
+  });
+
 }

@@ -1,3 +1,4 @@
+import { collectChatMedia } from './chat-media.js';
 import {
  tryOptionalNativeCompanionFallback,shouldPreferOptionalCompanionCompute
 } from './native-companion-fallback.js';
@@ -41,7 +42,7 @@ import { privateConnectedDataRequest } from './connected-data-intent.js';
 import { createChatDeadline, hasChatBudget, raceChatDeadline, chatDeadlineError, COUNCIL_RECOVERY_MIN_REMAINING_MS, CONTINUATION_MIN_REMAINING_MS, FALLBACK_ATTEMPT_MIN_REMAINING_MS } from './chat-deadline.js';
 import { inferCurrentFactVerificationPolicy, hasAuthoritativeCurrentFactEvidence, currentFactReliabilityInstruction } from './current-fact-reliability.js';
 import { buildPresentationInstruction } from '../presentation/presentation-skill.js';
-import { executeLeakedReads, missingCapabilityShouldBeLearned, parseAgentAction, responseIsBareToolCall, runAgentToolLoop, stripLeakedToolCalls, toolFailureDetails, wantsAgentTools } from './agent-tools.js';
+import { executeLeakedReads, isToolProtocolExampleRequest, missingCapabilityShouldBeLearned, parseAgentAction, responseIsBareToolCall, runAgentToolLoop, stripLeakedToolCalls, toolFailureDetails, wantsAgentTools } from './agent-tools.js';
 
 // Beyond this length a chat message is treated as an instruction (see handleNativeChat).
 export const INSTRUCTION_PROMPT_CHARS = 280;
@@ -619,23 +620,19 @@ export function inferPublicImageLookup(text) {
   const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   // Images uploaded by the owner, image generation and UI debugging are not public searches.
   if (/\b(?:ci[- ]jointe|jointe|envoyee|televersee|uploadee|capture d'ecran|mes photos|mes images|ma photo|mon image|genere|cree|dessine|pourquoi|probleme|bug)\b/.test(normalized)) return null;
-  if (!/\b(?:montre(?:[- ]moi)?|affiche|trouve|cherche|recherche|donne[- ]moi)\b[\s\S]{0,100}\b(?:photo|image|portrait)\b/.test(normalized)) return null;
-  const policy = inferCurrentFactVerificationPolicy(value);
-  const input={query:value.slice(0,240),depth:2};
-  if(policy?.preferred_domains?.length)input.domains=policy.preferred_domains.slice(0,3);
-  if(policy?.official_seed_urls?.length)input.seed_urls=policy.official_seed_urls.slice(0,6);
-  return {id:'web.research',input};
+  if (!/\b(?:montre(?:[- ]moi)?|affiche|trouve|cherche|recherche|donne[- ]moi)\b[\s\S]{0,100}\b(?:photos?|images?|portraits?)\b/.test(normalized)) return null;
+  const number=normalized.match(/\b([1-6])\s+(?:photos?|images?|portraits?)\b/);
+  const word=normalized.match(/\b(deux|trois|quatre|cinq|six)\s+(?:photos?|images?|portraits?)\b/);
+  const count=number?Number(number[1]):word?({deux:2,trois:3,quatre:4,cinq:5,six:6}[word[1]]):1;
+  return {id:'web.images.search',input:{query:value.slice(0,240),max_images:count}};
 }
 
 function validatedPictureUrl(toolResults) {
-  const evidence = (toolResults || []).find(row => row?.capability === 'web.research' && row?.status === 'SUCCEEDED');
+  const evidence = (toolResults || []).find(row => ['web.research','web.images.search'].includes(row?.capability) && row?.status === 'SUCCEEDED');
   const sources = Array.isArray(evidence?.result?.sources) ? evidence.result.sources : [];
   return sources.map(source => String(source?.image_url || '')).find(url => /^https:\/\//.test(url) && !/\.svg(?:$|\?)/i.test(url)) || '';
 }
 
-function claimsDeliveredPicture(text) {
-  return /\b(?:g[ée]n[ée]r\w*|voici la photo|voici l['’]image|appara[iî]tra ici|outil de g[ée]n[ée]ration)\b/i.test(String(text || ''));
-}
 
 function hasVisibleImage(text, image) {
   let fence = null;
@@ -655,21 +652,15 @@ function hasVisibleImage(text, image) {
 
 function withOfficialVisual(responseText, userText, toolResults) {
   if (!inferPublicImageLookup(userText)) return responseText;
-  const image = validatedPictureUrl(toolResults);
-  let text = String(responseText || '').trim();
-  if (image) {
-    if (/\b(?:need to invoke|we need to|invoke the|invoquer l['’ ]?outil|web\.research tool)\b/i.test(text) || claimsDeliveredPicture(text)) {
-      const sources = (toolResults || []).find(row => row?.capability === 'web.research')?.result?.sources || [];
-      const title = String(sources.find(source => source?.title)?.title || '').replace(/\s+/g, ' ').trim().slice(0, 180);
-      text = title ? `Image trouvée. Source : ${title}.` : 'Image trouvée.';
-    }
-    if (!hasVisibleImage(text, image)) text = `${text}\n\n![Portrait](${image})`;
-    return text;
+  const evidence=(toolResults||[]).find(row=>row.capability==='web.images.search');
+  if(!evidence)return responseText;
+  if(evidence.status!=='SUCCEEDED')return 'La recherche d’images a échoué : '+String(evidence.error||'IMAGE_PROVIDER_FAILED')+'. Tu peux réessayer la recherche.';
+  const images=Array.isArray(evidence.result?.images)?evidence.result.images:[];
+  if(!images.length){
+    const source=evidence.result?.sources?.find(row=>/^https:\/\//.test(String(row.url||'')));
+    return 'Aucune photo affichable n’a été obtenue ('+String(evidence.result?.code||'IMAGE_SEARCH_EMPTY')+').'+(source?'\n\n[Consulter la source]('+source.url+')':' Tu peux préciser le sujet ou réessayer.');
   }
-  if (claimsDeliveredPicture(text)) {
-    return 'La photo n’a pas été obtenue. Aucune image affichable n’a été validée, et aucun fichier n’a été généré. Ce texte n’est pas une image.';
-  }
-  return text;
+  return (evidence.result?.sources?.[0]?.title ? String(evidence.result.sources[0].title).replace(/[\[\]<>`*_{}()#!~|]/g,'').slice(0,180)+'\n\n' : '')+images.map((image,index)=>'![Photo '+(index+1)+']('+image.url+')\n\n[Source '+(index+1)+']('+image.source_url+')').join('\n\n');
 }
 
 function responseAdmitsUncertainty(value) {
@@ -960,7 +951,7 @@ export function buildCompanionDisplay(toolResults = []) {
   const rows = Array.isArray(toolResults) ? toolResults : [];
   const sourceRow = rows.find(row =>
     row?.status === 'SUCCEEDED' &&
-    (row?.capability === 'web.research' || row?.capability === 'knowledge.research')
+    (['web.research','web.images.search','knowledge.research'].includes(row?.capability))
   );
   if (!sourceRow) return null;
 
@@ -1940,8 +1931,8 @@ export async function handleNativeChat(request, env, options = {}) {
     }
   }
 
-  if (!releaseSmoke && currentFactVerification?.strict && toolResults.some(row => row.capability === 'web.research')) {
-    const evidence = toolResults.find(row => row.capability === 'web.research') || null;
+  if (!releaseSmoke && currentFactVerification?.strict && toolResults.some(row => ['web.research','web.images.search'].includes(row.capability))) {
+    const evidence = toolResults.find(row => ['web.research','web.images.search'].includes(row.capability)) || null;
     const authoritative = evidence?.status === 'SUCCEEDED'
       && hasAuthoritativeCurrentFactEvidence(evidence?.result, currentFactVerification);
     if (!authoritative) {
@@ -2598,13 +2589,14 @@ export async function handleNativeChat(request, env, options = {}) {
     }));
   }
 
+  const toolExampleRequest=isToolProtocolExampleRequest(activeTaskText);
   const rawModelText = stripInternalCounters(ai.text);
-  if (runtime?.bus) {
+  if (runtime?.bus && !toolExampleRequest) {
     const leaked = await executeLeakedReads({ bus: runtime.bus, text: rawModelText, already: toolResults, context: nativeCapabilityContext(env, request, options) });
     for (const row of leaked) toolResults.push(row);
   }
-  const visibleModelText = stripLeakedToolCalls(rawModelText);
-  const modelResponseText = !visibleModelText || responseIsBareToolCall(rawModelText)
+  const visibleModelText = toolExampleRequest ? rawModelText : stripLeakedToolCalls(rawModelText);
+  const modelResponseText = !visibleModelText || (!toolExampleRequest && responseIsBareToolCall(rawModelText))
     ? (connectorReadsFactualAnswer(toolResults) || 'Je n’ai pas obtenu de résultat exploitable pour répondre à cette demande. Aucun appel d’outil non exécuté ne sera présenté comme un résultat.')
     : visibleModelText;
   // Leaked read-only tool calls are executed after the earlier runtime snapshot.
@@ -2745,10 +2737,11 @@ export async function handleNativeChat(request, env, options = {}) {
     const delivered = hasVisibleImage(responseText, validatedPictureUrl(toolResults));
     toolResults.push({
       capability: 'image.render',
-      status: delivered ? 'SUCCEEDED' : 'FAILED',
-      ...(delivered ? { result: { delivered: true } } : { error: 'IMAGE_NOT_DELIVERED' }),
+      status: delivered ? 'READY_FOR_RENDER' : 'FAILED',
+      ...(delivered ? { result: { prepared: true, delivered: false, confirmation: 'BROWSER_REQUIRED' } } : { error: 'IMAGE_NOT_DELIVERED' }),
     });
   }
+  const responseMedia=collectChatMedia(toolResults,new URL(request.url).origin);
   const responseGuarded = responseText !== qualityCandidateText;
   const automaticCouncilXp = automaticCouncilAccepted
     ? await persistCouncilRecoveryXp(env, {
@@ -2806,7 +2799,7 @@ export async function handleNativeChat(request, env, options = {}) {
   if (service) {
     try {
       await service.archiveMessage({ conversationId, deviceId, role: 'user', content: text, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now(), provenance: userProvenance, metadata: userMetadata });
-      await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: responseText, model: ai.model, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now() + 1, provenance: automaticCouncilAccepted ? 'native-chat:council-recovery' : (ai.augmentio_used ? 'native-chat:augmentio' : 'native-chat'), metadata: automaticCouncilAccepted ? { council_recovery:true, xp_gain:Number(automaticCouncilXp.xp_gain || 0) } : {} });
+      await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: responseText, model: ai.model, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now() + 1, provenance: automaticCouncilAccepted ? 'native-chat:council-recovery' : (ai.augmentio_used ? 'native-chat:augmentio' : 'native-chat'), metadata: { ...responseMedia, ...(automaticCouncilAccepted ? { council_recovery:true, xp_gain:Number(automaticCouncilXp.xp_gain || 0) } : {}) } });
       archiveSaved = true;
     } catch { archiveSaved = false; }
   }
@@ -2843,6 +2836,7 @@ export async function handleNativeChat(request, env, options = {}) {
         : selfStateObserved
           ? { mode: 'deterministic-self-state', source: 'self.state', observed_at: selfStateObserved.observed_at || null }
           : null,
+    ...responseMedia,
     response_mode: inferResponseMode(activeTaskText),
     response_quality: {
       ok: effectiveQualityAssessment.ok === true,

@@ -12,6 +12,7 @@ const encoder = new TextEncoder();
 
 const LABELS = Object.freeze({
   'web.research': 'Recherche sur le web',
+  'web.images.search': 'Recherche de photos sourcées',
   'knowledge.research': 'Recherche documentaire',
   'code.read': 'Lecture de mon code',
   'code.search': 'Recherche dans mon code',
@@ -44,6 +45,8 @@ export function capabilityLabel(id) {
 export function resultDetail(result) {
   if (!result || typeof result !== 'object') return '';
   const n = key => (Array.isArray(result[key]) ? result[key].length : null);
+  const images=n('images');
+  if(images!=null)return images+' photo(s) récupérée(s)';
   const sources = n('sources') ?? n('citations');
   if (sources != null) return sources + ' source(s)';
   const items = n('results') ?? n('items') ?? n('matches') ?? n('devices') ?? n('files');

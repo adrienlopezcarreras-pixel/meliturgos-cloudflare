@@ -36,7 +36,7 @@ test('canonical Full chat ships and uses the shared safe rich renderer', async (
   assert.match(html, /\.mel-rich-table-wrap/);
   assert.match(match[1], /window\.melRenderRichText=renderRichText/);
   assert.match(match[1], /role==='mel'&&typeof melRenderRichText==='function'/);
-  assert.match(match[1], /melRenderRichText\(d,String\(text\?\?''\)\)/);
+  assert.match(match[1], /melRenderRichText\(d,String\(text\?\?''\),metadata\)/);
   assert.match(match[1], /target\.dataset\.richRendered='true'/);
 });
 

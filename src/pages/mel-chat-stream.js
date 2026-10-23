@@ -97,9 +97,9 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 105000, sig
   try {
     for (;;) {
       const { value, done } = await reader.read();
-      if (done) break;
-      bump();
-      buffer += decoder.decode(value, { stream: true });
+      if (!done) bump();
+      buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+      if (done && buffer.trim()) buffer += '\n';
       const parsed = melParseNdjsonLines(buffer);
       buffer = parsed.rest;
       for (const event of parsed.events) {
@@ -135,6 +135,7 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 105000, sig
         } else if (event.type === 'done') meta = event;
         else if (event.type === 'error'){ failure = event; try{if(typeof onProgress==='function')onProgress({id:'server-error',label:'Erreur du serveur : '+String(event.code||'UNKNOWN').slice(0,70),status:'failed',source:'server'})}catch{} }
       }
+      if (done) break;
     }
   } catch (error) {
     failure = { code: error?.name === 'AbortError' ? (signal?.aborted ? 'Interrompu par le propriétaire' : 'Réponse interrompue (aucun texte reçu)') : String(error?.message || error) };
@@ -144,7 +145,7 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 105000, sig
     if (bubble) bubble.classList.remove('streaming');
   }
   if (liveBox) liveBox.remove();
-  if (text && typeof melRenderRichText === 'function') { textBox.textContent = ''; melRenderRichText(textBox, text); }
+  if (text && typeof melRenderRichText === 'function') { textBox.textContent = ''; melRenderRichText(textBox, text, meta.result || {}); }
   if (failure && !text) {
     if (bubble) bubble.remove();
     throw Error(String(failure.code || 'STREAM_FAILED'));
