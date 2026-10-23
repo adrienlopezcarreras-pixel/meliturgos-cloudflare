@@ -50,6 +50,14 @@ export function parseAgentAction(text) {
       if (raw != null && (typeof raw !== 'object' || Array.isArray(raw))) return { final: true };
       return { tool, input: raw ?? {} };
     }
+    // Shorthand {"autonomy.status": {}}: a single dotted capability id as the
+    // key and its input as the value. It used to stay on screen as raw JSON.
+    const keys = Object.keys(j);
+    if (keys.length === 1 && /^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+$/.test(keys[0])) {
+      const raw = j[keys[0]];
+      if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return { final: true };
+      return { tool: keys[0], input: raw };
+    }
   } catch {}
   return { final: true };
 }
