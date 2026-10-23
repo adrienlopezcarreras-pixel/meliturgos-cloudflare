@@ -259,6 +259,22 @@ async function runCoreResilient(env, coreOptions, repository) {
     // candidate-only deployment boundary.
     if (mustFailClosed(error)) throw error;
 
+    // A CAS conflict means another writer (Bridge result, Council, passive
+    // recovery) updated the job first: the fence worked and the next tick
+    // re-reads. Counting it as a job failure quarantined healthy jobs
+    // (AUTONOMY_RUNTIME_RETRY_EXHAUSTED:JOB_UPDATE_CONFLICT on MANIFEST-02,
+    // FOUNDER-03, FOUNDER-08). It never increments runtime_retry.
+    if (String(error?.code || '') === 'JOB_UPDATE_CONFLICT') {
+      return {
+        ok: false,
+        status: 'CORE_RETRY_PENDING',
+        runtime_error: 'JOB_UPDATE_CONFLICT',
+        retry: { job_id: null, attempts: 0, quarantined: false, code: 'JOB_UPDATE_CONFLICT' },
+        job: null,
+        next: null,
+      };
+    }
+
     const failure = await recordCoreRuntimeFailure(repository, error, { epochMs: coreOptions.epochMs, roadmap: coreOptions.roadmap, evolutionLoader: coreOptions.roadmap ? null : createRuntimeEvolutionLoader(env) }).catch(() => ({
       job_id: null,
       attempts: 0,

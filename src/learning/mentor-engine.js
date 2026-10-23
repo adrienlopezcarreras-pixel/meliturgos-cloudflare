@@ -27,6 +27,17 @@ function bounded(value, max) {
   return text.length > max ? text.slice(0, max) : text;
 }
 
+// Short, non-secret evidence of why a proposal was rejected: the refused path,
+// or the start of the unusable answer. Codes alone could not explain
+// MENTOR_PATH_DENIED / MENTOR_JSON_REQUIRED on production jobs.
+function mentorFailureDetail(error, raw) {
+  const message = String(error?.message || '');
+  const path = /^MENTOR_(?:PATH_DENIED|INVALID_CHANGE|UNINSPECTED_EDIT|LONG_FILE_REQUIRES_EDIT):(.+)$/.exec(message)?.[1];
+  if (path) return 'path=' + path.slice(0, 160);
+  const text = String(typeof raw === 'string' ? raw : JSON.stringify(raw ?? '')).replace(/\s+/g, ' ').trim();
+  return text ? 'reply=' + text.slice(0, 160) : null;
+}
+
 function mentorFailureCode(error, fallback = 'MENTOR_PROVIDER_FAILED') {
   const rawCode = String(error?.code || '').trim().toUpperCase();
   if (/^[A-Z0-9_]{1,80}$/.test(rawCode)) return rawCode;
@@ -68,7 +79,9 @@ function safeInspectionPath(path) {
 
 function safePath(path) {
   const value = normalizedRepositoryPath(path);
-  if (!ALLOWED_TEXT_PATH.test(value)) {
+  // The Bridge pushes with a GitHub App token that may not touch workflows,
+  // so a workflow edit passes every test and is then rejected at push.
+  if (!ALLOWED_TEXT_PATH.test(value) || value.startsWith('.github/workflows/')) {
     const error = new Error(`MENTOR_PATH_DENIED:${value}`);
     error.code = 'MENTOR_PATH_DENIED';
     throw error;
@@ -263,6 +276,10 @@ function normalizeProposal(value, provenance = {}, inspectedFiles = [], previous
   }
   if (!changes.length) throw Object.assign(new Error('MENTOR_CHANGES_REQUIRED'), { code: 'MENTOR_CHANGES_REQUIRED' });
   }
+  // A proposal identical to the inspected source is an empty diff: the Bridge
+  // would cancel it as already satisfied, so reject it while retries remain.
+  changes = changes.filter(change => inspectedFiles.find(file => file.path === change.path)?.content !== change.content);
+  if (!changes.length) throw Object.assign(new Error('MENTOR_NO_OP_CHANGE'), { code: 'MENTOR_NO_OP_CHANGE' });
   const tests = [...new Set((Array.isArray(parsed.tests) ? parsed.tests : []).map(String).filter(name => ALLOWED_TESTS.has(name)))].slice(0, 4);
   if (!tests.length) tests.push('test:smoke');
   for (const change of changes) {
@@ -405,12 +422,17 @@ async function boundedMentorInvoke(provider, request, limitMs) {
 }
 
 export class MentorEngine {
-  constructor({ memory, providerFactory, invokeTimeoutMs = 25_000, repairTimeoutMs = 12_000 } = {}) {
+  // Workers AI models need 50-100 s for a chat answer in production: a 25 s
+  // cut stopped most code proposals (MENTOR_PROVIDER_TIMEOUT on every job).
+  // A whole proposal still fits the 90 s runtime lease through proposeBudgetMs.
+  constructor({ memory, providerFactory, invokeTimeoutMs = 50_000, repairTimeoutMs = 20_000, proposeBudgetMs = 75_000, now = () => Date.now() } = {}) {
     this.memory = memory || new MentorMemoryRepository(null);
     this.providerFactory = providerFactory;
     // ChatGPT-GPT6 / MEL-MENTOR-TIMEOUT: deadlines below the 180-second MAX request.
-    this.invokeTimeoutMs = Math.max(10, Math.min(30_000, Number(invokeTimeoutMs) || 25_000));
-    this.repairTimeoutMs = Math.max(10, Math.min(30_000, Number(repairTimeoutMs) || 12_000));
+    this.invokeTimeoutMs = Math.max(10, Math.min(60_000, Number(invokeTimeoutMs) || 50_000));
+    this.repairTimeoutMs = Math.max(10, Math.min(30_000, Number(repairTimeoutMs) || 20_000));
+    this.proposeBudgetMs = Math.max(20, Math.min(80_000, Number(proposeBudgetMs) || 75_000));
+    this.now = typeof now === 'function' ? now : () => Date.now();
   }
 
   async _providers(env, { codeCouncil = false } = {}) {
@@ -451,7 +473,9 @@ export class MentorEngine {
   }
 
   async propose({ env, jobId, goal, inspectedFiles = [], previousAttempts = [], mode = 'implement', repairReferences = [] } = {}) {
-    const objective = bounded(goal, 12_000).trim();
+    // The supervisor appends the whole manifest status list; models mistake it
+    // for the task and "fix" roadmap ID lists, so only the item itself is sent.
+    const objective = bounded(goal, 12_000).replace(/\s*\|\s*OBJECTIF\s[\s\S]*$/, '').trim();
     if (!objective) throw Object.assign(new Error('MENTOR_GOAL_REQUIRED'), { code: 'MENTOR_GOAL_REQUIRED', status: 400 });
     const files = normalizeInspectedFiles(inspectedFiles);
     if (!files.length) throw Object.assign(new Error('MENTOR_INSPECTION_REQUIRED'), { code: 'MENTOR_INSPECTION_REQUIRED', status: 422 });
@@ -489,8 +513,15 @@ export class MentorEngine {
         providerWaves.push(tier.slice(offset, offset + 3));
       }
     }
+    const startedAt = this.now();
+    const remaining = () => this.proposeBudgetMs - (this.now() - startedAt);
     for (const wave of providerWaves) {
       if (!codeCouncil && proposals.length) break;
+      // A new wave never starts once it could not finish inside the budget.
+      if (attemptedProviders.length && remaining() < Math.min(this.invokeTimeoutMs, 20_000)) {
+        failures.push({ provider: 'mentor', error: 'MENTOR_TIME_BUDGET_EXHAUSTED', stage: 'initial' });
+        break;
+      }
       const waveOffset = attemptedProviders.length;
       attemptedProviders.push(...wave.map(provider => provider.id));
       const settled = await Promise.allSettled(wave.map((provider, index) => {
@@ -511,7 +542,7 @@ export class MentorEngine {
             inference_settings: learned.inference,
             ...(lora ? { lora } : {}),
           },
-        }, this.invokeTimeoutMs).then(output => ({ output, visibleScope }));
+        }, Math.max(10, Math.min(this.invokeTimeoutMs, remaining()))).then(output => ({ output, visibleScope }));
       }));
 
       const repairInputs = [];
@@ -531,7 +562,7 @@ export class MentorEngine {
           proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: false });
         } catch (error) {
           const failure = mentorFailureCode(error, 'MENTOR_PROPOSAL_INVALID');
-          failures.push({ provider: provider.id, error: failure, stage: 'initial' });
+          failures.push({ provider: provider.id, error: failure, stage: 'initial', detail: mentorFailureDetail(error, raw) });
           repairInputs.push({ provider, raw: bounded(raw, 20_000), failure });
         }
       });
@@ -556,7 +587,7 @@ export class MentorEngine {
               inference_settings: learned.inference,
               ...(lora ? { lora } : {}),
             },
-          }, this.repairTimeoutMs).then(output => ({ output, visibleScope }));
+          }, Math.max(10, Math.min(this.repairTimeoutMs, remaining()))).then(output => ({ output, visibleScope }));
         }));
         repaired.forEach((result, index) => {
           const { provider } = repairInputs[index];
@@ -584,6 +615,7 @@ export class MentorEngine {
               provider: provider.id,
               error: mentorFailureCode(error, 'MENTOR_REPAIRED_PROPOSAL_INVALID'),
               stage: 'repair',
+              detail: mentorFailureDetail(error, result.value.output?.text ?? result.value.output),
             });
           }
         });

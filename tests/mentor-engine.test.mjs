@@ -717,3 +717,70 @@ test('ordinary Mentor stops after a valid initial wave without deep CODE council
   assert.equal(result.code_council.triggered,false);
   assert.equal(calls.length,3);
 });
+
+test('mentor gives each model 50 s but keeps the whole proposal inside its time budget', async () => {
+  let clock = 0;
+  const timeouts = [];
+  const slow = id => ({ id, providerId: 'test', modelId: id, async invoke() { clock += 60_000; throw Object.assign(new Error('timeout'), { code: 'MENTOR_PROVIDER_TIMEOUT' }); } });
+  const engine = new MentorEngine({
+    now: () => clock,
+    providerFactory: async () => [slow('a'), slow('b'), slow('c'), slow('d'), slow('e'), slow('f')],
+  });
+  assert.equal(engine.invokeTimeoutMs, 50_000, 'Workers AI code answers need more than 25 s');
+  assert.equal(engine.proposeBudgetMs, 75_000, 'a proposal stays inside the 90 s runtime lease');
+  await assert.rejects(engine.propose({ env: {}, goal: 'Changer la valeur lue', inspectedFiles: [{ path: 'src/example.js', content: 'export const a = 1;\n' }] }), (error) => {
+    const codes = (error.failures || []).map(row => row.error);
+    assert.ok(codes.includes('MENTOR_TIME_BUDGET_EXHAUSTED'), JSON.stringify(codes));
+    assert.equal((error.failures || []).filter(row => row.provider === 'd').length, 0, 'the second wave never starts past the budget');
+    return true;
+  });
+});
+
+test('a rejected proposal keeps a short reason: the refused path or the start of the reply', async () => {
+  const engine = new MentorEngine({ providerFactory: async () => [
+    provider('prose', 'Je pense qu’il faudrait modifier le superviseur pour gérer le bail.'),
+    provider('denied', { changes: [{ path: '.env', content: 'X=1' }] }),
+  ] });
+  await assert.rejects(engine.propose({ env: {}, goal: 'Changer la valeur lue', inspectedFiles: [{ path: 'src/example.js', content: 'export const a = 1;\n' }] }), (error) => {
+    const byProvider = Object.fromEntries((error.failures || []).filter(row => row.stage === 'initial').map(row => [row.provider, row.detail]));
+    assert.match(byProvider.prose, /^reply=Je pense qu’il faudrait/);
+    assert.match(byProvider.denied, /^path=\.env/);
+    return true;
+  });
+});
+
+test('mentor rejects an edit that leaves the inspected file unchanged and hides the manifest status list', async () => {
+  const source = "const ORDER = [\n  'MEL-MANIFEST-05',\n];\n";
+  const calls = [];
+  const engine = new MentorEngine({
+    providerFactory: async () => [sequenceProvider('noop', [{
+      summary: 'Correction de la duplication de MEL-MANIFEST-05.',
+      edits: [{ path: 'src/order.js', find: "  'MEL-MANIFEST-05',\n", replace: "  'MEL-MANIFEST-05',\n" }],
+    }], calls)],
+  });
+  await assert.rejects(() => engine.propose({
+    env: {},
+    goal: '[MEL-FOUNDER-05] Livrer un travail | OBJECTIF MEL-FOUNDER-01:IN_PROGRESS MEL-MANIFEST-05:PLANNED',
+    inspectedFiles: [{ path: 'src/order.js', content: source }],
+  }), error => {
+    assert.equal(error.code, 'MENTOR_NO_VALID_CODE_PROPOSAL');
+    assert.ok(error.failures.some(failure => failure.error === 'MENTOR_NO_OP_CHANGE'));
+    return true;
+  });
+  assert.ok(calls.length > 0);
+  for (const call of calls) {
+    const prompt = JSON.stringify(call.input);
+    assert.ok(prompt.includes('[MEL-FOUNDER-05] Livrer un travail'));
+    assert.ok(!prompt.includes('MEL-FOUNDER-01:IN_PROGRESS'));
+  }
+});
+
+test('mentor refuses workflow edits the Bridge token cannot push', async () => {
+  const engine = new MentorEngine({ providerFactory: async () => [provider('workflow', {
+    edits: [{ path: '.github/workflows/restore.yml', find: 'name: old', replace: 'name: new' }],
+  })] });
+  await assert.rejects(() => engine.propose({ env: {}, goal: 'Prouver une restauration', inspectedFiles: [{ path: '.github/workflows/restore.yml', content: 'name: old\n' }] }), error => {
+    assert.equal(error.code, 'MENTOR_NO_VALID_CODE_PROPOSAL');
+    return true;
+  });
+});
