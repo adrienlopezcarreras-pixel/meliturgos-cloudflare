@@ -1,4 +1,5 @@
 import { collectChatMedia } from './chat-media.js';
+import { inferChatMediaCapability } from './chat-media-intent.js';
 import {
  tryOptionalNativeCompanionFallback,shouldPreferOptionalCompanionCompute
 } from './native-companion-fallback.js';
@@ -1660,6 +1661,7 @@ export async function handleNativeChat(request, env, options = {}) {
       })()
     : (melWorkReadiness ? { id: 'self.state', input: {} } : null)
       || inferExplicitRegisteredCapability(activeTaskText, runtime)
+      || inferChatMediaCapability(activeTaskText)
       || inferredExecutionCapability
       || inferredSelfActivityCapability
       || inferNativeComputerCapability(activeTaskText)
@@ -2274,6 +2276,7 @@ export async function handleNativeChat(request, env, options = {}) {
     'TUTOIEMENT ABSOLU AVEC ADRIEN : adresse-toi toujours à lui avec « tu », « ton », « ta », « tes ». N’utilise jamais « vous », « votre » ou « vos » pour lui parler. Avant d’envoyer ta réponse, relis-la et reformule toute adresse formelle résiduelle en tutoiement naturel.',
     'Tu dois être factuelle sur tes capacités réelles.',
     'QUALITÉ DE RÉPONSE : commence par la réponse utile, puis donne les preuves nécessaires. Réponds en français naturel, avec paragraphes, titres et listes si nécessaires. Ne montre jamais JSON, code source, balises HTML ou instructions internes, sauf demande explicite de programmation. Évite les préambules abstraits, les répétitions de la question et les formulations vagues quand une donnée runtime précise existe. Distingue explicitement ce qui est VÉRIFIÉ MAINTENANT, ce qui est seulement CONNU PAR MÉMOIRE et ce qui N’EST PAS OBSERVABLE depuis les sources disponibles. Un résultat absent, une photo téléchargée sans analyse, un lien non consulté ou un souvenir non corroboré ne sont pas des preuves; signale clairement la limite plutôt que de deviner.',
+    'MÉDIAS ET COMPRÉHENSION : distingue trouver un média existant, en créer un, l’analyser et le lire. Réponds au fond de toutes les questions explicites en utilisant les sources réellement consultées. Les lecteurs sont rendus depuis les résultats structurés; ne remplace pas les médias par du JSON et n’invente jamais leur URL. La présence d’un lecteur ne prouve pas que tu as écouté ou regardé son contenu. Si le moteur est procédural, explique-le sans le présenter comme une création photoréaliste ou un modèle génératif avancé. Aucun appel payant ni repli vers une offre payante : utilise uniquement les fournisseurs gratuits déjà autorisés; une dépendance ou preuve de gratuité manquante reste un blocage explicite.',
     'STATUTS OPÉRATIONNELS : ne confonds jamais enregistré, lancé, en cours, testé, terminé, déployé en preview et déployé en production. Utilise le statut réellement prouvé par les outils et les données de cette requête.',
     'ACTIONS : lorsqu’un outil vient d’être exécuté, décris son résultat au passé ou au présent factuel. Ne dis pas « je vais vérifier » après avoir déjà vérifié, et ne dis pas « c’est fait » si la preuve ne montre qu’une mise en file ou un travail en cours.',
     negativeFeedbackRecovery
@@ -2734,7 +2737,12 @@ export async function handleNativeChat(request, env, options = {}) {
         focus:conversationFocus,
         assessment:effectiveQualityAssessment,
       });
-  const responseText = withOfficialVisual(qualityGuardedResponseText, activeTaskText, toolResults);
+  const mediaRequest=inferChatMediaCapability(activeTaskText);
+  const mediaEvidence=mediaRequest ? toolResults.find(row=>row.capability===mediaRequest.id) : null;
+  let responseText = withOfficialVisual(qualityGuardedResponseText, activeTaskText, toolResults);
+  if(mediaEvidence?.status==='FAILED')responseText='Le média demandé n’a pas été obtenu : '+String(mediaEvidence.error||'MEDIA_FAILED')+'. Aucun résultat terminé n’est disponible.';
+  else if(mediaEvidence?.result?.code==='MEDIA_SEARCH_EMPTY')responseText='Aucun son ou vidéo correspondant n’a été trouvé dans la bibliothèque libre. Précise le sujet ou essaie une autre recherche.';
+  else if(mediaEvidence?.result?.provider==='mel-dsp')responseText='Création audio synthétique procédurale (sans fournisseur IA payant).\n\n'+responseText;
   if (inferPublicImageLookup(activeTaskText) && !releaseSmoke) {
     const delivered = hasVisibleImage(responseText, validatedPictureUrl(toolResults));
     toolResults.push({

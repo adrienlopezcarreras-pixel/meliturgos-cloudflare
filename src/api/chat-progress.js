@@ -13,6 +13,11 @@ const encoder = new TextEncoder();
 const LABELS = Object.freeze({
   'web.research': 'Recherche sur le web',
   'web.images.search': 'Recherche de photos sourcées',
+  'web.media.search': 'Recherche de sons et vidéos libres',
+  'media.audio.generate': 'Création de son',
+  'media.music.generate': 'Composition musicale',
+  'media.audio.synthesize': 'Synthèse vocale',
+  'media.video.generate': 'Création de vidéo',
   'knowledge.research': 'Recherche documentaire',
   'code.read': 'Lecture de mon code',
   'code.search': 'Recherche dans mon code',

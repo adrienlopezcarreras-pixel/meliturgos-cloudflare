@@ -23,7 +23,7 @@ export function normalizeImageResults(rows, limit=3) {
 
 // Uses the existing safe/rate-limited InternetService. Public image retrieval
 // is separate from generation, and never guesses a mutable officeholder.
-export async function searchImages(service,{query,max_images=3,seed_urls=null,domains=null}={}) {
+export async function searchImages(service,{query,max_images=3}={}) {
   const limit=Math.min(6,Math.max(1,Number(max_images)||3));
   const policy=inferCurrentFactVerificationPolicy(query);
   if(policy?.strict) {
@@ -32,20 +32,29 @@ export async function searchImages(service,{query,max_images=3,seed_urls=null,do
     return {...result,images,media:images,references:result.sources.map(source=>({url:source.url,title:source.title})),
       code:images.length?null:'IMAGE_SEARCH_EMPTY',provider:'official-source'};
   }
-  const subject=String(query||'').replace(/\b(?:montre[- ]?moi|montre|moi|affiche|cherche|recherche|trouve|donne|une?|des|les|de|du|trois|deux|quatre|photos?|images?|portraits?)\b/gi,' ').replace(/\s+/g,' ').trim();
-  if(!subject)throw Object.assign(new Error('IMAGE_QUERY_REQUIRED'),{code:'IMAGE_QUERY_REQUIRED'});
+  return searchPublicMedia(service,{query,type:'image',max_results:limit});
+}
+
+// All three public-media searches share URL validation, provenance, rate
+// limiting and the same free Commons API; no paid provider fallback.
+export async function searchPublicMedia(service,{query,type,max_results=3}={}) {
+  if(!['image','audio','video'].includes(type))throw Object.assign(new Error('MEDIA_TYPE_INVALID'),{code:'MEDIA_TYPE_INVALID'});
+  const limit=Math.min(6,Math.max(1,Number(max_results)||3));
+  const prefix=type==='image'?'IMAGE':'MEDIA';
+  const subject=String(query||'').replace(/\b(?:montre[- ]?moi|montre|moi|affiche|cherche|recherche|trouve|donne|fais|ecouter|une?|des|les|de|du|trois|deux|quatre|photos?|images?|portraits?|videos?|audios?|sons?)\b/gi,' ').replace(/\s+/g,' ').trim();
+  if(!subject)throw Object.assign(new Error(prefix+'_QUERY_REQUIRED'),{code:prefix+'_QUERY_REQUIRED'});
   const endpoint=new URL('https://commons.wikimedia.org/w/api.php');
-  endpoint.search=new URLSearchParams({action:'query',format:'json',generator:'search',gsrnamespace:'6',gsrsearch:subject+' filetype:bitmap',gsrlimit:String(limit),prop:'imageinfo',iiprop:'url|mime|extmetadata',iiurlwidth:'960'}).toString();
+  endpoint.search=new URLSearchParams({action:'query',format:'json',generator:'search',gsrnamespace:'6',gsrsearch:subject+' filetype:'+({image:'bitmap',audio:'audio',video:'video'}[type]),gsrlimit:String(limit),prop:'imageinfo',iiprop:'url|mime|extmetadata',...(type==='image'?{iiurlwidth:'960'}:{})}).toString();
   let page,data;
   try {page=await service.fetchPage(endpoint.href);data=JSON.parse(page.content);}
-  catch(error){const code=/timeout|timed out|abort/i.test(String(error?.message))?'IMAGE_PROVIDER_TIMEOUT':'IMAGE_PROVIDER_FAILED';throw Object.assign(new Error(code),{code});}
-  if(data?.error||!data||typeof data!=='object')throw Object.assign(new Error('IMAGE_PROVIDER_RESPONSE_INVALID'),{code:'IMAGE_PROVIDER_RESPONSE_INVALID'});
+  catch(error){const code=prefix+(/timeout|timed out|abort/i.test(String(error?.message))?'_PROVIDER_TIMEOUT':'_PROVIDER_FAILED');throw Object.assign(new Error(code),{code});}
+  if(data?.error||!data||typeof data!=='object')throw Object.assign(new Error(prefix+'_PROVIDER_RESPONSE_INVALID'),{code:prefix+'_PROVIDER_RESPONSE_INVALID'});
   const rows=Object.values(data?.query?.pages||{}).sort((a,b)=>(a.index||0)-(b.index||0)).map(item=>{
     const info=item.imageinfo?.[0]||{};
-    return {url:info.thumburl||info.url,source_url:info.descriptionurl,title:item.title,mime:info.mime,
+    return {url:type==='image'?(info.thumburl||info.url):info.url,source_url:info.descriptionurl,title:item.title,mime:info.mime,
       attribution:info.extmetadata?.Artist?.value};
   });
-  const images=normalizeImageResults(rows,limit);
-  const sources=images.map(image=>({url:image.source_url,title:image.title,image_url:image.url,source_kind:'IMAGE_PROVIDER',provenance:{source_id:page.source_id,fetched_at:page.timestamp}}));
-  return {query,images,media:images,sources,references:sources.map(({url,title})=>({url,title})),provider:'wikimedia-commons',code:images.length?null:'IMAGE_SEARCH_EMPTY'};
+  const media=type==='image'?normalizeImageResults(rows,limit):rows.filter(row=>publicHttps(row.url)&&publicHttps(row.source_url)&&new RegExp('^'+type+'/(?:ogg|webm|mpeg|mp4|wav|x-wav|flac)$').test(row.mime)).map(row=>({...row,type,url:publicHttps(row.url),source_url:publicHttps(row.source_url),title:String(row.title||type).replace(/<[^>]*>/g,'').slice(0,180),attribution:String(row.attribution||'').replace(/<[^>]*>/g,'').slice(0,300),render_status:'PENDING_BROWSER'})).filter((row,index,all)=>all.findIndex(item=>item.url===row.url)===index).slice(0,limit);
+  const sources=media.map(item=>({url:item.source_url,title:item.title,...(type==='image'?{image_url:item.url}:{}),source_kind:'MEDIA_PROVIDER',provenance:{source_id:page.source_id,fetched_at:page.timestamp}}));
+  return {query,...(type==='image'?{images:media}:{}),media,sources,references:sources.map(({url,title})=>({url,title})),provider:'wikimedia-commons',zero_added_cost:true,code:media.length?null:prefix+'_SEARCH_EMPTY'};
 }

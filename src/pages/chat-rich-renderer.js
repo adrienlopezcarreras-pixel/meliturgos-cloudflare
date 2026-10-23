@@ -254,7 +254,10 @@ export const CHAT_RICH_RENDERER_SOURCE = String.raw`
       if(/^(?:localhost|127\.|0\.|10\.|192\.168\.|169\.254\.|172\.(?:1[6-9]|2[0-9]|3[01])\.|\[::1\])/i.test(url.hostname)&&url.origin!==location.origin)continue;
       if(/\.svg(?:$|[?#])/i.test(href)||item.mime==='image/svg+xml')continue;
       const existing=[...root.querySelectorAll(kind==='document'?'a[href]':'[src]')].some(node=>(node.src||node.href)===href);
-      if(!existing)appendMedia(root,href,item.title||kind,kind);
+      if(!existing){
+        appendMedia(root,href,item.title||kind,kind);
+        if(item.attribution){const credit=document.createElement('p');credit.textContent=String(item.attribution).slice(0,300);root.appendChild(credit)}
+      }
     }
     for(const reference of Array.isArray(metadata?.references)?metadata.references.slice(0,20):[]){
       const href=safeUrl(reference?.url);if(!href||[...root.querySelectorAll('a[href]')].some(link=>link.href===href))continue;
