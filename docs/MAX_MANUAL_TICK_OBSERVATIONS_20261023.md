@@ -1,0 +1,266 @@
+# CODEX — INTERVENTION COURTE À CRÉDITS LIMITÉS (LIRE CECI EN PREMIER)
+
+**But : réparer, pas réauditer. Budget limité : ne relis pas toute l'histoire ni n'ouvre plusieurs chantiers parallèles.** Les preuves et les hypothèses sont ci-dessous. Réconcilie `main` une fois ; commence par le défaut le plus susceptible de débloquer un vrai commit candidat.
+
+## Intervention 1 — diagnostics Bridge, puis réparation exacte
+
+- **Ne réécris pas** `src/evolution/autonomy-activity.js` : correctif déjà créé dans **PR #2453**, branche `fix/max-activity-bridge-diagnostics-20261023`, commit `d2412ec337c3a5342f10264f262412468ffe6058`. GEN2-17 ciblée passée ; Professor UI audit passée ; full-suite GEN2-17 `skipped`. Vérifie état actuel des PR/CI/reviews et fusionne si toutes les portes requises sont franchies ; déploie avec le circuit officiel seulement après gates.
+- Dans le premier export D1 disponible après intégration, lire `jobs[].bridge_diagnostics.github_run_id`, `mode`, `status`, `tests[].error_code`, `repair_source`, `repair_attempts`. **Attention :** les IDs `workflow_dispatches[].run_id` (ex. `39924542106`) sont ceux du **relais parent**, pas des enfants.
+- Si `github_run_id` renseigné : inspecte immédiatement le **job GitHub enfant** `gen2-42-apply-ready-bridge.yml` et sa première étape échouée. Si absent : remonte la chaîne `scripts/github-action-relay-runner.mjs` → workflow enfant → `POST /api/dev-bridge/claim` → `POST /api/dev-bridge/result` et vérifie le `report_emergency` ; les dispatchs HTTP 204 du relais sont déjà prouvés.
+- Corrige **cette première erreur vérifiée** dans le fichier source concerné. Ajoute un test reproduisant l'échec, vérifie tests ciblés, PR puis circuit de release. Ne lance pas des cycles supplémentaires d'analyse sans patch.
+
+## Intervention 2 — Mentor (seulement si nécessaire pour passer FOUNDER-02/03)
+
+`src/learning/mentor-engine.js` : `MENTOR_NO_VALID_CODE_PROPOSAL` signifie `proposals.length===0` après génération/réparation ; le tableau `failures` indique provider/stage/code. Les exports D1 montrent `MENTOR_JSON_REQUIRED`, `MENTOR_JSON_INVALID`, `MENTOR_UNINSPECTED_EDIT`, `MENTOR_PROVIDER_TIMEOUT`. Inspecte une **seule** tentative représentative (FOUNDER-03 prioritaire pour Mentor), compare prompt/schéma/JSON du fournisseur et contenu `inspectedFiles` ; corrige le contrat à la source. `MENTOR_UNINSPECTED_EDIT` est un garde-fou volontaire, **ne le retire pas**. Tests : `tests/mentor-engine.test.mjs`, `tests/mentor-candidate-safety.test.mjs`, `tests/autonomy-bridge-preparer.test.mjs`.
+
+## Intervention 3 — conflit CAS FOUNDER-01 (si les deux premiers débloqués)
+
+`src/dev/d1-dev-job-repository.js` : `update(id,patch,{expected})` vérifie version, status, result_json et plan_json à la lecture puis **dans l'UPDATE SQL atomique** ; `JOB_UPDATE_CONFLICT` est donc un véritable conflit de snapshot, pas une simple erreur à masquer. Trace l'écrivain concurrent et le site d'appel obsolète ; rafraîchis avant un patch dérivé du dernier état, ou sérialise le propriétaire de l'écriture. **Ne désactive ni CAS ni ses conditions SQL**, ne refais pas aveuglément un patch complet périmé. Ajoute test de concurrence/reprise.
+
+## Arrêt et preuve de réussite
+
+Priorité maximale : **au moins un job** produit réellement commit SHA candidat + CI complète verte sur ce SHA + preuve terminale ; ne pas utiliser le compteur `advanced_ticks` ni le statut `READY` comme preuve. Ne marque jamais `DONE_VERIFIED` sans validation. Une fois la correction vérifiée, retire le job achevé des priorités. Rends un bilan minimal : **cause exacte → fichiers modifiés → tests → PR/commit → release → preuve en production ou blocage précis**.
+
+**Ne touche pas aux contrôles MAX : `paused=false` et `max_autonomy=true` étaient vrais dans le dernier export (11:35 Paris), mais ce constat n'est pas une garantie de l'état actuel. La release doit conserver MAX activé selon l'autorisation du propriétaire, avec les gates normaux.**
+
+---
+
+# MEL MAX — compte rendu d'observation manuelle (23 octobre 2026)
+
+Destinataires : Codex, Claude et agents de développement MEL. Document d'observation, **pas** une autorisation de modifier les verrous ou de déployer.
+
+## Périmètre / provenance
+
+Observations utilisateur effectuées sur captures successives du panneau « Activité réelle de MEL » entre ~10:28 et 10:50 (heure de Paris, 23/10/2026). Horaires affichés par l'application ; certaines captures sont postérieures de plusieurs minutes au dernier cycle. Nous n'avons pas un dump D1, des logs Worker exhaustifs, ni vingt ticks distincts authentifiés : **ne pas présenter ce relevé comme preuve de vingt cycles**.
+
+Source de code parcourue sur la référence `cb11f5afa1ea8810effdb64e998e77853bbe4347`; les modifications concurrentes plus récentes doivent être réconciliées avant intervention.
+
+## Chronologie factuelle visible
+
+| Heure affichée | MEL-FOUNDER-01 | MEL-FOUNDER-02 | Signaux MAX |
+| --- | --- | --- | --- |
+| ~10:28–10:37 | `TEACHER_APPROVED`; blocage `CANDIDATE_HEAD_CHANGED_DURING_INSPECTION` puis `JOB_UPDATE_CONFLICT` observé | absent, puis créé à 10:38 | `NO_PROGRESS`; 0 terminé |
+| 10:38 | `TEACHER_APPROVED` avec `AUTONOMY_RUNTIME_RETRY:JOB_UPDATE_CONFLICT` | créé `QUEUED` | 2 actifs, 0 terminé, 2 cycles bloqués |
+| 10:43 | `TEACHER_APPROVED` | `TEACHER_APPROVED`, `JOB_UPDATE_CONFLICT` | 0 terminé, 3 cycles bloqués, `NO_PROGRESS` |
+| 10:45–10:46 | pas de clôture visible | `CLAIMED`; paquet pour Bridge, candidat `candidate/mel-clean-autonomy`, interface « appliqué sur la candidate », diagnostic `READY` | `ADVANCING`, 0 terminé, 4 cycles bloqués |
+| 10:48 | état inchangé sur capture | journal `CLAIMED → REPAIR_REQUIRED` | résultat de Bridge en échec ; code racine exact non démontré |
+| 10:49 | `TEACHER_APPROVED` | journal `REPAIR_REQUIRED → TEACHER_APPROVED` | tentative de réparation du même ID, 0 terminé |
+| 10:50 | mise à jour `result_json` / `error`; reste `TEACHER_APPROVED` | reste `TEACHER_APPROVED` | `LEASE_BUSY`; dernier progrès affiché 10:45; 4 cycles bloqués |
+
+Sur la capture à 10:49–10:50, les deux travaux restent actifs. Aucun résultat `DONE_VERIFIED`, test CI complet vert, commit MEL autonome ou release réussie n'a été démontré par ces captures. Ne pas confondre `Plan validé`, `Code écrit`, `Paquet prêt` et `Appliqué sur candidate` avec la preuve de clôture.
+
+## Constat dans le code
+
+- `src/evolution/autonomy-supervisor.js` : `selectActionableAutonomyJob` classe `REPAIR_REQUIRED` puis `TEACHER_APPROVED` comme exécutables prioritaires. `ensureNextJob` laisse certains travaux « passifs » progresser via Teacher / Bridge / CI pendant que la feuille de route peut alimenter la file. La raison exacte de la création de FOUNDER-02 alors que FOUNDER-01 restait approuvé doit encore être établie.
+- `src/dev/d1-dev-job-repository.js` : `update()` applique une comparaison atomique sur `updated_at`, `status`, `result_json`, `plan_json`. Le conflit `JOB_UPDATE_CONFLICT` est intentionnel et protège contre l'écrasement par une écriture périmée. **Ne pas enlever ce CAS.**
+- `src/evolution/autonomy-runtime-core.js` : après `ensureNextJob`, la preuve Work DAG, la préparation de proposition, les diagnostics et le paquet Bridge peuvent chacun écrire le même `result_json`.
+- `src/evolution/autonomy-implementation-planner.js` : `prepareApprovedImplementationProposal` lit un snapshot, lance des consultations asynchrones Augmentio, puis écrit avec `expected: current`. Une écriture survenue entre-temps peut déclencher `JOB_UPDATE_CONFLICT`. C'est une fenêtre de concurrence démontrable dans le code, **pas encore la preuve de l'appel précis ayant échoué en production**.
+- `src/evolution/autonomy-proof.js` : la preuve Work DAG peut écrire `result_json.autonomy_proofs` sur le même job.
+- `src/evolution/autonomy-runtime.js` : `recordCoreRuntimeFailure` inscrit `AUTONOMY_RUNTIME_RETRY` et peut mettre en quarantaine après épuisement ; `LEASE_BUSY` est à distinguer d'un blocage durable (un lease occupé pendant un tick peut être normal).
+- `src/evolution/passive-state-recovery.js` répare certains Teacher obsolètes et `READY_FOR_REVIEW` orphelins, mais n'a pas de réparation spécifique de `JOB_UPDATE_CONFLICT` sur `TEACHER_APPROVED`.
+
+Voir également PR historique #2347, qui documente le problème inverse : un écrivain asynchrone périmé écrasant le résultat du Bridge. Une reprise doit conserver cette sécurité.
+
+## Hypothèses à départager
+
+1. Une proposition asynchrone écrit avec un `expected` devenu obsolète à cause d'une preuve Work DAG, d'un diagnostic, du Teacher ou du Bridge.
+2. Des écrivains parallèles sur le même job se déclenchent sur un même cycle / cycles voisins.
+3. Le traitement de conflit enregistre un diagnostic mais n'effectue pas de réconciliation ciblée sur l'état courant avant la prochaine tentative.
+4. La logique de sélection bascule vers le chantier suivant malgré un travail approuvé en attente de reprise.
+5. Les champs `error` et `progress` exposés dans l'UI peuvent refléter une erreur historique même après une étape réussie.
+
+Aucune hypothèse ne doit être déclarée cause racine sans traçage exact.
+
+## Vérifications demandées à Codex et Claude
+
+1. Recueillir pour les **mêmes IDs** le journal D1 ordonné, horodaté, `updated_at` avant/après, writer/source de chaque mutation, `expected` versus état actuel, statut et événement du Bridge. Éviter données privées et secrets.
+2. Reproduire en test deux écrivains simultanés : proposition Augmentio lente et mutation de preuve / Teacher / Bridge. Vérifier rejet de l'écriture périmée, préservation des données du gagnant, puis reprise du perdant sur état actualisé.
+3. Tester explicitement `TEACHER_APPROVED → CLAIMED → REPAIR_REQUIRED → TEACHER_APPROVED` sur **le même ID**, sans régénération inutile ni boucle infinie.
+4. Vérifier qu'un `LEASE_BUSY` transitoire n'est ni compté comme progrès ni comme échec terminal, et que le lease est relâché.
+5. Auditer le sélecteur de travail : ne pas multiplier les chantiers lorsque le précédent est immédiatement reprenable; préserver la possibilité de parallélisme réellement indépendant et les travaux passifs.
+6. Ne déclarer `ADVANCING` / `DONE_VERIFIED` que si les preuves requises existent ; distinguer changement de statut, code candidat, vérification CI et effet en production.
+
+## Garde-fous
+
+Aucune suppression de CAS, aucune écriture D1 hors mécanisme autorisé, aucun faux SUCCESS, aucune fusion sans CI verte sur SHA exact, aucun déploiement concurrent. Préserver le choix explicite du propriétaire d'activer MAX ainsi que les pauses de sécurité authentiques.
+
+## Suite du relevé manuel
+
+Comparer les captures suivantes aux mêmes IDs et ne compter qu'un tick distinct prouvé à chaque fois. À chaque nouvelle capture : heure du tick, heure du dernier progrès, statut des jobs, journal nouveau, raison du blocage, `created/completed/blocked`, preuve de modification réellement durable. Ce document couvre les constats disponibles jusqu'à la capture de ~10:50, pas des ticks futurs.
+
+## Complément — export direct de l'API de production (23/10/2026 10:56:55 Europe/Paris)
+
+L'utilisateur a fourni la réponse de `GET /api/gen2/autonomy/activity`, dont l'enveloppe indique `ok: true`, `source: production_d1`, `observed_at: 2026-10-23T08:56:55.398Z`. Il s'agit d'un **instantané fourni par le propriétaire**, et non d'un accès autonome de cet agent à D1. Les champs source pouvant contenir des données privées ne sont pas reproduits ici.
+
+- Contrôle: `paused=false`, `max_autonomy=true`, `status=MAX_AUTONOMY`, SHA autorisé `cb11f5afa1ea8810effdb64e998e77853bbe4347`.
+- Watchdog: `LEASE_BUSY`, `tripped=false`, `consecutive_stalls=0`, dernier tick `08:56:27Z`, dernière progression `08:52:09Z`, `last_block_reason=AUTONOMY_RUNTIME_LEASE_BUSY`, travail ciblé FOUNDER-02 en `REPAIR_REQUIRED`.
+- Compteurs depuis l'époque courante de la liste: `ticks=32`, `advanced_ticks=5`, `jobs_created=1`, `jobs_completed=0`, `blocked_ticks=6`, `lease_busy_skips=16`. Les catégories peuvent se recouper ; ne pas additionner comme des partitions.
+- Trois travaux supervisés actifs (`FOUNDER-01`, `FOUNDER-02`, `FOUNDER-03`), tous `TEACHER_APPROVED`. Pour chacun : étapes code, paquet, candidat, CI, achèvement `done=false` dans cet instantané. FOUNDER-01 conserve `AUTONOMY_RUNTIME_RETRY:JOB_UPDATE_CONFLICT`, alors que FOUNDER-02 et FOUNDER-03 affichent `error=null`. L'écart `jobs_created=1` vs trois créations visibles dans le ledger nécessite une explication sur la portée temporelle/les resets et définitions des compteurs.
+- Le ledger atteste maintenant la création de FOUNDER-03, puis `QUEUED → COUNCIL_COMPLETE → WAITING_TEACHER → TEACHER_APPROVED`, pendant que les deux chantiers antérieurs ne sont pas terminés.
+- FOUNDER-02 : deux événements distincts `CLAIMED → REPAIR_REQUIRED`, un premier autour de 10:48 et un autre autour de 10:55 (horaires Paris convertis des millisecondes API). On observe donc une **répétition de l'échec de Bridge/exécuteur**, mais le code d'erreur profond manque dans cet export compact.
+- Le panneau `workflow_dispatches` présente deux entrées `DISPATCHED` de `gen2-42-apply-ready-bridge.yml` pointant vers le **même `run_id=39924542106`**. Cela demande vérification des corrélations relay/workflow : deux relais ne prouvent pas deux exécutions distinctes.
+- `work_cycles=[]` : cet instantané ne fournit aucune preuve de cycle Work achevé.
+
+**Questions de suivi prioritaires :** Pourquoi `lease_busy_skips=16/32` ? Quelle durée et quel détenteur du bail, quel déclencheur concurrent ? Pourquoi une deuxième transition FOUNDER-02 `CLAIMED → REPAIR_REQUIRED` et quelle erreur d'exécution ? Pourquoi la création de FOUNDER-03 sans clôture des deux premiers ? Les writes de preuve/diagnostic font-ils échouer la proposition sur CAS ? Les compteurs `jobs_created` et ledger ont-ils des fenêtres différentes ? Quelles preuves externes correspondent au run GitHub 39924542106 ?
+
+**Politique d'interprétation :** `advanced_ticks=5` atteste des événements classés comme progrès par le moteur, pas une preuve de cinq résultats fonctionnels. `tripped=false` ne signifie pas que les travaux avancent. Aucun `DONE_VERIFIED` prouvé.
+
+## Complément d'analyse — GitHub relay et sémantique du bail
+
+Vérification GitHub du workflow run [39924542106](https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/actions/runs/39924542106) : le job `relay` (`120317610076`) était `in_progress` lors de la lecture, l'étape `Heartbeat, claim and dispatch queued GitHub actions` toujours en cours. Le job `contract` était `skipped`. Cela ne prouve ni échec ni blocage permanent. Capturer plus tard sa conclusion et les éventuels workflows enfants, en protégeant les données sensibles des logs.
+
+Le code `src/evolution/autonomy-runtime.js` confirme que `runAutonomyRuntimeTick` obtient un bail exclusif. Si l'acquisition échoue, le moteur répond `SKIPPED_LEASE_BUSY` et `advanced=false`, puis libère son propre bail dans un `finally` lorsqu'il l'a acquis. Les 16 `lease_busy_skips` de l'export ne sont donc **pas** automatiquement 16 défaillances : ils peuvent indiquer des collisions entre déclencheurs pendant des cycles légitimement longs. Il faut corréler propriétaire/expiration/durée du bail, cadence cron, exécution manuelle et GitHub relay avant de conclure.
+
+Hypothèse nouvelle à tester : chevauchement de triggers autonomes, relay GitHub et long fan-out AI causant de nombreux `LEASE_BUSY` tandis que les écritures asynchrones restent sujettes aux conflits CAS. Ne pas déduire la causalité du seul chevauchement temporel. Ajouter un test de déclencheurs simultanés et comptage distinct tentative de tick / cycle ayant obtenu le bail / progression métier durable.
+
+## Deuxième export de production — 23/10/2026 11:04:03 Europe/Paris
+
+Un nouvel instantané fourni par le propriétaire indique `observed_at=2026-10-23T09:04:03.288Z` et `source=production_d1`. Comparaison avec l'export `08:56:55Z` : `ticks 32→37` (+5), `advanced_ticks 5→6` (+1), `blocked_ticks 6→6`, `lease_busy_skips 16→18` (+2), `jobs_completed=0` inchangé, `active=3` inchangé. Ces compteurs ne sont pas des catégories exhaustives ou nécessairement mutuellement exclusives.
+
+Le watchdog est passé de `LEASE_BUSY` à `WAITING_EXTERNAL`, avec `last_block_reason=FULL_CANDIDATE_CI_LOOKUP_FAILED`, `waiting_external=true`, `tripped=false` et `last_advanced_at=2026-10-23T09:00:46.691Z`. **Distinguer impossibilité de lire les preuves CI et CI effectivement échouée : aucune CI rouge n'est démontrée par cet export.**
+
+FOUNDER-02 est repassé à `CLAIMED` avec étapes `code=true`, `package=true`, `candidate=false`, `ci=false`, `done=false` ; candidate `candidate/mel-clean-autonomy`, base `cb11f5afa1ea8810effdb64e998e77853bbe4347`, `error=null`. FOUNDER-01 reste `TEACHER_APPROVED` avec `AUTONOMY_RUNTIME_RETRY:JOB_UPDATE_CONFLICT`, et FOUNDER-03 reste `TEACHER_APPROVED` en attente de code.
+
+Le journal a un nouvel événement pour FOUNDER-01 : mise à jour de `result_json` à `1792746182500` (l'erreur de conflit persiste). FOUNDER-02 a de nouvelles mises à jour de `files_json,patch_json,result_json,tests_json` à `1792746027729` et une autre mise à jour de `result_json` à `1792745948117`; l'état `CLAIMED` est visible dans le snapshot même si la liste bornée des événements ne détaille pas la transition correspondante.
+
+Le nombre de `workflow_dispatches` visibles passe de 2 à 3 pour le même `run_id=39924542106`; les IDs de relais sont distincts. Le job GitHub `relay` était toujours `in_progress` lors de la consultation suivante, `contract` était `skipped`. **Priorité** : auditer la correspondance entre ces relay IDs et les exécutions réelles ; vérifier origine précise de `FULL_CANDIDATE_CI_LOOKUP_FAILED`, statut du run et éligibilité de candidate à l'application, sans déclarer une CI verte ni réinitialiser les tâches.
+
+Le nouveau résultat confirme une progression intermédiaire (FOUNDER-02 réclamé, paquet prêt) et un changement de blocage (lookup CI), **mais toujours aucune clôture**.
+
+## Contrôle CI / branche candidate lié à FOUNDER-02 (23/10)
+
+- GitHub Actions [run 39924542106](https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/actions/runs/39924542106) : job `relay` id `120317610076` toujours `in_progress` à la consultation; job `contract` id `120317611261` `skipped`. Aucun artifact listé. La lecture des logs du job relay n'a pas été possible (erreur HTTP 404 BlobNotFound côté téléchargement), donc ne pas inventer la sortie des tests.
+- Comparaison GitHub `cb11f5afa1ea8810effdb64e998e77853bbe4347...candidate/mel-clean-autonomy`: `identical`, `ahead_by=0`, `behind_by=0`, `files=[]`. **Aucun commit candidat issu de FOUNDER-02 n'était visible sur cette branche à la consultation.**
+- Statuts combinés GitHub du SHA de base : `statuses=[]`. Recherche de runs via la commande GitHub connectée pour ce commit (filtrée aux événements pull request par le connecteur) : `workflow_runs=[]`. Ce résultat **n'est pas** une preuve globale d'absence de toute CI GitHub, seulement d'absence de ces catégories dans les contrôles effectués.
+- La mention `FULL_CANDIDATE_CI_LOOKUP_FAILED` signifie que le runtime n'a pas établi la preuve de la CI complète; elle ne démontre pas que des tests ont exécuté puis échoué.
+
+**Action Codex / Claude** : corréler `cloud_bridge_dispatches` avec le véritable job GitHub qui applique le correctif, prouver son SHA de sortie et la suite CI associée; vérifier pourquoi la branche candidate est strictement identique à la base malgré les passages `CLAIMED` / paquet `READY`. Ne pas forcer `DONE_VERIFIED` ni faire de faux SUCCESS.
+
+## Troisième export de production — 23/10/2026 11:07:07 Europe/Paris
+
+Nouvel export fourni par le propriétaire : `observed_at=2026-10-23T09:07:07.483Z`, `source=production_d1`. Par rapport à 11:04: `ticks 37→38`, `advanced_ticks 6→6`, `lease_busy_skips 18→19`, `blocked_ticks 6→6`, `jobs_completed 0→0`, `active 3→3`. Le watchdog retourne `LEASE_BUSY` (`last_tick_at=09:06:17.789Z`, `last_advanced_at=09:00:46.691Z`). Un saut de compteur de bail n'est pas une défaillance intrinsèque.
+
+**Événement nouveau critique :** FOUNDER-02 était `CLAIMED` dans le snapshot 11:04, puis le journal montre `CLAIMED → REPAIR_REQUIRED` à `1792746295956`, suivi de `REPAIR_REQUIRED → TEACHER_APPROVED` à `1792746384128`. C'est le **troisième passage visible** `CLAIMED → REPAIR_REQUIRED` sur le même ID depuis le début de la séquence d'exports (les deux précédents : `1792745336740` et `1792745720511`). Les étapes code et paquet repassent à `done=false` dans le résumé du pipeline; `candidate=null` et `completion=null`. L'export ne fournit toujours pas la cause racine de l'échec Bridge ni la comparaison détaillée du patch entre les tentatives.
+
+FOUNDER-01 et FOUNDER-03 restent `TEACHER_APPROVED`; le premier conserve son erreur `AUTONOMY_RUNTIME_RETRY:JOB_UPDATE_CONFLICT`. FOUNDER-02 est `TEACHER_APPROVED` avec `error=null` après sa réouverture. Ainsi, une erreur nulle dans la fiche courante ne signifie pas absence d'échecs historiques.
+
+Une nouvelle demande `workers-ai-zero-cost-proof-refresh.yml` apparaît dans `workflow_dispatches`, portant la liste visible de 3 à 4 entrées, toutes associées au même `run_id=39924542106`. Cette réutilisation d'identifiant pour des workflows de noms distincts est suspecte et exige de déterminer la sémantique exacte du champ `run_id` et sa provenance : il pourrait s'agir du run relay parent, pas du run enfant. Ne pas présumer que 4 runs ont été exécutés.
+
+**Action d'investigation prioritaire :** instrumenter le code de retour `CLAIMED → REPAIR_REQUIRED` pour exposer, de manière non sensible, le code d'erreur exact, le SHA candidat avant/après, l'ID du relay, le workflow enfant réel et la raison pour laquelle le paquet `READY` n'est pas appliqué durablement. Comparer les trois répétitions sur le même FOUNDER-02; empêcher les boucles sans perte des protections CAS.
+
+## Quatrième export production — 23/10/2026 à 11:09:02 Europe/Paris
+
+Document propriétaire `Markdown collé(4).md` : `observed_at=2026-10-23T09:09:02.408Z`, `source=production_d1`. Versus 11:07 : `ticks=40` (+2), `advanced_ticks=6` (0), `lease_busy_skips=20` (+1), `blocked_ticks=6` (0), `active=3` (0), `jobs_completed=0` (0). `last_advanced_at=09:00:46.691Z` inchangé, `status=WAITING_EXTERNAL`, `last_block_reason=FULL_CANDIDATE_CI_LOOKUP_FAILED`.
+
+FOUNDER-02 est de nouveau `TEACHER_APPROVED` et les étapes code/paquet sont `done=true`, à la suite d'une mise à jour `files_json,patch_json,result_json,tests_json` avec pont `READY` horodatée `1792746536358`. `candidate/mel-clean-autonomy` affichée, mais `candidate.done=false`, `ci.done=false`, `done.done=false`, `completion=null`. FOUNDER-01 reste `TEACHER_APPROVED` et inscrit une nouvelle écriture de `result_json` en conservant `AUTONOMY_RUNTIME_RETRY:JOB_UPDATE_CONFLICT` (`1792746516349`). FOUNDER-03 reste `TEACHER_APPROVED` sans code démontré.
+
+Aucun événement nouveau `DONE_VERIFIED` ; les 4 dispatchs de workflow affichés dans l'export précédent sont toujours présents avec le même `run_id=39924542106`, trois `gen2-42-apply-ready-bridge.yml` et un `workers-ai-zero-cost-proof-refresh.yml`. L'absence de changement dans le résumé de dispatchs ne prouve pas qu'aucune exécution GitHub supplémentaire n'existe en dehors de cet export.
+
+**Diagnostic longitudinal :** depuis 11:00:46, 0 progrès supplémentaire reconnu malgré de nouvelles préparations de paquet. Le cycle récurrent FOUNDER-02 `TEACHER_APPROVED → CLAIMED → REPAIR_REQUIRED → TEACHER_APPROVED` demeure la priorité; surveiller le SHA candidat réellement commité et la cause de `FULL_CANDIDATE_CI_LOOKUP_FAILED`, sans confondre le refresh d'un diagnostic avec un progrès livré.
+
+## Analyse ciblée du code de reprise et contrôle GitHub subséquent
+
+Contrôle connecté répété : run GitHub `39924542106`, job `relay` toujours `in_progress`, job `contract` `skipped`. Comparaison `cb11f5afa1ea8810effdb64e998e77853bbe4347...candidate/mel-clean-autonomy` toujours `identical`, aucun commit candidat ni fichier modifié.
+
+**Point structurel identifié dans `src/evolution/autonomy-runtime-core.js` :** au traitement de `REPAIR_REQUIRED`, le runtime classe un échec comme `executorFailure` lorsque `failedTests.length === 0` (liste dérivée de `result_json.dev_bridge.tests`). Il réouvre alors `TEACHER_APPROVED` tout en **conservant** `implementation_proposal`, `bridge_package` et `bridge_preparation` ; ceux-ci ne sont supprimés que lorsqu'il existe un échec de test connu. Il écrit `repair_cycle.source=OWNER_MAX_EXECUTOR_FAILURE`, `runtime_retry.executor_retry=true`, et copie un code de `dev_bridge.error || dev_bridge.diff_summary` dans `runtime_retry.last_error`. Le journal compact ne montre pas ces détails internes. Le cycle répétitif peut donc être une *reprise du paquet approuvé identique*, **et non une régénération du code à chaque tour**. Le vérifier avant toute modification.
+ 
+**Autre point :** `FULL_CANDIDATE_CI_LOOKUP_FAILED` est produit dans la branche `VERIFY_EXISTING` du runtime : exception de `findGreenFullCandidateRun`, sans statut HTTP lorsqu'il est absent, sinon suffixe `_HTTP_XXX`. Ce signal concerne la *consultation de la preuve CI de la candidate existante*, et n'identifie pas automatiquement la cause de l'échec d'application de FOUNDER-02. Il peut être lié à un autre travail sélectionné (export : last_job_id FOUNDER-01). Investiguer les deux chemins séparément.
+
+`src/evolution/cloud-bridge-dispatch.js` déclare `REDISPATCH_MS = 30 * 60 * 1000` et précise que l'accusé de mise en file du relais ne vaut pas preuve d'exécution ; seul le claim D1 atomique arbitre l'exécuteur. À l'inverse, la durée prolongée du job relay GitHub peut être inhérente à sa boucle de heartbeat ; ne pas prétendre qu'il est figé faute de conclusion/mesures supplémentaires.
+
+**Prochain diagnostic prouvant la cause :** inspection non sensible de `dev_bridge.error`, `dev_bridge.tests`, `repair_cycle.source`, `runtime_retry.last_error`, `bridge_preparation.candidate_sha` de FOUNDER-02 ; distinguer échec exécuteur sans tests, échec de tests, échec de claim et échec d'accès à la CI. Corréler une exécution enfant GitHub réelle au paquet et à son SHA.
+
+## Cinquième export production — 23/10/2026 à 11:11:47 Europe/Paris
+
+Source fournie par le propriétaire : `observed_at=2026-10-23T09:11:47.965Z`, `source=production_d1`. Depuis 11:09 : `ticks 40→42` (+2), `advanced_ticks 6→7` (+1), `lease_busy_skips 20→21` (+1), `blocked_ticks=6`, `jobs_completed=0`, `active=3`; `last_advanced_at=2026-10-23T09:09:04.170Z`. `watchdog.status=LEASE_BUSY`, `tripped=false`, contrôle MAX toujours actif.
+
+FOUNDER-02 est à nouveau `CLAIMED`, `code.done=true`, `package.done=true`, `candidate.done=false`, `ci.done=false`, `completion=null`, avec `candidate/mel-clean-autonomy` et SHA de base `cb11f5afa1ea8810effdb64e998e77853bbe4347`. Aucun nouvel événement `CLAIMED → REPAIR_REQUIRED` dans cet export, mais sa prochaine issue reste à confirmer. FOUNDER-03 a reçu deux mises à jour `result_json` groupées (dernier `1792746673824`, premier `1792746670088`) : statut `TEACHER_APPROVED`, code non validé, aucun fichier/test présenté. FOUNDER-01 est inchangé, `TEACHER_APPROVED`, `AUTONOMY_RUNTIME_RETRY:JOB_UPDATE_CONFLICT`.
+
+Les quatre entrées de `workflow_dispatches` et le `run_id=39924542106` restent les mêmes; `work_cycles=[]`. Ce fichier ne prouve aucun nouveau commit, ni tests passés, ni CI verte, ni travail terminé. Surveiller en priorité si le retour de FOUNDER-02 en `CLAIMED` produit cette fois un SHA candidat ou un quatrième échec `REPAIR_REQUIRED`. La progression compteur +1 n'est pas une validation fonctionnelle.
+
+## Sixième export D1 — 11:18:42 Paris ; preuve de périmètre du run relay
+
+Nouveau snapshot propriétaire `observed_at=2026-10-23T09:18:42.418Z`: `ticks 42→48`, `advanced_ticks 7→9`, `lease_busy_skips 21→24`, `blocked_ticks 6→7`, `jobs_completed=0`, `active=3`, `last_advanced_at=09:17:19.931Z`. FOUNDER-02 `CLAIMED`, code et paquet prêts, candidate/CI non prouvées. Nouvel événement `CLAIMED→REPAIR_REQUIRED` FOUNDER-02 à `1792746775067` (quatrième échec de ce type dans le journal), suivi de `REPAIR_REQUIRED→TEACHER_APPROVED` à `1792746887925`, puis paquet READY à `1792747029110`. FOUNDER-03 présente à son tour `CLAIMED→REPAIR_REQUIRED` à `1792746975638`, puis reprise `REPAIR_REQUIRED→TEACHER_APPROVED` à `1792747069503`, paquet lié à `src/roadmap/master-roadmap.js`, sans completion.
+
+**Découverte dans `src/evolution/autonomy-activity.js`** : le champ d'export `workflow_dispatches[].run_id` provient de `result_json.relay_run_id`, et NON d'un champ `child_workflow_run_id`. Les cinq entrées avec `run_id=39924542106` ont donc une corrélation explicite au même run *du relay parent* ; ne pas traiter cela comme preuve d'exécutions enfant distinctes. Conséquence : un `DISPATCHED` dans cette API est un reçu relay, non un statut GitHub vérifié du workflow cible. C'est la raison structurelle de l'ambiguïté que nous observions.
+
+Vérification Github connectée après l'export : job `relay` du run `39924542106` maintenant `completed/success`, `contract` `skipped`. La branche `candidate/mel-clean-autonomy` reste `identical` au SHA approuvé `cb11f5afa1ea8810effdb64e998e77853bbe4347`. Donc **réussite du relay ≠ application du patch** ; il faut identifier les workflows `gen2-42-apply-ready-bridge.yml` effectivement créés/terminés, leurs logs, et le verdict d'écriture GitHub.
+
+La cause exacte des échecs de Bridge reste indéterminée par le journal compact. La prochaine preuve nécessaire est `dev_bridge.error` / `runtime_retry.last_error` / `repair_cycle.source` par job ainsi que run enfant et SHA de patch, sans divulgation de jetons.
+
+## Inspection du workflow enfant GEN2-42 — causes précises de REPAIR_REQUIRED
+
+Lecture de `.github/workflows/gen2-42-apply-ready-bridge.yml` (lignes de la branche courante consultée) :
+- Claim atomique `POST /api/dev-bridge/claim`, HTTP 409 → `SKIPPED_NOT_CLAIMABLE`, sans claim effectif (lignes 65–107). Les autres erreurs d'auth transport sont retentées 12 fois puis échouent.
+- La vérification du paquet après claim exige des champs et dimensions strictes : `job.status=CLAIMED`, approval Teacher, `implementation_proposal.status=READY`, `bridge_preparation.status=READY`, `candidate_branch` valide, SHA de 40 caractères, 1 à 10 fichiers et 1 à 4 tests. Une violation peut interrompre l'application avant tests et commit.
+- Après l'exécution des commandes, le workflow crée `bridge-apply-result.json` avec `REPAIR_REQUIRED` si un test échoue (vers lignes 300–312). Le commit/push ne s'exécute que si `tests_passed=true` et paquet claimé non déjà satisfait (vers lignes 314+).
+- Le report normal `POST /api/dev-bridge/result` sauvegarde `tests_json`, `result_json.github_run_id=GITHUB_RUN_ID` (enfant), `github_run_attempt`, `candidate_sha`; `REPAIR_REQUIRED` si tests non passés ou si commit signalé réussi mais `candidate_ready=false` (vers lignes 400–455).
+- Un chemin `report_emergency` `if always` intervient si aucun report normal n'a réussi après claim. Il synthétise `REPAIR_REQUIRED`, potentiellement avec `tests=[]`, `error:null`, `diff_summary=EMERGENCY_REPAIR_REQUIRED:GITHUB_RUN_<childRunId>` (lignes 458–499). Ce cas est cohérent avec l'absence de tests échoués et le retour en réparation, sans le prouver.
+- Cette preuve change le plan d'analyse : avant de modifier Teacher, lease ou CAS, lire pour **chaque** job FOUNDER-02/03 `result_json.dev_bridge.github_run_id`, `result_json.dev_bridge.mode`, `result_json.dev_bridge.diff_summary`, `result_json.dev_bridge.tests`, `result_json.runtime_retry.last_error` et `result_json.repair_cycle.source`. Pour un code `EMERGENCY_REPAIR_REQUIRED:GITHUB_RUN_x`, consulter les logs du run enfant x ; si échec d'un test, analyser son stderr précis. Ne pas prendre le `relay_run_id` exposé dans `workflow_dispatches` pour cet identifiant enfant.
+
+Ce diagnostic n'est pas encore une preuve de cause racine : il énumère des points précis du code produisant l'état observé et identifie les champs nécessaires pour les départager. Ne pas désactiver les contrôles ni marquer les travaux DONE sans CI sur SHA exact.
+
+## Vérification décisive des logs du relais parent — 23/10 11:25
+
+Le téléchargement des logs du job `relay` (job id `120317610076`, run `39924542106`) est maintenant disponible. Les logs confirment exactement cinq demandes POST acceptées par GitHub, aux horodatages UTC : 08:46:04 `gh-relay-a934...` bridge, 08:52:22 `gh-relay-6c2...` bridge, 09:01:04 `gh-relay-c585...` bridge, 09:04:55 `zero-cost-proof-refresh-1991940` Workers AI, 09:12:34 `gh-relay-bcfb...` bridge. En fin de run, à 09:15:43Z, le relais annonce `{"ok":true,"processed":5,"dispatched":5,"failed":0,"relay_run_id":39924542106}` et `GitHub relay handed over to the next watcher`. Statut GitHub `completed/success`.
+
+Inspection de `scripts/github-action-relay-runner.mjs` : la fonction `dispatch(job)` appelle `POST /repos/{repo}/actions/workflows/{workflow}/dispatches`, exige **HTTP 204** pour marquer accepté, puis enregistre uniquement `relay_run_id=GITHUB_RUN_ID`, pas l'identifiant du run enfant. La correspondance `run_id=39924542106` de toutes les entrées de l'API D1 est donc expliquée **avec preuve de code et logs** ; elle ne signale pas un bug de collision d'IDs.
+
+La conclusion correcte : la transmission du relais vers l'API GitHub a réussi cinq fois. Elle ne prouve pas le lancement effectif, le résultat, ni l'application du patch par les quatre workflows enfant Bridge. Branche `candidate/mel-clean-autonomy` précédemment toujours identique au SHA autorisé. Il faut corréler par workflow `gen2-42-apply-ready-bridge.yml`, `created_at` et `inputs.job_id`, puis lire les jobs de chacun et son `result_json.github_run_id` stocké sur l'évolution.
+
+Par ailleurs, le script dispose de `readSnapshot()` qui lit `/repos/{repo}/actions/runs?per_page=50` et transmet `actions_runs` à `/api/internal/github-action-relay/heartbeat`. Possibilité d'utiliser ces données de télémétrie déjà prévues pour retrouver les enfants, sans ajout d'un deuxième bus d'exécution.
+
+## Angle mort confirmé dans l'export activity et règle de concurrence des enfants
+
+Dans `src/evolution/autonomy-activity.js`, `describeJob()` construit le JSON utilisateur. La fonction montre `pipeline`, `teacher`, `files`, `tests` (spécifications), `candidate` (base), `completion`, `diagnostics` et `job.error`, **mais n'affiche pas** les détails réels `result_json.dev_bridge` ni `result_json.repair_cycle`/`runtime_retry`. Par conséquent, une séquence `CLAIMED→REPAIR_REQUIRED→TEACHER_APPROVED` est visible mais la cause immédiate est masquée par l'API d'observation. L'absence de `error` dans la fiche après reprise ne disculpe pas la CI : `error:null` est explicitement écrit lors de la réouverture.
+
+`.github/workflows/gen2-42-apply-ready-bridge.yml` a `concurrency.group=gen2-42-cloud-bridge` **sans clé par job**, `cancel-in-progress: false`, et `timeout-minutes: 25` pour le job apply. Les dispatchs multiples sont donc sérialisés globalement, pouvant induire une file d'attente / délais ; ceci n'est pas une preuve qu'un run précis a atteint un job ni sa cause de réparation. La logique de checkout exige égalité stricte du SHA candidat et rejette `TEACHER_APPROVAL_CANDIDATE_SHA_STALE` en cas de divergence.
+
+Les logs du relais parent `39924542106` prouvent HTTP 204 pour cinq `workflow_dispatch`. Le script `scripts/github-action-relay-runner.mjs` ne conserve que `relay_run_id` lors de l'acceptation ; GitHub HTTP 204 ne renvoie pas l'ID enfant. Le rapprochement enfant doit passer par la télémétrie Actions existante et/ou `dev_bridge.github_run_id` enregistré au retour.
+
+**Proposition de correction vérifiable, non encore appliquée** : ajouter à `describeJob()` une projection *à liste blanche*, bornée et sans secrets, de `dev_bridge.github_run_id`, `dev_bridge.mode`, `dev_bridge.diff_summary`, `dev_bridge.needs_repair`, `dev_bridge.tests` résumés (`name,command,passed,exit_code,error` tronqués), `repair_cycle.source`, `repair_cycle.attempts`, `runtime_retry.last_error`. Ajouter tests de sérialisation/sanitation. Ne jamais exposer `stdout/stderr` brut, `patch_json`, prompts, jetons OIDC ou `result_json` complet. Avec cet export, nous pourrions obtenir la cause exacte à la prochaine observation au lieu de deviner.
+
+Ne pas interpréter un vieux commit GEN2-42 préexistant comme le résultat de FOUNDER-02/03 : chercher le SHA dans le `dev_bridge` du job exact.
+
+## Actualisation de l'analyse — 23/10/2026, export 11:35 Paris et chaîne Mentor
+
+**Dernier export utilisateur :** `observed_at=2026-10-23T09:35:17.112Z` (`production_d1`). Contrôle `paused=false`, `max_autonomy=true`, watchdog `ADVANCING`, `tripped=false`, dernier tick et dernière progression `09:35:04.551Z`. Compteurs : `ticks=71`, `advanced_ticks=14`, `jobs_created=1`, `jobs_completed=0`, `blocked_ticks=9`, `lease_busy_skips=37`, `active=3`. Une progression de watchdog ne doit pas être interprétée comme une implémentation validée.
+
+**FOUNDER-02** : `CLAIMED`, paquet/code `done=true`, candidate `candidate/mel-clean-autonomy` sur base `cb11f5afa1ea8810effdb64e998e77853bbe4347`, `candidate.done=false`, `ci.done=false`, `completion=null`. Nouveau diagnostic de génération `MENTOR_NO_VALID_CODE_PROPOSAL` et plusieurs `MENTOR_PROVIDER_TIMEOUT`, malgré l'état du paquet. Il faut séparer un paquet READY déjà persisté des échecs ultérieurs de Mentor, et rechercher quel déclenchement provoque de nouvelles tentatives.
+
+**FOUNDER-03** : `TEACHER_APPROVED`, code/paquet `done=false`, `completion=null`. Diagnostics `MENTOR_NO_VALID_CODE_PROPOSAL`, `MENTOR_JSON_REQUIRED`, `MENTOR_UNINSPECTED_EDIT`, `MENTOR_JSON_INVALID`, `MENTOR_PROVIDER_TIMEOUT`. Le journal contient encore `CLAIMED→REPAIR_REQUIRED` puis `REPAIR_REQUIRED→TEACHER_APPROVED`, donc ce chantier démontre à la fois des difficultés de fabrication d'un paquet et de reprise de Bridge. **FOUNDER-01** reste `TEACHER_APPROVED`, code absent, `AUTONOMY_RUNTIME_RETRY:JOB_UPDATE_CONFLICT`. Aucune tâche `DONE_VERIFIED`.
+
+**Investigation source effective :** `src/learning/mentor-engine.js` lève `MENTOR_NO_VALID_CODE_PROPOSAL` après tentative de réparation lorsque `proposals.length===0`, avec un tableau `failures` qui précise provider, étape `initial`/`repair`, code ; conserver et analyser ce tableau avant changement. La fonction de validation lève `MENTOR_UNINSPECTED_EDIT` lorsqu'un `edit.find` ne figure dans aucun fichier visible inspecté. Elle protège la provenance des modifications : **ne pas désactiver**. `mentorFailureCode` normalise les erreurs `MENTOR_JSON_REQUIRED`, `MENTOR_JSON_INVALID`, `MENTOR_PROVIDER_TIMEOUT` ; les codes sont réellement distincts. Investiguer l'adéquation schéma/prompt/réponse, les fichiers inspectés et les budgets/timeouts par fournisseur. Ne pas traiter une proposition invalide comme une réalisation.
+
+**CI PR #2453 (observabilité)** : `gen2-17-targeted` `completed/success`, logs avec sous-ensembles `56 pass/0 fail` et `158 pass/0 fail`; `gen2-17-full-suite` `skipped`. Le workflow `Professor UI audit` (run `39932821448`) est désormais `completed/success`. PR #2453 prête à revue et précédemment `mergeable=true`, **pas encore de preuve de fusion ni de déploiement**. Une CI ciblée réussie ne suffit pas à déclarer une release générale vérifiée.
+
+**Priorités de la prochaine passe Codex :**
+1. Réconcilier/finaliser #2453 suivant gates/CI, déployer proprement si autorisé, puis lire `bridge_diagnostics` sur FOUNDER-02/03.
+2. Corréler `dev_bridge.github_run_id` au véritable job enfant, lire ses logs (checkout, tests, commit, report). Ne pas confondre `relay_run_id` parent et GitHub run enfant.
+3. Tracer chaque `mentor-engine.propose()` et le tableau d'échecs borné : inputs réellement inspectés, validité du JSON, repli fournisseurs, budget de tentative ; ajouter tests prouvant le choix d'une proposition valide et préservant `MENTOR_UNINSPECTED_EDIT`.
+4. Revoir les écritures D1 CAS de FOUNDER-01, sans désactiver `expected`, et le budget de réparations pour éviter des cycles infinis.
+5. Exiger preuve candidate commit SHA + full CI sur SHA exact + revue + état terminal vérifié avant d'affirmer réussite. MAX reste activé ; ne pas modifier son contrôle pour masquer l'échec.
+
+**Statut de cette entrée : analyse corroborée par export D1 et code GitHub, ajoutée au rapport ; elle ne prétend pas que le correctif Mentor ou Bridge a déjà été appliqué.**
+
+## Vérification GitHub supplémentaire — 23/10/2026
+
+Contrôle du correctif #2453 : workflow `Professor UI audit` run `39932821448`, job `professor-audit` **completed/success**. Comparaison `main...fix/max-activity-bridge-diagnostics-20261023` **ahead=2**, **behind=0**. La liste de reviews de la PR #2453 est vide au moment du contrôle. Le workflow ciblé GEN2-17 était antérieurement passé, mais `gen2-17-full-suite` avait été `skipped` : ne pas assimiler ce résultat à un bilan de CI exhaustive. Le correctif reste à intégrer puis à prouver sur production; ne pas anticiper ce résultat dans le présent rapport.
+
+La prochaine action structurelle utile est d'interroger les jobs enfants sur leur `github_run_id` dans D1 (une fois #2453 intégré), et non de chercher ce numéro dans les reçus du parent `github-action-relay`. Sans ces preuves, aucune cause d'échec de Bridge ne peut être déclarée confirmée.
+
+## Investigation ciblée supplémentaire — défaut probable de temporisation Mentor
+
+Fichiers inspectés directement : `src/evolution/autonomy-runtime-core.js`, `src/dev/d1-dev-job-repository.js`, `src/evolution/autonomy-supervisor.js`.
+
+**Fait établi dans le code :** `providerDeferral(code)` retarde de 5 minutes les codes `WORKERS_AI_BINDING_UNAVAILABLE`, `NO_ZERO_COST`, `MENTOR_NO_ZERO_COST`, `NO_ELIGIBLE`, `MODEL_UNAVAILABLE` et certaines erreurs `COUNCIL_...`. **Il ne reconnaît pas** `MENTOR_PROVIDER_TIMEOUT`, `MENTOR_NO_VALID_CODE_PROPOSAL`, `MENTOR_JSON_INVALID` ni `MENTOR_JSON_REQUIRED`. Or ces codes apparaissent à répétition dans l'export FOUNDER-02/03 de 11:35. `persistImplementationDiagnostic()` et `persistBridgePreparationDiagnostic()` écrivent un `autonomy_deferral` uniquement si `providerDeferral()` retourne un délai ; autrement l'état reste éligible et le moteur ne temporise que via la suppression de diagnostics identiques durant `DIAGNOSTIC_REFRESH_MS` (anti-écriture, **pas nécessairement anti-appel fournisseur**). **Hypothèse forte :** appels Mentor répétés sans backoff adéquat, produisant des timeouts/JSON rejetés et brûlant les ticks. À confirmer par instrumentation de fréquence d'appels.
+
+**Fait CAS :** `D1DevJobRepository.update(id, patch, {expected})` re-lit le job puis compare `updated_at`, `status`, `result_json`, `plan_json` ; l'UPDATE SQL répète les conditions CAS de manière atomique. Il rejette un snapshot périmé avec `JOB_UPDATE_CONFLICT` plutôt que d'écraser une transition concurrente. Les deux persistances de diagnostic ci-dessus ont bien le schéma `latest = await repository.get(jobId)` puis `repository.update(...,{expected:latest})`. Les écritures extérieures concurrentes (claim Bridge / statuts / autre tick) peuvent donc légitimement intercaler une mise à jour. La source exacte du conflit FOUNDER-01 n'est toujours pas isolée. **Ne pas désactiver CAS.**
+
+**Réparation ciblée suggérée à Codex :** tester que deux ticks successifs après `MENTOR_PROVIDER_TIMEOUT` et `MENTOR_NO_VALID_CODE_PROPOSAL` ne relancent pas immédiatement le même appel coûteux ; ajouter un report borné/jitter par classe d'erreur et un réveil automatique, tout en permettant à d'autres objectifs d'avancer. Pour JSON invalide, vérifier d'abord prompt/schéma ; le report seul ne corrigerait pas une incompatibilité persistante. Tester le nombre réel d'invocations Mentor et l'absence de starvation. Pour CAS, identifier le producteur concurrent via le journal d'évolution et ne fusionner que les diagnostics dérivés du dernier état. Conserver l'état MAX actif et les preuves DONE_VERIFIED.
+
+**Degré de confiance :** l'omission de ces codes dans `providerDeferral` est démontrée ; l'impact précis sur le nombre de requêtes n'est pas encore mesuré.
+
+## Correctif concret initié — PR #2454 (23/10/2026)
+
+Pour minimiser le travail de Codex, une PR de correction ciblée a été créée : **#2454**, branche `fix/max-mentor-provider-deferral-20261023`, commit de tête `002959d63abd651b51cba85754a1e849801bdf9c`, fichiers `src/evolution/autonomy-runtime-core.js` et `tests/autonomy-verification-wait.test.mjs`. Elle ajoute à `providerDeferral()` les erreurs `MENTOR_PROVIDER_TIMEOUT`, `MENTOR_NO_VALID_CODE_PROPOSAL`, `MENTOR_JSON_INVALID`, `MENTOR_JSON_REQUIRED`, avec la même temporisation persistante de 5 minutes que les erreurs fournisseur déjà reconnues. Test régressif : codes et délai + `MENTOR_UNINSPECTED_EDIT` reste non différé. **PR créée en draft, pas fusionnée, CI non encore attestée, pas déployée.** Codex doit **réconcilier**, ne pas recoder ces modifications; vérifier aussi que l'appelant du runtime et le scheduler respectent le délai, pas uniquement la fonction unitaire. Ce report vise la dépense inutile, pas la cause des réponses JSON invalides ou du Bridge.
