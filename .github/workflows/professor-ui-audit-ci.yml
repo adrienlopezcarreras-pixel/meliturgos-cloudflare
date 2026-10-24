@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - "src/pages/full-interface-v2.js"
+      - "src/pages/revenue-interface.js"
+      - "scripts/verify-interface-browser.mjs"
+      - "tests/ui-audit-controls.test.mjs"
       - "src/evolution/autonomy-activity.js"
       - "src/evolution/autonomy-runtime-core.js"
       - "src/teachers/github-completion-reconciler.js"
@@ -70,6 +73,21 @@ jobs:
           tests/dev-job-cancelled-not-revived.test.mjs tests/full-candidate-ci-lookup.test.mjs
           tests/autonomy-runtime.test.mjs tests/autonomy-verification-wait.test.mjs
           tests/autonomy-completion-gates.test.mjs tests/autonomy-completion-mentor-learning.test.mjs
+      - name: Verify audited controls and roadmap compatibility
+        run: node --test tests/ui-audit-controls.test.mjs tests/chat-roadmap-audit.test.mjs tests/roadmap-consolidation.test.mjs tests/roadmap-truth.test.mjs
+      - name: Exercise canonical pages in Chromium (local integrations remain BLOCKED)
+        env:
+          MEL_TEST_BROWSER_PATH: /usr/bin/google-chrome
+          MEL_UI_AUDIT_OUTPUT: ${{ runner.temp }}/mel-interface-browser-proof
+        run: node scripts/verify-interface-browser.mjs
+      - name: Retain browser matrix, inventory, requests and screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-interface-browser-proof
+          path: ${{ runner.temp }}/mel-interface-browser-proof/
+          if-no-files-found: warn
+          retention-days: 7
       - name: Full test suite
         shell: bash
         run: |

@@ -1,3 +1,4 @@
+import { hasLeakedToolProtocol, isToolProtocolExampleRequest } from '../api/agent-tools.js';
 // Weekly outcome audit of every MEL domain: does the chat answer, does the
 // watch still run, does WORK deliver. The capability stress proves that a
 // capability responds; this proves that each domain produces results. Every
@@ -20,7 +21,8 @@ export function auditChat(events = [], { now = Date.now() } = {}) {
   if (week.length >= 3 && high.length / week.length > 0.2) {
     findings.push({ code: 'CHAT_OFF_TOPIC_ANSWERS', detail: high.length + '/' + week.length + ' réponses hors sujet ou vides cette semaine' });
   }
-  const leaks = week.filter(row => /^\s*\{\s*"(?:name|tool)"\s*:/.test(String(row?.response_excerpt || '')));
+  const leaks = week.filter(row => !isToolProtocolExampleRequest(row?.user_excerpt || '')
+    && hasLeakedToolProtocol(row?.response_excerpt || ''));
   if (leaks.length) findings.push({ code: 'CHAT_RAW_TOOL_CALL_SHOWN', detail: leaks.length + ' réponses affichent un appel d’outil brut au lieu du résultat' });
   return findings;
 }
@@ -58,7 +60,7 @@ export function auditWork(cycles = [], { now = Date.now() } = {}) {
 export async function runDomainAudit(db, { now = Date.now() } = {}) {
   const rows = async sql => (await db.prepare(sql).all().catch(() => ({ results: [] })))?.results || [];
   const [events, states, cycles] = await Promise.all([
-    rows('SELECT issues_json, response_excerpt, created_at FROM mel_response_quality_events ORDER BY created_at DESC LIMIT 500'),
+    rows('SELECT user_excerpt, issues_json, response_excerpt, created_at FROM mel_response_quality_events ORDER BY created_at DESC LIMIT 500'),
     rows('SELECT id, state_json, updated_at FROM capability_watch_state'),
     rows('SELECT state, updated_at FROM mel_work_cycles ORDER BY updated_at DESC LIMIT 500'),
   ]);

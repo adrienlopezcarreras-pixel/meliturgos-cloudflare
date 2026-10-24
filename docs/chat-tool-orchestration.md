@@ -47,3 +47,11 @@ Le classifieur partagé `inferChatMediaCapability` reconnaît l’objet directem
 Les quantités sont bornées à six ; les formulations polies et les nombres en lettres sont reconnus. Les demandes documentaires, explications, négations, références privées et URLs ne déclenchent pas de recherche déterministe. Le texte explicitement cité pour la voix est une donnée à prononcer, jamais une instruction à exécuter.
 
 `tests/chat-media-understanding.test.mjs` vérifie 39 formulations contrastées, trois textes de synthèse vocale et deux passages réels par `/api/chat` avec transport de recherche simulé : demande polie de trois photos et comparaison explicative sans recherche. Les tests de routage mesurent le logiciel ; ils ne prouvent pas la compréhension générale d’un modèle ni l’exécution d’un fournisseur en production.
+
+## JSON demandé et protocole d’action : contrat partagé
+
+Le parseur canonique distingue un enregistrement métier (`{"name":"Adrien","age":30}`), une définition de fonction et un appel explicite avec ses arguments. Les alias `name`, `capability` et `function` nécessitent une enveloppe d’entrée ; les véritables appels restent soumis au dispatcher et aux autorisations existantes. Aucun objet imbriqué dans une donnée tronquée ne devient une action indépendante.
+
+Le filtre du streaming, la réponse finale et l’audit réutilisent cette frontière. Les exemples explicitement demandés restent visibles et ne sont pas exécutés. Le prompt de streaming autorise alors les représentations documentaires tout en interdisant leur exécution et les faux résultats. Les autres réponses continuent de masquer les appels non exécutés, y compris les enveloppes reconnues incomplètes ou fragmentées volumineuses. Une réponse filtrée ne constitue pas une preuve d’exécution.
+
+`tests/chat-json-contract.test.mjs` couvre le parcours réel `/api/chat` avec et sans streaming, des réponses modèle contrôlées, les données métier, les exemples, les appels autorisés, les erreurs de protocole et l’audit. Ces preuves locales ne mesurent pas la qualité générale du fournisseur et ne certifient aucune intégration en production. Ce correctif contribue aux critères compréhension et intégration de la feuille de route professionnelle ; leur validation reste ouverte.

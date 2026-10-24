@@ -2405,6 +2405,7 @@ export async function handleNativeChat(request, env, options = {}) {
     return streamChatResponse({
       env,
       messages,
+      preserveToolExamples: isToolProtocolExampleRequest(activeTaskText),
       verifyCompletedText: professorCodeChat ? (raw) => finalizeEvidenceAlignedResponse({
         text:raw, userText:activeTaskText, codeAccess, toolResults, developmentQueued,
         requireD1ExecutionReceipts:true,
@@ -2794,7 +2795,8 @@ export async function handleNativeChat(request, env, options = {}) {
       });
   const mediaRequest=inferChatMediaCapability(activeTaskText);
   const mediaEvidence=mediaRequest ? toolResults.find(row=>row.capability===mediaRequest.id) : null;
-  let responseText = stripTextToolCalls(withOfficialVisual(qualityGuardedResponseText, activeTaskText, toolResults));
+  const visualResponse = withOfficialVisual(qualityGuardedResponseText, activeTaskText, toolResults);
+  let responseText = toolExampleRequest ? visualResponse : stripTextToolCalls(visualResponse);
   if(mediaEvidence?.status==='FAILED')responseText='Le média demandé n’a pas été obtenu : '+String(mediaEvidence.error||'MEDIA_FAILED')+'. Aucun résultat terminé n’est disponible.';
   else if(mediaEvidence?.result?.code==='MEDIA_SEARCH_EMPTY')responseText='Aucun son ou vidéo correspondant n’a été trouvé dans la bibliothèque libre. Précise le sujet ou essaie une autre recherche.';
   else if(mediaEvidence?.result?.provider==='mel-dsp')responseText='Création audio synthétique procédurale (sans fournisseur IA payant).\n\n'+responseText;
