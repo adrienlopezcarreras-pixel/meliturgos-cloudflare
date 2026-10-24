@@ -32,7 +32,7 @@ import { buildConversationFocusInstruction, deriveConversationFocus } from './co
 import { loadConversationFocusState, saveConversationFocusState } from './conversation-focus-store.js';
 import { assessResponseQuality, enforceResponseQuality, persistResponseQualityEvent, replaceUnusableResponse, UNUSABLE_RESPONSE_CODES } from './response-quality-audit.js';
 import { inferKnowledgeCapability } from './knowledge-intent.js';
-import { plainChatMayStream, streamChatResponse } from './chat-stream.js';
+import { plainChatMayStream, streamChatResponse, createToolLeakFilter } from './chat-stream.js';
 import { instrumentBus } from './chat-progress.js';
 import { runLocalPcModel } from '../models/local-pc-model.js';
 import { rankedStreamModels } from '../models/model-tournament.js';
@@ -554,6 +554,17 @@ export function buildRuntimeCapabilityManifest(runtime) {
     tested_now: false,
     last_execution: null,
   }));
+}
+
+// A model sometimes writes its tool call as text ({"name":"d1.query",…})
+// instead of calling it; the owner then saw raw JSON (weekly chat audit,
+// 2026-10-24). Remove it, and say so when nothing else was answered.
+export function stripTextToolCalls(text) {
+  const raw = String(text ?? '');
+  const filter = createToolLeakFilter();
+  const kept = (filter.push(raw) + filter.flush()).trim();
+  if (!filter.dropped) return raw;
+  return kept || 'Je n’ai pas pu exécuter l’outil nécessaire pour répondre : la demande n’a pas abouti. Reformule ou relance pour que je réessaie.';
 }
 
 export function applyCapabilityExecutionEvidence(manifest = [], toolResults = []) {
@@ -2783,7 +2794,7 @@ export async function handleNativeChat(request, env, options = {}) {
       });
   const mediaRequest=inferChatMediaCapability(activeTaskText);
   const mediaEvidence=mediaRequest ? toolResults.find(row=>row.capability===mediaRequest.id) : null;
-  let responseText = withOfficialVisual(qualityGuardedResponseText, activeTaskText, toolResults);
+  let responseText = stripTextToolCalls(withOfficialVisual(qualityGuardedResponseText, activeTaskText, toolResults));
   if(mediaEvidence?.status==='FAILED')responseText='Le média demandé n’a pas été obtenu : '+String(mediaEvidence.error||'MEDIA_FAILED')+'. Aucun résultat terminé n’est disponible.';
   else if(mediaEvidence?.result?.code==='MEDIA_SEARCH_EMPTY')responseText='Aucun son ou vidéo correspondant n’a été trouvé dans la bibliothèque libre. Précise le sujet ou essaie une autre recherche.';
   else if(mediaEvidence?.result?.provider==='mel-dsp')responseText='Création audio synthétique procédurale (sans fournisseur IA payant).\n\n'+responseText;
