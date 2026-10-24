@@ -84,10 +84,11 @@ function isPassiveRuntimeJob(job) {
   if (status === 'CANCELLED' || status === 'FAILED') return true;
 
   // [MEL-MANIFEST-06] Protection against stale QUEUED jobs from before activity epoch.
-  // If the job was queued before the current runtime activity, it is considered obsolete.
-  const activityEpoch = job?.result_json?.activity_epoch;
-  const jobCreatedAt = job?.created_at ? new Date(job.created_at).getTime() : 0;
-  if (status === 'QUEUED' && activityEpoch && jobCreatedAt < activityEpoch) return true;
+  if (status === 'QUEUED') {
+    const activityEpoch = job?.result_json?.activity_epoch;
+    const jobCreatedAt = job?.created_at ? new Date(job.created_at).getTime() : 0;
+    if (activityEpoch && jobCreatedAt < activityEpoch) return true;
+  }
 
   return status === 'READY_FOR_REVIEW' && job?.result_json?.dev_bridge?.needs_repair !== true;
 }
