@@ -96,3 +96,13 @@ test('production release dispatch must acknowledge both candidate promotion path
   assert.equal((workflow.match(/^\s*dispatch_release$/gm)||[]).length,2);
   assert.doesNotMatch(workflow,/PRODUCTION_RELEASE_DISPATCH http=\$code/);
 });
+
+test('Bridge permits only nonoverlapping descendant SHA rebase before mandatory full tests', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  assert.match(workflow,/git merge-base --is-ancestor "\$CANDIDATE_SHA" "\$HEAD_SHA"/);
+  assert.match(workflow,/git diff --quiet "\$CANDIDATE_SHA" "\$HEAD_SHA" -- "\$\{APPROVED_PATHS\[@\]\}"/);
+  assert.match(workflow,/TEACHER_APPROVAL_CANDIDATE_SHA_STALE_OVERLAPPING_FILES/);
+  assert.match(workflow,/APPROVED_SNAPSHOT_SHA=\$CANDIDATE_SHA/);
+  assert.match(workflow,/CANDIDATE_SHA=\$HEAD_SHA/);
+  assert.ok(workflow.indexOf('CANDIDATE_DISJOINT_REBASE') < workflow.indexOf('- name: Run exact bounded requested tests'));
+});
