@@ -97,3 +97,15 @@ test('global reset denies active WORK writer leases and accepts expired leases',
   await assert.rejects(assertNoActiveWorkLeases(leaseDb(1),{now:10}), /WORK_LEASES_ACTIVE/);
   assert.deepEqual(await assertNoActiveWorkLeases(leaseDb(0),{now:10}), {active:0,status:'NO_ACTIVE_WORK_LEASES'});
 });
+
+test('maintenance inspection route is authenticated and read-only', async () => {
+  const source = await (await import('node:fs/promises')).readFile(
+    new URL('../../src/evolution/autonomy-api.js', import.meta.url), 'utf8');
+  assert.match(source, /isMaintenanceInspect/);
+  const authPos = source.indexOf('const auth = requireAuth(request, env)');
+  const handlerPos = source.indexOf('if (isMaintenanceInspect) {');
+  assert.ok(authPos >= 0 && handlerPos > authPos);
+  const handler = source.slice(handlerPos, source.indexOf('if (isActivityReset)', handlerPos));
+  assert.match(handler, /reset_available:false/);
+  assert.doesNotMatch(handler, /DELETE FROM|UPDATE dev_jobs|retireLegacyDevJobs/);
+});
