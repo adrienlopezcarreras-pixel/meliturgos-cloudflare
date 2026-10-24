@@ -397,7 +397,7 @@ jobs:
           if(!Array.isArray(files)||files.length<1||files.length>10) process.exit(2);
           for(const item of files){
             const p=String(item?.path||'').replace(/\\/g,'/');
-            if(!p||p.startsWith('/')||p.split('/').includes('..')||p.startsWith('-')||p.includes('\0')) process.exit(2);
+            if(!p||p.startsWith('/')||p.split('/').includes('..')||p.startsWith('-')||p.includes('\0')||p.includes('\\')||p.split('/').includes('.')) process.exit(2);
             process.stdout.write(p+'\0');
           }
           NODE
