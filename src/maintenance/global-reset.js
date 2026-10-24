@@ -153,3 +153,20 @@ export async function assertNoActiveWorkLeases(db, { now = Date.now() } = {}) {
   if (count !== 0) throw Error('MAINTENANCE_WORK_LEASES_ACTIVE');
   return {active:0, status:'NO_ACTIVE_WORK_LEASES'};
 }
+
+// Explicit operational readiness: no client flags can prove a production
+// restore test, global producer freeze, or coverage of every domain handler.
+export function globalCleanupReadiness({ restoreTestProof = null, producerFenceProof = null, domainProofs = {} } = {}) {
+  const blockers = [];
+  if (restoreTestProof?.verified !== true || restoreTestProof?.isolated_restore_tested !== true ||
+      !String(restoreTestProof?.reference || '').trim()) blockers.push('RESTORE_TEST_NOT_VERIFIED');
+  if (producerFenceProof?.verified !== true || producerFenceProof?.all_producers_stopped !== true ||
+      !String(producerFenceProof?.reference || '').trim()) blockers.push('PRODUCER_FENCE_NOT_VERIFIED');
+  for (const scope of RESET_SCOPES) {
+    if (domainProofs?.[scope]?.tested !== true || domainProofs?.[scope]?.idempotent !== true ||
+        domainProofs?.[scope]?.generation_fenced !== true) {
+      blockers.push('DOMAIN_RESET_NOT_PROVEN:' + scope);
+    }
+  }
+  return { ready:blockers.length === 0, blockers };
+}
