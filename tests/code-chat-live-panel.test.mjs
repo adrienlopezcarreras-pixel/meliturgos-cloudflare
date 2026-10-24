@@ -70,3 +70,12 @@ test('Code live view receives only server progress and verified tool receipts',(
   assert.match(page,/d\?\.tool_results/);
   assert.match(page,/result\?\.node_counts/);
 });
+
+test('Code activity has one scroll viewport and collapse overrides resized minimums', () => {
+  assert.match(page, /\.mel-code-live-events\{[^}]*overflow:visible;max-height:none/);
+  assert.match(page, /\.mel-code-live-panel\.is-collapsed\{[^}]*min-width:0!important;min-height:0!important/);
+  assert.match(page, /if\(!panel\.classList\.contains\('is-collapsed'\)\)requestAnimationFrame\(\(\)=>\{/);
+  assert.match(page, /panel\.scrollTop=panel\.scrollHeight/);
+  assert.doesNotMatch(page, /host\.scrollTop=host\.scrollHeight/);
+  assert.match(page, /btn\.setAttribute\('aria-expanded',String\(open\)\)/);
+});
