@@ -23,3 +23,27 @@ Les protections existantes restent actives : allowlist, autorisations Capability
 `tests/agent-tools.test.mjs` vérifie les appels dépendants, l’association arguments/résultats, AUTH_REQUIRED conservé, l’aperçu JSON valide, les attentes bloquées, l’absence d’appel après expiration et les balises des modèles ouverts. `tests/chat-global-deadline.test.mjs` vérifie le budget du vrai chat. Les tests média et navigateur continuent de couvrir l’affichage ; leurs fixtures ne prouvent pas un fournisseur réel.
 
 Ces changements améliorent l’orchestration. Ils ne démontrent ni une égalité générale avec Claude/Grok/ChatGPT, ni une capacité inexistante, ni une mission roadmap DONE_VERIFIED. La validation en production reste distincte des tests locaux.
+
+
+## Compréhension des demandes multimédia : évaluation ciblée
+
+Sources complémentaires consultées le 24 octobre 2026 :
+
+- [Hugging Face : multimodal chat templates](https://github.com/huggingface/transformers/blob/main/docs/source/en/chat_templating_multimodal.md) distingue texte, images et vidéo réellement fournis au processeur. Un nom, titre, lien ou aperçu de fichier ne constitue pas une analyse visuelle ou sonore. Les protections des pièces jointes de MEL restent inchangées.
+- [Anthropic Cookbook : Building Evals](https://github.com/anthropics/anthropic-cookbook/blob/main/misc/building_evals.ipynb) recommande des évaluations spécifiques à la tâche et des critères de notation adaptés. L’évaluation ci-dessous est locale et déterministe : aucun juge IA payant ni score de compétence générale.
+
+Le classifieur partagé `inferChatMediaCapability` reconnaît l’objet directement demandé après une commande. Les recherches photo, audio et vidéo n’utilisent plus deux détecteurs indépendants. `inferPublicImageLookup` délègue au même classifieur pour conserver le chemin image existant.
+
+| Demande | Décision attendue |
+| --- | --- |
+| Montre le code pour afficher une vidéo | Pas de recherche de média |
+| Montre les différences entre une photo et une vidéo | Explication, pas de recherche de média |
+| Peux-tu me montrer trois photos de chats | Recherche de trois images |
+| Montre une vidéo avec trois photos | Recherche d’une vidéo |
+| Crée-moi une image pour une vidéo | Génération d’image, pas développement du code |
+| Lis à voix haute : mon fichier contient https://example.org | Synthèse du texte littéral, aucune ouverture du lien/fichier |
+| Montre cette image / analyse ma vidéo ci-jointe | Reste dans le traitement du contexte privé, aucune recherche publique de substitution |
+
+Les quantités sont bornées à six ; les formulations polies et les nombres en lettres sont reconnus. Les demandes documentaires, explications, négations, références privées et URLs ne déclenchent pas de recherche déterministe. Le texte explicitement cité pour la voix est une donnée à prononcer, jamais une instruction à exécuter.
+
+`tests/chat-media-understanding.test.mjs` vérifie 33 formulations contrastées, trois textes de synthèse vocale et deux passages réels par `/api/chat` avec transport de recherche simulé : demande polie de trois photos et comparaison explicative sans recherche. Les tests de routage mesurent le logiciel ; ils ne prouvent pas la compréhension générale d’un modèle ni l’exécution d’un fournisseur en production.

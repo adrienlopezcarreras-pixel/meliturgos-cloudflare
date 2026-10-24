@@ -16,7 +16,7 @@ test('the requested media object wins over nouns in the topic or purpose',()=>{
  ]){
   const result=inferChatMediaCapability(text);assert.equal(result?.id,id,text);if(type)assert.equal(result.input.type,type,text);
  }
- assert.equal(inferChatMediaCapability('Montre une photo pour une vidéo'),null,'photos must reach the existing image-search route');
+ assert.equal(inferChatMediaCapability('Montre une photo pour une vidéo')?.id,'web.images.search','photos use the same classifier and existing image-search capability');
  assert.equal(inferChatMediaCapability('Montre une vidéo avec 3 sons').input.max_results,1,'a quantity in the subject is not a result count');
  assert.equal(inferChatMediaCapability('Cherche 2 sons pour une vidéo').input.max_results,2);
 });

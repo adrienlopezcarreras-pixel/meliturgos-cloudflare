@@ -632,16 +632,8 @@ function asksForPicture(userText) {
 }
 
 export function inferPublicImageLookup(text) {
-  const value = String(text || '').trim();
-  if (!value || value.length > 280) return null;
-  const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  // Images uploaded by the owner, image generation and UI debugging are not public searches.
-  if (/^(?:pourquoi|comment)\b|\b(?:ne\s+(?:me\s+)?(?:montre|cherche|recherche|affiche)|ci[- ]jointe|jointe|envoyee|televersee|uploadee|capture d'ecran|mes photos|mes images|ma photo|mon image|genere|cree|dessine|probleme|bug)\b/.test(normalized)) return null;
-  if (!/\b(?:montre(?:[- ]moi)?|affiche|trouve|cherche|recherche|donne[- ]moi)\b[\s\S]{0,100}\b(?:photos?|images?|portraits?)\b/.test(normalized)) return null;
-  const number=normalized.match(/\b([1-6])\s+(?:photos?|images?|portraits?)\b/);
-  const word=normalized.match(/\b(deux|trois|quatre|cinq|six)\s+(?:photos?|images?|portraits?)\b/);
-  const count=number?Number(number[1]):word?({deux:2,trois:3,quatre:4,cinq:5,six:6}[word[1]]):1;
-  return {id:'web.images.search',input:{query:value.slice(0,240),max_images:count}};
+  const inferred = inferChatMediaCapability(text);
+  return inferred?.id === 'web.images.search' ? inferred : null;
 }
 
 function validatedPictureUrl(toolResults) {
