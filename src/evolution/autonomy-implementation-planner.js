@@ -131,6 +131,33 @@ const GOAL_TERMS = [
   ['mel work', 'work'],
 ];
 
+const PATH_STOPWORDS = new Set(['avec', 'sans', 'dans', 'pour', 'sont', 'une', 'des', 'les', 'aucun', 'aucune', 'chaque', 'seulement', 'jamais', 'prouver', 'preuve', 'reelle', 'reel', 'doit', 'faire', 'mel', 'manifeste', 'priorite', 'supervise', 'supervisee', 'travail', 'travaux']);
+// Roadmap text is French, source paths are English.
+const PATH_SYNONYMS = Object.freeze({ restau: ['restor', 'backup'], sauveg: ['backup'], veille: ['watch', 'ecosys'], decouv: ['discov'], compet: ['capabi', 'skill'], capaci: ['capabi'], livrab: ['artifa', 'delive'], memoir: ['memory'], journa: ['ledger'] });
+const stemOf = word => word.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().slice(0, 6);
+
+// Localization first (Agentless): rank repository source paths by the roadmap
+// item's own words so the mentor sees the code it must change, not fallbacks.
+export function rankGoalPaths(goal, paths = [], limit = 2) {
+  const subject = String(goal || '').replace(/\s*\|\s*OBJECTIF\s[\s\S]*$/, '').replace(/^\[[^\]]*\]/, '');
+  const stems = [...new Set((subject.match(/[\p{L}_]{4,}/gu) || [])
+    .map(word => word.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase())
+    .filter(word => !PATH_STOPWORDS.has(word))
+    .map(stemOf)
+    .flatMap(stem => [stem, ...(PATH_SYNONYMS[stem] || [])]))];
+  if (!stems.length) return [];
+  return (Array.isArray(paths) ? paths : [])
+    .filter(path => /^src\/.+\.(?:m?js)$/.test(path))
+    .map(path => {
+      const tokens = path.toLowerCase().split(/[\/._-]+/).filter(token => token.length >= 4).map(stemOf);
+      return { path, score: stems.filter(stem => tokens.includes(stem)).length };
+    })
+    .filter(row => row.score > 0)
+    .sort((a, b) => b.score - a.score || a.path.length - b.path.length || a.path.localeCompare(b.path))
+    .slice(0, limit)
+    .map(row => row.path);
+}
+
 export function inspectionGoalTerms(job) {
   // The appended manifest status list is not part of this item's subject.
   const text = String(job?.goal || '').replace(/\s*\|\s*OBJECTIF\s[\s\S]*$/, '').toLowerCase();
@@ -259,6 +286,9 @@ async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) 
     'src/roadmap/master-roadmap.js',
   ];
   const goalPaths = [];
+  if (typeof reader.paths === 'function') {
+    try { goalPaths.push(...rankGoalPaths(job?.goal, await reader.paths())); } catch {}
+  }
   for (const term of inspectionGoalTerms(job)) {
     try {
       const extra = await reader.search({ query: term });

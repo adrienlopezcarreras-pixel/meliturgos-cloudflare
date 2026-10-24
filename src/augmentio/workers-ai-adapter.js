@@ -10,7 +10,10 @@ function normalizeMessages(input, context = {}) {
 
 function extractText(result) {
   if (typeof result === 'string') return result;
-  return result?.response ?? result?.text ?? result?.result?.response ?? result?.choices?.[0]?.message?.content ?? null;
+  const value = result?.response ?? result?.text ?? result?.result?.response ?? result?.choices?.[0]?.message?.content ?? null;
+  // Some Workers AI models (llama-3.3-70b) return a JSON answer already
+  // parsed; String(object) gave "[object Object]" and lost every proposal.
+  return value && typeof value === 'object' ? JSON.stringify(value) : value;
 }
 
 function boundedNumber(value, min, max) {
