@@ -10,6 +10,7 @@ import { D1DevJobRepository, isPreparedDevBridgeJob } from '../dev/d1-dev-job-re
 import { D1EvolutionLedger } from './evolution-ledger.js';
 import { getAutonomyControl } from './autonomy-control.js';
 import { readAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
+import { flattenRoadmap, isClosedRoadmapStatus } from '../roadmap/master-roadmap.js';
 
 
 export const ACTIVITY_LIST_EPOCH_ID = 'activity-list-epoch';
@@ -62,7 +63,9 @@ const STATUS_TEXT = Object.freeze({
   APPLIED: 'Appliqué sur la candidate ; tests en cours.',
   TESTING: 'Tests de la candidate en cours.',
   COMMITTED: 'Commit sur la candidate ; attend CI et promotion.',
-  COMPLETED: 'Terminé et vérifié.',
+  // COMPLETED means the code passed Council and CI, not that the roadmap
+  // objective is proven; describeJob says which one applies.
+  COMPLETED: 'Code livré (Council et CI) ; objectif de la feuille de route pas encore prouvé.',
   FAILED: 'Échec : voir l’erreur ; une réparation sera planifiée.',
   BLOCKED: 'Bloqué : voir la raison.',
   CANCELLED: 'Annulé.',
@@ -106,6 +109,12 @@ function diagnostic(value) {
 }
 
 /** The pipeline of one supervised job, as ordered steps with done/current/todo. */
+function roadmapObjectiveProven(job) {
+  const id = job?.optional_context?.roadmap_id;
+  if (!id) return false;
+  return isClosedRoadmapStatus(flattenRoadmap().find(item => item.id === id)?.status);
+}
+
 export function jobPipeline(job) {
   const status = String(job?.status || '').toUpperCase();
   const r = obj(job?.result_json);
@@ -144,7 +153,8 @@ export function jobPipeline(job) {
     { key: 'package', label: existingVerified ? 'Vérification sans nouveau paquet' : 'Paquet prêt pour le pont', done: packageReady || existingVerified },
     { key: 'candidate', label: 'Appliqué sur la candidate', done: published || verified },
     { key: 'ci', label: 'CI complète verte', done: verified },
-    { key: 'done', label: 'Travail vérifié (candidate et CI)', done: status === 'COMPLETED' && verified },
+    { key: 'done', label: 'Code livré (Council et CI)', done: status === 'COMPLETED' && verified },
+    { key: 'objective', label: 'Objectif prouvé (feuille de route)', done: roadmapObjectiveProven(job) },
   ];
   const current = steps.findIndex(step => !step.done);
   return steps.map((step, index) => ({ ...step, state: step.done ? 'done' : index === current ? (status === 'FAILED' || status === 'BLOCKED' ? 'blocked' : 'current') : 'todo' }));
@@ -193,7 +203,7 @@ export function describeJob(job, now = Date.now()) {
       : String(job?.requested_by || '').startsWith('owner-chat') ? 'demande d’Adrien' : 'feuille de route',
     goal: clip(job?.goal, 600),
     status,
-    status_text: STATUS_TEXT[status] || 'Statut ' + status + '.',
+    status_text: status === 'COMPLETED' && roadmapObjectiveProven(job) ? 'Terminé : code livré et objectif prouvé.' : (STATUS_TEXT[status] || 'Statut ' + status + '.'),
     created_at: num(job?.created_at),
     updated_at: updated || null,
     idle_minutes: updated ? Math.max(0, Math.round((now - updated) / 60000)) : null,
