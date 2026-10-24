@@ -1,3 +1,4 @@
+import { readMaintenanceFence } from '../maintenance/maintenance-gate.js';
 // MEL WORK on its own, end to end: every 6 hours the hourly maintenance cron
 // runs one autonomous cycle (bounty offers only, no human step). MEL writes the
 // deliverable and hands it in herself through the owner's PC (Companion). A
@@ -22,7 +23,9 @@ async function draftsLast24h(db, now) {
 
 // Deliverables finished while the PC was off (or over the daily limit) are handed in later.
 export async function retryPendingSubmissions(env, { now = Date.now(), queue = queueTaskmarketSubmission } = {}) {
-  const db = env.DB;
+  const db = env?.DB;
+  const fence = await readMaintenanceFence(db);
+  if (fence.paused) return { retried:0, status:'PAUSED_FOR_MAINTENANCE' };
   let rows = [];
   try {
     rows = (await db.prepare("SELECT id, result FROM mel_work_cycles WHERE state='COMPLETE' AND updated_at > ? ORDER BY updated_at DESC LIMIT 10").bind(new Date(now - 3 * 86_400_000).toISOString()).all())?.results || [];
@@ -43,6 +46,8 @@ export async function retryPendingSubmissions(env, { now = Date.now(), queue = q
 }
 
 export async function runScheduledMelWork(env, { now = new Date(), run = streamDirectWork, startCycle = true } = {}) {
+  const fence = await readMaintenanceFence(env?.DB);
+  if (fence.paused) return { status:'PAUSED_FOR_MAINTENANCE' };
   if (String(env?.MEL_WORK_AUTONOMOUS || 'on').toLowerCase() === 'off') return { status: 'DISABLED' };
   if (!env?.DB?.prepare || typeof env?.AI?.run !== 'function') return { status: 'RUNTIME_UNAVAILABLE' };
   // Once: copy the PC Taskmarket keystore to the vault so hand-ins work PC off.
