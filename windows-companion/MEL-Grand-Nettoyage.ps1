@@ -11,7 +11,7 @@ Report 'ETAPE 1 - PREFLIGHT MEL : aucune suppression avant inspection.'
 $base=$env:MEL_BASE_URL
 $cookie=$env:MEL_SESSION_COOKIE
 Report 'MAX : VERROUILLE - backup restaure et pause des producteurs non attestes.'
-Report 'ETAPE 3 - INVENTAIRE GLOBAL MEL (lecture seule).'
+Report 'PREFLIGHT - INVENTAIRE GLOBAL MEL (lecture seule).'
 if ($base -and $cookie -and $base -match '^https://[^/]+$') {
   try {
     $inventory=Invoke-RestMethod -Method Get -Uri "$base/api/gen2/autonomy/maintenance/inspect" -Headers @{Cookie=$cookie;Accept='application/json'} -TimeoutSec 45
