@@ -517,7 +517,9 @@ test('owner-merged integration PRs may trigger batched release regardless of PR 
 
 test('scheduled production catch-up is not blocked by scheduler actor identity', () => {
  const yaml=readFileSync(new URL('../.github/workflows/mel-autonomous-production-release.yml', import.meta.url),'utf8');
- assert.ok(yaml.includes("(github.event_name == 'schedule' || github.actor == 'adrienlopezcarreras-pixel'"));
+ assert.ok(yaml.includes("github.event_name == 'schedule' || (github.event_name == 'workflow_run' && github.event.workflow_run.head_repository.full_name == github.repository)"));
+ assert.ok(yaml.includes("github.actor == 'adrienlopezcarreras-pixel'"));
+ assert.ok(yaml.includes("github.event.workflow_run.name == 'deploy-cloudflare-release'"));
  assert.ok(yaml.includes("MEL_REQUIRE_PROTECTED_REFS:"));
  assert.ok(yaml.includes("github.event_name == 'schedule' && github.ref == 'refs/heads/main'"));
 });
