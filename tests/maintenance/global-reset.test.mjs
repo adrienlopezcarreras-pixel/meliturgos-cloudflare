@@ -14,7 +14,7 @@ const db = {
           }
         };
       },
-      async first() { return {n:27}; }
+      async first() { return sql.includes('work_dag_run_leases') ? null : {n:27}; }
     };
   }
 };
