@@ -530,7 +530,10 @@ export class MentorEngine {
     const specialists = pool.list({ capability: 'CODE_SPECIALIST' }).filter(provider => governor.allows(provider));
     const large = specialists.filter(provider => provider.capabilities.includes('CODE_LARGE'));
     const small = specialists.filter(provider => !provider.capabilities.includes('CODE_LARGE'));
-    const cloud = escalate ? [...large, ...small] : small;
+    const coders = escalate ? [...large, ...small] : small;
+    // No code model answers the zero-cost proof: keep MAX moving with the
+    // general models; the weekly development audit reports the exclusion.
+    const cloud = coders.length ? coders : pool.list({ capability: 'CODE' }).filter(provider => governor.allows(provider)).slice(0, codeCouncil ? 16 : 6);
     const companion = await createMentorCompanionFallback(env);
     if (codeCouncil) return cloud;
     return companion ? [...cloud, companion] : cloud;

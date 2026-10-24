@@ -100,8 +100,6 @@ jobs:
               '@cf/openai/gpt-oss-120b',
               '@cf/zai-org/glm-5.3-flash',
               '@cf/qwen/qwen2.5-coder-32b-instruct',
-              '@cf/moonshotai/kimi-k2.7-code',
-              '@cf/zai-org/glm-5.3',
               '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
               '@cf/google/gemma-4-26b-a4b-it',
               '@cf/llava-hf/llava-1.5-7b-hf',

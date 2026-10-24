@@ -90,7 +90,8 @@ export function decide(reviews) {
 
 export function freeCouncilCatalog(env = {}) {
   const ids = standardRegistry.list()
-    .filter(model => model.provider === 'workers-ai' && model.enabled !== false && model.cost === 0)
+    // Reviewers stay distinct from the code-only models that write the code.
+    .filter(model => model.provider === 'workers-ai' && model.enabled !== false && model.cost === 0 && (model.capabilities || []).includes('GENERAL'))
     .sort((a, b) => (b.priority || 0) - (a.priority || 0))
     .map(model => model.id);
   const extra = String(env?.MEL_MODEL_CANDIDATES || '').split(',')

@@ -20,7 +20,7 @@ test('a code model missing from the zero-cost proof is reported, not silently dr
   const saved = process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS;
   delete process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS;
   t.after(() => { if (saved !== undefined) process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = saved; });
-  assert.ok(excludedCodeModels({}).includes('@cf/moonshotai/kimi-k2.7-code'));
+  assert.ok(excludedCodeModels({}).includes('@cf/qwen/qwen2.5-coder-32b-instruct'));
   const report = auditDevelopment({ now: NOW, jobs: [] });
   assert.ok(report.findings.some(f => f.code === 'CODE_MODEL_EXCLUDED_BY_ZERO_COST_PROOF'));
 });
@@ -36,7 +36,7 @@ test('each code model is really tested on a small exercise', async () => {
     return { response: '```js\nfunction sumEven(list){return list.filter(n=>n%2===0).reduce((a,b)=>a+b,0)}\n```' };
   } } };
   const probes = await probeCodeModels(env);
-  assert.ok(probes.length >= 4);
+  assert.equal(probes.length, 2);
   assert.equal(probes.find(p => p.model.includes('glm-5.3-flash')).passed, false);
   assert.ok(probes.filter(p => !p.model.includes('glm-5.3-flash')).every(p => p.passed));
   const report = auditDevelopment({ now: NOW, jobs: [], probes });
@@ -46,7 +46,8 @@ test('each code model is really tested on a small exercise', async () => {
 test('MAX codes only with code models: small ones first, large ones after three failures', () => {
   const pool = createDefaultAugmentioPool({ AI: { run: async () => null } });
   const specialists = pool.list({ capability: 'CODE_SPECIALIST' }).map(p => p.modelId);
-  assert.deepEqual(specialists.slice(0, 2), ['@cf/moonshotai/kimi-k2.7-code', '@cf/zai-org/glm-5.3']);
+  assert.deepEqual(specialists, ['@cf/zai-org/glm-5.3-flash', '@cf/qwen/qwen2.5-coder-32b-instruct']);
+  assert.ok(!specialists.includes('@cf/moonshotai/kimi-k2.7-code'));
   assert.ok(!pool.list({ capability: 'GENERAL' }).some(p => specialists.includes(p.modelId)));
-  assert.ok(standardRegistry.list().filter(m => (m.capabilities || []).includes('CODE_LARGE')).length === 2);
+  assert.ok(standardRegistry.list().filter(m => (m.capabilities || []).includes('CODE_LARGE')).length === 1);
 });
