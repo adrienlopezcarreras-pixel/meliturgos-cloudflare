@@ -36,3 +36,11 @@ test('Code activity follows the last visible entry and collapse hides the full p
   assert.match(source, /is-collapsed #melCodePlan/);
   assert.match(source, /aria-expanded/);
 });
+
+test('the Code activity panel opens small, about one entry high, and stays resizable', async () => {
+  const source = await readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8');
+  const rule = source.match(/\.mel-code-live-panel\{[^}]*\}/)[0];
+  assert.match(rule, /height:150px/);
+  assert.match(rule, /resize:both/);
+  assert.match(rule, /overflow:auto/);
+});
