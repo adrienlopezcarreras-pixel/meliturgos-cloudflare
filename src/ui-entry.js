@@ -100,16 +100,17 @@ async function capabilityWatchTestAllResponse(request, env, ctx) {
     const build = deployedBuild();
     const run = runEcosystemCapabilityWatch(env, {
       force: true,
-      allowHandoff: false,
+      // The owner wants every watch result submitted to the Mentor, tests
+      // included: discoveries are handed off exactly like a real run.
       sourceSha: build?.sha || null,
     });
     if (typeof ctx?.waitUntil === 'function') {
       ctx.waitUntil(run.catch(() => null));
-      return json({ ok: true, test_only: true, production_activation_allowed: false, started: true }, 202);
+      return json({ ok: true, handoff: true, production_activation_allowed: false, started: true }, 202);
     }
     return json({
       ok: true,
-      test_only: true,
+      handoff: true,
       production_activation_allowed: false,
       result: await run,
     });
