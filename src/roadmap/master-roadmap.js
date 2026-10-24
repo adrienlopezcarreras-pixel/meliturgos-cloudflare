@@ -11,7 +11,7 @@ export function isClosedRoadmapStatus(status) {
   return [ROADMAP_STATUSES.VERIFIED, 'DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED'].includes(String(status || '').trim().toUpperCase());
 }
 
-export const ROADMAP_REGISTRY_REVISION = '2026-10-24.2';
+export const ROADMAP_REGISTRY_REVISION = '2026-10-24.3';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -251,7 +251,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-MANIFEST-09', 'Faire évoluer une compétence seulement après un écart prouvé', 'PLANNED', 'Couvert par MEL-FOUNDER-03 : vérifier seulement. Si aucune capacité du bus ne couvre la demande, créer un seul objectif, puis un diff, un Council nommé et une CI verte. Enregistrer la compétence sur le bus unique. Ne pas l’inventer dans la réponse.', 'P1'),
     item('MEL-MANIFEST-10', 'Fermer le compte du manifeste sans ligne manquante', 'PLANNED', 'Les priorités 0 à 3 sont prouvées et les lignes fondatrices correspondantes sont DONE_VERIFIED. La priorité 4 reste BLOCKED_HUMAN tant que Companion, Android et MINI n’ont pas été utilisés en conditions réelles. Ne pas écrire MEL à 100 % avant cela.', 'P1')
   ]),
-  phase('P18', 'Chat professionnel : compréhension, médias et diagnostics prouvés', [
+  phase('P19', 'Chat professionnel : compréhension, médias et diagnostics prouvés', [
     item('MEL-CHAT-01', 'Compréhension contrastive des demandes, exemples et actions', 'IN_PROGRESS', 'Extension du chat, sans doubler MEL-FOUNDER-01. PR #2502 fusionnée, SHA aa07d549, 189 tests locaux et CI verts : demande de média, explication et code distingués ; formulations polies, quantités, références privées et négations. À prouver sur le SHA déployé : mêmes cas contrastés, aucun appel non demandé, JSON métier préservé, appel outil exécuté ou refus exact. Collecter les preuves et un avis Council réel favorable avant clôture. Ne pas réécrire le classifieur déjà livré.', 'P1'),
     item('MEL-CHAT-02', 'Livraison visible et restaurable des médias dans le chat', 'IN_PROGRESS', 'Extension de MEL-MEDIA-02 : ses 12 moteurs certifiés ne prouvent pas le rendu du chat. PR #2491/#2499/#2502 fusionnées : contrat media/references commun, streaming, archive/restauration, sources, lecteurs privés et WebM avec codecs. Chromium local réel validé, mais image/vidéo fixtures identifiées. Recette production requise : photo réellement trouvée, son, vidéo et document visibles avec source, relecture et reprise sans perte ni doublon, auth et Range, erreurs explicites. Zéro fournisseur payant et avis Council réel avant clôture.', 'P1'),
     item('MEL-CHAT-03', 'Analyse multimédia limitée aux données effectivement traitées', 'IN_PROGRESS', 'Extension de GEN2-21/22/23. PR #2503 fusionnée, SHA 8cf650cb, 60 tests locaux et CI verts : vision conservée et résultat PARTIAL quand transcription échoue, vide, trop volumineuse ou absente ; message privé du fournisseur non exposé. À vérifier en production avec octets réellement fournis : échantillon visuel, transcription exacte ou erreur, provenance et portée ; une miniature ou URL ne prouve pas vision/écoute. Le parcours vidéo jointe reste à vérifier, sans le déclarer actif par présence du moteur. Council réel requis.', 'P1'),

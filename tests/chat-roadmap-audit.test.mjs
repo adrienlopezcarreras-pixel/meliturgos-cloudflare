@@ -4,7 +4,7 @@ import {getRoadmapPayload,flattenRoadmap,validateRoadmap,ROADMAP_REGISTRY_REVISI
 import {classifyRoadmapItem} from '../src/roadmap/roadmap-truth.js';
 
 test('the actual roadmap audit payload exposes all eight professional-chat acceptance goals as open',()=>{
- const payload=getRoadmapPayload(),phase=payload.phases.find(row=>row.id==='P18');
+ const payload=getRoadmapPayload(),phase=payload.phases.find(row=>row.id==='P19');
  assert.ok(phase);assert.equal(payload.source.revision,ROADMAP_REGISTRY_REVISION);
  assert.deepEqual(phase.items.map(row=>row.id),['MEL-CHAT-01','MEL-CHAT-02','MEL-CHAT-03','MEL-CHAT-04','MEL-CHAT-05','MEL-CHAT-06','MEL-CHAT-07','MEL-CHAT-08']);
  assert.ok(phase.items.every(row=>['IN_PROGRESS','PLANNED'].includes(row.status)));
@@ -14,7 +14,7 @@ test('the actual roadmap audit payload exposes all eight professional-chat accep
 
 test('a successful primitive capability cannot falsely verify a complete chat acceptance goal',()=>{
  const evidence={capabilities:new Map(['code.read','code.search','web.images.search','media.video.analyze'].map(id=>[id,{ok:1,ko:0,last_ok:Date.now()}])),computer:new Map()};
- for(const item of flattenRoadmap().filter(row=>row.phase_id==='P18')){
+ for(const item of flattenRoadmap().filter(row=>row.phase_id==='P19')){
   const truth=classifyRoadmapItem(item.id,evidence);assert.notEqual(truth.truth,'VERIFIED_LIVE');assert.equal(truth.proofs.length,0);
  }
 });

@@ -2,7 +2,7 @@
 
 Établie le 24 octobre 2026. Objectif : comprendre la demande, agir avec les outils autorisés, puis fournir une réponse utile et des médias réellement consultables. Le niveau attendu se mesure par les résultats, les preuves et les erreurs correctement traitées.
 
-La source unique des objectifs et de leur statut est la phase P18 de `src/roadmap/master-roadmap.js` : MEL-CHAT-01 à MEL-CHAT-08. Ce document décrit l’ordre de travail, les critères de recette et les limites connues. Les critères Gmail/Agenda/Drive de MEL-FOUNDER-01 et les contrôles Teacher/Council sont conservés. MAX est traité dans son chantier existant.
+La source unique des objectifs et de leur statut est la phase P19 de `src/roadmap/master-roadmap.js` : MEL-CHAT-01 à MEL-CHAT-08. Ce document décrit l’ordre de travail, les critères de recette et les limites connues. Les critères Gmail/Agenda/Drive de MEL-FOUNDER-01 et les contrôles Teacher/Council sont conservés. MAX est traité dans son chantier existant.
 
 ## Comparaison fonctionnelle avec l’assistante de cette session
 
