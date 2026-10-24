@@ -82,6 +82,12 @@ test('canonical roadmap forbids bare DONE and requires exact production proof fo
 
   const nonVerified = rows.filter(row => row.status !== 'DONE_VERIFIED').map(row => row.id).sort();
   assert.deepEqual(nonVerified, [
+    'MEL-AUDIT-02',
+    'MEL-AUDIT-03',
+    'MEL-AUDIT-04',
+    'MEL-AUDIT-05',
+    'MEL-AUDIT-06',
+    'MEL-AUDIT-07',
     'MEL-CHAT-01',
     'MEL-CHAT-02',
     'MEL-CHAT-03',
