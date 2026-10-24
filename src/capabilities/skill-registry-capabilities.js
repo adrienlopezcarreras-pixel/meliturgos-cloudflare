@@ -26,11 +26,6 @@ function requireDb(db) {
 }
 
 async function runtime(db) {
-  const registerSkill = async (skillId, name, version, capabilities, pipeline, metadata) => {
-    const { registry } = await restoreD1SkillRegistry(db, { registryKey: 'system' });
-    return registry.registerSkill(skillId, name, version, capabilities, pipeline, metadata);
-  };
-
   requireDb(db);
   const registry = await restoreD1SkillRegistry(db, { registryKey:'system' });
   return {
