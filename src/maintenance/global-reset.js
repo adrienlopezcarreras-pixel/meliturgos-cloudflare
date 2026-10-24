@@ -92,11 +92,15 @@ export async function resetWatchDiscoveryProjection(db, input, { now = Date.now(
   try { current = JSON.parse(original); } catch { throw Error('MAINTENANCE_WATCH_LEDGER_CORRUPT'); }
   await db.prepare('CREATE TABLE IF NOT EXISTS mel_maintenance_watch_archives (id TEXT PRIMARY KEY, source_id TEXT NOT NULL, state_json TEXT NOT NULL, archived_at INTEGER NOT NULL)').run();
   const archiveId = 'watch-reset-' + now;
-  await db.prepare('INSERT INTO mel_maintenance_watch_archives(id,source_id,state_json,archived_at) VALUES(?,?,?,?)').bind(archiveId,id,original,now).run();
   // Old discoveries and their handoffs remain archived, never represented
   // as actionable after the new generation starts.
   const empty = JSON.stringify({ ...current, items:[], maintenance_epoch:now, previous_archive_id:archiveId });
-  await db.prepare('UPDATE capability_watch_state SET state_json=?, updated_at=? WHERE id=?').bind(empty,now,id).run();
+  if (typeof db.batch !== 'function') throw Error('MAINTENANCE_ATOMIC_BATCH_REQUIRED');
+  const results = await db.batch([
+    db.prepare('INSERT INTO mel_maintenance_watch_archives(id,source_id,state_json,archived_at) VALUES(?,?,?,?)').bind(archiveId,id,original,now),
+    db.prepare('UPDATE capability_watch_state SET state_json=?, updated_at=? WHERE id=? AND state_json=?').bind(empty,now,id,original),
+  ]);
+  if (Number(results?.[1]?.meta?.changes || 0) !== 1) throw Error('MAINTENANCE_WATCH_CONCURRENT_CHANGE');
   return { status:'RESET', scope:'VEILLE', active_discoveries:0, archive_id:archiveId };
 }
 
