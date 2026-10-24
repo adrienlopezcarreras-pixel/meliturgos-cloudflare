@@ -34,3 +34,10 @@ test('cleanup scripts are ASCII-safe for Windows PowerShell 5.1 without UTF-8 BO
     assert.match(source, /^[\\x00-\\x7F]*$/, file + ' must not contain non-ASCII characters');
   }
 });
+
+test('Companion grand cleanup inventories global D1 without calling reset endpoints', async () => {
+  const source=await read('windows-companion/MEL-Grand-Nettoyage.ps1');
+  assert.match(source, /\/api\/gen2\/autonomy\/maintenance\/inspect/);
+  assert.match(source, /MEL-inventaire-D1-\$Stamp\.json/);
+  assert.match(source, /NETTOYAGE GLOBAL : BLOQUE/);
+});
