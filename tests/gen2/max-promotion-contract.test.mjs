@@ -35,3 +35,10 @@ test('a Council rejection resets the candidate to main content instead of blocki
   assert.ok(reject < s.indexOf('"$CAND:refs/heads/main"', reject));
   assert.match(s.slice(reject, reject + 800), /git push origin "HEAD:refs\/heads\/\$CANDIDATE"/);
 });
+
+test('candidate publication uses atomic expected-head lease rather than unchecked branch push', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  assert.match(workflow, /git push --force-with-lease="refs\/heads\/\$CANDIDATE_BRANCH:\$CANDIDATE_SHA"/);
+  assert.match(workflow, /REMOTE_SHA" = "\$CANDIDATE_SHA"/);
+  assert.doesNotMatch(workflow, /\|\| git push origin "HEAD:\$CANDIDATE_BRANCH"/);
+});
