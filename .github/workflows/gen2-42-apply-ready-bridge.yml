@@ -405,7 +405,9 @@ jobs:
           PUSHED=0
           git fetch origin "$CANDIDATE_BRANCH"
           REMOTE_SHA="$(git rev-parse FETCH_HEAD)"
-          if [ "$REMOTE_SHA" = "$CANDIDATE_SHA" ] && { [ "$NO_CHANGES" = "true" ] || git push origin "HEAD:$CANDIDATE_BRANCH"; }; then
+          # Atomic compare-and-swap: reject branch movement between fetch and push.
+          # The explicit lease is the approved SHA; HEAD is a descendant of it.
+          if [ "$REMOTE_SHA" = "$CANDIDATE_SHA" ] && { [ "$NO_CHANGES" = "true" ] || git push --force-with-lease="refs/heads/$CANDIDATE_BRANCH:$CANDIDATE_SHA" origin "HEAD:refs/heads/$CANDIDATE_BRANCH"; }; then
             PUSHED=1
           fi
           if [ "$PUSHED" != "1" ]; then
