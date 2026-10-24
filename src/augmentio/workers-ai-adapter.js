@@ -10,7 +10,12 @@ function normalizeMessages(input, context = {}) {
 
 function extractText(result) {
   if (typeof result === 'string') return result;
-  const value = result?.response ?? result?.text ?? result?.result?.response ?? result?.choices?.[0]?.message?.content ?? null;
+  // gpt-oss-120b answers in the Responses format (output_text / output[]).
+  const responses = Array.isArray(result?.output)
+    ? result.output.flatMap(item => (Array.isArray(item?.content) ? item.content : []))
+      .filter(part => part?.type === 'output_text' && typeof part.text === 'string').map(part => part.text).join('') || null
+    : null;
+  const value = result?.response ?? result?.text ?? result?.result?.response ?? result?.choices?.[0]?.message?.content ?? result?.output_text ?? responses ?? null;
   // Some Workers AI models (llama-3.3-70b) return a JSON answer already
   // parsed; String(object) gave "[object Object]" and lost every proposal.
   return value && typeof value === 'object' ? JSON.stringify(value) : value;
