@@ -96,3 +96,115 @@ test('production release dispatch must acknowledge both candidate promotion path
   assert.equal((workflow.match(/^\s*dispatch_release$/gm)||[]).length,2);
   assert.doesNotMatch(workflow,/PRODUCTION_RELEASE_DISPATCH http=\$code/);
 });
+
+test('Bridge permits only nonoverlapping descendant SHA rebase before mandatory full tests', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  assert.match(workflow,/git merge-base --is-ancestor "\$CANDIDATE_SHA" "\$HEAD_SHA"/);
+  assert.match(workflow,/git --literal-pathspecs diff --quiet "\$CANDIDATE_SHA" "\$HEAD_SHA" -- "\$\{APPROVED_PATHS\[@\]\}"/);
+  assert.match(workflow,/TEACHER_APPROVAL_CANDIDATE_SHA_STALE_OVERLAPPING_FILES/);
+  assert.match(workflow,/APPROVED_SNAPSHOT_SHA=\$CANDIDATE_SHA/);
+  assert.match(workflow,/CANDIDATE_SHA=\$HEAD_SHA/);
+  assert.ok(workflow.indexOf('CANDIDATE_DISJOINT_REBASE') < workflow.indexOf('- name: Run exact bounded requested tests'));
+});
+
+test('Bridge file-list validation failure cannot be swallowed by shell process substitution', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  const snippet = workflow.slice(workflow.indexOf('CANDIDATE_SHA_STALE_NON_ANCESTOR'),workflow.indexOf('CANDIDATE_DISJOINT_REBASE'));
+  assert.match(snippet,/node - > "\$RUNNER_TEMP\/mel-approved-paths\.bin" <<'NODE'/);
+  assert.match(snippet,/mapfile -d '' -t APPROVED_PATHS < "\$RUNNER_TEMP\/mel-approved-paths\.bin"/);
+  assert.doesNotMatch(snippet,/mapfile[^\n]*< <\(node/);
+  assert.match(snippet,/process\.exit\(2\)/);
+});
+
+test('GEN2-42 obtains complete candidate ancestry before disjoint approved SHA reconciliation', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  const section = workflow.slice(workflow.indexOf('- name: Checkout exact approved candidate'),workflow.indexOf('- name: Apply bounded approved files'));
+  assert.match(section,/git fetch origin "\$CANDIDATE_BRANCH"/);
+  assert.doesNotMatch(section,/git fetch origin "\$CANDIDATE_BRANCH" --depth=/);
+  assert.match(section,/git merge-base --is-ancestor "\$CANDIDATE_SHA" "\$HEAD_SHA"/);
+});
+
+test('candidate hygiene failure reporting never reads NO_CHANGES before initialization', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  const section = workflow.slice(workflow.indexOf('- name: Commit and push exact candidate change'),workflow.indexOf('- name: Report cloud bridge result'));
+  assert.ok(section.indexOf('NO_CHANGES=false') < section.indexOf('HYGIENE_OUTPUT='));
+  assert.ok(section.indexOf('NO_CHANGES=false') < section.indexOf('echo "no_changes=$NO_CHANGES"'));
+});
+
+test('Bridge conflict detection treats approved paths literally, never as Git magic pathspecs', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  assert.match(workflow,/git --literal-pathspecs diff --quiet/);
+  assert.doesNotMatch(workflow,/if ! git diff --quiet "\$CANDIDATE_SHA"/);
+});
+
+test('Bridge file writes reject parent path segments, not safe filenames containing double dots', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  const apply = workflow.slice(workflow.indexOf('- name: Apply bounded approved files'),workflow.indexOf('- name: Run exact bounded requested tests'));
+  assert.match(apply,/rel\.split\('\/'\)\.includes\('\.\.'\)/);
+  assert.doesNotMatch(apply,/rel\.includes\('\.\.'\)/);
+});
+
+test('Bridge overlap validation and apply share segment-level parent traversal policy', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  const checkout = workflow.slice(workflow.indexOf('- name: Checkout exact approved candidate'),workflow.indexOf('- name: Apply bounded approved files'));
+  const apply = workflow.slice(workflow.indexOf('- name: Apply bounded approved files'),workflow.indexOf('- name: Run exact bounded requested tests'));
+  assert.match(checkout,/path\.split\('\/'\)\.includes\('\.\.'\)/);
+  assert.doesNotMatch(checkout,/path\.includes\('\.\.'\)/);
+  assert.match(apply,/rel\.split\('\/'\)\.includes\('\.\.'\)/);
+});
+
+test('successful GEN2-42 candidate CI dispatch publishes candidate_ready before D1 result reporting', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  const success = workflow.slice(workflow.indexOf('if [ "$code" != "204" ]; then'), workflow.indexOf('- name: Report cloud bridge result to production D1'));
+  assert.match(success,/echo "candidate_ready=false" >> "\$GITHUB_OUTPUT"/);
+  assert.match(success,/^\s*echo "candidate_ready=true" >> "\$GITHUB_OUTPUT"/m);
+  const successPosition = success.lastIndexOf('echo "candidate_ready=true"');
+  assert.ok(successPosition > success.indexOf('exit 0'));
+  assert.match(workflow,/CANDIDATE_READY: \$\{\{ steps\.commit\.outputs\.candidate_ready \}\}/);
+});
+
+test('Bridge reporting preserves commit-stage repair diagnostics ahead of green tests', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  const report = workflow.slice(workflow.indexOf('- name: Report cloud bridge result to production D1'),workflow.indexOf('- name: Persist claimed bridge failure before exit'));
+  assert.match(report,/base\.status==='REPAIR_REQUIRED' \|\| !testsPassed/);
+  assert.match(report,/commitOk && candidateReady/);
+  assert.doesNotMatch(report,/: 'FAILED';/);
+});
+
+test('approved rebase inspection never stages its temporary file with candidate code', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  assert.match(workflow,/node - > "\$RUNNER_TEMP\/mel-approved-paths\.bin"/);
+  assert.match(workflow,/mapfile -d '' -t APPROVED_PATHS < "\$RUNNER_TEMP\/mel-approved-paths\.bin"/);
+  assert.doesNotMatch(workflow,/node - > approved-paths\.bin/);
+});
+
+test('GEN2-42 stages only Teacher-approved paths and never generated test outputs', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  const commit=workflow.slice(workflow.indexOf('- name: Commit and push exact candidate change'),workflow.indexOf('- name: Report cloud bridge result'));
+  assert.match(commit,/git --literal-pathspecs add -- "\$\{STAGE_PATHS\[@\]\}"/);
+  assert.match(commit,/job\.files_json/);
+  assert.doesNotMatch(commit,/git add --all/);
+});
+
+test('approved-file staging rejects ambiguous dot or backslash path segments', async () => {
+ const workflow=await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+ const stage=workflow.slice(workflow.indexOf('mel-stage-paths.bin'),workflow.indexOf('HYGIENE_OUTPUT='));
+ assert.match(stage,/p\.includes\('\\\\'\)/);
+ assert.match(stage,/p\.split\('\/'\)\.includes\('\.'\)/);
+ assert.match(stage,/git --literal-pathspecs add/);
+});
+
+test('exact approved staging rejects raw backslash paths instead of normalizing them', async () => {
+ const workflow=await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+ const stage=workflow.slice(workflow.indexOf('mel-stage-paths.bin'),workflow.indexOf('HYGIENE_OUTPUT='));
+ assert.match(stage,/const p=String\(item\?\.path\|\|''\);/);
+ assert.doesNotMatch(stage,/const p=String\(item\?\.path\|\|''\)\.replace/);
+ assert.match(stage,/p\.includes\('\\\\'\)/);
+});
+
+test('Bridge follow-up tick dispatch JSON remains outside the git worktree', async () => {
+  const workflow=await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  const followup=workflow.slice(workflow.indexOf('- name: Continue autonomy after persisted bridge result'),workflow.indexOf('- name: Upload sanitized apply evidence'));
+  assert.match(followup,/\$RUNNER_TEMP\/mel-autonomy-next-dispatch\.json/);
+  assert.doesNotMatch(followup,/> autonomy-next-dispatch\.json/);
+});
