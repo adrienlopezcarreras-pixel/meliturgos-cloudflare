@@ -103,7 +103,8 @@ function hasLiveExternalProgress(job) {
   }
   if (isClaimedPreparedDevBridgeJob(job)) return true;
   if (status === 'READY_FOR_REVIEW' && job?.result_json?.dev_bridge?.needs_repair !== true) {
-    return job?.result_json?.teacher_bridge?.status === 'ANSWERED';
+    return job?.result_json?.teacher_bridge?.status === 'ANSWERED'
+      && job?.result_json?.dev_bridge?.status === 'READY_FOR_REVIEW';
   }
   return false;
 }

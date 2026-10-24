@@ -67,3 +67,13 @@ test('normal supervised mode keeps moving while an approved candidate awaits CI 
   assert.equal(next.job.optional_context.roadmap_id, 'GEN2-17');
   assert.equal((await repo.get(first.id)).status, 'READY_FOR_REVIEW');
 });
+
+for(const bridge of [null,{status:'FAILED',needs_repair:false}])test('a Teacher answer without a healthy Bridge receipt remains recoverable: '+(bridge?.status||'missing'),async()=>{
+ const repo=isolatedRepo();
+ const first=await repo.create({id:'mel-autonomy-mel-work-01-1',requested_by:'mel-autonomy',goal:'[MEL-WORK-01] Work Engine',optional_context:{roadmap_id:'MEL-WORK-01',source:'autonomy-supervisor',priority:'P0'}});
+ await repo.update(first.id,{status:'READY_FOR_REVIEW',result_json:{teacher_bridge:{status:'ANSWERED',review:{verdict:'APPROVE_PLAN',development_allowed:true}},...(bridge?{dev_bridge:bridge}:{})}});
+ const next=await new AutonomySupervisor({repository:repo,roadmap}).ensureNextJob();
+ assert.equal(next.created,false);assert.equal(next.job.id,first.id);
+ assert.equal((await repo.list()).length,1,'no new mission hides an unproven passive lane');
+ assert.equal((await repo.get(first.id)).status,'READY_FOR_REVIEW','selection does not invent completion');
+});
