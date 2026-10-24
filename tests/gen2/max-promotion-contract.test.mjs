@@ -100,7 +100,7 @@ test('production release dispatch must acknowledge both candidate promotion path
 test('Bridge permits only nonoverlapping descendant SHA rebase before mandatory full tests', async () => {
   const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
   assert.match(workflow,/git merge-base --is-ancestor "\$CANDIDATE_SHA" "\$HEAD_SHA"/);
-  assert.match(workflow,/git diff --quiet "\$CANDIDATE_SHA" "\$HEAD_SHA" -- "\$\{APPROVED_PATHS\[@\]\}"/);
+  assert.match(workflow,/git --literal-pathspecs diff --quiet "\$CANDIDATE_SHA" "\$HEAD_SHA" -- "\$\{APPROVED_PATHS\[@\]\}"/);
   assert.match(workflow,/TEACHER_APPROVAL_CANDIDATE_SHA_STALE_OVERLAPPING_FILES/);
   assert.match(workflow,/APPROVED_SNAPSHOT_SHA=\$CANDIDATE_SHA/);
   assert.match(workflow,/CANDIDATE_SHA=\$HEAD_SHA/);
@@ -129,4 +129,10 @@ test('candidate hygiene failure reporting never reads NO_CHANGES before initiali
   const section = workflow.slice(workflow.indexOf('- name: Commit and push exact candidate change'),workflow.indexOf('- name: Report cloud bridge result'));
   assert.ok(section.indexOf('NO_CHANGES=false') < section.indexOf('HYGIENE_OUTPUT='));
   assert.ok(section.indexOf('NO_CHANGES=false') < section.indexOf('echo "no_changes=$NO_CHANGES"'));
+});
+
+test('Bridge conflict detection treats approved paths literally, never as Git magic pathspecs', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  assert.match(workflow,/git --literal-pathspecs diff --quiet/);
+  assert.doesNotMatch(workflow,/if ! git diff --quiet "\$CANDIDATE_SHA"/);
 });
