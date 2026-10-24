@@ -224,7 +224,15 @@ async function readApprovedHead(reader, bridge, { movedCode = 'TEACHER_APPROVAL_
 // Read-only planning is bound to an immutable Teacher-approved commit. The
 // mutable branch HEAD remains authoritative for Bridge writes and promotion.
 async function readApprovedSnapshot(reader, bridge) {
-  const snapshot = await reader.approvedSnapshot();
+  let snapshot;
+  try {
+    snapshot = await reader.approvedSnapshot();
+  } catch (error) {
+    // GitHub REST commonly returns 403 for an exhausted anonymous quota.
+    // Preserve the proven strict-head path rather than blocking all planning.
+    if (error?.code !== 'CODE_APPROVED_SNAPSHOT_UNAVAILABLE') throw error;
+    return readApprovedHead(reader, bridge);
+  }
   if (String(snapshot?.sha || '').toLowerCase() !== approvedCandidateSha(bridge) || snapshot.remote_verified !== true) {
     throw Object.assign(new Error('TEACHER_APPROVAL_SNAPSHOT_INVALID'), {code:'TEACHER_APPROVAL_SNAPSHOT_INVALID'});
   }
