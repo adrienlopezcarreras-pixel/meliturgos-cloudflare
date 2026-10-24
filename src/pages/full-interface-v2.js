@@ -18,7 +18,7 @@ export async function onRequestGet() {
 @media(max-width:540px){.lora-steps{grid-template-columns:1fr}.top h1{font-size:29px}.pill{font-size:.75rem}.card{padding:14px;border-radius:17px}.mobile-home-controls{grid-template-columns:1fr 1fr}.mobile-home-controls button{font-size:.85rem}.hero{grid-template-columns:1fr;gap:10px}.hero img{width:74px;height:74px}.hero .actions{display:grid;grid-template-columns:1fr}.hero .actions button{width:100%}.roadmap-head{grid-template-columns:1fr 1fr}.filters select{width:100%}.msg{max-width:94%}.chatlog{min-height:350px}.status-row{align-items:flex-start;overflow-wrap:anywhere}}
 
 /* [ChatGPT-GPT6 / PROFESSOR-CHAT-RESIZE] Larger chat and native drag-to-resize; no chat runtime changes. */
-[data-panel="chat"] #chatlog{height:min(72vh,850px);min-height:260px;max-height:none;resize:vertical;overflow:auto}
+[data-panel="chat"] #chatlog{height:min(56vh,560px);min-height:220px;max-height:none;resize:vertical;overflow:auto}
 [data-panel="chat"] .chat-resize-hint{display:block;text-align:right;margin:5px 3px 0;font-size:.78rem;color:var(--muted)}
 @media(max-width:720px){[data-panel="chat"] #chatlog{height:55vh;min-height:200px}}
 /* Canonical /professor visual rules absorbed from the retired release patch. */
