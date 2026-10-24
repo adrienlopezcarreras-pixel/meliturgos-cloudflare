@@ -56,7 +56,11 @@ function runtimeAuditSink(env = {}, override) {
  * Local composition root for integrated Gen2 proofs. Production adapters can
  * replace handlers, but all execution still crosses the same CapabilityBus.
  */
-export function createGen2Runtime({ audit, env = {} } = {}) {
+export function createGen2Runtime({ audit, env = {}, restore = false } = {}) {
+  if (restore) {
+    // Code de restauration isolée du patrimoine
+    // Restaurer evolution_ledger, conversations et dev_jobs
+  }
   let googleAccessTokenResolver = null;
   try {
     googleAccessTokenResolver = createGoogleAccessTokenResolver(env);
