@@ -335,10 +335,33 @@ jobs:
           (root/"dataset-metadata.json").write_text(json.dumps(metadata,indent=2)+"\n",encoding="utf-8")
           PY
 
-          if kaggle datasets files "$PAYLOAD_REF" >/dev/null 2>&1; then
-            kaggle datasets version               -p artifacts/kaggle-payload               -m "MEL LoRA cycle $CYCLE source $SOURCE_SHA"
-          else
-            kaggle datasets create -p artifacts/kaggle-payload
+          # Kaggle sometimes uploads all files then returns an empty/non-JSON API
+          # response. Verify remote payload before retrying; never claim success
+          # from the upload command's output alone.
+          PUBLISH_OK=0
+          for publish_attempt in 1 2 3; do
+            if kaggle datasets files "$PAYLOAD_REF" 2>/dev/null | grep -Fq 'payload.json'; then
+              echo "KAGGLE_PAYLOAD_VERIFIED_AFTER_PUBLISH_ATTEMPT=$publish_attempt"
+              PUBLISH_OK=1
+              break
+            fi
+            if kaggle datasets files "$PAYLOAD_REF" >/dev/null 2>&1; then
+              if kaggle datasets version -p artifacts/kaggle-payload -m "MEL LoRA cycle $CYCLE source $SOURCE_SHA"; then
+                echo "KAGGLE_PAYLOAD_VERSION_REQUEST_ACCEPTED"
+              else
+                echo "::warning::Kaggle version API failed on attempt $publish_attempt; checking remote files before retry."
+              fi
+            else
+              if kaggle datasets create -p artifacts/kaggle-payload; then
+                echo "KAGGLE_PAYLOAD_CREATE_REQUEST_ACCEPTED"
+              else
+                echo "::warning::Kaggle create API failed on attempt $publish_attempt; checking remote files before retry."
+              fi
+            fi
+            sleep 12
+          done
+          if [[ "$PUBLISH_OK" != "1" ]]; then
+            echo "KAGGLE_PAYLOAD_REMOTE_VERIFICATION_PENDING"
           fi
 
           STATUS_READY=0
