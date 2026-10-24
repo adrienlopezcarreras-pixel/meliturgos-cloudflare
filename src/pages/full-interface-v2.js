@@ -62,6 +62,7 @@ ${CHAT_RICH_RENDERER_CSS}
 ${MEL_PAGE_NAME_SHIM}
 ${CHAT_RICH_RENDERER_SOURCE}
 const qs=s=>document.querySelector(s),qsa=s=>[...document.querySelectorAll(s)];
+function setLoraLink(selector,url){const link=document.querySelector(selector);if(link)link.href=url}
 const titles={overview:['Vue d’ensemble','État réel des briques principales.'],chat:['Conversation','Chat et capacités automatiques.'],skills:['Compétences','CapabilityBus et santé.'],roadmap:['Feuille de route','Toutes les étapes du projet MEL.'],multi:['IA & Développement','Réunion multi-IA et travaux persistants dans une seule surface.'],memory:['Mémoire','Persistance, RAG, import et sauvegarde.'],computer:['Ordinateur','Écran, souris, clavier et applications autorisées.'],terminal:['MINI & téléphone','Appairage, mise à jour et état de la MINI et du téléphone.'],lora:['LoRA UNCENSORED','Kaggle gratuit, checkpoints continus, impact et passage AGENTIC.'],connections:['Connexions','Gmail, Yahoo/Ymail et Pipedream Connect. Microsoft passe par Pipedream.'],diagnostics:['Diagnostic','Contrôles réels avant évolution ou release.']};
 const legacyPanelAliases={work:{panel:'multi',mode:'development'}};
 let roadmapCache=null,roadmapCacheAt=0,capabilityCache=null,capabilityCacheAt=0;
@@ -1358,9 +1359,10 @@ async function loadFreeLoraStatus(){
       daily_status:dailyStatus?{day:dailyStatus.day,run_count:dailyStatus.run_count,successful_count:dailyStatus.successful_count,failed_count:dailyStatus.failed_count,absence_reported_at:dailyStatus.absence_reported_at}:null,
       promotion:wf.id?{id:wf.id,status:wf.status,conclusion:wf.conclusion,head_sha:wf.head_sha,updated_at:wf.updated_at}:null
     },null,2);
-    if(d.kaggle_url)qs('#freeLoraColab').href=d.kaggle_url;
-    if(checkpoint?.html_url)qs('#freeLoraHf').href=checkpoint.html_url;else if(d.hf_url)qs('#freeLoraHf').href=d.hf_url;
-    if(d.workflow_url)qs('#freeLoraWorkflow').href=d.workflow_url;
+    if(d.kaggle_url)setLoraLink('#freeLoraColab',d.kaggle_url);
+    if(checkpoint?.html_url)setLoraLink('#freeLoraHf',checkpoint.html_url);else if(d.hf_url)setLoraLink('#freeLoraHf',d.hf_url);
+    // The workflow link was removed from the page; a missing link must never stop the refresh.
+    if(d.workflow_url)setLoraLink('#freeLoraWorkflow',d.workflow_url);
 
     const trainingDone=traceSuccess||(trainStatus==='COMPLETED'&&trainConclusion==='SUCCESS');
     const checkpointDone=Boolean(checkpoint?.tag)||traceSuccess||bundleReady===true;
