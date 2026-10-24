@@ -38,6 +38,7 @@ import { auditDataIntegrity } from '../diagnostics/data-integrity.js';
 import { auditFinalMaturity } from '../diagnostics/final-maturity-audit.js';
 
 const DEFAULT_REPOSITORY = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
+const DEFAULT_CAPABILITY = 'new-capability';
 const DEFAULT_BRANCH = 'candidate/mel-clean-autonomy';
 const DEFAULT_TEACHER_BRANCH = 'candidate/mel-clean-autonomy';
 
