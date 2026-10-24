@@ -482,3 +482,15 @@ test('localization ranks repository paths by the roadmap item words, French to E
   assert.deepEqual(rankGoalPaths('[MEL-FOUNDER-07] Prouver une restauration isolée | OBJECTIF MEL-MANIFEST-05:PLANNED', paths), ['src/backup/restore-service.js']);
   assert.deepEqual(rankGoalPaths('[MEL-MANIFEST-07] Laisser la veille ouvrir un seul travail supervisé', paths), ['src/evaluation/ecosystem-watch-catalog.js']);
 });
+
+// Planning must inspect a pinned, verified snapshot even if another job moves
+// the canonical candidate branch. Writes continue to require fresh HEAD.
+test('read-only planner binds code inspection to an immutable approved snapshot', async () => {
+  const {readFileSync} = await import('node:fs');
+  const source = readFileSync('src/evolution/autonomy-implementation-planner.js','utf8');
+  const collect = source.slice(source.indexOf('async function collectCodeContext('),source.indexOf('async function reusableProposal('));
+  assert.match(collect,/headBefore = await readApprovedSnapshot\(reader, bridge\)/);
+  assert.match(collect,/headAfter = await readApprovedSnapshot\(reader, bridge\)/);
+  assert.match(source,/snapshot\.remote_verified !== true/);
+  assert.match(source,/readApprovedHead\(reader, bridge\)/);
+});
