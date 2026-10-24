@@ -109,6 +109,19 @@ jobs:
           REVIEW="$(curl --silent --show-error --max-time 300 --request POST --header "x-mel-github-oidc: $TOKEN" --header 'content-type: application/json' --data-binary @council.json https://meliturgos.adrien-lopezcarreras.workers.dev/api/internal/council-review || echo '{}')"
           DECISION="$(printf '%s' "$REVIEW" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)}catch{};process.stdout.write(String(j.decision||j.code||"REVIEW_UNAVAILABLE"))})')"
           echo "COUNCIL_REVIEW $CAND -> $DECISION"
+          # A rejected candidate must not block every later promotion: put the
+          # rejected files back to main on the candidate (no force push). The
+          # Council already sent the responsible jobs to REPAIR_REQUIRED.
+          if [ "$DECISION" = "REJECTED" ]; then
+            git checkout -B council-rejected "$CAND"
+            git diff --name-only "$MAIN" "$CAND" | while IFS= read -r f; do
+              if git cat-file -e "$MAIN:$f" 2>/dev/null; then git checkout "$MAIN" -- "$f"; else git rm -q -- "$f"; fi
+            done
+            git commit -q -m "Reconcile candidate with main after Council rejection of $CAND"
+            git push origin "HEAD:refs/heads/$CANDIDATE"
+            echo "::warning title=MEL candidate::Council REJECTED $CAND - candidate reset to main content, ci_dispatch=$(dispatch_ci)"
+            exit 0
+          fi
                     if [ "$DECISION" != "APPROVED" ]; then echo "::warning title=MEL candidate::Council $DECISION for $CAND - not promoted."; exit 0; fi
           git -c http.https://github.com/.extraheader= push "https://x-access-token:${MEL_WORKFLOW_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$CAND:refs/heads/main"
           echo "::notice title=MEL promoted::main $MAIN -> $CAND ($AHEAD commit(s), full-candidate-ci green). Production release follows within the hour."
