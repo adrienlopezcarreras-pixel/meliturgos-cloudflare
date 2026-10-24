@@ -6,7 +6,7 @@ import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 
 const at = hour => new Date(Date.UTC(2026, 9, 17, hour, 17));
 const ndjson = events => ({ text: async () => events.map(e => JSON.stringify(e)).join('\n') + '\n' });
-const env = (db = sqliteD1()) => ({ DB: db, AI: { run: async () => ({}) } });
+const env = (db = sqliteD1({ maintenanceFence: true })) => ({ DB: db, AI: { run: async () => ({}) } });
 
 test('runs one autonomous cycle at scheduled hours and reports the hand-in', async () => {
   const calls = [];
