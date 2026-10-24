@@ -1,3 +1,4 @@
+import { extractWorkersAIText } from '../augmentio/workers-ai-adapter.js';
 import { raceChatDeadline, hasChatBudget, chatDeadlineError } from './chat-deadline.js';
 import { stableStringify } from '../resilience/recovery-bundle.js';
 
@@ -257,7 +258,7 @@ export async function runAgentToolLoop({ env, bus, text, recent = [], context = 
     ];
     let out;
     try { out = await raceChatDeadline(env.AI.run(AGENT_MODEL, { messages, max_tokens: 400 }), plannerDeadline, now()); } catch { break; }
-    const reply = typeof out === 'string' ? out : out?.response || out?.choices?.[0]?.message?.content || '';
+    const reply = extractWorkersAIText(out) || '';
     const action = parseAgentAction(reply);
     if (action.final || !hasChatBudget(plannerDeadline, 1, now())) break;
     if (!allowed.has(action.tool)) {

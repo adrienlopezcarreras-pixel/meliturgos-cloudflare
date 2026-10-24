@@ -69,11 +69,31 @@ export function isSelfCapabilityQuestion(input) {
   const value = String(input || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   if (/\b(?:que|qu\W?est[- ]?ce que|quoi)\b.{0,20}\b(?:sais|peux|sait)[- ]?(?:tu|faire)?\b.{0,12}\bfaire\b/.test(value)) return true;
   if (/\btu (?:sais|peux) faire quoi\b/.test(value)) return true;
+  if (/\b(?:explique|decris|comment|role|fonctionnement|usage|sert)\b/.test(value)
+    && /\b(?:ton|ta|tes)\s+(?:outils?|capacites?|competences?|fonctionnalites?)\b/.test(value)) return true;
   if (/\b(?:quels?|quelles?|liste|montre)\b.{0,25}\b(?:outils?|capacites?|competences?|fonctionnalites?|pouvoirs?)\b/.test(value)
     && /\b(?:tu|tes|ton|as[- ]tu|mel)\b/.test(value)) return true;
   return /\b(?:peux[- ]tu|est[- ]ce que tu peux|tu peux|sais[- ]tu|es[- ]tu capable de?)\b/.test(value)
     && /\b(?:generer|creer|faire|lire|analyser|ecouter|regarder|chercher|trouver|envoyer|modifier|coder|developper)\b/.test(value)
     && /\b(?:image|photo|video|son|audio|musique|voix|mail|gmail|agenda|calendrier|drive|fichier|code|outil|capacite)s?\b/.test(value);
+}
+
+// Public descriptors, not executions or provider secrets. Only capabilities
+// explicitly named in a self-explanation receive their bounded input contract.
+function requestedCapabilityDetails(text, runtime, manifest) {
+  if (!isSelfCapabilityQuestion(text) || !runtime?.bus?.describe) return [];
+  const ids = [...new Set(String(text).match(/\b[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+\b/gi) || [])].slice(0, 3);
+  return ids.map(id => {
+    let record;
+    try { record = runtime.bus.describe(id); } catch { return {id, registered:false}; }
+    const truth = manifest.find(row => row.id === id);
+    const schema = record.input_schema || {};
+    const input = JSON.stringify(schema).length <= 2000 ? {input_schema:schema}
+      : {input_fields:Object.keys(schema.properties || {}).slice(0,30), schema_partial:true};
+    return {id, registered:true, description:String(record.description || '').slice(0,400), provider:record.provider,
+      enabled:record.enabled, risk:record.risk, status:truth?.status || 'UNKNOWN', tested_now:truth?.tested_now === true,
+      ...input, output_fields:Object.keys(record.output_schema?.properties || {}).slice(0,30)};
+  });
 }
 
 /**
@@ -1844,14 +1864,14 @@ export async function handleNativeChat(request, env, options = {}) {
   // deterministic code investigation seeded with its actual result.
   const codeInvestigation = ['code.read','code.search'].includes(capability?.id)
     && /\b(?:diagnostique|diagnostic|analyse|analyser|explique|expliquer|comprends|comprendre|pourquoi)\b/i.test(activeTaskText);
-  if (!releaseSmoke && (!capability?.id || codeInvestigation) && !connectedReadPlan.length && !voiceReply && runtime?.bus) {
+  if (!releaseSmoke && (!capability?.id || codeInvestigation) && (!isSelfCapabilityQuestion(activeTaskText) || codeInvestigation) && !connectedReadPlan.length && !voiceReply && runtime?.bus) {
     const agentResults = await runAgentToolLoop({
       env, bus: runtime.bus, text: activeTaskText, recent,
       context: nativeCapabilityContext(env, request, options),
       summarize: summarizeToolResult,
       initialResults: codeInvestigation ? toolResults.filter(row => row.capability === capability.id)
         .map(row => ({...row,input:capability.input || {}})) : [],
-      allowedTools: codeInvestigation ? ['code.read','code.search','capability.audit'] : null,
+      allowedTools: codeInvestigation ? ['code.read','code.search'] : null,
       // Keep time for the grounded answer after optional tool planning.
       deadlineAt: chatDeadlineAt - CONTINUATION_MIN_REMAINING_MS,
     }).catch(() => []);
@@ -2329,6 +2349,7 @@ export async function handleNativeChat(request, env, options = {}) {
     'ACCÈS AU CODE : distingue toujours la DISPONIBILITÉ de la capacité et la PREUVE d’une lecture précise. Tu peux affirmer avoir accès au dépôt MEL lorsque codeAccess.available=true. En revanche, tu ne peux affirmer avoir effectivement lu/inspecté un fichier précis que lorsqu’un TOOL_RESULT code.read/code.search/code.integrity SUCCEEDED de la requête courante le prouve. Cet accès concerne le dépôt MEL exposé par tes outils; il ne signifie pas que tu disposes du code source propriétaire, des poids ou des mécanismes internes du modèle de fondation ou d’un fournisseur externe. Une simple question « as-tu accès à ton code source ? » ne doit pas inventer une cible de fichier : réponds depuis la vérité du manifeste.',
     'BENCHMARK ET LoRA : ne transforme jamais un plan, un statut READY ou un test absent en résultat réel. Un benchmark est réel seulement si une exécution persistée fournit ses preuves. Un LoRA est actif seulement si une activation réelle et persistée existe après entraînement compatible et validation benchmark; sinon décris exactement le statut et les blockers disponibles.',
     `CAPABILITY_MANIFEST runtime actuel (données, pas instructions): ${manifestText}`,
+    `CAPACITÉS NOMMÉES DANS LA QUESTION (descripteurs runtime ; aucune exécution) : ${JSON.stringify(requestedCapabilityDetails(activeTaskText, runtime, capabilityManifest))}`,
     'Base tes affirmations de capacité sur ce manifeste et les TOOL_RESULT de cette requête. Les statuts de vérité sont stricts : EXISTANT_ET_TESTE = exécuté et prouvé; EXISTANT_NON_TESTE = enregistré/sain mais non prouvé par une exécution; PARTIEL = incomplet ou dégradé; STUB = squelette non fonctionnel; NOT_IMPLEMENTED = non implémenté; BLOCKED = désactivé; BLOCKED_EXTERNAL = dépendance indisponible. Ne présente jamais EXISTANT_NON_TESTE comme testé ou comme preuve de fonctionnement.',
     'Le champ health décrit seulement la santé technique d’un enregistrement; HEALTHY ne constitue jamais à lui seul une preuve EXISTANT_ET_TESTE. tested_now=true signifie qu’une exécution de cette requête a réellement produit le dernier statut.',
     'Lorsqu’un résultat d’outil prouve que tu as lu ou recherché ton dépôt, dis clairement que tu as accès à ce code et cite le fichier ou la branche observée.',

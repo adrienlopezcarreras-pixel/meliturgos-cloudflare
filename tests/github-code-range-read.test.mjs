@@ -57,3 +57,14 @@ test('the registered runtime code.read accepts range input and preserves evidenc
  const row=await bus.execute('code.read',{path:'src/pages/full-interface-v2.js',start_line:start,end_line:end},{owner:'fixture',permissions:[]});
  assert.equal(row.source_ref,PIN);assert.equal(row.content,lines.slice(start-1,end).join('\n'));assert.equal(row.partial,true);
 });
+
+
+test('a source filename cannot inject a different ref or URL fragment into a pinned read',async()=>{
+ for(const path of ['src/file.js?ref=main','src/file.js#fragment','src/a b.js']){
+  const f=fixture('api','one\ntwo');
+  await f.reader.read(path,{start_line:1,end_line:1});
+  const url=new URL(f.calls[0]);
+  assert.deepEqual([...url.searchParams.entries()],[['ref',PIN]]);
+  assert.equal(url.hash,'');assert.ok(url.pathname.endsWith(path.split('/').map(encodeURIComponent).join('/')));
+ }
+});

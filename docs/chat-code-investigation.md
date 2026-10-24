@@ -6,9 +6,13 @@ Le lecteur complet refuse les fichiers de plus de 180 000 octets. L’interface 
 
 ## Un seul parcours
 
-Les diagnostics explicites passant par `code.search` ou `code.read` amorcent la boucle d’outils existante avec leur résultat réel. Celle-ci est restreinte à `code.read`, `code.search` et `capability.audit` pour cette poursuite. Le premier appel compte dans le plafond existant de quatre étapes. Les résultats initiaux ne sont ni réexécutés ni dupliqués dans la réponse.
+Les diagnostics explicites passant par `code.search` ou `code.read` amorcent la boucle d’outils existante avec leur résultat réel. Celle-ci est restreinte à `code.read` et `code.search` pour cette poursuite. Le premier appel compte dans le plafond existant de quatre étapes. Les résultats initiaux ne sont ni réexécutés ni dupliqués dans la réponse. Les réponses JSON déjà structurées de Workers AI passent par le normaliseur existant corrigé dans #2505, réutilisé sans second parseur.
 
 Aucun outil de mutation, job de développement, cycle MAX, commit, test ou déploiement n’est ajouté à ce parcours. Les autorisations CapabilityBus et le budget partagé restent actifs. Une erreur de lecture reste une erreur, et la réponse finale reçoit uniquement les observations réelles.
+
+## Connaissance des capacités
+
+Une question explicative sur un outil nommé consulte son descripteur public réel (`bus.describe`), son statut du manifeste et son contrat d’entrée, sans exécuter cet outil ni lancer de planification d’action. Au plus trois identifiants explicites sont décrits ; les grands schémas sont signalés comme partiels. Un identifiant non enregistré est marqué comme tel. `tested_now` ne devient pas vrai du seul fait de cette description. Les questions générales conservent le manifeste existant.
 
 ## Lectures par lignes
 
@@ -16,7 +20,7 @@ Aucun outil de mutation, job de développement, cycle MAX, commit, test ou dépl
 
 Pour cette lecture ciblée seulement, la source distante est bornée à 1 000 000 octets. Le corps HTTP est lu avec une limite et son flux est annulé au dépassement. Le contenu retourné conserve la limite historique de 180 000 octets ; une ligne géante ou une plage dépassant cette limite reste refusée. Les chemins secrets, traversées et contenus binaires restent interdits avant restitution.
 
-Le résultat comprend `start_line`, `end_line`, `total_lines`, `partial` et `source_ref`. La référence immuable du déploiement reste utilisée lorsqu’elle est configurée ; les tests vérifient que l’API et le repli public brut utilisent exactement ce SHA. Le SHA de blob reste distinct de la référence de commit. Une lecture de plage ne prouve pas une inspection intégrale du fichier.
+Le résultat comprend `start_line`, `end_line`, `total_lines`, `partial` et `source_ref`. La référence immuable du déploiement reste utilisée lorsqu’elle est configurée ; les tests vérifient que l’API et le repli public brut utilisent exactement ce SHA. Les segments du chemin sont encodés : un nom de fichier ne peut pas injecter un autre paramètre ref ou un fragment URL. Le SHA de blob reste distinct de la référence de commit. Une lecture de plage ne prouve pas une inspection intégrale du fichier.
 
 Exemple : « diagnostique src/pages/full-interface-v2.js lignes 400 à 420 ». Le prompt actif distingue observations, causes étayées, hypothèses et vérifications manquantes. Une recherche bornée sans résultat ne prouve pas l’absence dans tout le dépôt ; la présence d’un outil dans le manifeste ne prouve pas qu’un fichier a été lu ou qu’un test a été exécuté.
 

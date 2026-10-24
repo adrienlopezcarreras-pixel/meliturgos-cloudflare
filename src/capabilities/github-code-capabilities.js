@@ -107,7 +107,7 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
     const limit = range ? MAX_RANGE_SOURCE_BYTES : MAX_FILE_BYTES;
     let response;
     try {
-      response = await fetchImpl(`${api(`contents/${path}`)}?ref=${encodeURIComponent(contentRef)}`, { headers: headers(token) });
+      response = await fetchImpl(`${api(`contents/${path.split('/').map(encodeURIComponent).join('/')}`)}?ref=${encodeURIComponent(contentRef)}`, { headers: headers(token) });
     } catch {
       return readRaw(path, range);
     }
