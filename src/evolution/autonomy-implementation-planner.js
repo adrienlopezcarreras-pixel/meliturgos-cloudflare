@@ -221,6 +221,16 @@ async function readApprovedHead(reader, bridge, { movedCode = 'TEACHER_APPROVAL_
   }
 }
 
+// Read-only planning is bound to an immutable Teacher-approved commit. The
+// mutable branch HEAD remains authoritative for Bridge writes and promotion.
+async function readApprovedSnapshot(reader, bridge) {
+  const snapshot = await reader.approvedSnapshot();
+  if (String(snapshot?.sha || '').toLowerCase() !== approvedCandidateSha(bridge) || snapshot.remote_verified !== true) {
+    throw Object.assign(new Error('TEACHER_APPROVAL_SNAPSHOT_INVALID'), {code:'TEACHER_APPROVAL_SNAPSHOT_INVALID'});
+  }
+  return snapshot;
+}
+
 function assertPlanQualityContract(value) {
   const text = String(value || '');
   const missing = QUALITY_SECTIONS.filter(([, pattern]) => !pattern.test(text)).map(([name]) => name);
@@ -236,7 +246,7 @@ function assertPlanQualityContract(value) {
 async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) {
   const { config, reader } = codeReader(env, fetchImpl, bridge);
   assertTeacherApprovedBranch(config, bridge);
-  const headBefore = await readApprovedHead(reader, bridge);
+  const headBefore = await readApprovedSnapshot(reader, bridge);
   // A request typed by the owner in chat has no roadmap entry; it still needs a
   // stable id, otherwise it blocked the whole autonomy queue forever
   // (IMPLEMENTATION_ROADMAP_ID_REQUIRED on every tick).
@@ -311,7 +321,7 @@ async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) 
     } catch {}
   }
   if (!files.length) throw Object.assign(new Error('APPROVED_IMPLEMENTATION_CODE_CONTEXT_REQUIRED'), { code: 'APPROVED_IMPLEMENTATION_CODE_CONTEXT_REQUIRED' });
-  const headAfter = await readApprovedHead(reader, bridge, { movedCode: 'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION' });
+  const headAfter = await readApprovedSnapshot(reader, bridge);
   if (headBefore.sha !== headAfter.sha) {
     throw Object.assign(new Error('CANDIDATE_HEAD_CHANGED_DURING_INSPECTION'), { code: 'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION' });
   }
