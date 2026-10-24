@@ -136,3 +136,10 @@ test('Bridge conflict detection treats approved paths literally, never as Git ma
   assert.match(workflow,/git --literal-pathspecs diff --quiet/);
   assert.doesNotMatch(workflow,/if ! git diff --quiet "\$CANDIDATE_SHA"/);
 });
+
+test('Bridge file writes reject parent path segments, not safe filenames containing double dots', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  const apply = workflow.slice(workflow.indexOf('- name: Apply bounded approved files'),workflow.indexOf('- name: Run exact bounded requested tests'));
+  assert.match(apply,/rel\.split\('\/'\)\.includes\('\.\.'\)/);
+  assert.doesNotMatch(apply,/rel\.includes\('\.\.'\)/);
+});
