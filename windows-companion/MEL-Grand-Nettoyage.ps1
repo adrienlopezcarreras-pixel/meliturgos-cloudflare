@@ -20,6 +20,21 @@ if ($base -and $cookie -and $base -match '^https://[^/]+$') {
       $inventory | ConvertTo-Json -Depth 15 | Set-Content -Path $inventoryFile -Encoding UTF8
       Report "INVENTAIRE : OK - $inventoryFile"
       Report "WORK : $($inventory.work.total) DAG enregistres; baux=$($inventory.leases.status)"
+      $fence=$inventory.maintenance_fence
+      if ($null -eq $fence) {
+        Report 'VERROU GLOBAL : ETAT INCONNU - intervention requise.'
+      } elseif ($fence.paused -eq $true) {
+        Report "VERROU GLOBAL : ACTIF - $($fence.reason)"
+        if ($fence.reason -eq 'EXPIRED_MAINTENANCE_REQUIRES_RECOVERY') {
+          Report 'ALERTE : bail expire. Recuperation verifiee necessaire avant reprise des modules.'
+        }
+      } else {
+        Report 'VERROU GLOBAL : LIBRE - aucune pause de nettoyage globale.'
+      }
+      Report "SAUVEGARDE : $($inventory.backup.status); restauration isolee=$($inventory.backup.restore_tested)"
+      if ($inventory.reset_available -ne $true) {
+        Report 'AUCUNE SUPPRESSION AUTORISEE : le nettoyage global reste indisponible.'
+      }
       Report "NETTOYAGE GLOBAL : BLOQUE - $($inventory.blockers -join ', ')"
     } else {
       Report 'INVENTAIRE : REPONSE INVALIDE - aucun succes declare.'
