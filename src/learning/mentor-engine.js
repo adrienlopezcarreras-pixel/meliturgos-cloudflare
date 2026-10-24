@@ -223,6 +223,25 @@ function normalizeInspectedFiles(files = []) {
   return out;
 }
 
+// Models often copy an excerpt with different indentation or trailing
+// spaces. Resolve it to the exact source text when the line-trimmed match is
+// unique; otherwise keep the original text so the usual checks reject it.
+function resolveFind(text, find) {
+  const source = String(text || '');
+  if (!find || source.includes(find)) return find;
+  const wanted = String(find).split(/\r?\n/).map(line => line.trim());
+  while (wanted.length && !wanted[0]) wanted.shift();
+  while (wanted.length && !wanted.at(-1)) wanted.pop();
+  if (!wanted.length) return find;
+  const lines = source.split('\n');
+  const hits = [];
+  for (let i = 0; i + wanted.length <= lines.length; i++) {
+    if (wanted.every((line, k) => lines[i + k].trim() === line)) hits.push(i);
+  }
+  if (hits.length !== 1) return find;
+  return lines.slice(hits[0], hits[0] + wanted.length).join('\n');
+}
+
 function applyInspectedEdits(edits, inspectedFiles, repairReferences = [], visibleFiles = inspectedFiles) {
   if (!Array.isArray(edits) || !edits.length) return [];
   if (edits.length > MAX_CHANGES) throw Object.assign(new Error('MENTOR_INVALID_CHANGE:change-limit'), { code: 'MENTOR_INVALID_CHANGE' });
@@ -231,7 +250,8 @@ function applyInspectedEdits(edits, inspectedFiles, repairReferences = [], visib
   for (const edit of edits) {
     const path = safePath(edit?.path);
     if (!byPath.has(path)) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
-    const find = String(edit?.find ?? '');
+    const visible = visibleFiles.find(file => file.path === path);
+    const find = resolveFind(visible?.content, String(edit?.find ?? ''));
     if (!visibleFiles.some(file => file.path === path && file.content.includes(find))) {
       throw Object.assign(new Error('MENTOR_UNINSPECTED_EDIT'), { code: 'MENTOR_UNINSPECTED_EDIT' });
     }
