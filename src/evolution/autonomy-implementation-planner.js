@@ -254,7 +254,8 @@ function assertPlanQualityContract(value) {
 async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) {
   const { config, reader } = codeReader(env, fetchImpl, bridge);
   assertTeacherApprovedBranch(config, bridge);
-  const headBefore = await readApprovedSnapshot(reader, bridge);
+  const snapshotPlanning = env?.MEL_IMMUTABLE_PLANNING_ENABLED === 'true';
+  const headBefore = snapshotPlanning ? await readApprovedSnapshot(reader, bridge) : await readApprovedHead(reader, bridge);
   // A request typed by the owner in chat has no roadmap entry; it still needs a
   // stable id, otherwise it blocked the whole autonomy queue forever
   // (IMPLEMENTATION_ROADMAP_ID_REQUIRED on every tick).
@@ -329,7 +330,7 @@ async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) 
     } catch {}
   }
   if (!files.length) throw Object.assign(new Error('APPROVED_IMPLEMENTATION_CODE_CONTEXT_REQUIRED'), { code: 'APPROVED_IMPLEMENTATION_CODE_CONTEXT_REQUIRED' });
-  const headAfter = await readApprovedSnapshot(reader, bridge);
+  const headAfter = snapshotPlanning ? await readApprovedSnapshot(reader, bridge) : await readApprovedHead(reader, bridge, { movedCode: 'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION' });
   if (headBefore.sha !== headAfter.sha) {
     throw Object.assign(new Error('CANDIDATE_HEAD_CHANGED_DURING_INSPECTION'), { code: 'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION' });
   }
