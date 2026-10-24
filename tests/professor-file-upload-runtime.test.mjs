@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { NORMAL_RUNTIME_SOURCE } from '../src/pages/mvp-runtime.js';
 import { onRequestGet as renderProfessor } from '../src/pages/full-interface-v2.js';
 
 // [ChatGPT-GPT6] Execute the cooked browser JavaScript, not the template source.
@@ -92,4 +93,20 @@ test('Professor does not stage HTTP 200 without API-confirmed receipt', async ()
     assert.equal(pending.length,0);
     assert.match(status.textContent,/FILE_UPLOAD_NOT_ACKNOWLEDGED/);
   }
+});
+
+for(const mode of ['normal','professor'])test(mode+' file picker clears selection after copying files so the same file can be selected again',async()=>{
+ const source=mode==='normal'?NORMAL_RUNTIME_SOURCE:await(await renderProfessor()).text();
+ const start=source.indexOf(mode==='normal'?"fileInput.addEventListener('change'":"qs('#chatFileInput').addEventListener('change'");
+ const end=source.indexOf(mode==='normal'?'async function handleFiles':"qs('#resumeLatestChat')",start);
+ assert.ok(start>=0&&end>start);
+ const original=[{name:'same.txt',type:'text/plain'}];let files=original,value='selected-file';
+ const input={get files(){return files},get value(){return value},set value(v){value=v;if(v==='')files=[]}};
+ let handler;input.addEventListener=(type,fn)=>{assert.equal(type,'change');handler=fn};
+ const calls=[];const upload=(received,origin)=>calls.push({received,origin});
+ new Function('fileInput','qs','handleFiles','uploadChatFiles',source.slice(start,end))(input,()=>input,upload,upload);
+ handler({target:input});
+ assert.equal(input.value,'');assert.deepEqual(files,[]);
+ assert.equal(calls.length,1);assert.deepEqual(calls[0],{received:original,origin:'file-picker'});
+ assert.notEqual(calls[0].received,original,'the upload keeps its own copied selection');
 });
