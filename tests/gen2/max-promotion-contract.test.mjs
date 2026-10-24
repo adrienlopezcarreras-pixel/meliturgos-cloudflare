@@ -177,3 +177,11 @@ test('approved rebase inspection never stages its temporary file with candidate 
   assert.match(workflow,/mapfile -d '' -t APPROVED_PATHS < "\$RUNNER_TEMP\/mel-approved-paths\.bin"/);
   assert.doesNotMatch(workflow,/node - > approved-paths\.bin/);
 });
+
+test('GEN2-42 stages only Teacher-approved paths and never generated test outputs', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  const commit=workflow.slice(workflow.indexOf('- name: Commit and push exact candidate change'),workflow.indexOf('- name: Report cloud bridge result'));
+  assert.match(commit,/git --literal-pathspecs add -- "\$\{STAGE_PATHS\[@\]\}"/);
+  assert.match(commit,/job\.files_json/);
+  assert.doesNotMatch(commit,/git add --all/);
+});
