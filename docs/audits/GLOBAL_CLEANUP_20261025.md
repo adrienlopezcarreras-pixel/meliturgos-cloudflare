@@ -44,3 +44,24 @@ vérifiés ; leur simple absence d'erreur ne vaut pas reprise.
 
 XP MEL : NON — réutilisation des règles de préservation, de preuve indépendante
 et de résultat factuel ; aucune nouvelle leçon dupliquée. Mission incomplète.
+
+## Suite : progression durable et bail
+
+Main `22c63139` (#2610, fixtures WORK) réconcilié sans perte.
+L'orchestrateur conserve désormais sa phase et son domaine dans le verrou
+canonique D1 avant/après chaque opération. Le checkpoint compare propriétaire,
+état et expiration dans la même écriture. Un bail expiré ou perdu interdit toute
+étape suivante ; aucune expiration n'implique une reprise automatique. La levée
+vérifiée conserve les métadonnées de progression au lieu de les écraser.
+
+Trois tests SQL réels couvrent propriétaire étranger, expiration, interruption
+au domaine WORK, refus des domaines suivants, conservation du verrou et levée
+explicite. Leurs preuves de restauration/arrêt sont des fixtures locales ; elles
+ne constituent jamais une attestation production. Cela ne raccorde pas encore
+les sept adaptateurs ni une procédure de récupération opérable à distance.
+
+34 tests ciblés réussis, syntaxe vérifiée. Deux fixtures explicites du scheduler
+WORK oubliées par #2610 ont été complétées avec sa même option maintenanceFence,
+sans changer le fail-closed runtime. La CI maintenance couvre désormais aussi
+ces tests. Le test élargi work-improvement-watch a été interrompu : ses recherches
+Internet réelles échouaient et prolongeaient la suite ; il n'est pas déclaré PASS.
