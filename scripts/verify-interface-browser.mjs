@@ -63,6 +63,20 @@ try{
   inventories.push({page:path,...snapshot});
   for(const c of snapshot.controls.filter(c=>!c.accessibleName&&['INPUT','SELECT','TEXTAREA','BUTTON'].includes(c.tag)))record(path,c.id||c.tag+'['+c.index+']','accessible name','Programmatic label available','Missing accessible name','FAIL','inventory.json');record(path,'page','navigate','HTML rendered by production entrypoint',snapshot.heading||snapshot.title,snapshot.title&&snapshot.bodyLength>30&&requests.some(r=>r.path===path&&r.method==='GET'&&r.status===200)?'PASS':'FAIL','inventory.json');
   for(const c of snapshot.controls)record(path,c.id||c.tag+'['+c.index+'] '+c.label,'inventory / functional execution','Function and durable outcome verified',c.disabled?'Disabled; live prerequisites unverified':'Requires functional scenario and live prerequisites','BLOCKED','inventory.json');
+  if(path==='/'||path==='/professor'){
+   const attachmentSelector=path==='/'?'#attachments':'#chatAttachments';
+   const fixture=join(directory,'attachment-reselect.txt');await writeFile(fixture,'Local text fixture for file-picker reselection.');
+   const dom=await send('DOM.getDocument');const inputNode=await send('DOM.querySelector',{nodeId:dom.root.nodeId,selector:path==='/'?'#fileInput':'#chatFileInput'});
+   const uploads=()=>requests.filter(r=>r.path==='/api/files/upload'&&r.method==='POST').length;
+   await send('DOM.setFileInputFiles',{nodeId:inputNode.nodeId,files:[fixture]});
+   for(let i=0;i<100;i++){if(await evaluate(`!!document.querySelector('${attachmentSelector} button')`))break;await pause(50);}
+   const staged=await evaluate(`document.querySelector('${attachmentSelector}')?.textContent.includes('attachment-reselect.txt')`);
+   record(path,'attachment:first-selection','real Chromium file selection','Text file uploaded and staged',staged,staged?'PASS':'FAIL','browser-results.json');
+   await pointerClick(attachmentSelector+' button');const initial=uploads();
+   await send('DOM.setFileInputFiles',{nodeId:inputNode.nodeId,files:[fixture]});await pause(700);
+   const reselected=await evaluate(`document.querySelector('${attachmentSelector}')?.textContent.includes('attachment-reselect.txt')`);
+   record(path,'attachment:same-file-reselection','remove then select same local file again','Second upload and staged attachment',JSON.stringify({staged:reselected,requests:uploads()-initial}),reselected&&uploads()>initial?'PASS':'FAIL','browser-results.json');
+  }
   if(path==='/professor'){
    for(const view of await evaluate('[...document.querySelectorAll("#nav [data-view]")].map(e=>e.dataset.view)')){
     let clicked=await pointerClick('#nav [data-view="'+view+'"]');
