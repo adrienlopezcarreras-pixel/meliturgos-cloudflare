@@ -49,9 +49,7 @@ Write-Host "Rapport : $Report"
       Report "INVENTAIRE : OK - $inventoryFile"
       Report "WORK : $($inventory.work.total) DAG enregistres; baux=$($inventory.leases.status)"
       Report "NETTOYAGE GLOBAL : BLOQUE - $($inventory.blockers -join ', ')"
-    } else {
-      Report 'INVENTAIRE : REPONSE INVALIDE - aucun succes declare.'
-    }
+    } else { Report 'INVENTAIRE : REPONSE INVALIDE - aucun succes declare.' }
   } catch { Report "INVENTAIRE : ECHEC - $($_.Exception.Message)" }
 } else {
   Report 'INVENTAIRE : NON EXECUTE - session MEL indisponible dans Companion.'
