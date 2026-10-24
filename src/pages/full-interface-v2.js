@@ -527,7 +527,10 @@ function melCodeSetupWindow(){
           panel.scrollTop=panel.scrollHeight;
       });
     };
-    new MutationObserver(scrollToLatest).observe(panel,{childList:true,subtree:true,characterData:true});
+    // Full mode forbids DOM observers (tests/ui-release-fix): follow growth instead,
+    // so a reader who scrolled up is not pulled down while nothing changes.
+    let lastHeight=0;
+    setInterval(()=>{if(panel.scrollHeight!==lastHeight){lastHeight=panel.scrollHeight;scrollToLatest()}},800);
     scrollToLatest();
   }
   if(melCodeActivityTimer===null){melCodeRefreshActivity();melCodeActivityTimer=setInterval(melCodeRefreshActivity,5000)}
