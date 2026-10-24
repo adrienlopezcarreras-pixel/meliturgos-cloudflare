@@ -12,7 +12,7 @@ const approved = {
 
 test('pipeline shows where a MAX job stands', () => {
   const steps = jobPipeline(approved);
-  assert.deepEqual(steps.map(s => s.state), ['done', 'done', 'done', 'done', 'current', 'todo', 'todo']);
+  assert.deepEqual(steps.map(s => s.state), ['done', 'done', 'done', 'done', 'current', 'todo', 'todo', 'todo']);
   assert.match(steps[1].label, /par MAX/);
   const failed = jobPipeline({ status: 'FAILED', result_json: {} });
   assert.ok(failed.some(s => s.state === 'blocked'));
@@ -132,13 +132,13 @@ test('COMMITTED supervised job remains active until COMPLETED', async () => {
 test('CLAIMED alone proves neither plan, generated code, package nor cloud execution', () => {
   const job={status:'CLAIMED',result_json:{},files_json:[],tests_json:[]};
   const stages=jobPipeline(job);
-  assert.deepEqual(stages.map(s=>s.done),[true,false,false,false,false,false,false]);
+  assert.deepEqual(stages.map(s=>s.done),[true,false,false,false,false,false,false,false]);
   assert.doesNotMatch(describeJob(job).status_text,/Pris par le pont cloud/);
 });
 
 test('a READY implementation plan is not generated code and a stale Teacher package is not ready', () => {
   const noCode={...approved,files_json:[],result_json:{...approved.result_json,bridge_preparation:null}};
-  assert.deepEqual(jobPipeline(noCode).map(s=>s.done),[true,true,false,false,false,false,false]);
+  assert.deepEqual(jobPipeline(noCode).map(s=>s.done),[true,true,false,false,false,false,false,false]);
   const stale=structuredClone(approved);stale.result_json.bridge_preparation.teacher_request_id='older-teacher';
   assert.equal(jobPipeline(stale).find(s=>s.key==='code').done,false);
   assert.equal(jobPipeline(stale).find(s=>s.key==='package').done,false);
@@ -148,7 +148,7 @@ test('a READY implementation plan is not generated code and a stale Teacher pack
 
 test('a claim preserves existing package evidence but never implies a published candidate', () => {
   const job={...approved,status:'CLAIMED'};
-  assert.deepEqual(jobPipeline(job).map(s=>s.done),[true,true,true,true,false,false,false]);
+  assert.deepEqual(jobPipeline(job).map(s=>s.done),[true,true,true,true,false,false,false,false]);
   const local=structuredClone(job);local.result_json.dev_bridge={mode:'STRUCTURED_MENTOR_WORK',changed:true,status:'READY_FOR_REVIEW',candidate_sha:'c'.repeat(40)};
   assert.equal(jobPipeline(local).find(s=>s.key==='candidate').done,false);
   local.result_json.dev_bridge={mode:'GITHUB_CLOUD_BRIDGE',needs_repair:false,status:'READY_FOR_REVIEW',github_run_id:123,candidate_sha:'c'.repeat(40)};
@@ -173,7 +173,7 @@ test('verified existing code is described without claiming that Mentor generated
   const stages=jobPipeline(job);
   assert.equal(stages.find(s=>s.key==='code').label,'Code existant vérifié');
   assert.equal(stages.find(s=>s.key==='package').label,'Vérification sans nouveau paquet');
-  assert.ok(stages.every(s=>s.done));
+  assert.ok(stages.filter(s=>s.key!=='objective').every(s=>s.done));
 });
 
 // [ChatGPT-GPT6] COMMITTED is not terminal: promotion can still be pending.
@@ -219,4 +219,11 @@ test('activity redacts unstructured error text in bridge diagnostics', () => {
   assert.equal(activity.bridge_diagnostics.mode,null);
   assert.equal(activity.bridge_diagnostics.tests[0].error_code,null);
   assert.equal(activity.bridge_diagnostics.retry_error_code,null);
+});
+
+test('a completed job is code delivered; only a verified roadmap item proves the objective', () => {
+  const done = { status: 'COMPLETED', optional_context: { roadmap_id: 'MEL-FOUNDER-05' }, result_json: {} };
+  assert.match(describeJob(done, now).status_text, /Code livré.*pas encore prouvé/);
+  assert.equal(jobPipeline(done).at(-1).key, 'objective');
+  assert.equal(jobPipeline(done).at(-1).done, false);
 });
