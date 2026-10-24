@@ -424,6 +424,23 @@ jobs:
             echo "no_changes=$NO_CHANGES" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # workflow_dispatch resolves a mutable ref. Never dispatch a candidate
+          # CI while another writer has already moved that ref beyond NEW_SHA.
+          DISPATCH_HEAD="$(git ls-remote origin "refs/heads/$CANDIDATE_BRANCH" | awk '{print $1}')"
+          if [ "$DISPATCH_HEAD" != "$NEW_SHA" ]; then
+            node - <<'NODE'
+            const fs=require('fs');
+            const current=fs.existsSync('bridge-apply-result.json')?JSON.parse(fs.readFileSync('bridge-apply-result.json','utf8')):{tests:[]};
+            const tests=Array.isArray(current.tests)?[...current.tests]:[];
+            tests.push({name:'candidate CI identity',command:'git.ls-remote',passed:false,executed:true,error:'CANDIDATE_HEAD_MOVED_BEFORE_CI_DISPATCH'});
+            fs.writeFileSync('bridge-apply-result.json',JSON.stringify({...current,status:'REPAIR_REQUIRED',needs_repair:true,tests},null,2));
+          NODE
+            echo "candidate_ready=false" >> "$GITHUB_OUTPUT"
+            echo "candidate_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
+            echo "candidate_branch=$CANDIDATE_BRANCH" >> "$GITHUB_OUTPUT"
+            echo "no_changes=$NO_CHANGES" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # A push made with the workflow token does not start other workflows:
           # run the full candidate suite explicitly on the exact new head.
           code="$(curl --silent --show-error --max-time 30 --request POST \
