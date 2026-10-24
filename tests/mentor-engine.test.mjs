@@ -823,3 +823,21 @@ test('mentor resolves an edit excerpt copied with different indentation when it 
   const result = await engine.propose({ env: {}, goal: 'Changer la valeur', inspectedFiles: [{ path: 'src/example.js', content: source }] });
   assert.equal(result.proposal.changes[0].content, 'export function read() {\n    const value = 2;\n    return value;\n}\n');
 });
+
+test('a production implementation must ship a new test, created with an empty SEARCH block', async () => {
+  const source = 'export function double(x) {\n  return x;\n}\n';
+  const edit = ['EDIT src/math.js', '<<<<<<< SEARCH', '  return x;', '=======', '  return x * 2;', '>>>>>>> REPLACE'];
+  const testBlock = ['EDIT tests/math-double.test.mjs', '<<<<<<< SEARCH', '=======',
+    "import test from 'node:test';", "import assert from 'node:assert/strict';", "import { double } from '../src/math.js';",
+    "test('double', () => { assert.equal(double(2), 4); });", '>>>>>>> REPLACE'];
+  const inspectedFiles = [{ path: 'src/math.js', content: source }];
+  const without = new MentorEngine({ providerFactory: async () => [provider('no-test', ['SUMMARY doubler', ...edit].join('\n'))] });
+  await assert.rejects(() => without.propose({ env: {}, goal: 'Doubler', inspectedFiles, requireTest: true }), error => {
+    assert.ok(error.failures.some(failure => failure.error === 'MENTOR_TEST_REQUIRED'));
+    return true;
+  });
+  const withTest = new MentorEngine({ providerFactory: async () => [provider('with-test', ['SUMMARY doubler', ...edit, ...testBlock].join('\n'))] });
+  const result = await withTest.propose({ env: {}, goal: 'Doubler', inspectedFiles, requireTest: true });
+  assert.deepEqual(result.proposal.changes.map(change => change.path).sort(), ['src/math.js', 'tests/math-double.test.mjs']);
+  assert.match(result.proposal.changes.find(change => change.path.startsWith('tests/')).content, /double\(2\), 4/);
+});

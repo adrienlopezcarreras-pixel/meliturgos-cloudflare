@@ -213,6 +213,8 @@ export async function prepareApprovedBridgePackage({
     mode,
     repairReferences,
     pathExists,
+    // Production implementations must ship a test the Council can check.
+    requireTest: true,
   });
   const proposal = mentor?.proposal;
   if (!proposal || !Array.isArray(proposal.changes) || !proposal.changes.length) {
