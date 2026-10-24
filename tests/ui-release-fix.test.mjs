@@ -29,7 +29,9 @@ test('full mode owns its local MEL portrait and release presentation directly', 
   assert.match(source, /radial-gradient\(circle at 82% 12%/);
   assert.match(source, /\/assets\/avatars\/mel-full\.webp/);
   assert.match(source, /\.brand img,\.hero img/);
-  assert.doesNotMatch(source, /MutationObserver|setInterval\(apply,2500\)|forceAvatar|melLiveNarrative/);
+  // Activity auto-scroll has its own panel observer; obsolete portrait forcing remains forbidden.
+  assert.match(source, /new MutationObserver\(scrollToLatest\)\.observe\(panel/);
+  assert.doesNotMatch(source, /setInterval\(apply,2500\)|forceAvatar|melLiveNarrative/);
   assert.doesNotMatch(source, /verite-interdite\.fr\/wp-content\/uploads/);
 });
 

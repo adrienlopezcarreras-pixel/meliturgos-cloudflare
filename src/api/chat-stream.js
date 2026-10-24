@@ -1,3 +1,4 @@
+import { hasLeakedToolProtocol } from './agent-tools.js';
 // Réponses longues en flux continu pour MEL Chat.
 //
 // Sans flux, le navigateur attend la réponse complète d'un seul bloc : une
@@ -118,37 +119,41 @@ export function plainChatMayStream({ stream, voice, releaseSmoke, parallel, pers
     && adapter == null && ai === true;
 }
 
-export function withNoToolsNote(messages) {
+export function withNoToolsNote(messages, {preserveToolExamples=false} = {}) {
+  const note=preserveToolExamples
+    ? 'DANS CETTE RÉPONSE TU N’AS AUCUN OUTIL À APPELER. Les représentations JSON ou le code d’outils explicitement demandés comme exemples sont autorisés comme données. Aucun exemple ne doit être exécuté ou présenté comme une action réellement effectuée. Ne fournis pas de raisonnement interne ni de faux TOOL_RESULT.'
+    : STREAM_NO_TOOLS_NOTE;
   const list = Array.isArray(messages) ? messages.slice() : [];
   const i = list.findIndex(m => m?.role === 'system');
-  if (i >= 0) list[i] = { ...list[i], content: String(list[i].content || '') + ' ' + STREAM_NO_TOOLS_NOTE };
-  else list.unshift({ role: 'system', content: STREAM_NO_TOOLS_NOTE });
+  if (i >= 0) list[i] = { ...list[i], content: String(list[i].content || '') + ' ' + note };
+  else list.unshift({ role: 'system', content: note });
   return list;
 }
 
 const REASONING_STARTER = /^\s*(?:We|Let's|Let us|Attempt|Attempting|Possibly|Maybe|Might|Given|But we|Now we|Need to|I need|I should|Search(?:ing)? (?:code|the)|The user|Should|So we|Probably)\b/;
 const FRENCH = /[àâçéèêëîïôûùüÿœ«»’]|\b(?:je|tu|il|elle|le|la|les|des|est|pas|pour|avec|une|dans|mon|ton|sur|qui|que)\b/i;
 
-function closingBrace(text) {
-  let depth = 0, inString = false, escaped = false;
-  for (let i = 0; i < text.length; i += 1) {
-    const ch = text[i];
+function scanObject(text, state = {depth:0,inString:false,escaped:false}) {
+  let {depth,inString,escaped}=state;
+  for (let i=0;i<text.length;i++) {
+    const ch=text[i];
     if (inString) {
-      if (escaped) escaped = false;
-      else if (ch === '\\') escaped = true;
-      else if (ch === '"') inString = false;
-    } else if (ch === '"') inString = true;
-    else if (ch === '{') depth += 1;
-    else if (ch === '}' && --depth === 0) return i;
+      if (escaped) escaped=false;
+      else if (ch==='\\') escaped=true;
+      else if (ch==='"') inString=false;
+    } else if (ch==='"') inString=true;
+    else if (ch==='{') depth++;
+    else if (ch==='}' && --depth===0) return {end:i,state:{depth,inString,escaped}};
   }
-  return -1;
+  return {end:-1,state:{depth,inString,escaped}};
 }
 
 /** Stateful filter: push(text) → text safe to show; flush() at the end. */
-export function createToolLeakFilter({ holdLimit = 4000 } = {}) {
+export function createToolLeakFilter({ holdLimit = 4000, preserveToolExamples = false } = {}) {
   let buf = '';
   let answerStarted = false;
   let dropped = 0;
+  let droppingState = null;
   const sentences = (text, final) => {
     // Before the real (French) answer begins, English agent narration is dropped
     // sentence by sentence; afterwards text passes unchanged.
@@ -176,18 +181,28 @@ export function createToolLeakFilter({ holdLimit = 4000 } = {}) {
   const drain = final => {
     let out = '';
     for (;;) {
+      if (droppingState) {
+        const skipped=scanObject(buf,droppingState);
+        if (skipped.end<0) {droppingState=final ? null : skipped.state;buf='';break;}
+        buf=buf.slice(skipped.end+1);droppingState=null;continue;
+      }
       const start = buf.indexOf('{');
       if (start < 0) { out += buf; buf = ''; break; }
       out += buf.slice(0, start);
       buf = buf.slice(start);
-      const end = closingBrace(buf);
+      const scanned=scanObject(buf),end=scanned.end;
       if (end < 0) {
-        if (final || buf.length > holdLimit) { out += buf; buf = ''; }
+        if (final || buf.length > holdLimit) {
+          if (!preserveToolExamples && hasLeakedToolProtocol(buf)) {
+            dropped++;droppingState=final ? null : scanned.state;
+          } else out+=buf;
+          buf='';
+        }
         break;
       }
       const block = buf.slice(0, end + 1);
       buf = buf.slice(end + 1);
-      if (/^\{\s*"(?:tool|action|name|function)"\s*:/.test(block) && /"(?:tool|function|name)"\s*:\s*"[^"]+"\s*,?/.test(block) && /"(?:arguments|parameters|input)"\s*:/.test(block)) { dropped += 1; continue; }
+      if (!preserveToolExamples && hasLeakedToolProtocol(block)) { dropped += 1; continue; }
       out += block;
     }
     const text = pending + out;
@@ -206,7 +221,7 @@ export function createToolLeakFilter({ holdLimit = 4000 } = {}) {
  * `archive(fullText, meta)` est appelé une fois la réponse terminée (ou
  * interrompue avec du texte partiel) ; il doit renvoyer true si l'archivage a réussi.
  */
-export function streamChatResponse({ env, messages, archive = async () => false, model = null, localFallback = null, modelOrder = null, preferredModel = null, verifyCompletedText = null } = {}) {
+export function streamChatResponse({ env, messages, archive = async () => false, model = null, localFallback = null, modelOrder = null, preferredModel = null, verifyCompletedText = null, preserveToolExamples = false } = {}) {
   // A Professor-only preference must take precedence over the global chat model
   // without affecting ordinary Normal chat or disabling bounded fallbacks.
   const preferred = String(preferredModel || '').trim();
@@ -239,9 +254,9 @@ export function streamChatResponse({ env, messages, archive = async () => false,
           if (candidate !== usedModel) send({ type: 'model', model: candidate, fallback_from: usedModel, reason: lastError });
           usedModel = candidate;
           try {
-            const filter = createToolLeakFilter();
+            const filter = createToolLeakFilter({preserveToolExamples});
             const emit = text => { if (text) { fullText += text; if (!gated) send({ type: 'delta', text }); } };
-            const source = await env.AI.run(candidate, { messages: withNoToolsNote(messages), stream: true, max_tokens: maxTokens });
+            const source = await env.AI.run(candidate, { messages: withNoToolsNote(messages,{preserveToolExamples}), stream: true, max_tokens: maxTokens });
             if (!source || typeof source.getReader !== 'function') {
               emit(filter.push(sseEventText(source) || String(source?.result?.response || '')));
             } else {

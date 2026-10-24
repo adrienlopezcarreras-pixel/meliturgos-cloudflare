@@ -73,6 +73,25 @@ function ensureTextSize(content, limit = MAX_FILE_BYTES) {
   return String(content || '');
 }
 
+function symbolWords(value) {
+  return String(value).replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase()
+    .split(/[^a-z0-9]+/).filter(word => word.length > 2)
+    .map(word => word.replace(/ies$/, 'y'));
+}
+function sourceRelevance(path, needle, words) {
+  const lower = path.toLowerCase();
+  if (lower === needle) return 20000;
+  if (lower.includes(needle)) return 10000;
+  const parts = symbolWords(path), basename = symbolWords(path.split('/').at(-1));
+  let score = path.startsWith('src/') ? 1 : 0;
+  for (const word of words) {
+    if (basename.includes(word)) score += 6;
+    else if (parts.includes(word)) score += 2;
+    else if (lower.includes(word)) score += 1;
+  }
+  return score;
+}
+
 export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, token = '', pinnedSha = '', fetchImpl = fetch } = {}) {
   const repo = text(repository, 'repository', 200);
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) throw Object.assign(new Error('INVALID_REPOSITORY'), { code: 'INVALID_REPOSITORY' });
@@ -127,33 +146,43 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
       const response = await fetchImpl(`${api(`git/trees/${encodeURIComponent(contentRef)}`)}?recursive=1`, { headers: headers(token) });
       if (response.ok) {
         const body = await response.json();
-        return (Array.isArray(body.tree) ? body.tree : [])
+        const supported = (Array.isArray(body.tree) ? body.tree : [])
           .filter(x => x && x.type === 'blob' && typeof x.path === 'string')
-          .map(x => ({ path: x.path, size: Number(x.size || 0) }))
-          .filter(x => x.size <= MAX_FILE_BYTES && !DENIED_PATH.test(x.path) && TEXT_EXT.test(x.path));
+          .map(x => ({path:x.path, size:Number(x.size || 0)}))
+          .filter(x => !DENIED_PATH.test(x.path) && TEXT_EXT.test(x.path));
+        return {files:supported.filter(x => x.size <= MAX_FILE_BYTES), largeFiles:supported.filter(x => x.size > MAX_FILE_BYTES), complete:Array.isArray(body.tree) && body.truncated === false};
       }
     } catch {}
-    return FALLBACK_FILES.map(path => ({ path, size: 0 })).filter(x => !DENIED_PATH.test(x.path));
+    return {files:FALLBACK_FILES.map(path => ({path,size:0})).filter(x => !DENIED_PATH.test(x.path)), largeFiles:[], complete:false};
   }
 
   async function search({ query, path = '' } = {}) {
-    const needle = text(query, 'query', 300).toLowerCase();
+    const queryText = text(query, 'query', 300), needle = queryText.toLowerCase();
     const prefix = path ? safePath(path) : '';
-    const files = (await tree()).filter(x => !prefix || x.path === prefix || x.path.startsWith(`${prefix}/`));
-    const pathHits = files.filter(x => x.path.toLowerCase().includes(needle));
-    const selected = [...pathHits, ...files.filter(x => !pathHits.some(h => h.path === x.path))].slice(0, MAX_SEARCH_FILES);
+    const snapshot = await tree();
+    const inScope = file => !prefix || file.path === prefix || file.path.startsWith(`${prefix}/`);
+    const files = snapshot.files.filter(inScope);
+    const skippedLarge = snapshot.largeFiles.filter(inScope).length;
+    const words = [...new Set(symbolWords(queryText))].filter(word => !/^(?:create|register|default|handle|build|infer|function|const|export)$/.test(word)).slice(0,8);
+    const selected = files.map((file,index) => ({...file,index,score:sourceRelevance(file.path,needle,words)}))
+      .sort((a,b) => b.score-a.score || a.index-b.index).slice(0,MAX_SEARCH_FILES);
     const matches = [];
+    let searched = 0, failed = 0;
     for (const file of selected) {
       if (matches.length >= MAX_MATCHES) break;
       let source;
-      try { source = await read(file.path); } catch { continue; }
+      try { source = await read(file.path); searched++; } catch { failed++; continue; }
       const lines = source.content.split(/\r?\n/);
       for (let i = 0; i < lines.length && matches.length < MAX_MATCHES; i++) {
         if (!lines[i].toLowerCase().includes(needle)) continue;
-        matches.push({ path: file.path, line: i + 1, excerpt: lines[i].trim().slice(0, 500) });
+        matches.push({path:file.path,line:i+1,excerpt:lines[i].trim().slice(0,500)});
       }
     }
-    return { query: String(query), path: prefix, matches, searched_files: selected.length, branch: ref, repository: repo };
+    const limitReached = files.length > MAX_SEARCH_FILES || matches.length >= MAX_MATCHES;
+    return {query:String(query),path:prefix,matches,searched_files:searched,failed_files:failed,candidate_files:files.length,
+      skipped_large_files:skippedLarge,tree_complete:snapshot.complete,limit_reached:limitReached,
+      search_complete:snapshot.complete && !limitReached && !failed && !skippedLarge,
+      source_ref:contentRef,branch:ref,repository:repo};
   }
 
   // Planning-only immutable snapshot. No caller may treat this as proof that
@@ -266,13 +295,13 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
       } catch { return 'DEGRADED'; }
     }
   }
-  const paths = async () => (await tree()).map(x => x.path);
+  const paths = async () => (await tree()).files.map(x => x.path);
   return { read, search, head, approvedSnapshot, health, paths, repository: repo, branch: ref, content_ref: contentRef, pinned_sha: pinned || null };
 }
 
 export function registerGitHubCodeCapabilities(bus, options = {}) {
   const reader = createGitHubCodeReader(options);
   bus.discover({ id: 'code.read', name: 'GitHub code read', category: 'development', version: '1.2.0', provider: 'github', description: 'Read non-secret MEL source; optional 1-based start_line/end_line selects up to 200 lines from a large file. Partial reads do not prove inspection of the whole file.', input_schema: { type: 'object', properties: { path: { type: 'string', minLength: 1, maxLength: 1000 }, start_line:{type:'integer',minimum:1}, end_line:{type:'integer',minimum:1} }, required: ['path'], additionalProperties: false }, output_schema: { type: 'object', properties: { start_line:{type:'integer'}, end_line:{type:'integer'}, total_lines:{type:'integer'}, partial:{type:'boolean'}, source_ref:{type:'string'}, path: { type: 'string', minLength: 1, maxLength: 1000 }, content: { type: 'string', minLength: 0, maxLength: MAX_FILE_BYTES }, sha: { type: 'string', minLength: 0, maxLength: 300 }, branch: { type: 'string', minLength: 1, maxLength: 200 }, repository: { type: 'string', minLength: 1, maxLength: 200 } }, required: ['path','content','sha','branch','repository'], additionalProperties: false }, risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true }, input => reader.read(input.path, input), () => reader.health());
-  bus.discover({ id: 'code.search', name: 'GitHub code search', category: 'development', version: '1.1.1', provider: 'github', description: 'Search bounded non-secret MELITURGOS source files in the configured GitHub branch.', input_schema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 300 }, path: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['query'], additionalProperties: false }, output_schema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 300 }, path: { type: 'string', minLength: 0, maxLength: 1000 }, matches: { type: 'array', items: { type: 'object', properties: { path: { type: 'string', minLength: 1, maxLength: 1000 }, line: { type: 'integer' }, excerpt: { type: 'string', minLength: 0, maxLength: 500 } }, required: ['path','line','excerpt'], additionalProperties: false } }, searched_files: { type: 'integer' }, branch: { type: 'string', minLength: 1, maxLength: 200 }, repository: { type: 'string', minLength: 1, maxLength: 200 } }, required: ['query','path','matches','searched_files','branch','repository'], additionalProperties: false }, risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true }, input => reader.search(input), () => reader.health());
+  bus.discover({ id: 'code.search', name: 'GitHub code search', category: 'development', version: '1.2.0', provider: 'github', description: 'Search up to 24 non-secret MEL source files, ranked by symbol/path relevance. Inspect search_complete, tree_complete and skipped/failed counts before concluding absence.', input_schema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 300 }, path: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['query'], additionalProperties: false }, output_schema: { type: 'object', properties: { failed_files:{type:'integer'}, candidate_files:{type:'integer'}, skipped_large_files:{type:'integer'}, tree_complete:{type:'boolean'}, limit_reached:{type:'boolean'}, search_complete:{type:'boolean'}, source_ref:{type:'string'}, query: { type: 'string', minLength: 1, maxLength: 300 }, path: { type: 'string', minLength: 0, maxLength: 1000 }, matches: { type: 'array', items: { type: 'object', properties: { path: { type: 'string', minLength: 1, maxLength: 1000 }, line: { type: 'integer' }, excerpt: { type: 'string', minLength: 0, maxLength: 500 } }, required: ['path','line','excerpt'], additionalProperties: false } }, searched_files: { type: 'integer' }, branch: { type: 'string', minLength: 1, maxLength: 200 }, repository: { type: 'string', minLength: 1, maxLength: 200 } }, required: ['query','path','matches','searched_files','branch','repository'], additionalProperties: false }, risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true }, input => reader.search(input), () => reader.health());
   return reader;
 }
