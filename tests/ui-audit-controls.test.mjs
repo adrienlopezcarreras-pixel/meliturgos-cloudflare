@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {JSDOM} from 'jsdom';
 import {onRequestGet as fullMode} from '../src/pages/full-interface-v2.js';
 import {onRequestGet as workMode} from '../src/pages/revenue-interface.js';
+import {renderFidesGuestPage} from '../src/pages/fides-guest-page.js';
 import {getRoadmapPayload,validateRoadmap} from '../src/roadmap/master-roadmap.js';
 
 test('WORK provider secrets are masked and all connection fields have distinct accessible names',async()=>{
@@ -29,4 +30,9 @@ test('the canonical audit phase and professional chat phase coexist without dupl
  assert.equal(audit.items.length,7);assert.equal(chat.items.length,8);
  assert.ok(audit.items.every(i=>i.id.startsWith('MEL-UI-AUDIT-')&&i.status!=='DONE_VERIFIED'));
  assert.ok(chat.items.every(i=>i.id.startsWith('MEL-CHAT-')&&i.status!=='DONE_VERIFIED'));
+});
+
+test('the public guest composer has a stable accessible name',()=>{
+ const dom=new JSDOM(renderFidesGuestPage());
+ try{assert.ok(dom.window.document.getElementById('message').getAttribute('aria-label'));}finally{dom.window.close();}
 });

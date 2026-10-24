@@ -44,19 +44,19 @@ try{
  const evaluate=async expression=>{const r=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw new Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value;};
  const pause=ms=>new Promise(r=>setTimeout(r,ms));
  await send('Runtime.enable');await send('Page.enable');await send('Fetch.enable',{handleAuthRequests:true});
- for(const path of ['/','/professor','/revenus','/veille']){
+ for(const path of ['/','/professor','/revenus','/veille','/shardvault','/about','/privacy','/fides','/public/wordpress-chat']){
   currentPage=path;await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   await send('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+path});
   for(let i=0;i<100;i++){if(await evaluate('document.readyState==="complete"'))break;await pause(50);}
   await pause(350);
-  const snapshot=await evaluate(`(()=>({title:document.title,heading:document.querySelector('h1,h2')?.textContent,controls:[...document.querySelectorAll('button,a[href],input,textarea,select,[role="button"]')].map((e,i)=>({index:i,id:e.id,tag:e.tagName,label:(e.getAttribute('aria-label')||e.textContent||e.getAttribute('placeholder')||e.name||'').trim().slice(0,160),type:e.type||null,href:e.getAttribute('href'),view:e.dataset.view||null,panel:e.closest('[data-panel]')?.dataset.panel||null,disabled:e.disabled===true,visible:!!e.getClientRects().length,accessibleName:!!(e.getAttribute('aria-label')||e.getAttribute('aria-labelledby')||e.textContent?.trim()||e.labels?.length||e.title)}))}))()`);
+  const snapshot=await evaluate(`(()=>({title:document.title,bodyLength:document.body.textContent.trim().length,heading:document.querySelector('h1,h2')?.textContent,controls:[...document.querySelectorAll('button,a[href],input,textarea,select,[role="button"]')].map((e,i)=>({index:i,id:e.id,tag:e.tagName,label:(e.getAttribute('aria-label')||e.textContent||e.getAttribute('placeholder')||e.name||'').trim().slice(0,160),type:e.type||null,href:e.getAttribute('href'),view:e.dataset.view||null,panel:e.closest('[data-panel]')?.dataset.panel||null,disabled:e.disabled===true,visible:!!e.getClientRects().length,accessibleName:!!(e.getAttribute('aria-label')||e.getAttribute('aria-labelledby')||e.textContent?.trim()||e.labels?.length||e.title)}))}))()`);
   if(path==='/revenus'){
    const masked=await evaluate(`['api_key','app_password'].every(name=>document.querySelector('input[name="'+name+'"]').type==='password')`);
    record(path,'provider credentials','inspect browser input types','API key and app password masked',masked,masked?'PASS':'FAIL','browser-results.json');
   }
   inventories.push({page:path,...snapshot});
-  for(const c of snapshot.controls.filter(c=>!c.accessibleName&&['INPUT','SELECT','TEXTAREA','BUTTON'].includes(c.tag)))record(path,c.id||c.tag+'['+c.index+']','accessible name','Programmatic label available','Missing accessible name','FAIL','inventory.json');record(path,'page','navigate','HTML rendered by production entrypoint',snapshot.heading||snapshot.title,snapshot.heading?'PASS':'FAIL','inventory.json');
-  for(const c of snapshot.controls)record(path,c.id||c.tag+'['+c.index+']','inventory / functional execution','Function and durable outcome verified',c.disabled?'Disabled; live prerequisites unverified':'Requires functional scenario and live prerequisites','BLOCKED','inventory.json');
+  for(const c of snapshot.controls.filter(c=>!c.accessibleName&&['INPUT','SELECT','TEXTAREA','BUTTON'].includes(c.tag)))record(path,c.id||c.tag+'['+c.index+']','accessible name','Programmatic label available','Missing accessible name','FAIL','inventory.json');record(path,'page','navigate','HTML rendered by production entrypoint',snapshot.heading||snapshot.title,snapshot.title&&snapshot.bodyLength>30&&requests.some(r=>r.path===path&&r.method==='GET'&&r.status===200)?'PASS':'FAIL','inventory.json');
+  for(const c of snapshot.controls)record(path,c.id||c.tag+'['+c.index+'] '+c.label,'inventory / functional execution','Function and durable outcome verified',c.disabled?'Disabled; live prerequisites unverified':'Requires functional scenario and live prerequisites','BLOCKED','inventory.json');
   if(path==='/professor'){
    for(const view of await evaluate('[...document.querySelectorAll("#nav [data-view]")].map(e=>e.dataset.view)')){
     const result=await evaluate(`(()=>{document.querySelector('#nav [data-view="${view}"]').click();return {active:document.querySelector('.view.active')?.dataset.panel,title:document.querySelector('#viewTitle')?.textContent}})()`);
@@ -74,12 +74,18 @@ try{
     await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',text:'\r',unmodifiedText:'\r',windowsVirtualKeyCode:13});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
     const reopened=await evaluate("!document.querySelector('#melCodeLivePanel').classList.contains('is-collapsed')");
     record(path,'activity:keyboard-reopen','Enter on focused button','Panel reopened',reopened,reopened?'PASS':'FAIL','browser-results.json');
+    await evaluate("document.querySelector('#melCodeLiveCollapse').click()");await send('Page.reload');
+    for(let i=0;i<100;i++){if(await evaluate('document.readyState==="complete"'))break;await pause(50);}await pause(100);
+    const restored=await evaluate("document.querySelector('#melCodeLivePanel').classList.contains('is-collapsed')&&document.querySelector('#melCodeLiveCollapse').getAttribute('aria-expanded')==='false'");
+    record(path,'activity:reload-collapse','reload after user collapsed panel','User collapse preference preserved',restored,restored?'PASS':'FAIL','browser-results.json');
+    if(restored)await evaluate("document.querySelector('#melCodeLiveCollapse').click()");
+
    }
 
   }
   for(const width of [390,768]){await send('Emulation.setDeviceMetricsOverride',{width,height:844,deviceScaleFactor:1,mobile:true});await pause(100);const layout=await evaluate('({width:innerWidth,document:document.documentElement.scrollWidth})');record(path,'viewport:'+width,'resize','No page-wide horizontal overflow',JSON.stringify(layout),layout.document<=width+1?'PASS':'FAIL','browser-results.json');}
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
-  const shot=await send('Page.captureScreenshot',{format:'png'});await writeFile(join(output,(path==='/'?'normal':path.slice(1))+'.png'),Buffer.from(shot.data,'base64'));
+  const shot=await send('Page.captureScreenshot',{format:'png'});await writeFile(join(output,(path==='/'?'normal':path.slice(1).replaceAll('/','-'))+'.png'),Buffer.from(shot.data,'base64'));
  }
  for(const error of errors)record(error.page,'JavaScript runtime','load / interact','No uncaught exceptions',error.text,'FAIL','errors.json');
  for(const feature of ['MAX persistence after release','Council real models','Mentor code generation','WORK delivery and real revenue','Windows keyboard/mouse/screen','Android and MINI hardware','Memory durable archive/import','LoRA real training','OAuth authorized account','Production SHA and D1'])record('live',feature,'live end-to-end acceptance','Actual authorized integration/device outcome','Local audit has no production identity, durable database, live provider or hardware; separate authorized live acceptance required','BLOCKED','live-access');

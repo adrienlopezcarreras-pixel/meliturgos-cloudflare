@@ -537,11 +537,17 @@ function melCodeSetupWindow(){
   }
   if(melCodeActivityTimer===null){melCodeRefreshActivity();melCodeActivityTimer=setInterval(melCodeRefreshActivity,5000)}
   qs('#melCodeLiveClear').onclick=()=>{melCodeActivitySeen.clear();qs('#melCodeLiveEvents').textContent='';qs('#melCodeLiveStatus').textContent='Historique affiché effacé.'};
-  qs('#melCodeLiveCollapse').onclick=()=>{
-    panel.classList.toggle('is-collapsed');
-    const open=!panel.classList.contains('is-collapsed');
+  const applyCollapsed=collapsed=>{
+    panel.classList.toggle('is-collapsed',collapsed);
+    const open=!collapsed;
     const btn=qs('#melCodeLiveCollapse');btn.textContent=open?'Réduire':'Afficher';btn.setAttribute('aria-expanded',String(open));
     if(open)requestAnimationFrame(()=>{panel.scrollTop=panel.scrollHeight;});
+  };
+  try{applyCollapsed(localStorage.getItem('mel.code.activity.collapsed.v1')==='true')}catch{applyCollapsed(false)}
+  qs('#melCodeLiveCollapse').onclick=()=>{
+    const collapsed=!panel.classList.contains('is-collapsed');
+    applyCollapsed(collapsed);
+    try{localStorage.setItem('mel.code.activity.collapsed.v1',String(collapsed))}catch{}
   };
   let start=null;
   header.addEventListener('pointerdown',event=>{
