@@ -42,3 +42,10 @@ test('candidate publication uses atomic expected-head lease rather than unchecke
   assert.match(workflow, /REMOTE_SHA" = "\$CANDIDATE_SHA"/);
   assert.doesNotMatch(workflow, /\|\| git push origin "HEAD:\$CANDIDATE_BRANCH"/);
 });
+
+test('candidate CI dispatch refuses a branch advanced beyond the published SHA', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  assert.match(workflow, /DISPATCH_HEAD="\$\(git ls-remote origin/);
+  assert.match(workflow, /"\$DISPATCH_HEAD" != "\$NEW_SHA"/);
+  assert.match(workflow, /CANDIDATE_HEAD_MOVED_BEFORE_CI_DISPATCH/);
+});
