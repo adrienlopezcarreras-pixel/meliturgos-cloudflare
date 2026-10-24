@@ -50,14 +50,27 @@ echo "ShardVault external registry before release proof: ${SHARD_ACTIVE}/7 (rele
 
 if [ "$SHARD_ACTIVE" -lt "$SHARD_RELEASE_QUORUM" ]; then
   SHARD_READY=0
+  # Qualification can legitimately use 120-150s before promotion. The old
+  # 90s HTTP caller abandoned it before the server's own validation deadline.
+  # Preserve the former aggregate ceiling (17 * 90s), rather than multiplying
+  # release time by the longer per-request allowance. Never start a mutation
+  # when less than its full response allowance remains.
+  SHARD_SEARCH_REQUEST_SECONDS=240
+  SHARD_SEARCH_TOTAL_SECONDS=1530
+  SHARD_SEARCH_DEADLINE_EPOCH=$(( $(date +%s) + SHARD_SEARCH_TOTAL_SECONDS ))
   for SHARD_ATTEMPT in $(seq 1 17); do
+    SHARD_SEARCH_REMAINING=$(( SHARD_SEARCH_DEADLINE_EPOCH - $(date +%s) ))
+    if [ "$SHARD_SEARCH_REMAINING" -lt "$SHARD_SEARCH_REQUEST_SECONDS" ]; then
+      echo "ShardVault activation time budget exhausted; quorum is not proven."
+      break
+    fi
     # Release proof scans one documented provider per request.
     # Broad Internet discovery stays outside the production gate so
     # a slow catalogue/search cannot exhaust Worker CPU.
     SHARD_PROBE_LIMIT=1
     SHARD_KNOWN_ONLY=true
     SHARD_OFFSET=$(( (SHARD_ATTEMPT - 1) % 13 ))
-    SHARD_SEARCH_CODE="$(curl --silent --show-error --max-time 90 \
+    SHARD_SEARCH_CODE="$(curl --silent --show-error --max-time "$SHARD_SEARCH_REQUEST_SECONDS" \
       --header "x-mel-release-smoke: 1" \
       --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
       --header "content-type: application/json" \

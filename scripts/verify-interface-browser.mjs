@@ -85,10 +85,15 @@ try{
     record(path,'navigation:'+view,'visible browser pointer click','Requested section visible',result.active,clicked&&result.active===view?'PASS':'FAIL','browser-results.json');
    }
    await pointerClick('#nav [data-view="chat"]');await pointerClick('#melRoleCode');await pause(100);
+   const compact=await evaluate("document.querySelector('#melCodeLivePanel').classList.contains('is-collapsed')&&document.querySelector('#melCodeLiveCollapse').getAttribute('aria-expanded')==='false'");
+   record(path,'activity:compact-default','open approved Code surface','Starts compact until explicit expansion',compact,compact?'PASS':'FAIL','browser-results.json');
+   await pointerClick('#melCodeLiveCollapse');
    for(const action of ['collapse','reopen']){const result=await evaluate(`(()=>{document.querySelector('#melCodeLiveCollapse').click();return {collapsed:document.querySelector('#melCodeLivePanel').classList.contains('is-collapsed'),expanded:document.querySelector('#melCodeLiveCollapse').getAttribute('aria-expanded')}})()`);const closed=action==='collapse';record(path,'activity:'+action,'click','Collapsed state and aria-expanded agree',JSON.stringify(result),result.collapsed===closed&&result.expanded===String(!closed)?'PASS':'FAIL','browser-results.json');}
-   await evaluate(`for(let i=0;i<40;i++)melCodeLiveRecord({id:'local-browser-'+i,label:'Local fixture event '+i,status:'done',source:'local-fixture'})`);await pause(1000);
+   await evaluate(`for(let i=0;i<40;i++)melCodeLiveRecord({id:'local-browser-'+i,label:'Local fixture event '+i+': '+'Local fixture stress details '.repeat(80),status:'done',source:'local-fixture'})`);await pause(1000);
    const scroll=await evaluate(`(()=>{const p=document.querySelector('#melCodeLivePanel');return {bottom:Math.abs(p.scrollHeight-p.clientHeight-p.scrollTop)<3,overflow:p.scrollHeight>p.clientHeight}})()`);
-   record(path,'activity:latest','append clearly-labelled local fixture events','Latest event reachable at bottom',JSON.stringify(scroll),scroll.bottom?'PASS':'FAIL','browser-results.json');
+   record(path,'activity:latest','append clearly-labelled local fixture events','Latest event reachable at bottom',JSON.stringify(scroll),scroll.bottom&&scroll.overflow?'PASS':'FAIL','browser-results.json');
+   const recent=await evaluate("(()=>{const h=document.querySelector('#melCodeLiveEvents');return {count:h.children.length,last:h.lastElementChild?.textContent.includes('Local fixture event 39')}})()");
+   record(path,'activity:latest-two','append labelled fixture events','Only latest two visible, newest retained',JSON.stringify(recent),recent.count===2&&recent.last?'PASS':'FAIL','browser-results.json');
    const control=await evaluate(`(()=>{const e=document.querySelector('#melCodeLiveCollapse'),r=e.getBoundingClientRect();return {visible:r.top>=0&&r.bottom<=innerHeight&&document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===e,x:r.x+r.width/2,y:r.y+r.height/2}})()`);
    record(path,'activity:collapse-after-growth','hit-test visible collapse button after new events','Header button visible and clickable at latest entry',JSON.stringify(control),control.visible?'PASS':'FAIL','browser-results.json');
    if(control.visible){await send('Input.dispatchMouseEvent',{type:'mousePressed',x:control.x,y:control.y,button:'left',clickCount:1});await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:control.x,y:control.y,button:'left',clickCount:1});const closed=await evaluate("document.querySelector('#melCodeLivePanel').classList.contains('is-collapsed')");record(path,'activity:pointer-collapse','real browser pointer click','Panel collapsed',closed,closed?'PASS':'FAIL','browser-results.json');
@@ -96,10 +101,10 @@ try{
     await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',text:'\r',unmodifiedText:'\r',windowsVirtualKeyCode:13});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
     const reopened=await evaluate("!document.querySelector('#melCodeLivePanel').classList.contains('is-collapsed')");
     record(path,'activity:keyboard-reopen','Enter on focused button','Panel reopened',reopened,reopened?'PASS':'FAIL','browser-results.json');
-    await evaluate("document.querySelector('#melCodeLiveCollapse').click()");await send('Page.reload');
+    await send('Page.reload');
     for(let i=0;i<100;i++){if(await evaluate('document.readyState==="complete"'))break;await pause(50);}await pause(100);
     const restored=await evaluate("document.querySelector('#melCodeLivePanel').classList.contains('is-collapsed')&&document.querySelector('#melCodeLiveCollapse').getAttribute('aria-expanded')==='false'");
-    record(path,'activity:reload-collapse','reload after user collapsed panel','User collapse preference preserved',restored,restored?'PASS':'FAIL','browser-results.json');
+    record(path,'activity:reload-collapse','reload after explicit expansion','Approved compact default restored',restored,restored?'PASS':'FAIL','browser-results.json');
     if(restored)await evaluate("document.querySelector('#melCodeLiveCollapse').click()");
 
    }
