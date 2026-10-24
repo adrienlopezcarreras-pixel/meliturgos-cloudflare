@@ -20,3 +20,15 @@ test('without a token and with the REST quota exhausted, MEL still reads her bra
   assert.equal((await createGitHubCodeReader({ repository: 'o/r', branch: 'main', fetchImpl }).head()).sha, SHA_MAIN);
   await assert.rejects(createGitHubCodeReader({ repository: 'o/r', branch: 'missing', fetchImpl }).head(), /CODE_HEAD_READ_FAILED/);
 });
+
+test('immutable Teacher-approved snapshot is independently verified without weakening head CAS', async () => {
+  const fetchImpl = async url => {
+    if (url.endsWith('/commits/' + SHA_CAND)) return new Response(JSON.stringify({sha:SHA_CAND}), {status:200});
+    if (url.includes('/git/ref/heads/')) return new Response(JSON.stringify({object:{sha:SHA_MAIN}}), {status:200});
+    return new Response('', {status:404});
+  };
+  const reader = createGitHubCodeReader({repository:'o/r',branch:'candidate/mel-clean-autonomy',pinnedSha:SHA_CAND,fetchImpl});
+  assert.equal((await reader.approvedSnapshot()).sha,SHA_CAND);
+  await assert.rejects(reader.head(),/CODE_HEAD_PIN_MISMATCH/);
+  await assert.rejects(createGitHubCodeReader({repository:'o/r',branch:'main',fetchImpl}).approvedSnapshot(),/CODE_APPROVED_SNAPSHOT_PIN_REQUIRED/);
+});
