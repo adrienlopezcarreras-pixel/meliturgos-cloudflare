@@ -54,3 +54,9 @@ test('MEL reads explicit .agents documentation instead of fabricating a code.rea
     { id: 'code.read', input: { path: '.agents/ANDROID_APP_100_CYCLES_20260923.md' } }
   );
 });
+
+
+test('explicit source line ranges reach the existing code.read capability',()=>{
+ assert.deepEqual(inferNativeCodeCapability('lis src/api/native-chat.js lignes 120 à 150'),{id:'code.read',input:{path:'src/api/native-chat.js',start_line:120,end_line:150}});
+ assert.deepEqual(inferNativeCodeCapability('diagnostique src/pages/full-interface-v2.js lignes 400-420'),{id:'code.read',input:{path:'src/pages/full-interface-v2.js',start_line:400,end_line:420}});
+});

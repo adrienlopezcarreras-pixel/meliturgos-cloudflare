@@ -354,7 +354,10 @@ export function inferNativeCodeCapability(text, recent = []) {
   if (!talksCodeNow && !pathNow && !followUpAccess && !asksIntegrity) return null;
   const path = pathNow || (followUpAccess ? extractCodePath(history) : null);
   if (asksIntegrity) return { id: 'code.integrity', input: {} };
-  if (path && (asksRead || asksAccess || followUpAccess)) return { id: 'code.read', input: { path } };
+  if (path && (asksRead || asksAccess || followUpAccess || /\b(?:explique|diagnostique|comprends)\b/i.test(value))) {
+    const range = value.match(/\b(?:lignes?|lines?)\s+(\d+)(?:\s*(?:[àa]|-|–|to|through)\s*(\d+))?/i);
+    return {id:'code.read', input:{path, ...(range ? {start_line:Number(range[1]), ...(range[2] ? {end_line:Number(range[2])} : {})} : {})}};
+  }
   if (asksSearch) {
     return {
       id: 'code.search',
@@ -1837,13 +1840,18 @@ export async function handleNativeChat(request, env, options = {}) {
     }
   }
 
-  // Native tool use: when no deterministic route chose a capability, the model
-  // calls its own tools; the grounded answer below is then built from them.
-  if (!releaseSmoke && !capability?.id && !connectedReadPlan.length && !voiceReply && runtime?.bus) {
+  // One tool loop: generic action planning, or a read-only continuation of a
+  // deterministic code investigation seeded with its actual result.
+  const codeInvestigation = ['code.read','code.search'].includes(capability?.id)
+    && /\b(?:diagnostique|diagnostic|analyse|analyser|explique|expliquer|comprends|comprendre|pourquoi)\b/i.test(activeTaskText);
+  if (!releaseSmoke && (!capability?.id || codeInvestigation) && !connectedReadPlan.length && !voiceReply && runtime?.bus) {
     const agentResults = await runAgentToolLoop({
       env, bus: runtime.bus, text: activeTaskText, recent,
       context: nativeCapabilityContext(env, request, options),
       summarize: summarizeToolResult,
+      initialResults: codeInvestigation ? toolResults.filter(row => row.capability === capability.id)
+        .map(row => ({...row,input:capability.input || {}})) : [],
+      allowedTools: codeInvestigation ? ['code.read','code.search','capability.audit'] : null,
       // Keep time for the grounded answer after optional tool planning.
       deadlineAt: chatDeadlineAt - CONTINUATION_MIN_REMAINING_MS,
     }).catch(() => []);
@@ -2326,6 +2334,7 @@ export async function handleNativeChat(request, env, options = {}) {
     'Lorsqu’un résultat d’outil prouve que tu as lu ou recherché ton dépôt, dis clairement que tu as accès à ce code et cite le fichier ou la branche observée.',
     'Ne prétends jamais ne pas avoir accès au code si un TOOL_RESULT SUCCEEDED de cette requête démontre le contraire.',
     'Si un TOOL_RESULT FAILED existe, donne son code d’échec exact au lieu d’inventer une incapacité générale.',
+    'DIAGNOSTIC DU CODE : distingue observations, cause étayée, hypothèses et vérifications manquantes. Cite uniquement fichiers, lignes, branche et SHA réellement reçus. code.search prouve des extraits trouvés ; code.integrity prouve une identité ; aucun ne prouve une lecture intégrale. Une lecture avec partial=true ne couvre que start_line à end_line. Cible une plage de lignes si un fichier est trop grand. Une recherche bornée sans résultat ne prouve pas l’absence dans tout le dépôt. Ne déclare ni test réussi ni correctif livré sans résultat d’exécution correspondant.',
     autonomyActivityObserved
       ? 'ACTIVITÉ AUTONOME LIVE : autonomy.activity a réellement lu la D1 et le ledger pendant cette requête. Pour répondre à ce que tu as fait, utilise uniquement ces jobs, statuts, preuves et événements observés maintenant. N’utilise aucune ancienne conversation comme preuve de ton activité autonome actuelle et n’invente jamais un travail absent du TOOL_RESULT.'
       : '',
