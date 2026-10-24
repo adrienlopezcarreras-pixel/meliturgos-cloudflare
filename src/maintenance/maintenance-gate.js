@@ -58,20 +58,28 @@ export async function finishMaintenanceLease(db, {leaseId, reconciled=false, now
  * reconciliation result. On failure, recovery must explicitly reconcile before
  * WORK can resume; the lease is never silently abandoned.
  */
-export async function withMaintenanceLease(db,{leaseId,now=()=>Date.now(),ttlMs,run,recover}={}) {
+export async function withMaintenanceLease(db,{
+  leaseId,now=()=>Date.now(),ttlMs,run,recover,verify
+}={}) {
   if (typeof run !== 'function') throw Error('MAINTENANCE_RUN_REQUIRED');
+  // Independent verification must exist BEFORE acquiring a production pause.
+  if (typeof verify !== 'function') throw Error('MAINTENANCE_INDEPENDENT_VERIFIER_REQUIRED');
   await startMaintenanceLease(db,{leaseId,now:now(),ttlMs});
-  let outcome;
+  let result;
+  let recovered=false;
   try {
-    outcome=await run();
-    if (outcome?.reconciled !== true) throw Error('MAINTENANCE_RESULT_NOT_RECONCILED');
+    result=await run();
   } catch (error) {
     if (typeof recover !== 'function') throw error;
-    const recovery=await recover(error);
-    if (recovery?.reconciled !== true) throw Error('MAINTENANCE_RECOVERY_NOT_RECONCILED');
-    await finishMaintenanceLease(db,{leaseId,reconciled:true,now:now()});
-    return {status:'RECOVERED',reconciled:true};
+    result=await recover(error);
+    recovered=true;
+  }
+  // Never trust a self-reported {reconciled:true} from a cleanup worker.
+  // If verification throws or rejects, keep the fence and require recovery.
+  const proof=await verify({leaseId,result,recovered});
+  if (proof?.reconciled !== true || proof?.independently_verified !== true) {
+    throw Error('MAINTENANCE_INDEPENDENT_RECONCILIATION_REQUIRED');
   }
   await finishMaintenanceLease(db,{leaseId,reconciled:true,now:now()});
-  return {status:'COMPLETED',reconciled:true,result:outcome};
+  return {status:recovered?'RECOVERED':'COMPLETED',reconciled:true,result};
 }
