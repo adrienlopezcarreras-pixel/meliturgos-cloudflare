@@ -6,6 +6,7 @@
 // cloud-bridge / GitHub Action relay dispatches and the last MEL WORK cycles.
 // Nothing here starts or changes anything.
 
+import { mentorMetrics, pipelineAlerts } from './autonomy-metrics.js';
 import { D1DevJobRepository, isPreparedDevBridgeJob } from '../dev/d1-dev-job-repository.js';
 import { D1EvolutionLedger } from './evolution-ledger.js';
 import { getAutonomyControl } from './autonomy-control.js';
@@ -319,6 +320,7 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
   // COMMITTED still awaits CI and promotion. Only genuinely terminal jobs leave active counts.
   const terminal = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
   const jobs = supervised.slice(0, Math.max(1, Math.min(60, limit))).map(job => describeJob(job, now));
+  const mentor = mentorMetrics(supervised);
   const executorAge = executor ? now - Number(executor.last_seen || 0) : null;
   return {
     ok: true,
@@ -342,6 +344,7 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
       by_status: byStatus,
     },
     jobs,
+    metrics: { mentor, alerts: pipelineAlerts(supervised, mentor, { now }) },
     execution_evidence: supervised.slice(0, Math.max(1, Math.min(60, limit))).map(executionEvidence).filter(Boolean),
     timeline: foldLedger(recentLedger.filter(event => atOrAfter(event?.occurred_at, epoch)), 40),
     activity_list_epoch: epoch || null,
