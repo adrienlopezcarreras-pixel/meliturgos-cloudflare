@@ -8,6 +8,10 @@ on:
       - 'src/evolution/**'
       - 'src/maintenance/**'
       - 'tests/maintenance/**'
+      - 'tests/gen2/companion-grand-cleanup.test.mjs'
+      - 'windows-companion/MEL-Grand-Nettoyage.ps1'
+      - 'windows-companion/MEL-Nettoyage-GitHub.ps1'
+      - 'windows-companion/MEL-Restaurer-Branches.ps1'
       - 'src/security/github-actions-oidc.js'
       - 'src/evaluation/capability-watch-runtime.js'
       - 'tests/gen2/github-actions-oidc.test.mjs'
@@ -47,7 +51,7 @@ jobs:
           node --check src/security/github-actions-oidc.js &&
           node --check src/evaluation/capability-watch-runtime.js
       - name: Global maintenance reset regressions
-        run: node --test tests/maintenance/global-reset.test.mjs tests/maintenance/work-maintenance-gate.test.mjs tests/maintenance/global-orchestrator.test.mjs
+        run: node --test tests/maintenance/global-reset.test.mjs tests/maintenance/work-maintenance-gate.test.mjs tests/maintenance/global-orchestrator.test.mjs tests/maintenance/legacy-preservation.test.mjs tests/gen2/companion-grand-cleanup.test.mjs
       - name: Chat direct-path and explicit-action regressions
         run: >
           node --test

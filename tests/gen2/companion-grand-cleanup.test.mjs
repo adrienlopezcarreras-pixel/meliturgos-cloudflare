@@ -32,7 +32,7 @@ test('cleanup scripts are ASCII-safe for Windows PowerShell 5.1 without UTF-8 BO
   ];
   for (const file of files) {
     const source = await read(file);
-    assert.match(source, /^[\\x00-\\x7F]*$/, file + ' must not contain non-ASCII characters');
+    assert.match(source, /^[\x00-\x7F]*$/, file + ' must not contain non-ASCII characters');
   }
 });
 
@@ -54,8 +54,9 @@ test('GitHub cleanup fail closed unless dry-run confirms success and no errors',
   const src=await read('windows-companion/MEL-Grand-Nettoyage.ps1');
   assert.match(src,/MEL_GITHUB_DRY_RUN_REPORTED_ERRORS/);
   assert.match(src,/MEL_GITHUB_DRY_RUN_COMPLETION_NOT_PROVEN/);
-  assert.match(src,/\^\[oO\]\$/);
-  assert.ok(src.indexOf('MEL_GITHUB_DRY_RUN_COMPLETION_NOT_PROVEN') < src.indexOf("-Apply"));
+  assert.match(src,/TERMINE/);
+  assert.doesNotMatch(src,/\$githubScript\s+-Apply/);
+  assert.doesNotMatch(src,/Read-Host/);
 });
 
 test('Companion reports actual global maintenance lease and isolated restore status', async () => {

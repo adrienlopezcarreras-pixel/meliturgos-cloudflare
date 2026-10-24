@@ -54,7 +54,7 @@ test('legacy supervised jobs cancel and epoch update atomically after verified g
   const out=await retireLegacyDevJobs(store,{owner_approved:true,producers_paused:true,backup},{now:1792870000000});
   assert.equal(out.changed,3);
   assert.equal(out.history_deleted,false);
-  assert.ok(calls.some(x=>x.includes("status NOT IN ('COMPLETED','COMMITTED','CANCELLED','FAILED')")));
+  assert.ok(calls.some(x=>x.includes("status IN ('QUEUED','CLAIMED'")));
 });
 
 test('watch reset archives old ledger and updates active projection atomically', async () => {
