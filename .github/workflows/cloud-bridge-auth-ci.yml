@@ -9,7 +9,9 @@ on:
       - .github/workflows/gen2-42-apply-ready-bridge.yml
       - .github/workflows/full-candidate-ci.yml
       - .github/workflows/mel-candidate-promotion.yml
-      - tests/gen2/max-promotion-contract.test.mjs
+      - scripts/mel-autonomous-release-dispatch.mjs
+      - tests/mel-autonomous-release-dispatch.test.mjs
+      - tests/gen2/max-promotion-contract.test.mjs tests/mel-autonomous-release-dispatch.test.mjs
       - tests/dev-bridge-auth-gate.test.mjs
       - tests/gen2/cloud-bridge-fallback-contract.test.mjs
       - tests/cloud-bridge-output-contract.test.mjs
@@ -24,6 +26,8 @@ on:
       - .github/workflows/gen2-42-apply-ready-bridge.yml
       - .github/workflows/full-candidate-ci.yml
       - .github/workflows/mel-candidate-promotion.yml
+      - scripts/mel-autonomous-release-dispatch.mjs
+      - tests/mel-autonomous-release-dispatch.test.mjs
       - tests/gen2/max-promotion-contract.test.mjs
       - tests/dev-bridge-auth-gate.test.mjs
       - tests/gen2/cloud-bridge-fallback-contract.test.mjs
