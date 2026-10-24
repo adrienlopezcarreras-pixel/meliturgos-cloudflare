@@ -493,6 +493,7 @@ jobs:
             echo "no_changes=$NO_CHANGES" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "candidate_ready=true" >> "$GITHUB_OUTPUT"
           echo "candidate_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
           echo "candidate_branch=$CANDIDATE_BRANCH" >> "$GITHUB_OUTPUT"
           echo "no_changes=$NO_CHANGES" >> "$GITHUB_OUTPUT"
