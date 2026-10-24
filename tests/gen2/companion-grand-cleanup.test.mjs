@@ -21,3 +21,16 @@ test('Companion ships the owner-run grand cleanup behind a button, simulation fi
   assert.match(orchestrator, /Read-Host[\s\S]*MEL-Nettoyage-GitHub\.ps1" -Apply/);
   for (const prefix of ['archive/', 'release/', 'candidate/']) assert.ok(github.includes(`'${prefix}'`));
 });
+
+
+test('cleanup scripts are ASCII-safe for Windows PowerShell 5.1 without UTF-8 BOM', async () => {
+  const files = [
+    'windows-companion/MEL-Grand-Nettoyage.ps1',
+    'windows-companion/MEL-Nettoyage-GitHub.ps1',
+    'windows-companion/MEL-Restaurer-Branches.ps1',
+  ];
+  for (const file of files) {
+    const source = await read(file);
+    assert.match(source, /^[\\x00-\\x7F]*$/, file + ' must not contain non-ASCII characters');
+  }
+});
