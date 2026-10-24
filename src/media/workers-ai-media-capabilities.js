@@ -791,20 +791,29 @@ async function videoAnalyze(env, input = {}) {
         transcriptStatus = 'AUDIO_TOO_LARGE_FOR_INLINE_TRANSCRIPTION';
       }
     } catch (error) {
-      transcriptStatus = clean(error?.code || error?.message, 180) || 'AUDIO_ANALYSIS_UNAVAILABLE';
+      // A diagnostic code is useful; an upstream body can contain private data.
+      const code = String(error?.code || '');
+      transcriptStatus = /^[A-Z][A-Z0-9_]{0,159}$/.test(code) ? code : 'AUDIO_ANALYSIS_UNAVAILABLE';
     }
   }
 
+  const partial = transcriptStatus !== 'TRANSCRIBED';
+  const audioSummary = transcript
+    ? 'Transcription audio : ' + transcript
+    : transcriptStatus === 'NO_AUDIO_TRACK_OR_NOT_CAPTURED'
+      ? 'Transcription audio : aucune piste audio capturée dans cet échantillon ; cela ne prouve pas que la vidéo est muette.'
+      : 'Transcription audio indisponible (' + transcriptStatus + '). Le contenu sonore n’a pas été transcrit.';
   const summary = [
     'Analyse visuelle : ' + visualAnalysis.analysis,
-    transcript
-      ? 'Transcription audio : ' + transcript
-      : 'Transcription audio : aucune piste audio capturée.',
+    'Portée visuelle : images extraites de l’échantillon vidéo.',
+    audioSummary,
   ].join('\n');
 
   return Object.freeze({
     ok: true,
     schema: 'mel.browser-run-video-analysis/v1',
+    status: partial ? 'PARTIAL' : 'SUCCEEDED',
+    partial,
     capability: 'media.video.analyze',
     provider: 'cloudflare-browser-run+workers-ai',
     zero_added_cost: true,

@@ -1,5 +1,35 @@
 const DEFAULT_BRANCH = 'main';
 const MAX_FILE_BYTES = 180_000;
+const MAX_RANGE_SOURCE_BYTES = 1_000_000;
+const MAX_READ_LINES = 200;
+function readRange(options = {}) {
+  if (options.start_line == null && options.end_line == null) return null;
+  const start = options.start_line ?? 1;
+  const end = options.end_line ?? (start + 99);
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 1 || end < start || end - start + 1 > MAX_READ_LINES) {
+    throw Object.assign(new Error('CODE_READ_RANGE_INVALID'), { code:'CODE_READ_RANGE_INVALID' });
+  }
+  return {start, end};
+}
+async function boundedText(response, limit) {
+  if (!response.body?.getReader) {
+    const value = await response.text();
+    if (new TextEncoder().encode(value).length > limit) throw Object.assign(new Error('CODE_FILE_TOO_LARGE'), {code:'CODE_FILE_TOO_LARGE'});
+    return value;
+  }
+  const reader = response.body.getReader(), decoder = new TextDecoder();
+  let size = 0, value = '';
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      size += next.value.byteLength;
+      if (size > limit) { await reader.cancel(); throw Object.assign(new Error('CODE_FILE_TOO_LARGE'), {code:'CODE_FILE_TOO_LARGE'}); }
+      value += decoder.decode(next.value, {stream:true});
+    }
+    return value + decoder.decode();
+  } finally { reader.releaseLock(); }
+}
 const MAX_SEARCH_FILES = 24;
 const MAX_MATCHES = 20;
 const DENIED_PATH = /(^|\/)(?:\.env(?:\.|$)|\.dev\.vars(?:$|\/)|\.wrangler(?:$|\/)|backups?(?:$|\/)|node_modules(?:$|\/)|\.git(?:$|\/)|secrets?(?:$|\/)|credentials?(?:$|\/)|tokens?(?:$|\/))/i;
@@ -36,9 +66,9 @@ function rawUrl(repo, ref, path) {
   const enc = value => String(value).split('/').map(encodeURIComponent).join('/');
   return `https://raw.githubusercontent.com/${enc(repo)}/${enc(ref)}/${enc(path)}`;
 }
-function ensureTextSize(content) {
+function ensureTextSize(content, limit = MAX_FILE_BYTES) {
   const bytes = new TextEncoder().encode(String(content || '')).length;
-  if (bytes > MAX_FILE_BYTES) throw Object.assign(new Error('CODE_FILE_TOO_LARGE'), { code: 'CODE_FILE_TOO_LARGE' });
+  if (bytes > limit) throw Object.assign(new Error('CODE_FILE_TOO_LARGE'), { code: 'CODE_FILE_TOO_LARGE' });
   if (String(content || '').includes('\u0000')) throw Object.assign(new Error('CODE_BINARY_DENIED'), { code: 'CODE_BINARY_DENIED' });
   return String(content || '');
 }
@@ -56,30 +86,40 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
   const contentRef = pinned || ref;
   const api = path => `https://api.github.com/repos/${repo}/${path}`;
 
-  async function readRaw(path) {
+  function selectedRead(path, content, sha, range) {
+    if (!range) return {path, content:ensureTextSize(content), sha, branch:ref, repository:repo};
+    const source = ensureTextSize(content, MAX_RANGE_SOURCE_BYTES);
+    const lines = source.split(/\r?\n/);
+    if (range.start > lines.length) throw Object.assign(new Error('CODE_READ_RANGE_EMPTY'), {code:'CODE_READ_RANGE_EMPTY'});
+    const end = Math.min(range.end, lines.length);
+    const selected = ensureTextSize(lines.slice(range.start - 1, end).join('\n'));
+    return {path, content:selected, sha, branch:ref, repository:repo, start_line:range.start, end_line:end, total_lines:lines.length, partial:range.start > 1 || end < lines.length, source_ref:contentRef};
+  }
+  async function readRaw(path, range) {
     const response = await fetchImpl(rawUrl(repo, contentRef, path), { headers: { 'user-agent': 'meliturgos-code-reader' } });
     if (!response.ok) throw githubError(response, 'CODE_READ_FAILED');
-    const content = ensureTextSize(await response.text());
-    return { path, content, sha: response.headers?.get?.('etag') || '', branch: ref, repository: repo };
+    const content = await boundedText(response, range ? MAX_RANGE_SOURCE_BYTES : MAX_FILE_BYTES);
+    return selectedRead(path, content, response.headers?.get?.('etag') || '', range);
   }
 
-  async function read(pathValue) {
-    const path = safePath(pathValue);
+  async function read(pathValue, options = {}) {
+    const path = safePath(pathValue), range = readRange(options);
+    const limit = range ? MAX_RANGE_SOURCE_BYTES : MAX_FILE_BYTES;
     let response;
     try {
-      response = await fetchImpl(`${api(`contents/${path}`)}?ref=${encodeURIComponent(contentRef)}`, { headers: headers(token) });
+      response = await fetchImpl(`${api(`contents/${path.split('/').map(encodeURIComponent).join('/')}`)}?ref=${encodeURIComponent(contentRef)}`, { headers: headers(token) });
     } catch {
-      return readRaw(path);
+      return readRaw(path, range);
     }
     if (!response.ok) {
       if (response.status === 404) throw githubError(response, 'CODE_READ_FAILED');
-      return readRaw(path);
+      return readRaw(path, range);
     }
-    const body = await response.json();
+    const body = JSON.parse(await boundedText(response, limit * 2 + 4096));
     if (body.type && body.type !== 'file') throw Object.assign(new Error('CODE_NOT_A_FILE'), { code: 'CODE_NOT_A_FILE' });
-    if (Number(body.size || 0) > MAX_FILE_BYTES) throw Object.assign(new Error('CODE_FILE_TOO_LARGE'), { code: 'CODE_FILE_TOO_LARGE' });
-    const content = ensureTextSize(decodeBase64(body.content || ''));
-    return { path, content, sha: String(body.sha || ''), branch: ref, repository: repo };
+    if (Number(body.size || 0) > limit) throw Object.assign(new Error('CODE_FILE_TOO_LARGE'), { code: 'CODE_FILE_TOO_LARGE' });
+    const content = ensureTextSize(decodeBase64(body.content || ''), limit);
+    return selectedRead(path, content, String(body.sha || ''), range);
   }
 
   async function tree() {
@@ -221,7 +261,7 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
 
 export function registerGitHubCodeCapabilities(bus, options = {}) {
   const reader = createGitHubCodeReader(options);
-  bus.discover({ id: 'code.read', name: 'GitHub code read', category: 'development', version: '1.1.1', provider: 'github', description: 'Read one bounded non-secret text source file from the configured MELITURGOS repository branch.', input_schema: { type: 'object', properties: { path: { type: 'string', minLength: 1, maxLength: 1000 } }, required: ['path'], additionalProperties: false }, output_schema: { type: 'object', properties: { path: { type: 'string', minLength: 1, maxLength: 1000 }, content: { type: 'string', minLength: 0, maxLength: MAX_FILE_BYTES }, sha: { type: 'string', minLength: 0, maxLength: 300 }, branch: { type: 'string', minLength: 1, maxLength: 200 }, repository: { type: 'string', minLength: 1, maxLength: 200 } }, required: ['path','content','sha','branch','repository'], additionalProperties: false }, risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true }, input => reader.read(input.path), () => reader.health());
+  bus.discover({ id: 'code.read', name: 'GitHub code read', category: 'development', version: '1.2.0', provider: 'github', description: 'Read non-secret MEL source; optional 1-based start_line/end_line selects up to 200 lines from a large file. Partial reads do not prove inspection of the whole file.', input_schema: { type: 'object', properties: { path: { type: 'string', minLength: 1, maxLength: 1000 }, start_line:{type:'integer',minimum:1}, end_line:{type:'integer',minimum:1} }, required: ['path'], additionalProperties: false }, output_schema: { type: 'object', properties: { start_line:{type:'integer'}, end_line:{type:'integer'}, total_lines:{type:'integer'}, partial:{type:'boolean'}, source_ref:{type:'string'}, path: { type: 'string', minLength: 1, maxLength: 1000 }, content: { type: 'string', minLength: 0, maxLength: MAX_FILE_BYTES }, sha: { type: 'string', minLength: 0, maxLength: 300 }, branch: { type: 'string', minLength: 1, maxLength: 200 }, repository: { type: 'string', minLength: 1, maxLength: 200 } }, required: ['path','content','sha','branch','repository'], additionalProperties: false }, risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true }, input => reader.read(input.path, input), () => reader.health());
   bus.discover({ id: 'code.search', name: 'GitHub code search', category: 'development', version: '1.1.1', provider: 'github', description: 'Search bounded non-secret MELITURGOS source files in the configured GitHub branch.', input_schema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 300 }, path: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['query'], additionalProperties: false }, output_schema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 300 }, path: { type: 'string', minLength: 0, maxLength: 1000 }, matches: { type: 'array', items: { type: 'object', properties: { path: { type: 'string', minLength: 1, maxLength: 1000 }, line: { type: 'integer' }, excerpt: { type: 'string', minLength: 0, maxLength: 500 } }, required: ['path','line','excerpt'], additionalProperties: false } }, searched_files: { type: 'integer' }, branch: { type: 'string', minLength: 1, maxLength: 200 }, repository: { type: 'string', minLength: 1, maxLength: 200 } }, required: ['query','path','matches','searched_files','branch','repository'], additionalProperties: false }, risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true }, input => reader.search(input), () => reader.health());
   return reader;
 }

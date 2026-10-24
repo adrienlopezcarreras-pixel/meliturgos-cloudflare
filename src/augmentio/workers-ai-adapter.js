@@ -114,4 +114,4 @@ export function createWorkersAIAdapter({
   });
 }
 
-export { inferenceOptions };
+export { inferenceOptions, extractText as extractWorkersAIText };
