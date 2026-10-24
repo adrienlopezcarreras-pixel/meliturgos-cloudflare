@@ -160,17 +160,17 @@ Page | Élément | Action | Résultat attendu | Résultat obtenu | PASS/FAIL/BLO
 /professor | diagCaps | inventory / functional execution | Function and durable outcome verified | Requires functional scenario and live prerequisites | BLOCKED | inventory.json
 /professor | diagRoadmap | inventory / functional execution | Function and durable outcome verified | Requires functional scenario and live prerequisites | BLOCKED | inventory.json
 /professor | diagAug | inventory / functional execution | Function and durable outcome verified | Requires functional scenario and live prerequisites | BLOCKED | inventory.json
-/professor | navigation:chat | click | Requested section visible | chat | PASS | browser-results.json
-/professor | navigation:computer | click | Requested section visible | computer | PASS | browser-results.json
-/professor | navigation:terminal | click | Requested section visible | terminal | PASS | browser-results.json
-/professor | navigation:memory | click | Requested section visible | memory | PASS | browser-results.json
-/professor | navigation:overview | click | Requested section visible | overview | PASS | browser-results.json
-/professor | navigation:skills | click | Requested section visible | skills | PASS | browser-results.json
-/professor | navigation:roadmap | click | Requested section visible | roadmap | PASS | browser-results.json
-/professor | navigation:multi | click | Requested section visible | multi | PASS | browser-results.json
-/professor | navigation:lora | click | Requested section visible | lora | PASS | browser-results.json
-/professor | navigation:connections | click | Requested section visible | connections | PASS | browser-results.json
-/professor | navigation:diagnostics | click | Requested section visible | diagnostics | PASS | browser-results.json
+/professor | navigation:chat | visible browser pointer click | Requested section visible | chat | PASS | browser-results.json
+/professor | navigation:computer | visible browser pointer click | Requested section visible | computer | PASS | browser-results.json
+/professor | navigation:terminal | visible browser pointer click | Requested section visible | terminal | PASS | browser-results.json
+/professor | navigation:memory | visible browser pointer click | Requested section visible | memory | PASS | browser-results.json
+/professor | navigation:overview | visible browser pointer click | Requested section visible | overview | PASS | browser-results.json
+/professor | navigation:skills | visible browser pointer click | Requested section visible | skills | PASS | browser-results.json
+/professor | navigation:roadmap | visible browser pointer click | Requested section visible | roadmap | PASS | browser-results.json
+/professor | navigation:multi | visible browser pointer click | Requested section visible | multi | PASS | browser-results.json
+/professor | navigation:lora | visible browser pointer click | Requested section visible | lora | PASS | browser-results.json
+/professor | navigation:connections | visible browser pointer click | Requested section visible | connections | PASS | browser-results.json
+/professor | navigation:diagnostics | visible browser pointer click | Requested section visible | diagnostics | PASS | browser-results.json
 /professor | activity:collapse | click | Collapsed state and aria-expanded agree | {"collapsed":true,"expanded":"false"} | PASS | browser-results.json
 /professor | activity:reopen | click | Collapsed state and aria-expanded agree | {"collapsed":false,"expanded":"true"} | PASS | browser-results.json
 /professor | activity:latest | append clearly-labelled local fixture events | Latest event reachable at bottom | {"bottom":true,"overflow":true} | PASS | browser-results.json

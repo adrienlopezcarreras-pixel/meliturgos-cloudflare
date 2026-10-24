@@ -43,6 +43,12 @@ try{
  let currentPage='';
  const evaluate=async expression=>{const r=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw new Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value;};
  const pause=ms=>new Promise(r=>setTimeout(r,ms));
+ const pointerClick=async selector=>{
+  const point=await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)return null;e.scrollIntoView({block:'center',inline:'nearest'});const r=e.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;return r.width>0&&r.height>0&&x>=0&&y>=0&&x<innerWidth&&y<innerHeight&&e.contains(document.elementFromPoint(x,y))?{x,y}:null})()`);
+  if(!point)return false;
+  await send('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1});await send('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1});return true;
+ };
+
  await send('Runtime.enable');await send('Page.enable');await send('Fetch.enable',{handleAuthRequests:true});
  for(const path of ['/','/professor','/revenus','/veille','/shardvault','/about','/privacy','/fides','/public/wordpress-chat']){
   currentPage=path;await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
@@ -59,10 +65,12 @@ try{
   for(const c of snapshot.controls)record(path,c.id||c.tag+'['+c.index+'] '+c.label,'inventory / functional execution','Function and durable outcome verified',c.disabled?'Disabled; live prerequisites unverified':'Requires functional scenario and live prerequisites','BLOCKED','inventory.json');
   if(path==='/professor'){
    for(const view of await evaluate('[...document.querySelectorAll("#nav [data-view]")].map(e=>e.dataset.view)')){
-    const result=await evaluate(`(()=>{document.querySelector('#nav [data-view="${view}"]').click();return {active:document.querySelector('.view.active')?.dataset.panel,title:document.querySelector('#viewTitle')?.textContent}})()`);
-    record(path,'navigation:'+view,'click','Requested section visible',result.active,result.active===view?'PASS':'FAIL','browser-results.json');
+    let clicked=await pointerClick('#nav [data-view="'+view+'"]');
+    if(!clicked){await pointerClick('#mobileMoreNav');clicked=await pointerClick('#mobileMoreMenu [data-jump="'+view+'"]');}
+    const result=await evaluate(`({active:document.querySelector('.view.active')?.dataset.panel,title:document.querySelector('#viewTitle')?.textContent})`);
+    record(path,'navigation:'+view,'visible browser pointer click','Requested section visible',result.active,clicked&&result.active===view?'PASS':'FAIL','browser-results.json');
    }
-   await evaluate('show("chat");setMelChatRole("code")');await pause(100);
+   await pointerClick('#nav [data-view="chat"]');await pointerClick('#melRoleCode');await pause(100);
    for(const action of ['collapse','reopen']){const result=await evaluate(`(()=>{document.querySelector('#melCodeLiveCollapse').click();return {collapsed:document.querySelector('#melCodeLivePanel').classList.contains('is-collapsed'),expanded:document.querySelector('#melCodeLiveCollapse').getAttribute('aria-expanded')}})()`);const closed=action==='collapse';record(path,'activity:'+action,'click','Collapsed state and aria-expanded agree',JSON.stringify(result),result.collapsed===closed&&result.expanded===String(!closed)?'PASS':'FAIL','browser-results.json');}
    await evaluate(`for(let i=0;i<40;i++)melCodeLiveRecord({id:'local-browser-'+i,label:'Local fixture event '+i,status:'done',source:'local-fixture'})`);await pause(1000);
    const scroll=await evaluate(`(()=>{const p=document.querySelector('#melCodeLivePanel');return {bottom:Math.abs(p.scrollHeight-p.clientHeight-p.scrollTop)<3,overflow:p.scrollHeight>p.clientHeight}})()`);
