@@ -27,3 +27,11 @@ test('cloud bridge starts the full candidate suite and requires fresh review whe
   assert.doesNotMatch(s, /git rebase/);
   assert.match(s, /"\$REMOTE_SHA" = "\$CANDIDATE_SHA"/);
 });
+
+test('a Council rejection resets the candidate to main content instead of blocking promotion', async () => {
+  const s = await read('.github/workflows/mel-candidate-promotion.yml');
+  const reject = s.indexOf('if [ "$DECISION" = "REJECTED" ]');
+  assert.ok(reject > s.indexOf('COUNCIL_REVIEW $CAND'));
+  assert.ok(reject < s.indexOf('"$CAND:refs/heads/main"', reject));
+  assert.match(s.slice(reject, reject + 800), /git push origin "HEAD:refs\/heads\/\$CANDIDATE"/);
+});
