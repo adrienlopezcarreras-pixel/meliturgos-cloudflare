@@ -244,7 +244,7 @@ jobs:
           NODE
             mapfile -d '' -t APPROVED_PATHS < approved-paths.bin
             test "${#APPROVED_PATHS[@]}" -gt 0
-            if ! git diff --quiet "$CANDIDATE_SHA" "$HEAD_SHA" -- "${APPROVED_PATHS[@]}"; then
+            if ! git --literal-pathspecs diff --quiet "$CANDIDATE_SHA" "$HEAD_SHA" -- "${APPROVED_PATHS[@]}"; then
               echo "TEACHER_APPROVAL_CANDIDATE_SHA_STALE_OVERLAPPING_FILES"
               exit 1
             fi
