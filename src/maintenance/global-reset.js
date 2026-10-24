@@ -47,6 +47,7 @@ export function validateMaintenanceAuthorization(input) {
 // handler and a producer-generation fence before activation.
 export async function prepareGlobalReset(db, input) {
   validateMaintenanceAuthorization(input);
+  await assertNoActiveWorkLeases(db);
   const inventory = await inspectMaintenanceStorage(db);
   return {
     ok: true,
@@ -134,4 +135,21 @@ export async function inspectWorkDagsForReset(db) {
     total: rows.reduce((sum,row)=>sum+Number(row.n||0),0),
     statuses:rows.map(row=>({status:String(row.status),count:Number(row.n||0)}))
   };
+}
+
+// Refuse a global reset while any WORK lease may still be writing.
+// This is a runtime assertion, not a replacement for producer shutdown.
+export async function assertNoActiveWorkLeases(db, { now = Date.now() } = {}) {
+  if (!db?.prepare) throw Error('MAINTENANCE_DB_MISSING');
+  const leaseTable = await db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='work_dag_run_leases'"
+  ).first();
+  if (!leaseTable) return {active:0, status:'LEASE_TABLE_ABSENT'};
+  const row = await db.prepare(
+    'SELECT COUNT(*) AS n FROM work_dag_run_leases WHERE lease_until > ?'
+  ).bind(now).first();
+  const count = Number(row?.n);
+  if (!Number.isSafeInteger(count) || count < 0) throw Error('MAINTENANCE_WORK_LEASE_COUNT_UNVERIFIED');
+  if (count !== 0) throw Error('MAINTENANCE_WORK_LEASES_ACTIVE');
+  return {active:0, status:'NO_ACTIVE_WORK_LEASES'};
 }
