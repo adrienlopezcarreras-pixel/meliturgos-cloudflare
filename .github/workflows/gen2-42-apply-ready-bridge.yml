@@ -517,13 +517,13 @@ jobs:
           const testsPassed=process.env.TESTS_PASSED==='true';
           const commitOk=process.env.COMMIT_OUTCOME==='success';
           const candidateReady=process.env.CANDIDATE_READY==='true';
-          const status=!testsPassed
+          // Preserve failures recorded by the commit/CI-dispatch stages.
+          // A green test suite alone does not supersede a failed publish.
+          const status=base.status==='REPAIR_REQUIRED' || !testsPassed
             ? 'REPAIR_REQUIRED'
-            : commitOk && !candidateReady
-              ? 'REPAIR_REQUIRED'
-              : commitOk && candidateReady
-                ? 'READY_FOR_REVIEW'
-                : 'FAILED';
+            : commitOk && candidateReady
+              ? 'READY_FOR_REVIEW'
+              : 'REPAIR_REQUIRED';
           const sha=String(process.env.NEW_SHA||job?.result_json?.bridge_preparation?.candidate_sha||'');
           const result={
             ...base,
