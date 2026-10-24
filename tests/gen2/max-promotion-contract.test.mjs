@@ -201,3 +201,10 @@ test('exact approved staging rejects raw backslash paths instead of normalizing 
  assert.doesNotMatch(stage,/const p=String\(item\?\.path\|\|''\)\.replace/);
  assert.match(stage,/p\.includes\('\\\\'\)/);
 });
+
+test('Bridge follow-up tick dispatch JSON remains outside the git worktree', async () => {
+  const workflow=await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  const followup=workflow.slice(workflow.indexOf('- name: Continue autonomy after persisted bridge result'),workflow.indexOf('- name: Upload sanitized apply evidence'));
+  assert.match(followup,/\$RUNNER_TEMP\/mel-autonomy-next-dispatch\.json/);
+  assert.doesNotMatch(followup,/> autonomy-next-dispatch\.json/);
+});
