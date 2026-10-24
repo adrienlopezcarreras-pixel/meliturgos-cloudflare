@@ -797,6 +797,15 @@ test('mentor rejects a relative import to a file missing from the repository', a
   });
 });
 
+test('mentor resolves an edit excerpt copied with different indentation when it is unique', async () => {
+  const source = 'export function read() {\n    const value = 1;\n    return value;\n}\n';
+  const engine = new MentorEngine({ providerFactory: async () => [provider('indent', {
+    edits: [{ path: 'src/example.js', find: 'const value = 1;\n  return value;', replace: '    const value = 2;\n    return value;' }],
+  })] });
+  const result = await engine.propose({ env: {}, goal: 'Changer la valeur', inspectedFiles: [{ path: 'src/example.js', content: source }] });
+  assert.equal(result.proposal.changes[0].content, 'export function read() {\n    const value = 2;\n    return value;\n}\n');
+});
+
 test('mentor accepts SEARCH/REPLACE blocks whose code would break a JSON string', async () => {
   const source = 'export function greet() {\n  return "hi";\n}\n';
   const reply = [
@@ -813,15 +822,6 @@ test('mentor accepts SEARCH/REPLACE blocks whose code would break a JSON string'
   const engine = new MentorEngine({ providerFactory: async () => [provider('blocks', reply)] });
   const result = await engine.propose({ env: {}, goal: 'Saluer', inspectedFiles: [{ path: 'src/example.js', content: source }] });
   assert.equal(result.proposal.changes[0].content, 'export function greet() {\n  const name = "MEL \\"x\\"";\n  return `hi\n${name}`;\n}\n');
-});
-
-test('mentor resolves an edit excerpt copied with different indentation when it is unique', async () => {
-  const source = 'export function read() {\n    const value = 1;\n    return value;\n}\n';
-  const engine = new MentorEngine({ providerFactory: async () => [provider('indent', {
-    edits: [{ path: 'src/example.js', find: 'const value = 1;\n  return value;', replace: '    const value = 2;\n    return value;' }],
-  })] });
-  const result = await engine.propose({ env: {}, goal: 'Changer la valeur', inspectedFiles: [{ path: 'src/example.js', content: source }] });
-  assert.equal(result.proposal.changes[0].content, 'export function read() {\n    const value = 2;\n    return value;\n}\n');
 });
 
 test('a production implementation must ship a new test, created with an empty SEARCH block', async () => {

@@ -161,6 +161,25 @@ export function validateProgressTransition(previous = { pass: 1, done: 0 }, curr
   return { pass: currentPass, done: currentDone };
 }
 
+// A lost HTTP response must not erase the durable audit's progress. Retry only
+// transient transport failures, never authorization, protocol or job-state failures.
+async function callCapabilityResilient(payload, outputPath, { attempts = 3 } = {}) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try { return await callCapability(payload, outputPath); }
+    catch (error) {
+      const transient = error?.name === 'AbortError' || error?.name === 'TimeoutError'
+        || error instanceof TypeError && /fetch failed/i.test(String(error.message));
+      if (!transient || attempt === attempts) {
+        throw Object.assign(new Error('CAPABILITY_STRESS_TRANSPORT_UNAVAILABLE'), {
+          code: 'CAPABILITY_STRESS_TRANSPORT_UNAVAILABLE', cause: error,
+        });
+      }
+      console.warn('CAPABILITY_STRESS_TRANSPORT_RETRY ' + attempt + '/' + attempts
+        + ' action=' + String(payload?.id || 'unknown'));
+      await sleep(1000 * attempt);
+    }
+  }
+}
 async function callCapability(payload, outputPath) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 90_000);
@@ -212,7 +231,7 @@ async function main() {
   let lastAdvancedAt = Date.now();
   for (let attempt = 1; attempt <= 240; attempt += 1) {
     assertStressProgressFresh(lastAdvancedAt);
-    const result = await callCapability({ id: 'capability.audit.status', input: { job_id: jobId } }, 'stress-status.json');
+    const result = await callCapabilityResilient({ id: 'capability.audit.status', input: { job_id: jobId } }, 'stress-status.json');
     if (result.status === 401 || result.status === 403) {
       throw Object.assign(new Error('CAPABILITY_STRESS_STATUS_AUTH_REJECTED'), { code: 'CAPABILITY_STRESS_STATUS_AUTH_REJECTED' });
     }
@@ -245,7 +264,7 @@ async function main() {
     // claim the next bounded chunk. A periodic re-entry also lets a stale
     // RUNNING lease recover after a Worker background task disappears.
     if (status === 'QUEUED' || (status === 'RUNNING' && attempt % 5 === 0) || status === 'RETRYING') {
-      const resume = await callCapability(
+      const resume = await callCapabilityResilient(
         { id: 'capability.audit', input: { deep: true } },
         'stress-resume.json'
       );
