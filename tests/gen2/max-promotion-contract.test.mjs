@@ -58,3 +58,11 @@ test('full candidate CI rejects promotion for a superseded candidate SHA', async
   assert.match(workflow, /remote_sha" != "\$EXPECTED_SHA"/);
   assert.ok(workflow.indexOf('Verify tested SHA remains current candidate HEAD') < workflow.indexOf('Dispatch candidate promotion'));
 });
+
+test('Council never reviews a truncated candidate diff', async () => {
+  const workflow = await read('.github/workflows/mel-candidate-promotion.yml');
+  assert.match(workflow, /COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT/);
+  assert.match(workflow, /DIFF_BYTES.*-gt 48000/);
+  assert.doesNotMatch(workflow, /git diff[^\n]*\| head -c 48000/);
+  assert.ok(workflow.indexOf('COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT') < workflow.indexOf('COUNCIL_REVIEW $CAND'));
+});
