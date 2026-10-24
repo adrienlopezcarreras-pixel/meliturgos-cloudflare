@@ -27,3 +27,11 @@ test('activity API exposes recorded structured executor evidence without file co
   assert.match(source, /safeExecutionText\(row.stdout, 3000\)/);
   assert.doesNotMatch(source, /content:\s*file\.content/);
 });
+
+test('Code activity follows the last visible entry and collapse hides the full plan', async () => {
+  const source = await readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8');
+  assert.match(source, /new MutationObserver\(scrollToLatest\)\.observe\(panel/);
+  assert.match(source, /panel\.scrollTop=panel\.scrollHeight/);
+  assert.match(source, /is-collapsed #melCodePlan/);
+  assert.match(source, /aria-expanded/);
+});
