@@ -18,6 +18,10 @@ on:
   # hour (MEL_RELEASE_BATCH_WINDOW_MS), so releases stay batched.
   push:
     branches: [main]
+  # A merged PR is a separate event when an integration's GITHUB_TOKEN
+  # suppresses follow-on push workflows. Keep the same batch and SHA gates.
+  pull_request:
+    types: [closed]
   schedule:
     - cron: '7 * * * *'
 
@@ -31,7 +35,7 @@ concurrency:
 
 jobs:
   promote-and-dispatch:
-    if: ${{ (github.actor == 'adrienlopezcarreras-pixel' || github.actor == 'github-actions[bot]') && (github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'workflow_dispatch') || (github.event_name == 'schedule' && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/main')) }}
+    if: ${{ (github.actor == 'adrienlopezcarreras-pixel' || github.actor == 'github-actions[bot]') && (github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'workflow_dispatch') || (github.event_name == 'schedule' && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main' && github.event.pull_request.user.login == 'adrienlopezcarreras-pixel')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -47,8 +51,8 @@ jobs:
       - name: Authorize and dispatch MEL autonomous release
         env:
           GH_TOKEN: ${{ github.token }}
-          MEL_REQUIRE_PROTECTED_REFS: ${{ (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_run') && 'true' || 'false' }}
+          MEL_REQUIRE_PROTECTED_REFS: ${{ (github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_run') && 'true' || 'false' }}
           MEL_SKIP_ALREADY_ATTEMPTED_SHA: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_run') && 'true' || 'false' }}
-          MEL_RELEASE_BATCH_WINDOW_MS: ${{ github.event_name == 'push' && '3600000' || '0' }}
+          MEL_RELEASE_BATCH_WINDOW_MS: ${{ (github.event_name == 'push' || github.event_name == 'pull_request') && '3600000' || '0' }}
           MEL_CATCHUP_COMPLETED_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || '' }}
         run: node scripts/mel-autonomous-release-dispatch.mjs
