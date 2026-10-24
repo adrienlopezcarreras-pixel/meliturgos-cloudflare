@@ -175,13 +175,15 @@ Page | Élément | Action | Résultat attendu | Résultat obtenu | PASS/FAIL/BLO
 /professor | navigation:lora | visible browser pointer click | Requested section visible | lora | PASS | browser-results.json
 /professor | navigation:connections | visible browser pointer click | Requested section visible | connections | PASS | browser-results.json
 /professor | navigation:diagnostics | visible browser pointer click | Requested section visible | diagnostics | PASS | browser-results.json
+/professor | activity:compact-default | open approved Code surface | Starts compact until explicit expansion | true | PASS | browser-results.json
 /professor | activity:collapse | click | Collapsed state and aria-expanded agree | {"collapsed":true,"expanded":"false"} | PASS | browser-results.json
 /professor | activity:reopen | click | Collapsed state and aria-expanded agree | {"collapsed":false,"expanded":"true"} | PASS | browser-results.json
 /professor | activity:latest | append clearly-labelled local fixture events | Latest event reachable at bottom | {"bottom":true,"overflow":true} | PASS | browser-results.json
+/professor | activity:latest-two | append labelled fixture events | Only latest two visible, newest retained | {"count":2,"last":true} | PASS | browser-results.json
 /professor | activity:collapse-after-growth | hit-test visible collapse button after new events | Header button visible and clickable at latest entry | {"visible":true,"x":1346.0703125,"y":119} | PASS | browser-results.json
 /professor | activity:pointer-collapse | real browser pointer click | Panel collapsed | true | PASS | browser-results.json
 /professor | activity:keyboard-reopen | Enter on focused button | Panel reopened | true | PASS | browser-results.json
-/professor | activity:reload-collapse | reload after user collapsed panel | User collapse preference preserved | true | PASS | browser-results.json
+/professor | activity:reload-collapse | reload after explicit expansion | Approved compact default restored | true | PASS | browser-results.json
 /professor | viewport:390 | resize | No page-wide horizontal overflow | {"width":390,"document":390} | PASS | browser-results.json
 /professor | viewport:768 | resize | No page-wide horizontal overflow | {"width":768,"document":768} | PASS | browser-results.json
 /revenus | provider credentials | inspect browser input types | API key and app password masked | true | PASS | browser-results.json
