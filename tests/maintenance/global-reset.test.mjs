@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inspectMaintenanceStorage, prepareGlobalReset, validateMaintenanceAuthorization, retireLegacyDevJobs, resetWatchDiscoveryProjection, retireRevenueDiscoveries } from '../../src/maintenance/global-reset.js';
+import { inspectMaintenanceStorage, prepareGlobalReset, validateMaintenanceAuthorization, retireLegacyDevJobs, resetWatchDiscoveryProjection, retireRevenueDiscoveries, inspectWorkDagsForReset } from '../../src/maintenance/global-reset.js';
 
 const backup = { verified:true, restore_tested:true, reference:'isolated-restore-proof', sha256:'a'.repeat(64) };
 const db = {
@@ -65,4 +65,26 @@ test('revenue discovery cleanup only marks non-delivered discovery rows', async 
   assert.equal(result.changed,2);
   assert.match(sql[1], /WHERE status IN \('NEW','DISCOVERY_ONLY'\)/);
   assert.equal(result.historic_rows_deleted,0);
+});
+
+test('empty watch ledger is a no-op and does not create an archive', async () => {
+  let writes = 0;
+  const store = { prepare(sql) { return {
+    bind(){return {first: async () => null,run:async()=>{writes++;return {}}};},
+    run:async()=>{writes++;return {}}
+  };}};
+  const out=await resetWatchDiscoveryProjection(store,{owner_approved:true,producers_paused:true,backup});
+  assert.equal(out.status,'EMPTY');
+  assert.equal(writes,0);
+});
+test('WORK inventory never updates integrity-signed DAG records', async () => {
+  const seen=[];
+  const store={prepare(sql){seen.push(sql);return {
+    first:async()=>({name:'work_dags'}),
+    all:async()=>({results:[{status:'RUNNING',n:2},{status:'COMPLETED',n:3}]})
+  };}};
+  const result=await inspectWorkDagsForReset(store);
+  assert.equal(result.total,5);
+  assert.equal(result.statuses[0].count,2);
+  assert.ok(seen.every(sql=>/^(SELECT)/.test(sql)));
 });
