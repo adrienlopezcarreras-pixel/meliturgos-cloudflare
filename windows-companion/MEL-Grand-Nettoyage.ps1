@@ -9,14 +9,28 @@ Report 'MEL - Grand nettoyage coordonne, developpement en pause'
 Report "Debut: $(Get-Date -Format o)"
 Report 'ETAPE 1 - Nettoyage GitHub: branches fusionnees non actives, anciens caches, runs annules et artefacts temporaires (regles de conservation).'
 try {
-  # Passe 1 : simulation et sauvegarde, puis confirmation avant toute suppression.
-  & "$PSScriptRoot\MEL-Nettoyage-GitHub.ps1" 2>&1 | ForEach-Object { Report "$($_)" }
-  $answer=Read-Host 'Appliquer les suppressions listees ci-dessus ? (O/N)'
-  if($answer -match '^[oO]'){
-    & "$PSScriptRoot\MEL-Nettoyage-GitHub.ps1" -Apply 2>&1 | ForEach-Object { Report "$($_)" }
-  } else { Report 'GITHUB : simulation seulement, rien supprime.' }
-  if (-not $?) { Report 'GITHUB : ECHEC OU INTERVENTION NECESSAIRE. Consulter RAPPORTS.' }
-} catch {Report "GITHUB : BLOQUE : $($_.Exception.Message)"}
+  # A failed dry-run must NEVER lead to an Apply prompt.
+  $githubScript=Join-Path $PSScriptRoot 'MEL-Nettoyage-GitHub.ps1'
+  if (-not (Test-Path -LiteralPath $githubScript -PathType Leaf)) {
+    throw 'MEL_NETTOYAGE_GITHUB_SCRIPT_MISSING'
+  }
+  $dryRunLog=@(& $githubScript 2>&1)
+  foreach ($line in $dryRunLog) { Report "$line" }
+  if ($dryRunLog | Where-Object { $_ -match 'ATTENTION:|erreur|ECHEC|BLOQUE' }) {
+    throw 'MEL_GITHUB_DRY_RUN_REPORTED_ERRORS'
+  }
+  if (-not ($dryRunLog | Where-Object { $_ -match 'TERMINE \\(SIMULATION\\)' })) {
+    throw 'MEL_GITHUB_DRY_RUN_COMPLETION_NOT_PROVEN'
+  }
+  $answer=Read-Host 'Simulation terminee. Appliquer les suppressions listees ? (O/N)'
+  if ($answer -match '^[oO]$') {
+    & $githubScript -Apply 2>&1 | ForEach-Object { Report "$($_)" }
+  } else {
+    Report 'GITHUB : simulation seulement, rien supprime.'
+  }
+} catch {
+  Report "GITHUB : BLOQUE - $($_.Exception.Message)"
+}
 Report 'ETAPE 2 - MAX : AUCUNE ANNULATION AVANT PREFLIGHT COMPLET.'
 $base=$env:MEL_BASE_URL
 $cookie=$env:MEL_SESSION_COOKIE
