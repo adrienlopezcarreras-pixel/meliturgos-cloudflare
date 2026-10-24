@@ -52,3 +52,26 @@ export async function finishMaintenanceLease(db, {leaseId, reconciled=false, now
   if (Number(result?.meta?.changes)!==1) throw Error('MAINTENANCE_RELEASE_CONFLICT');
   return {paused:false,released:true};
 }
+
+/**
+ * Lifecycle coordinator. The operation must return an independently checked
+ * reconciliation result. On failure, recovery must explicitly reconcile before
+ * WORK can resume; the lease is never silently abandoned.
+ */
+export async function withMaintenanceLease(db,{leaseId,now=()=>Date.now(),ttlMs,run,recover}={}) {
+  if (typeof run !== 'function') throw Error('MAINTENANCE_RUN_REQUIRED');
+  await startMaintenanceLease(db,{leaseId,now:now(),ttlMs});
+  let outcome;
+  try {
+    outcome=await run();
+    if (outcome?.reconciled !== true) throw Error('MAINTENANCE_RESULT_NOT_RECONCILED');
+  } catch (error) {
+    if (typeof recover !== 'function') throw error;
+    const recovery=await recover(error);
+    if (recovery?.reconciled !== true) throw Error('MAINTENANCE_RECOVERY_NOT_RECONCILED');
+    await finishMaintenanceLease(db,{leaseId,reconciled:true,now:now()});
+    return {status:'RECOVERED',reconciled:true};
+  }
+  await finishMaintenanceLease(db,{leaseId,reconciled:true,now:now()});
+  return {status:'COMPLETED',reconciled:true,result:outcome};
+}
