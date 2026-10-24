@@ -71,13 +71,20 @@ export async function retireLegacyDevJobs(db, input, { now = Date.now() } = {}) 
   const old = await db.prepare(
     "SELECT COUNT(*) AS n FROM dev_jobs WHERE status NOT IN ('COMPLETED','COMMITTED','CANCELLED','FAILED') AND (requested_by='mel-autonomy' OR requested_by LIKE 'owner-chat%' OR requested_by LIKE 'mel-founder%')"
   ).first();
-  const updated = await db.prepare(
-    "UPDATE dev_jobs SET status='CANCELLED', updated_at=?, error='OWNER_GLOBAL_MAINTENANCE_RESET' WHERE status NOT IN ('COMPLETED','COMMITTED','CANCELLED','FAILED') AND (requested_by='mel-autonomy' OR requested_by LIKE 'owner-chat%' OR requested_by LIKE 'mel-founder%')"
-  ).bind(now).run();
-  await db.prepare(
-    "INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?) ON CONFLICT(bridge_id) DO UPDATE SET last_seen=excluded.last_seen,status=excluded.status,metadata_json=excluded.metadata_json"
-  ).bind('activity-list-epoch',now,'RESET',JSON.stringify({ reason:'owner-global-maintenance-reset', at: new Date(now).toISOString() })).run();
-  return { status:'CANCELLED_ACTIVE', before:Number(old?.n||0), changed:Number(updated?.meta?.changes||0), epoch:now, history_deleted:false };
+  if (typeof db.batch !== 'function') throw Error('MAINTENANCE_ATOMIC_BATCH_REQUIRED');
+  // The cancellation and visibility epoch must commit together.
+  const statements = [
+    db.prepare(
+      "UPDATE dev_jobs SET status='CANCELLED', updated_at=?, error='OWNER_GLOBAL_MAINTENANCE_RESET' WHERE status NOT IN ('COMPLETED','COMMITTED','CANCELLED','FAILED') AND (requested_by='mel-autonomy' OR requested_by LIKE 'owner-chat%' OR requested_by LIKE 'mel-founder%')"
+    ).bind(now),
+    db.prepare(
+      "INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?) ON CONFLICT(bridge_id) DO UPDATE SET last_seen=excluded.last_seen,status=excluded.status,metadata_json=excluded.metadata_json"
+    ).bind('activity-list-epoch',now,'RESET',JSON.stringify({ reason:'owner-global-maintenance-reset', at: new Date(now).toISOString() })),
+  ];
+  const results = await db.batch(statements);
+  const changes = Number(results?.[0]?.meta?.changes);
+  if (!Number.isSafeInteger(changes) || changes < 0) throw Error('MAINTENANCE_DEV_RESET_UNVERIFIED');
+  return { status:'CANCELLED_ACTIVE', before:Number(old?.n||0), changed:changes, epoch:now, history_deleted:false };
 }
 
 // Discovery reset preserves the old serialized ledger in an immutable-by-policy
