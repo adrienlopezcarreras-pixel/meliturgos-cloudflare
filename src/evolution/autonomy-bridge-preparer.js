@@ -70,7 +70,7 @@ async function inspectSources(env, proposal, { fetchImpl = fetch } = {}) {
   });
   let headBefore;
   try {
-    headBefore = await reader.head();
+    headBefore = env?.MEL_IMMUTABLE_PLANNING_ENABLED === 'true' ? await reader.approvedSnapshot() : await reader.head();
   } catch (error) {
     if (error?.code === 'CODE_HEAD_PIN_MISMATCH') {
       throw Object.assign(new Error('BRIDGE_PREPARATION_CANDIDATE_STALE'), {
@@ -102,7 +102,7 @@ async function inspectSources(env, proposal, { fetchImpl = fetch } = {}) {
 
   let headAfter;
   try {
-    headAfter = await reader.head();
+    headAfter = env?.MEL_IMMUTABLE_PLANNING_ENABLED === 'true' ? await reader.approvedSnapshot() : await reader.head();
   } catch (error) {
     if (error?.code === 'CODE_HEAD_PIN_MISMATCH') {
       throw Object.assign(new Error('CANDIDATE_HEAD_CHANGED_DURING_INSPECTION'), {
