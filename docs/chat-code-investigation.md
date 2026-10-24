@@ -8,7 +8,7 @@ Le lecteur complet refuse les fichiers de plus de 180 000 octets. L’interface 
 
 Les diagnostics explicites passant par `code.search` ou `code.read` amorcent la boucle d’outils existante avec leur résultat réel. Celle-ci est restreinte à `code.read` et `code.search` pour cette poursuite. Le premier appel compte dans le plafond existant de quatre étapes. Les résultats initiaux ne sont ni réexécutés ni dupliqués dans la réponse. Les réponses JSON déjà structurées de Workers AI passent par le normaliseur existant corrigé dans #2505, réutilisé sans second parseur.
 
-Aucun outil de mutation, job de développement, cycle MAX, commit, test ou déploiement n’est ajouté à ce parcours. Les autorisations CapabilityBus et le budget partagé restent actifs. Une erreur de lecture reste une erreur, et la réponse finale reçoit uniquement les observations réelles.
+Aucun outil de mutation, job de développement, cycle MAX, commit, test ou déploiement n’est ajouté à ce parcours. Les autorisations CapabilityBus et le budget partagé restent actifs. Une demande de documentation du protocole code.read/search/integrity reste un exemple : elle ne déclenche pas la lecture du chemin cité, ni une poursuite forcée par un résultat initial. Une erreur de lecture reste une erreur, et la réponse finale reçoit uniquement les observations réelles.
 
 ## Connaissance des capacités
 

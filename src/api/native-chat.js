@@ -359,7 +359,7 @@ function extractNativeSearchQuery(value) {
 
 export function inferNativeCodeCapability(text, recent = []) {
   const value = String(text || '').trim();
-  if (!value) return null;
+  if (!value || (isToolProtocolExampleRequest(value) && /\bcode\.(?:read|search|integrity)\b/i.test(value))) return null;
   const history = recentText(recent);
   const contextual = `${history}\n${value}`;
   const pathNow = extractCodePath(value);

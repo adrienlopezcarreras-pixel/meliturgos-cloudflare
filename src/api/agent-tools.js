@@ -232,6 +232,7 @@ function agentObservation(row) {
 }
 
 export async function runAgentToolLoop({ env, bus, text, recent = [], context = {}, summarize = x => x, now = () => Date.now(), deadlineAt = null, initialResults = [], allowedTools = null }) {
+  if (isToolProtocolExampleRequest(text)) return [];
   const initial = Array.isArray(initialResults) ? initialResults : [];
   if (!wantsAgentTools(text) && !initial.length) return [];
   if (allowedTools !== null && !Array.isArray(allowedTools)) return [];

@@ -72,3 +72,17 @@ test('code planning reuses the canonical Workers AI normalization for parsed JSO
  const rows=await runAgentToolLoop({text:'analyse le code',initialResults:[initial],allowedTools:['code.read','code.search'],bus:{list:()=>[{id:'code.read'},{id:'code.search'}],async execute(id,input){calls.push([id,input]);return {path:input.path,content:'actual fixture code'};}},env:{AI:{async run(){return {response:phase++===0?{tool:'code.read',input:{path:'src/helper.js'}}:{final:true}};}}}});
  assert.deepEqual(calls,[['code.read',{path:'src/helper.js'}]]);assert.equal(rows[0].status,'SUCCEEDED');
 });
+
+
+test('even a seeded result cannot turn documentation of the tool protocol into an action',async()=>{
+ let calls=0;
+ const rows=await runAgentToolLoop({text:'Explique un exemple JSON d’appel code.read',initialResults:[initial],allowedTools:['code.read'],bus:{list:()=>[{id:'code.read'}],async execute(){calls++;}},env:{AI:{async run(){calls++;return {response:'{"tool":"code.read","input":{"path":"src/index.js"}}'};}}}});
+ assert.deepEqual(rows,[]);assert.equal(calls,0);
+});
+
+test('the real chat documents a source-tool call without contacting GitHub',async()=>{
+ let calls=0;
+ const env={MELITURGOS_USER:'fixture',MELITURGOS_PASSWORD:'fixture-password',async MEL_GITHUB_FETCH(){calls++;return new Response('',{status:403});},AI:{async run(){return {response:'{"tool":"code.read","input":{"path":"src/index.js"}}'};}}};
+ const response=await worker.fetch(request('Explique un exemple JSON d’appel code.read pour src/index.js'),env);
+ const data=await response.json();assert.equal(response.status,200);assert.equal(calls,0);assert.deepEqual(data.tool_results,[]);
+});
