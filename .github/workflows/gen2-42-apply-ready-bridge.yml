@@ -624,8 +624,8 @@ jobs:
             exit 0
           fi
           NEXT_DEPTH="$((CHAIN_DEPTH + 1))"
-          NEXT_DEPTH="$NEXT_DEPTH" node -e "process.stdout.write(JSON.stringify({ref:'main',inputs:{chain_depth:process.env.NEXT_DEPTH}}))" > autonomy-next-dispatch.json
-          CODE="$(curl --silent --show-error --max-time 30             --request POST             --header "Authorization: Bearer $GH_TOKEN"             --header "Accept: application/vnd.github+json"             --header "X-GitHub-Api-Version: 2022-11-28"             --header "Content-Type: application/json"             --data-binary @autonomy-next-dispatch.json             --output autonomy-next-dispatch-response.txt             --write-out '%{http_code}'             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/gen2-42-runtime-tick.yml/dispatches")"
+          NEXT_DEPTH="$NEXT_DEPTH" node -e "process.stdout.write(JSON.stringify({ref:'main',inputs:{chain_depth:process.env.NEXT_DEPTH}}))" > "$RUNNER_TEMP/mel-autonomy-next-dispatch.json"
+          CODE="$(curl --silent --show-error --max-time 30             --request POST             --header "Authorization: Bearer $GH_TOKEN"             --header "Accept: application/vnd.github+json"             --header "X-GitHub-Api-Version: 2022-11-28"             --header "Content-Type: application/json"             --data-binary @"$RUNNER_TEMP/mel-autonomy-next-dispatch.json"             --output autonomy-next-dispatch-response.txt             --write-out '%{http_code}'             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/gen2-42-runtime-tick.yml/dispatches")"
           test "$CODE" = "204"
           echo "AUTONOMY_CHAIN_CONTINUED_AFTER_BRIDGE depth=$NEXT_DEPTH"
 
