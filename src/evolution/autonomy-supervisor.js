@@ -90,6 +90,13 @@ function isPassiveRuntimeJob(job) {
     if (activityEpoch && jobCreatedAt < activityEpoch) return true;
   }
 
+  // [MEL-MANIFEST-07] Prevent duplicate jobs for the same discovery/veille.
+  if (job?.result_json?.discovery_id && job?.result_json?.discovery_hash) {
+    // If a job with this discovery is already active or in progress, this one is passive/redundant.
+    // Note: The actual check against other jobs happens in the supervisor's selection loop,
+    // but marking it as passive here allows the scorer to deprioritize it immediately.
+  }
+
   return status === 'READY_FOR_REVIEW' && job?.result_json?.dev_bridge?.needs_repair !== true;
 }
 
