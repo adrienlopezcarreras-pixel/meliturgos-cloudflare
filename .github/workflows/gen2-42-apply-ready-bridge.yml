@@ -396,7 +396,7 @@ jobs:
           const files=job.files_json||[];
           if(!Array.isArray(files)||files.length<1||files.length>10) process.exit(2);
           for(const item of files){
-            const p=String(item?.path||'').replace(/\\/g,'/');
+            const p=String(item?.path||'');
             if(!p||p.startsWith('/')||p.split('/').includes('..')||p.startsWith('-')||p.includes('\0')||p.includes('\\')||p.split('/').includes('.')) process.exit(2);
             process.stdout.write(p+'\0');
           }
