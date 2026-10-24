@@ -49,3 +49,12 @@ test('candidate CI dispatch refuses a branch advanced beyond the published SHA',
   assert.match(workflow, /"\$DISPATCH_HEAD" != "\$NEW_SHA"/);
   assert.match(workflow, /CANDIDATE_HEAD_MOVED_BEFORE_CI_DISPATCH/);
 });
+
+test('full candidate CI rejects promotion for a superseded candidate SHA', async () => {
+  const workflow = await read('.github/workflows/full-candidate-ci.yml');
+  assert.match(workflow, /EXPECTED_SHA:/);
+  assert.match(workflow, /github\.sha/);
+  assert.match(workflow, /CANDIDATE_CI_SHA_SUPERSEDED/);
+  assert.match(workflow, /remote_sha" != "\$EXPECTED_SHA"/);
+  assert.ok(workflow.indexOf('Verify tested SHA remains current candidate HEAD') < workflow.indexOf('Dispatch candidate promotion'));
+});
