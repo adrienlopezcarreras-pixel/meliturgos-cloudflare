@@ -80,15 +80,15 @@ function isPassiveRuntimeJob(job) {
   if (providerDeferred(job)) return true;
   const status = String(job?.status || '').toUpperCase();
   if (status === 'WAITING_TEACHER') return true;
-  // Once a correlated, approved Bridge package is CLAIMED, execution belongs
-  // to the local Dev Bridge. The runtime must not reinterpret that generic
-  // CLAIMED status as a fresh Council/Teacher preflight.
   if (isClaimedPreparedDevBridgeJob(job)) return true;
-  // READY_FOR_REVIEW without a failed local test has no runtime transition to
-  // execute: it is waiting for externally recorded CI/completion evidence.
-  // Treat it as passive so it cannot starve another job that can genuinely
-  // advance. A repairable READY_FOR_REVIEW job remains actionable and keeps
-  // normal owner priority.
+  if (status === 'CANCELLED' || status === 'FAILED') return true;
+
+  // [MEL-MANIFEST-06] Protection against stale QUEUED jobs from before activity epoch.
+  // If the job was queued before the current runtime activity, it is considered obsolete.
+  const activityEpoch = job?.result_json?.activity_epoch;
+  const jobCreatedAt = job?.created_at ? new Date(job.created_at).getTime() : 0;
+  if (status === 'QUEUED' && activityEpoch && jobCreatedAt < activityEpoch) return true;
+
   return status === 'READY_FOR_REVIEW' && job?.result_json?.dev_bridge?.needs_repair !== true;
 }
 
