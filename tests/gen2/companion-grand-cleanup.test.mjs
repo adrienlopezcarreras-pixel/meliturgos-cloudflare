@@ -46,7 +46,7 @@ test('Companion grand cleanup inventories global D1 without calling reset endpoi
 test('Grand nettoyage never resets MAX before verified global restore preflight', async () => {
  const source=await read('windows-companion/MEL-Grand-Nettoyage.ps1');
  assert.doesNotMatch(source, /Invoke-RestMethod[^\n]*\/api\/gen2\/autonomy\/activity\/reset/);
- assert.match(source, /MAX : VERROUILLE/);
+ assert.match(source, /MAX : NON MODIFIE/);
  assert.match(source, /maintenance\/inspect/);
 });
 
@@ -65,4 +65,11 @@ test('Companion reports actual global maintenance lease and isolated restore sta
  assert.match(source,/inventory\.backup\.restore_tested/);
  assert.match(source,/inventory\.reset_available/);
  assert.doesNotMatch(source,/\$githubScript -Apply/);
+});
+
+test('read only Companion report never claims to have paused producers', async () => {
+ const source=await read('windows-companion/MEL-Grand-Nettoyage.ps1');
+ assert.match(source,/Aucun producteur suspendu par ce script/);
+ assert.match(source,/Aucun verrou active/);
+ assert.doesNotMatch(source,/developpement en pause/);
 });
