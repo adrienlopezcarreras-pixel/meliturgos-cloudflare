@@ -222,7 +222,7 @@ export async function persistImplementationDiagnostic(repository, jobId, diagnos
   return persistDiagnosticResult(repository, latest, result, 'implementation_planning_diagnostic');
 }
 
-async function requeueStaleTeacherApproval(repository, jobId, diagnosticCode) {
+async function requeueStaleTeacherApproval(repository, jobId, diagnosticCode, staleError = null) {
   const latest = await repository.get(jobId);
   if (!latest) return null;
   const bridge = latest?.result_json?.teacher_bridge;
@@ -248,9 +248,18 @@ async function requeueStaleTeacherApproval(repository, jobId, diagnosticCode) {
   result.teacher_bridge = null;
   delete result.implementation_proposal;
   delete result.bridge_package;
+  // Retain SHA evidence across the requeue: clearing teacher_bridge otherwise
+  // hides the exact candidate drift that caused repeated FOUNDER retries.
+  const expectedSha = String(staleError?.approved_candidate_sha || staleError?.expected_sha || bridge?.request?.candidate?.sha || '').toLowerCase();
+  const observedSha = String(staleError?.current_candidate_sha || staleError?.observed_sha || '').toLowerCase();
+  const shaEvidence = {
+    ...( /^[0-9a-f]{40}$/.test(expectedSha) ? { approved_candidate_sha: expectedSha } : {}),
+    ...( /^[0-9a-f]{40}$/.test(observedSha) ? { observed_candidate_sha: observedSha } : {}),
+  };
   result.implementation_planning_diagnostic = {
     status: 'NOT_READY',
     code,
+    ...shaEvidence,
     observed_at: now,
   };
 
@@ -827,7 +836,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         code: safeDiagnosticCode(error),
       };
       if (STALE_TEACHER_APPROVAL_CODES.has(implementation.code)) {
-        job = await requeueStaleTeacherApproval(jobRepository, job.id, implementation.code);
+        job = await requeueStaleTeacherApproval(jobRepository, job.id, implementation.code, error);
       } else {
         await persistImplementationDiagnostic(jobRepository, job.id, implementation);
         job = await jobRepository.get(job.id);
@@ -893,7 +902,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         // [GPT6] A stale approved SHA must restart Teacher review even when
         // detected by Bridge preparation rather than implementation planning.
         if (STALE_TEACHER_APPROVAL_CODES.has(bridgePreparation.code)) {
-          job = await requeueStaleTeacherApproval(jobRepository, job.id, bridgePreparation.code);
+          job = await requeueStaleTeacherApproval(jobRepository, job.id, bridgePreparation.code, error);
         } else {
           await persistBridgePreparationDiagnostic(jobRepository, job.id, bridgePreparation);
           job = await jobRepository.get(job.id);

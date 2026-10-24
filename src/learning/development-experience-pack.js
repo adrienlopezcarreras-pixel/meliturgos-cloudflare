@@ -1166,4 +1166,40 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1792800000000
   },
+  {
+    "id": "claude-council-rejection-resets-candidate-20261024",
+    "source": "claude",
+    "domain": "candidate-promotion",
+    "task": "Que faire de la candidate quand le Council refuse sa promotion.",
+    "input": "Un paquet refusé reste sur la candidate ; toute promotion suivante présente le même diff refusé.",
+    "before": "Laisser la candidate en l’état après COUNCIL_REJECTED : chaque tentative ultérieure est refusée et MAX ne livre plus rien.",
+    "after": "Sur REJECTED, remettre sur la candidate le contenu de main pour les fichiers du diff (commit, sans force push), relancer la CI et renvoyer les jobs fautifs en REPAIR_REQUIRED.",
+    "rationale": "Un refus doit isoler le travail fautif, pas bloquer toute la chaîne derrière lui.",
+    "tests": [
+      "tests/gen2/max-promotion-contract.test.mjs (PR #2500)",
+      ".github/workflows/mel-candidate-promotion.yml : bloc REJECTED"
+    ],
+    "tags": ["council", "candidate", "promotion", "max"],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1792838400000
+  },
+  {
+    "id": "claude-zero-cost-proof-lists-every-model-20261024",
+    "source": "claude",
+    "domain": "model-governance",
+    "task": "Ajouter ou classer un modèle Workers AI utilisé par le mentor.",
+    "input": "gpt-oss-120b (priorité 50, utilisé par le Council) n’était jamais tenté par le mentor.",
+    "before": "Ajouter le modèle au ModelRegistry seulement : le Zero-Euro Governor l’écarte sans erreur, faute de figurer dans la preuve zéro coût.",
+    "after": "Aligner la liste models de la preuve (deploy-cloudflare-release.yml et workers-ai-zero-cost-proof-refresh.yml) sur les entrées Workers AI du ModelRegistry, et vérifier que l’adaptateur lit le format de réponse du modèle (output_text pour gpt-oss).",
+    "rationale": "Un contrôle fail-closed exclut silencieusement : l’absence d’un modèle dans les tentatives est le seul signal.",
+    "tests": [
+      "tests/workers-ai-adapter-object-response.test.mjs (PR #2516)",
+      "metrics.mentor.models : gpt-oss absent des providers_attempted en production"
+    ],
+    "tags": ["zero-cost", "workers-ai", "mentor", "governor"],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1792838400000
+  },
 ]);
