@@ -6,6 +6,7 @@
 // cloud-bridge / GitHub Action relay dispatches and the last MEL WORK cycles.
 // Nothing here starts or changes anything.
 
+import { mentorMetrics, pipelineAlerts } from './autonomy-metrics.js';
 import { D1DevJobRepository, isPreparedDevBridgeJob } from '../dev/d1-dev-job-repository.js';
 import { D1EvolutionLedger } from './evolution-ledger.js';
 import { getAutonomyControl } from './autonomy-control.js';
@@ -189,6 +190,22 @@ function bridgeDiagnostics(result) {
   };
 }
 
+// One line per pipeline step, each tied to the exact run or SHA that proves
+// it, so a mission can be followed from package to promotion without D1.
+export function jobTrace(result) {
+  const r = obj(result);
+  const sha = value => (/^[a-f0-9]{40}$/i.test(String(value || '')) ? String(value).toLowerCase() : null);
+  const runId = value => (Number(value) > 0 ? Number(value) : null);
+  const bridge = obj(r.dev_bridge);
+  const ci = obj(obj(r.autonomy_completion).ci);
+  const council = obj(r.council_review);
+  return [
+    runId(bridge.github_run_id) && { step: 'bridge', run_id: runId(bridge.github_run_id), sha: sha(bridge.candidate_sha), status: clip(bridge.status, 40) },
+    runId(ci.run_id) && { step: 'ci', run_id: runId(ci.run_id), sha: sha(ci.head_sha), status: clip(ci.conclusion, 40) },
+    council.decision && { step: 'council', sha: sha(council.head), status: clip(council.decision, 40) },
+  ].filter(Boolean);
+}
+
 export function describeJob(job, now = Date.now()) {
   const r = obj(job?.result_json);
   const status = String(job?.status || 'UNKNOWN').toUpperCase();
@@ -214,6 +231,7 @@ export function describeJob(job, now = Date.now()) {
     tests: Array.isArray(job?.tests_json) ? job.tests_json.slice(0, 4).map(t => clip(typeof t === 'string' ? t : t?.path || t?.command, 160)) : [],
     candidate: prep.candidate_branch ? { branch: clip(prep.candidate_branch, 120), base_sha: clip(prep.candidate_sha, 40) } : null,
     completion: completion.status ? { status: clip(completion.status, 60), sha: clip(completion.candidate_sha, 40), ci_run_id: num(completion.ci?.run_id) } : null,
+    trace: jobTrace(r),
     bridge_diagnostics: bridgeDiagnostics(r),
     diagnostics: [diagnostic(r.implementation_planning_diagnostic), diagnostic(r.bridge_preparation_diagnostic)].filter(Boolean),
     error: clip(job?.error, 400),
@@ -354,6 +372,7 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
   // COMMITTED still awaits CI and promotion. Only genuinely terminal jobs leave active counts.
   const terminal = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
   const jobs = supervised.slice(0, Math.max(1, Math.min(60, limit))).map(job => describeJob(job, now));
+  const mentor = mentorMetrics(supervised);
   const executorAge = executor ? now - Number(executor.last_seen || 0) : null;
   return {
     ok: true,
@@ -378,6 +397,7 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
     },
     jobs,
     plan: buildCodePlan(jobs, { now }),
+    metrics: { mentor, alerts: pipelineAlerts(supervised, mentor, { now }) },
     execution_evidence: supervised.slice(0, Math.max(1, Math.min(60, limit))).map(executionEvidence).filter(Boolean),
     timeline: foldLedger(recentLedger.filter(event => atOrAfter(event?.occurred_at, epoch)), 40),
     activity_list_epoch: epoch || null,

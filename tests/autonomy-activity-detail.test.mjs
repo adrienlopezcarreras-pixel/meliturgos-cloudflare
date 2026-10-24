@@ -242,3 +242,16 @@ test('the Code chat plan shows the mission in progress, what comes next and the 
   assert.ok(plan.next.length > 0 && plan.next.every(item => !['MEL-FOUNDER-07', 'MEL-MANIFEST-03'].includes(item.id)));
   assert.deepEqual(scheduledCycles(now).map(c => new Date(c.next_at).toISOString()), ['2026-10-24T08:06:00.000Z', '2026-10-24T08:17:00.000Z', '2026-10-25T02:43:00.000Z']);
 });
+
+test('each pipeline step of a mission is traced to its exact run and SHA', async () => {
+  const { jobTrace } = await import('../src/evolution/autonomy-activity.js');
+  const sha = 'a'.repeat(40);
+  const trace = jobTrace({
+    dev_bridge: { github_run_id: 101, candidate_sha: sha, status: 'READY_FOR_REVIEW' },
+    autonomy_completion: { ci: { run_id: 202, head_sha: sha, conclusion: 'success' } },
+    council_review: { decision: 'REJECTED', head: sha },
+  });
+  assert.deepEqual(trace.map(t => [t.step, t.run_id ?? null, t.status]), [['bridge', 101, 'READY_FOR_REVIEW'], ['ci', 202, 'success'], ['council', null, 'REJECTED']]);
+  assert.ok(trace.every(t => t.sha === sha));
+  assert.deepEqual(jobTrace({}), []);
+});
