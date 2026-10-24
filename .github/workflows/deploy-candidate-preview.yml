@@ -662,7 +662,7 @@ jobs:
             --max-time 240 \
             --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
             --header "content-type: application/json" \
-            --data '{"force":true}' \
+            --data '{"force":true,"wait":true}' \
             "${BASE_URL}/api/mel/capability-watch/run" \
             --output capability-watch-run.json \
             --write-out '%{http_code}' || true)"

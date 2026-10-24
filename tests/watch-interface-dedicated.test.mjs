@@ -53,3 +53,13 @@ test('watch runs outlive the request: the server starts them in the background a
   assert.match(page, /if\(d\.started\)\{[^}]*followRun\(\)/);
   assert.match(page, /Réponse serveur invalide \(HTTP '\+r\.status/);
 });
+
+test('the preview watch proof waits for the synchronous result instead of the 202 background start', async () => {
+  const [entry, workflow] = await Promise.all([
+    readFile(new URL('../src/ui-entry.js', import.meta.url), 'utf8'),
+    readFile(new URL('../.github/workflows/deploy-candidate-preview.yml', import.meta.url), 'utf8'),
+  ]);
+  assert.match(entry, /const wait = body\?\.wait === true;/);
+  assert.match(entry, /if \(!wait && typeof ctx\?\.waitUntil === 'function'\)/);
+  assert.match(workflow, /--data '\{"force":true,"wait":true\}'/);
+});

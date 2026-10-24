@@ -71,6 +71,8 @@ async function capabilityWatchRunResponse(request, env, ctx) {
   let body = {};
   try { body = await request.clone().json(); } catch {}
   const force = body?.force === true;
+  // The preview proof needs the full result in the response; the UI does not.
+  const wait = body?.wait === true;
   try {
     const build = deployedBuild();
     const run = runEcosystemCapabilityWatch(env, {
@@ -79,7 +81,7 @@ async function capabilityWatchRunResponse(request, env, ctx) {
     });
     // A full watch outlives the HTTP request: Cloudflare then answered with an
     // HTML error page and the UI showed "Réponse serveur invalide".
-    if (typeof ctx?.waitUntil === 'function') {
+    if (!wait && typeof ctx?.waitUntil === 'function') {
       ctx.waitUntil(run.catch(() => null));
       return json({ ok: true, manual: true, forced: force, started: true }, 202);
     }
