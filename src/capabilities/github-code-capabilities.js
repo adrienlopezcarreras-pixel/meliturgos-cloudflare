@@ -150,7 +150,7 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
           .filter(x => x && x.type === 'blob' && typeof x.path === 'string')
           .map(x => ({path:x.path, size:Number(x.size || 0)}))
           .filter(x => !DENIED_PATH.test(x.path) && TEXT_EXT.test(x.path));
-        return {files:supported.filter(x => x.size <= MAX_FILE_BYTES), largeFiles:supported.filter(x => x.size > MAX_FILE_BYTES), complete:Array.isArray(body.tree) && body.truncated !== true};
+        return {files:supported.filter(x => x.size <= MAX_FILE_BYTES), largeFiles:supported.filter(x => x.size > MAX_FILE_BYTES), complete:Array.isArray(body.tree) && body.truncated === false};
       }
     } catch {}
     return {files:FALLBACK_FILES.map(path => ({path,size:0})).filter(x => !DENIED_PATH.test(x.path)), largeFiles:[], complete:false};

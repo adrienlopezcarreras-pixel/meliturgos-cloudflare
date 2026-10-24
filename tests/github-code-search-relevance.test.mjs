@@ -56,3 +56,9 @@ test('the CapabilityBus validates the added search evidence without weakening au
  const result=await bus.execute('code.search',{query:'inferChatMediaCapability',path:target},{owner:'fixture',permissions:[]});
  assert.equal(result.search_complete,true);assert.equal(result.source_ref,PIN);
 });
+
+
+test('an untyped truncation flag cannot certify an exhaustive source tree',async()=>{
+ const result=await fixture({truncated:'unknown'}).reader.search({query:'inferChatMediaCapability',path:target});
+ assert.equal(result.matches.length,1);assert.equal(result.tree_complete,false);assert.equal(result.search_complete,false);
+});

@@ -55,7 +55,8 @@ test('roadmap.read returns the real truth next to the declared roadmap', async (
   await exec(d, 'code.read', 'SUCCEEDED', 60_000);
   const bus = createDefaultCapabilityBus({ env: { DB: d } });
   const payload = await bus.execute('roadmap.read', {}, { owner: 'test', permissions: [] });
-  assert.equal(payload.summary.percent_complete, 88, '133 historical proofs stay verified; the founder cycle and the full manifesto account stay open');
+  assert.equal(payload.summary.complete, 133, 'historical certifications remain unchanged');
+  assert.equal(payload.summary.percent_complete, 84, 'the founder, manifesto and eight new chat acceptance goals remain open');
   const founder = payload.phases.find(phase => phase.id === 'P16');
   const manifesto = payload.phases.find(phase => phase.id === 'P17');
   assert.equal(founder.items.length, 8);
