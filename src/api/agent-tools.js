@@ -44,40 +44,62 @@ export function agentToolCatalog(bus) {
   }));
 }
 
+const INPUT_KEYS = ['input','arguments','args'];
+const CAPABILITY_ID = /^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+$/;
+function parameterSchema(value) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    && (value.type === 'object' || Object.hasOwn(value,'properties') || Object.hasOwn(value,'$schema'));
+}
+function malformedProtocol(value) {
+  const raw=String(value || '').trimStart();
+  return /^\{\s*"tool_calls"\s*:/.test(raw)
+    || (/^\{\s*"(?:tool|name|capability|function)"\s*:\s*"[^"\n]+"/.test(raw)
+      && /"(?:input|arguments|args|parameters)"\s*:/.test(raw));
+}
+
 export function parseAgentAction(text) {
-  const match = String(text || '').match(/\{[\s\S]*\}/);
-  if (!match) return { final: true };
+  const source=String(text || '');
+  const match=source.match(/\{[\s\S]*\}/);
+  if (!match) return {final:true,...(malformedProtocol(source) ? {invalid_tool_call:true} : {})};
   try {
-    let j = JSON.parse(match[0]);
-    if (!j || typeof j !== 'object') return { final: true };
-    // Recognize only explicit protocol envelopes, never nested tool-shaped data.
+    let j=JSON.parse(match[0]);
+    if (!j || typeof j !== 'object' || Array.isArray(j)) return {final:true};
+    let explicitEnvelope=false;
     if (Array.isArray(j.tool_calls)) {
-      if (j.tool_calls.length !== 1) return { final: true, invalid_tool_call: true };
-      j = j.tool_calls[0];
+      explicitEnvelope=true;
+      if (j.tool_calls.length !== 1) return {final:true,invalid_tool_call:true};
+      j=j.tool_calls[0];
     }
-    if (j?.type === 'function' && j.function && typeof j.function === 'object') j = j.function;
-    if (!j || typeof j !== 'object') return { final: true, invalid_tool_call: true };
-    if (j.final === true && typeof j.tool !== 'string') return { final: true };
-    // Some chat models emit an OpenAI-style {name, arguments} call rather
-    // than MEL's {tool, input} protocol. Normalize the same tool intent, but
-    // leave allowlisting and authorization to the existing dispatcher.
-    const tool = typeof j.tool === 'string' ? j.tool : (typeof j.name === 'string' ? j.name : (typeof j.capability === 'string' ? j.capability : null));
+    if (j?.type === 'function' && j.function && typeof j.function === 'object') {
+      const definition=parameterSchema(j.function.parameters) && !INPUT_KEYS.some(key=>Object.hasOwn(j.function,key));
+      if (definition && !explicitEnvelope) return {final:true};
+      explicitEnvelope=true;j=j.function;
+    }
+    if (!j || typeof j !== 'object') return {final:true,invalid_tool_call:true};
+    if (j.final === true && typeof j.tool !== 'string') return {final:true};
+    const direct=typeof j.tool === 'string' ? j.tool : null;
+    const inputKey=INPUT_KEYS.find(key=>Object.hasOwn(j,key))
+      || (Object.hasOwn(j,'parameters') && (direct || !parameterSchema(j.parameters)) ? 'parameters' : null);
+    // Descriptors and ordinary JSON records are data. Alias calls require an
+    // explicit input envelope; a name/capability field alone is not an action.
+    const alias=typeof j.name === 'string' ? j.name : typeof j.capability === 'string' ? j.capability : typeof j.function === 'string' ? j.function : null;
+    const tool=direct && (inputKey || CAPABILITY_ID.test(direct)) ? direct : inputKey ? alias : null;
     if (tool) {
-      let raw = j.input ?? j.arguments ?? j.args;
-      if (typeof raw === 'string') { try { raw=JSON.parse(raw); } catch { return {final:true,invalid_tool_call:true}; } }
-      if (raw != null && (typeof raw !== 'object' || Array.isArray(raw))) return { final:true,invalid_tool_call:true };
-      return { tool, input: raw ?? {} };
+      let raw=inputKey ? j[inputKey] : {};
+      if (typeof raw === 'string') {try {raw=JSON.parse(raw);} catch {return {final:true,invalid_tool_call:true};}}
+      if (raw != null && (typeof raw !== 'object' || Array.isArray(raw))) return {final:true,invalid_tool_call:true};
+      return {tool,input:raw ?? {}};
     }
-    // Shorthand {"autonomy.status": {}}: a single dotted capability id as the
-    // key and its input as the value. It used to stay on screen as raw JSON.
-    const keys = Object.keys(j);
-    if (keys.length === 1 && /^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+$/.test(keys[0])) {
-      const raw = j[keys[0]];
-      if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return { final: true };
-      return { tool: keys[0], input: raw };
+    const keys=Object.keys(j);
+    if (keys.length===1 && CAPABILITY_ID.test(keys[0])) {
+      const raw=j[keys[0]];
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) return {tool:keys[0],input:raw};
     }
-  } catch {}
-  return { final: true };
+    if (explicitEnvelope) return {final:true,invalid_tool_call:true};
+  } catch {
+    if (malformedProtocol(match[0])) return {final:true,invalid_tool_call:true};
+  }
+  return {final:true};
 }
 
 export function responseIsBareToolCall(text) {
@@ -110,6 +132,7 @@ function eachJsonObject(text, visit) {
   for (let start = 0; start < source.length; start += 1) {
     if (source[start] !== '{') continue;
     let depth = 0;
+    let closed = false;
     let quoted = false;
     let escaped = false;
     for (let end = start; end < source.length; end += 1) {
@@ -128,9 +151,15 @@ function eachJsonObject(text, visit) {
           visit(source.slice(start, end + 1), start, end + 1);
           // Nested objects are arguments/data, never separate tool requests.
           start = end;
+          closed = true;
           break;
         }
       }
+    }
+    if (!closed) {
+      // Incomplete outer data never promotes a nested object into an action.
+      visit(source.slice(start), start, source.length);
+      break;
     }
   }
 }
@@ -147,6 +176,15 @@ export function leakedToolCalls(text) {
       const action = parseAgentAction(JSON.stringify(call));
       if (typeof action.tool === 'string') found.push(action);
     }
+  });
+  return found;
+}
+
+export function hasLeakedToolProtocol(text) {
+  let found=false;
+  eachJsonObject(text,raw=>{
+    const action=parseAgentAction(raw);
+    if (typeof action.tool==='string' || action.invalid_tool_call===true) found=true;
   });
   return found;
 }
