@@ -19,7 +19,7 @@ try {
   if ($dryRunLog | Where-Object { $_ -match 'ATTENTION:|erreur|ECHEC|BLOQUE' }) {
     throw 'MEL_GITHUB_DRY_RUN_REPORTED_ERRORS'
   }
-  if (-not ($dryRunLog | Where-Object { $_ -match 'TERMINE \\(SIMULATION\\)' })) {
+  if (-not ($dryRunLog | Where-Object { $_ -match 'TERMINE \(SIMULATION\)' })) {
     throw 'MEL_GITHUB_DRY_RUN_COMPLETION_NOT_PROVEN'
   }
   $answer=Read-Host 'Simulation terminee. Appliquer les suppressions listees ? (O/N)'
