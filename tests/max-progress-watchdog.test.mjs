@@ -128,3 +128,14 @@ test('waiting external execution remains explicit and MAX disable resets the wat
   assert.equal(disabled.tripped,false);
   assert.equal(disabled.consecutive_stalls,0);
 });
+
+test('a plan or package step advances MAX but only a completion counts as a delivery', async()=>{
+  const db=new MemoryD1();
+  const step=await recordAutonomyProgressWatchdog(db,{advanced:true,progress:{advanced:true,events:['TEACHER_REQUEST_CREATED','BRIDGE_PACKAGE_PREPARED'],work_remaining:true}},{maxAutonomy:true,now:1000});
+  assert.equal(step.status,'ADVANCING');
+  assert.equal(step.last_delivered_at,null);
+  const done=await recordAutonomyProgressWatchdog(db,{advanced:true,progress:{advanced:true,events:['JOB_COMPLETED'],work_remaining:true}},{maxAutonomy:true,now:2000});
+  assert.equal(done.last_delivered_at,new Date(2000).toISOString());
+  const later=await recordAutonomyProgressWatchdog(db,{advanced:true,progress:{advanced:true,events:['JOB_CREATED'],work_remaining:true}},{maxAutonomy:true,now:3000});
+  assert.equal(later.last_delivered_at,new Date(2000).toISOString());
+});

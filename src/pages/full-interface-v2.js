@@ -947,8 +947,10 @@ function activityMarkup(a){
   let h=activitySection('Mode',
     '<div><b>'+esc(mode)+'</b></div>'
     +'<div class="act-kv">Garde-fou de progression : <b>'+esc(wd.status||'—')+'</b>'+(wd.tripped?' · <span class="act-bad">bloqué après '+esc(wd.consecutive_stalls??'?')+' cycles sans progrès</span>':'')+'</div>'
-    +'<div class="act-kv">Dernier cycle : '+esc(wd.last_tick_at?activityTime(Date.parse(wd.last_tick_at)):'—')+' · dernier progrès : '+esc(wd.last_advanced_at?activityTime(Date.parse(wd.last_advanced_at)):'aucun mesuré')+'</div>'
-    +(wd.last_block_reason?'<div class="act-kv">Raison du blocage : '+esc(wd.last_block_reason)+'</div>':'')
+    +'<div class="act-kv">Dernier cycle : '+esc(wd.last_tick_at?activityTime(Date.parse(wd.last_tick_at)):'—')+' · dernière étape : '+esc(wd.last_advanced_at?activityTime(Date.parse(wd.last_advanced_at)):'aucune mesurée')+' · dernière livraison : '+esc(wd.last_delivered_at?activityTime(Date.parse(wd.last_delivered_at)):'aucune')+'</div>'
+    +(wd.status==='LEASE_BUSY'
+      ?'<div class="act-kv">Attente : le cycle précédent tourne encore (normal, pas un blocage).</div>'
+      :(wd.last_block_reason?'<div class="act-kv">Raison du blocage : '+esc(wd.last_block_reason)+'</div>':''))
     +'<div class="act-kv">Compteurs MAX : '+esc(wc.jobs_created??'—')+' créés · '+esc(wc.jobs_completed??'—')+' terminés · '+esc(wc.blocked_ticks??'—')+' cycles bloqués</div>'
     +'<div class="act-kv">PC exécuteur : '+(pc?(pc.online?'en ligne':'hors ligne → le pont cloud GitHub prend le relais'):'—')+'</div>'
     +(c.launch_approved_sha?'<div class="act-kv">Version autorisée : '+esc(String(c.launch_approved_sha).slice(0,12))+'</div>':''));

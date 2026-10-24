@@ -186,3 +186,6 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 - `codex-cloud-first-owner-fallback-20261021` — cloud prioritaire sans attente de heartbeat personnel; secours explicite et preuve bornée du paquet; attribution atomique, report persistant et preuve réelle distincte du dispatch.
 
 - `codex-owner-intent-version-release-cas-20261023` — distinguer la révision du choix propriétaire des écritures techniques et conserver le CAS final avant reprise.
+- `claude-github-token-no-workflow-chaining-20261023` — un run lancé par github.token ne déclenche ni workflow_run ni push-trigger ; lancer l’étape suivante par workflow_dispatch.
+- `claude-bot-token-cannot-write-workflows-20261023` — le mentor n’écrit jamais .github/workflows/ ; pas d’élargissement du jeton du pont.
+- `claude-main-equal-is-not-candidate-applied-20261023` — un paquet n’est « déjà appliqué » que s’il égale main et la candidate exacte.

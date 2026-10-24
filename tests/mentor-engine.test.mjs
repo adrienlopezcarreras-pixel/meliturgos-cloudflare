@@ -784,3 +784,15 @@ test('mentor refuses workflow edits the Bridge token cannot push', async () => {
     return true;
   });
 });
+
+test('mentor rejects a relative import to a file missing from the repository', async () => {
+  const exists = new Set(['src/core/existing.js']);
+  const engine = new MentorEngine({ providerFactory: async () => [provider('importer', {
+    edits: [{ path: 'src/core/runtime.js', find: 'export const a = 1;', replace: "import { b } from '../capabilities/missing.js';\nimport { c } from './existing.js';\nexport const a = b + c;" }],
+  })] });
+  await assert.rejects(() => engine.propose({ env: {}, goal: 'Ajouter un import', pathExists: async path => exists.has(path), inspectedFiles: [{ path: 'src/core/runtime.js', content: 'export const a = 1;\n' }] }), error => {
+    assert.equal(error.code, 'MENTOR_NO_VALID_CODE_PROPOSAL');
+    assert.ok(error.failures.some(failure => failure.error === 'MENTOR_MISSING_IMPORT' && failure.detail === 'path=src/capabilities/missing.js'));
+    return true;
+  });
+});

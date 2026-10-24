@@ -1097,4 +1097,73 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1792710885844
   },
+  {
+    "id": "claude-github-token-no-workflow-chaining-20261023",
+    "source": "claude",
+    "domain": "github-actions-chaining",
+    "task": "Enchaîner CI candidate → promotion → release quand les runs sont lancés par le jeton automatique d’Actions.",
+    "input": "Le pont lance full-candidate-ci par workflow_dispatch avec github.token ; la promotion écoute workflow_run et un cron horaire.",
+    "before": "Compter sur workflow_run, sur un push fait avec github.token ou sur un cron : GitHub ne déclenche aucun workflow à partir d’un run du jeton automatique et saute souvent les crons ; la candidate verte e3bf819 a attendu des heures sans promotion.",
+    "after": "Après un succès, lancer explicitement l’étape suivante par l’API workflow_dispatch (autorisée avec github.token) depuis le job qui vient de réussir ; garder les contrôles de l’étape suivante (MAX, SHA exact, Council). Ne jamais supposer qu’un cron ou un workflow_run prendra le relais.",
+    "rationale": "Les événements issus de GITHUB_TOKEN sont volontairement inertes pour éviter les boucles ; seul workflow_dispatch/repository_dispatch fait exception.",
+    "tests": [
+      "full-candidate-ci 0bad46f : job request-promotion → mel-candidate-promotion dispatché (PR #2488)",
+      "promotion 60f7c55 → PRODUCTION_RELEASE_DISPATCH → deploy-cloudflare-release 60f7c55 en cours (PR #2490)"
+    ],
+    "tags": [
+      "github-actions",
+      "workflow_dispatch",
+      "promotion",
+      "release"
+    ],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1792800000000
+  },
+  {
+    "id": "claude-bot-token-cannot-write-workflows-20261023",
+    "source": "claude",
+    "domain": "github-actions-permissions",
+    "task": "Empêcher un agent autonome d’écrire des fichiers que son jeton ne peut pas pousser ou qui portent ses propres garde-fous.",
+    "input": "Le mentor a écrit .github/workflows/gen2-49-portability-restore-ci.yml ; tests verts sur la candidate, push refusé.",
+    "before": "Laisser le mentor cibler .github/workflows/ : GitHub refuse le push d’un GitHub App sans permission workflows et la mission retombe en REPAIR_REQUIRED après tous les tests.",
+    "after": "Refuser au mentor toute écriture sous .github/workflows/ (lecture permise) ; une modification de workflow passe par une demande explicite du propriétaire. Ne pas élargir les droits du jeton du pont pour contourner.",
+    "rationale": "Un agent qui peut réécrire ses workflows peut affaiblir ses propres contrôles ; le refus GitHub est aussi une frontière de sécurité.",
+    "tests": [
+      "run 40029891542 : remote rejected … without `workflows` permission",
+      "tests/mentor-engine.test.mjs : mentor refuses workflow edits the Bridge token cannot push (PR #2487)"
+    ],
+    "tags": [
+      "mentor",
+      "workflows",
+      "permissions",
+      "security"
+    ],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1792800000000
+  },
+  {
+    "id": "claude-main-equal-is-not-candidate-applied-20261023",
+    "source": "claude",
+    "domain": "bridge-reconciliation",
+    "task": "Décider si un paquet est déjà appliqué quand la candidate a divergé de main.",
+    "input": "La candidate porte un doublon introduit par un paquet ; chaque correction du mentor restaure le contenu de main.",
+    "before": "Annuler le paquet comme ALREADY_SATISFIED_ON_MAIN dès qu’il égale main : la candidate n’est jamais réparée et MAX boucle (13 missions annulées).",
+    "after": "Ne considérer un paquet satisfait que s’il égale main ET le SHA exact de la candidate visée ; sinon l’appliquer normalement.",
+    "rationale": "Main et la candidate sont deux états distincts ; l’égalité avec l’un ne prouve rien sur l’autre.",
+    "tests": [
+      "tests/gen2/cloud-bridge-fallback-contract.test.mjs (PR #2486)",
+      "candidate e3bf819 : doublon MEL-MANIFEST-05 supprimé par le pont, CI complète verte"
+    ],
+    "tags": [
+      "bridge",
+      "candidate",
+      "reconciliation",
+      "divergence"
+    ],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1792800000000
+  },
 ]);

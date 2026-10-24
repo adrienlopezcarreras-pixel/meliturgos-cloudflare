@@ -32,7 +32,7 @@ function bounded(value, max) {
 // MENTOR_PATH_DENIED / MENTOR_JSON_REQUIRED on production jobs.
 function mentorFailureDetail(error, raw) {
   const message = String(error?.message || '');
-  const path = /^MENTOR_(?:PATH_DENIED|INVALID_CHANGE|UNINSPECTED_EDIT|LONG_FILE_REQUIRES_EDIT):(.+)$/.exec(message)?.[1];
+  const path = /^MENTOR_(?:PATH_DENIED|INVALID_CHANGE|UNINSPECTED_EDIT|LONG_FILE_REQUIRES_EDIT|MISSING_IMPORT):(.+)$/.exec(message)?.[1];
   if (path) return 'path=' + path.slice(0, 160);
   const text = String(typeof raw === 'string' ? raw : JSON.stringify(raw ?? '')).replace(/\s+/g, ' ').trim();
   return text ? 'reply=' + text.slice(0, 160) : null;
@@ -87,6 +87,29 @@ function safePath(path) {
     throw error;
   }
   return value;
+}
+
+// A relative import to a file that does not exist only fails after the
+// Bridge's full test run. Reject it here so another provider can answer.
+async function assertImportsResolve(proposal, pathExists, inspectedFiles = []) {
+  if (typeof pathExists !== 'function') return proposal;
+  const known = new Set([...proposal.changes, ...inspectedFiles].map(file => file.path));
+  for (const change of proposal.changes) {
+    if (!/\.(?:m?js|cjs)$/.test(change.path)) continue;
+    const dir = change.path.split('/').slice(0, -1);
+    const specs = [...String(change.content || '').matchAll(/(?:from\s+|import\s*\(\s*|^\s*import\s+)['"](\.{1,2}\/[^'"]+)['"]/gm)].map(m => m[1]);
+    for (const spec of new Set(specs)) {
+      const parts = [...dir];
+      for (const segment of spec.split('/')) {
+        if (segment === '..') parts.pop();
+        else if (segment !== '.') parts.push(segment);
+      }
+      const target = parts.join('/');
+      if (known.has(target) || await pathExists(target)) continue;
+      throw Object.assign(new Error(`MENTOR_MISSING_IMPORT:${target}`), { code: 'MENTOR_MISSING_IMPORT' });
+    }
+  }
+  return proposal;
 }
 
 function escapeRawJsonStrings(text) {
@@ -472,7 +495,7 @@ export class MentorEngine {
     return this.memory.experienceContext(goal, options);
   }
 
-  async propose({ env, jobId, goal, inspectedFiles = [], previousAttempts = [], mode = 'implement', repairReferences = [] } = {}) {
+  async propose({ env, jobId, goal, inspectedFiles = [], previousAttempts = [], mode = 'implement', repairReferences = [], pathExists = null } = {}) {
     // The supervisor appends the whole manifest status list; models mistake it
     // for the task and "fix" roadmap ID lists, so only the item itself is sent.
     const objective = bounded(goal, 12_000).replace(/\s*\|\s*OBJECTIF\s[\s\S]*$/, '').trim();
@@ -546,26 +569,26 @@ export class MentorEngine {
       }));
 
       const repairInputs = [];
-      settled.forEach((result, index) => {
+      for (const [index, result] of settled.entries()) {
         const provider = wave[index];
         if (result.status === 'rejected') {
           const failure = mentorFailureCode(result.reason);
           failures.push({ provider: provider.id, error: failure, stage: 'initial' });
           // A provider outage has no malformed answer to repair. Try another
           // provider instead of issuing the same failed inference twice.
-          return;
+          continue;
         }
         const output = result.value.output;
         const raw = output?.text ?? output;
         try {
-          const proposal = normalizeProposal(raw, output?.provenance || { provider: provider.providerId, model: provider.modelId }, files, previousAttempts, references, result.value.visibleScope);
+          const proposal = await assertImportsResolve(normalizeProposal(raw, output?.provenance || { provider: provider.providerId, model: provider.modelId }, files, previousAttempts, references, result.value.visibleScope), pathExists, files);
           proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: false });
         } catch (error) {
           const failure = mentorFailureCode(error, 'MENTOR_PROPOSAL_INVALID');
           failures.push({ provider: provider.id, error: failure, stage: 'initial', detail: mentorFailureDetail(error, raw) });
           repairInputs.push({ provider, raw: bounded(raw, 20_000), failure });
         }
-      });
+      }
 
       if (!proposals.length && repairInputs.length) {
         repairAttempted = true;
@@ -589,7 +612,7 @@ export class MentorEngine {
             },
           }, Math.max(10, Math.min(this.repairTimeoutMs, remaining()))).then(output => ({ output, visibleScope }));
         }));
-        repaired.forEach((result, index) => {
+        for (const [index, result] of repaired.entries()) {
           const { provider } = repairInputs[index];
           if (result.status === 'rejected') {
             failures.push({
@@ -597,17 +620,17 @@ export class MentorEngine {
               error: mentorFailureCode(result.reason, 'MENTOR_PROVIDER_REPAIR_FAILED'),
               stage: 'repair',
             });
-            return;
+            continue;
           }
           try {
-            const proposal = normalizeProposal(
+            const proposal = await assertImportsResolve(normalizeProposal(
               result.value.output?.text ?? result.value.output,
               result.value.output?.provenance || { provider: provider.providerId, model: provider.modelId },
               files,
               previousAttempts,
               references,
               result.value.visibleScope,
-            );
+            ), pathExists, files);
             proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: true });
             repairValidProposals += 1;
           } catch (error) {
@@ -618,7 +641,7 @@ export class MentorEngine {
               detail: mentorFailureDetail(error, result.value.output?.text ?? result.value.output),
             });
           }
-        });
+        }
       }
     }
 
