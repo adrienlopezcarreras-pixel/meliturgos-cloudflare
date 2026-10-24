@@ -47,7 +47,7 @@ jobs:
           node --check src/security/github-actions-oidc.js &&
           node --check src/evaluation/capability-watch-runtime.js
       - name: Global maintenance reset regressions
-        run: node --test tests/maintenance/global-reset.test.mjs tests/maintenance/work-maintenance-gate.test.mjs
+        run: node --test tests/maintenance/global-reset.test.mjs tests/maintenance/work-maintenance-gate.test.mjs tests/maintenance/global-orchestrator.test.mjs
       - name: Chat direct-path and explicit-action regressions
         run: >
           node --test
