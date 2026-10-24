@@ -20,6 +20,8 @@ Page | Élément | Action | Résultat attendu | Résultat obtenu | PASS/FAIL/BLO
 / | fileInput | inventory / functional execution | Function and durable outcome verified | Requires functional scenario and live prerequisites | BLOCKED | inventory.json
 / | send | inventory / functional execution | Function and durable outcome verified | Requires functional scenario and live prerequisites | BLOCKED | inventory.json
 / | full | inventory / functional execution | Function and durable outcome verified | Requires functional scenario and live prerequisites | BLOCKED | inventory.json
+/ | attachment:first-selection | real Chromium file selection | Text file uploaded and staged | true | PASS | browser-results.json
+/ | attachment:same-file-reselection | remove then select same local file again | Second upload and staged attachment | {"staged":true,"requests":1} | PASS | browser-results.json
 / | viewport:390 | resize | No page-wide horizontal overflow | {"width":390,"document":390} | PASS | browser-results.json
 / | viewport:768 | resize | No page-wide horizontal overflow | {"width":768,"document":768} | PASS | browser-results.json
 /professor | page | navigate | HTML rendered by production entrypoint | Conversation | PASS | inventory.json
@@ -160,6 +162,8 @@ Page | Élément | Action | Résultat attendu | Résultat obtenu | PASS/FAIL/BLO
 /professor | diagCaps | inventory / functional execution | Function and durable outcome verified | Requires functional scenario and live prerequisites | BLOCKED | inventory.json
 /professor | diagRoadmap | inventory / functional execution | Function and durable outcome verified | Requires functional scenario and live prerequisites | BLOCKED | inventory.json
 /professor | diagAug | inventory / functional execution | Function and durable outcome verified | Requires functional scenario and live prerequisites | BLOCKED | inventory.json
+/professor | attachment:first-selection | real Chromium file selection | Text file uploaded and staged | true | PASS | browser-results.json
+/professor | attachment:same-file-reselection | remove then select same local file again | Second upload and staged attachment | {"staged":true,"requests":1} | PASS | browser-results.json
 /professor | navigation:chat | visible browser pointer click | Requested section visible | chat | PASS | browser-results.json
 /professor | navigation:computer | visible browser pointer click | Requested section visible | computer | PASS | browser-results.json
 /professor | navigation:terminal | visible browser pointer click | Requested section visible | terminal | PASS | browser-results.json
