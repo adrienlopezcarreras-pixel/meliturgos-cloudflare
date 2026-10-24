@@ -796,3 +796,12 @@ test('mentor rejects a relative import to a file missing from the repository', a
     return true;
   });
 });
+
+test('mentor resolves an edit excerpt copied with different indentation when it is unique', async () => {
+  const source = 'export function read() {\n    const value = 1;\n    return value;\n}\n';
+  const engine = new MentorEngine({ providerFactory: async () => [provider('indent', {
+    edits: [{ path: 'src/example.js', find: 'const value = 1;\n  return value;', replace: '    const value = 2;\n    return value;' }],
+  })] });
+  const result = await engine.propose({ env: {}, goal: 'Changer la valeur', inspectedFiles: [{ path: 'src/example.js', content: source }] });
+  assert.equal(result.proposal.changes[0].content, 'export function read() {\n    const value = 2;\n    return value;\n}\n');
+});
