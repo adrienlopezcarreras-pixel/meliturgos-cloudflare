@@ -77,7 +77,7 @@ test('a WORK cycle records the capability missing for each skipped paid offer', 
 
 test('a WORK cycle cut mid-way is marked interrupted, not left running', async () => {
   const { runScheduledMelWork } = await import('../src/revenue/work-schedule.js');
-  const db = sqliteD1();
+  const db = sqliteD1({ maintenanceFence: true });
   await db.prepare('CREATE TABLE mel_work_cycles (id TEXT PRIMARY KEY, state TEXT NOT NULL, result TEXT, updated_at TEXT NOT NULL)').run();
   await db.prepare("INSERT INTO mel_work_cycles VALUES ('old','RUNNING',NULL,'2026-10-18T05:00:00.000Z'),('fresh','RUNNING',NULL,'2026-10-18T06:50:00.000Z')").run();
   await runScheduledMelWork({ DB: db, AI: { run: async () => ({}) } }, { now: new Date('2026-10-18T07:05:00Z'), run: async () => new Response('') });
