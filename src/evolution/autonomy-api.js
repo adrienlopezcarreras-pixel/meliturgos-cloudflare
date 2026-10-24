@@ -1,4 +1,4 @@
-import { inspectMaintenanceStorage, inspectWorkDagsForReset, assertNoActiveWorkLeases } from '../maintenance/global-reset.js';
+import { inspectMaintenanceStorage, inspectWorkDagsForReset, assertNoActiveWorkLeases, globalCleanupReadiness } from '../maintenance/global-reset.js';
 import { approveCouncilReviewByOwner, pendingOwnerCouncilApprovals } from './council-review.js';
 import { requireAuth } from '../core/security.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
@@ -211,7 +211,7 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
     return Response.json({
       ok:true, mode:'READ_ONLY', storage, work, leases,
       reset_available:false,
-      blockers:['PRODUCER_SHUTDOWN_NOT_ATTESTED','RESTORE_TEST_NOT_ATTESTED','DOMAIN_RESET_HANDLERS_INCOMPLETE'],
+      blockers:globalCleanupReadiness().blockers,
     }, { headers:{'cache-control':'no-store'} });
   }
 
