@@ -12,6 +12,9 @@ on:
       - 'tests/mini-phase-negotiation-v1.cpp'
       - '.github/workflows/mini-phase-session-guard.yml'
   workflow_dispatch:
+permissions:
+  contents: read
+
 jobs:
   unit:
     runs-on: ubuntu-latest

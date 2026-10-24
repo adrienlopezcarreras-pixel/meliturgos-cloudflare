@@ -10,6 +10,9 @@ on:
       - '.github/workflows/mel-device-02-power-control-ci.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   power-control:
     runs-on: ubuntu-latest

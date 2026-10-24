@@ -6,6 +6,9 @@ on:
       - 'tests/mini-phase-v1-firmware-codec.cpp'
       - '.github/workflows/mini-phase-firmware-payload.yml'
   workflow_dispatch:
+permissions:
+  contents: read
+
 jobs:
   parser:
     runs-on: ubuntu-latest
