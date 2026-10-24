@@ -199,6 +199,11 @@ export async function prepareApprovedBridgePackage({
       repairReferences.push({ path: reference.path, content: reference.content });
     }
   }
+  const reader = createGitHubCodeReader({ ...code, token: String(env?.MEL_GITHUB_TOKEN || ''), pinnedSha: code.candidate_sha, fetchImpl });
+  // Only a confirmed 404 counts as missing; a network error must not block code.
+  const pathExists = async (path) => {
+    try { await reader.read(path); return true; } catch (error) { return Number(error?.status) !== 404; }
+  };
   const mentor = await engine.propose({
     env,
     jobId: current.id,
@@ -207,13 +212,13 @@ export async function prepareApprovedBridgePackage({
     previousAttempts: repairFor ? current?.result_json?.dev_bridge?.tests || [] : [],
     mode,
     repairReferences,
+    pathExists,
   });
   const proposal = mentor?.proposal;
   if (!proposal || !Array.isArray(proposal.changes) || !proposal.changes.length) {
     throw Object.assign(new Error('BRIDGE_PREPARATION_CHANGES_REQUIRED'), { code: 'BRIDGE_PREPARATION_CHANGES_REQUIRED' });
   }
 
-  const reader = createGitHubCodeReader({ ...code, token: String(env?.MEL_GITHUB_TOKEN || ''), pinnedSha: code.candidate_sha, fetchImpl });
   await reader.head();
 
   const files = proposal.changes.slice(0, 10).map((change) => ({

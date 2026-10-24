@@ -43,7 +43,7 @@ test('MEL reconciliation roadmap leaves the founder cycle and the manifesto acco
     { id: 'MEL-FOUNDER-05', status: 'PLANNED' },
     { id: 'MEL-FOUNDER-06', status: 'BLOCKED_HUMAN' },
     { id: 'MEL-FOUNDER-07', status: 'PLANNED' },
-    { id: 'MEL-FOUNDER-08', status: 'PLANNED' },
+    { id: 'MEL-FOUNDER-08', status: 'BLOCKED_EXTERNAL' },
     { id: 'MEL-MANIFEST-01', status: 'PLANNED' },
     { id: 'MEL-MANIFEST-02', status: 'PLANNED' },
     { id: 'MEL-MANIFEST-03', status: 'PLANNED' },

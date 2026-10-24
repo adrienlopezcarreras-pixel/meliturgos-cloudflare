@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
 });
 
 export function isClosedRoadmapStatus(status) {
-  return ['DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED'].includes(String(status || '').trim().toUpperCase());
+  return [ROADMAP_STATUSES.VERIFIED, 'DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED'].includes(String(status || '').trim().toUpperCase());
 }
 
 export const ROADMAP_REGISTRY_REVISION = '2026-10-19.3';
@@ -219,20 +219,20 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-FOUNDER-04', 'Council réel sur une décision de code', 'PLANNED', 'Au moins deux modèles distincts quand ils sont disponibles. Si un seul répond, le dire. Ne pas simuler un quorum. Avis persisté, lié au SHA, sans lever les garde-fous ni le coût zéro.', 'P1'),
     item('MEL-FOUNDER-05', 'Un travail MEL WORK sans dépense, du besoin au livrable', 'PLANNED', 'Demande, exécution, artefact persisté et consultable. Un brouillon ou un enqueue n’est pas une livraison.', 'P1'),
     item('MEL-FOUNDER-06', 'Valider Companion, APK et MINI sur les appareils réels', 'BLOCKED_HUMAN', 'Le propriétaire doit disposer d’un PC, d’un téléphone et d’un MINI matériellement sain. L’écran cassé et l’absence de son ne se corrigent pas dans le dépôt. Ne pas les marquer vérifiés.', 'P1'),
-    item('MEL-FOUNDER-07', 'Prouver une restauration isolée du patrimoine', 'PLANNED', 'Manifeste, priorité 1. Restaurer evolution_ledger, conversations et dev_jobs dans un environnement isolé. La D1 de production ne change pas. Un backup existant sans cette comparaison n’est pas une restauration prouvée.', 'P1'),
-    item('MEL-FOUNDER-08', 'Promouvoir un LoRA seulement après un gain mesuré', 'PLANNED', 'Manifeste, priorité 2. Un run d’entraînement n’est pas un LoRA actif. L’activation exige le même modèle de base, un gain mesuré, aucune régression majeure et un finetune_id persisté. Sinon le statut reste non actif.', 'P1')
+    item('MEL-FOUNDER-07', 'Prouver une restauration isolée du patrimoine', 'PLANNED', 'Manifeste, priorité 1. Restaurer evolution_ledger, conversations et dev_jobs dans un environnement isolé. La D1 de production ne change pas. Un backup existant sans cette comparaison n’est pas une restauration prouvée. Écrire la comparaison dans scripts/ ou src/backup/ avec un test ; ne pas modifier .github/workflows/.', 'P1'),
+    item('MEL-FOUNDER-08', 'Promouvoir un LoRA seulement après un gain mesuré', 'BLOCKED_EXTERNAL', 'Manifeste, priorité 2. Bloqué : un entraînement réel n’est pas à coût zéro, MAX ne le choisit pas. Un run d’entraînement n’est pas un LoRA actif. L’activation exige le même modèle de base, un gain mesuré, aucune régression majeure et un finetune_id persisté. Sinon le statut reste non actif.', 'P1')
   ]),
 
   phase('P17', 'Compte du manifeste : continuer après le cycle fondateur', [
     item('MEL-MANIFEST-01', 'Tenir le compte des cinq priorités du manifeste', 'PLANNED', 'Après les preuves du cycle fondateur, associe chaque priorité 0 à 4 à une exécution réelle. N’écris DONE_VERIFIED sur aucune ligne sans cette preuve.', 'P1'),
     item('MEL-MANIFEST-02', 'Reprendre le même travail au tick suivant', 'PLANNED', 'Le bail est rendu. Un seul job par objectif. Le tick suivant lit le journal et continue, sans créer un second job.', 'P1'),
-    item('MEL-MANIFEST-03', 'Enregistrer une compétence nouvelle sur le bus unique', 'PLANNED', 'Une demande sans outil devient un diff, un avis du Council, une CI verte, puis une capacité du bus. Pas de second moteur.', 'P1'),
-    item('MEL-MANIFEST-04', 'Conserver une version stable avant une évolution risquée', 'PLANNED', 'La sauvegarde est vérifiée et la restauration est comparée hors de la D1 de production. Le rollback connu reste disponible.', 'P1'),
+    item('MEL-MANIFEST-03', 'Enregistrer une compétence nouvelle sur le bus unique', 'PLANNED', 'Couvert par MEL-FOUNDER-03 : ne pas écrire de second chemin. Vérifier seulement qu’une demande sans outil devient un diff, un avis du Council, une CI verte, puis une capacité du bus. Pas de second moteur.', 'P1'),
+    item('MEL-MANIFEST-04', 'Conserver une version stable avant une évolution risquée', 'PLANNED', 'La sauvegarde est vérifiée et la restauration est comparée hors de la D1 de production. Le rollback connu reste disponible. Réutiliser le travail de MEL-FOUNDER-07 (scripts/ ou src/backup/, avec test) ; ne pas modifier .github/workflows/.', 'P1'),
     item('MEL-MANIFEST-05', 'Prouver un audit profond qui appelle vraiment', 'PLANNED', 'Lancer capability.audit avec deep vrai. Compter seulement les appelées, les refusées et les échouées. Un traité sans appel ne compte pas. Aucune mutation, aucun appel payant.', 'P1'),
-    item('MEL-MANIFEST-06', 'Ne reprendre aucun travail d’avant l’époque d’activité', 'PLANNED', 'Le tick ne sélectionne qu’un job QUEUED créé après l’époque. L’ancien journal reste lisible. Un travail annulé n’est pas repris.', 'P1'),
+    item('MEL-MANIFEST-06', 'Ne reprendre aucun travail d’avant l’époque d’activité', 'PLANNED', 'Déjà implémenté dans autonomy-supervisor.js (filtre created_at >= époque dans state() et selectActionableAutonomyJob) et couvert par tests/autonomy-runtime-epoch.test.mjs : prouver avec ces tests, ne pas modifier le superviseur. L’ancien journal reste lisible. Un travail annulé n’est pas repris.', 'P1'),
     item('MEL-MANIFEST-07', 'Laisser la veille ouvrir un seul travail supervisé', 'PLANNED', 'Une découverte crée un seul job. Deux jobs pour la même découverte sont un échec. Ne pas créer une seconde veille.', 'P1'),
     item('MEL-MANIFEST-08', 'Dire la vérité sur Gmail tant que le compte manque', 'PLANNED', 'Cinq messages lus, ou le code exact PIPEDREAM_GMAIL_ACCOUNT_REQUIRED, GMAIL_SEARCH_FAILED_NETWORK ou GMAIL_SEARCH_FAILED_ALL_PATHS_FAILED. Un refus n’est pas une lecture réussie.', 'P1'),
-    item('MEL-MANIFEST-09', 'Faire évoluer une compétence seulement après un écart prouvé', 'PLANNED', 'Si aucune capacité du bus ne couvre la demande, créer un seul objectif, puis un diff, un Council nommé et une CI verte. Enregistrer la compétence sur le bus unique. Ne pas l’inventer dans la réponse.', 'P1'),
+    item('MEL-MANIFEST-09', 'Faire évoluer une compétence seulement après un écart prouvé', 'PLANNED', 'Couvert par MEL-FOUNDER-03 : vérifier seulement. Si aucune capacité du bus ne couvre la demande, créer un seul objectif, puis un diff, un Council nommé et une CI verte. Enregistrer la compétence sur le bus unique. Ne pas l’inventer dans la réponse.', 'P1'),
     item('MEL-MANIFEST-10', 'Fermer le compte du manifeste sans ligne manquante', 'PLANNED', 'Les priorités 0 à 3 sont prouvées et les lignes fondatrices correspondantes sont DONE_VERIFIED. La priorité 4 reste BLOCKED_HUMAN tant que Companion, Android et MINI n’ont pas été utilisés en conditions réelles. Ne pas écrire MEL à 100 % avant cela.', 'P1')
   ]),
 ]);

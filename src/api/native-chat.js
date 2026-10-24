@@ -52,13 +52,29 @@ export const INSTRUCTION_PROMPT_CHARS = 280;
 // model describes a bare text model ("no web, no PC, no persistence").
 export const MEL_REAL_CAPABILITIES = [
   'CE QUE TU ES VRAIMENT : tu es MEL, un service Cloudflare doté de capacités réelles, de D1, de stockage et de tâches planifiées. Une fonction implémentée ou déclarée ne prouve pas que son service externe répond actuellement : seules les exécutions et leur état runtime le prouvent.',
-  'Tes outils réels, sous réserve de leur état actuel : recherche web publique, stockage durable, lecture de ton dépôt GitHub, MEL Companion Windows quand le PC est connecté et autorisé, MEL WORK, et cycles programmés Cloudflare. Utilise les capacités disponibles plutôt que répondre comme un simple modèle de texte.',
+  'Tes outils réels, sous réserve de leur état actuel : recherche web publique, stockage durable, lecture de ton dépôt GitHub, MEL Companion Windows quand le PC est connecté et autorisé, MEL WORK, et cycles programmés Cloudflare. Selon le CAPABILITY_MANIFEST du moment, tu peux aussi générer ou rechercher des images, traiter son, photo et vidéo, lire Gmail, Agenda et Drive une fois connectés, consulter le Council de modèles et développer ton propre code via MAX ; pour une question sur ce que tu sais faire, cite le manifeste plutôt que cette liste. Utilise les capacités disponibles plutôt que répondre comme un simple modèle de texte.',
   'MEL WORK est automatique dans son architecture : découverte des missions Taskmarket par son API publique, brouillons dans D1, cycles planifiés et éventuelle soumission via le Companion selon permissions et état réel. Elle publie elle-même ses livrables (page publique MEL, dev.to et Bluesky une fois connectés dans /revenus, avec image générée si utile), toujours avec la mention IA et mission rémunérée ; la remise Taskmarket passe par le Companion du PC. Pour dire ce qui manque à MEL WORK, appuie-toi sur ses cycles réels, jamais sur une liste générique. La présence de ce code ne prouve ni une mission exécutée ni une rémunération reçue. Ne confonds pas un brouillon, une tentative, une soumission et un paiement.',
   'MODE MAX (vérité, pas une hypothèse) : ' + MAX_MODE_EXPLANATION + ' Ne décris jamais MAX comme un simple mode verbeux ou de journalisation, ne dis jamais que tu ne peux pas t’auto-développer, et ne réclame pas de PAT GitHub, token Companion, clé Stripe, webhook ou scheduler pour cela. N’invente jamais de fonction, d’endpoint, de flag, de fichier ou de workflow pour expliquer ou relancer MAX : il n’y a aucun réglage à « activer » en dehors du bouton MAX, et pour son état actuel (activé, en pause, chantier en cours, étape bloquante), appuie-toi uniquement sur autonomy.status ou la page Activité.',
   'Ne dis donc jamais par défaut que les clés Bing, Google Search, Drive, Stripe, PayPal, GitHub ou Companion manquent toutes, ni que le Worker ne peut ni écrire en D1 ni exécuter de tâches programmées : inspecte les capacités runtime et les TOOL_RESULT avant une telle affirmation. Taskmarket public, D1 et GitHub ne nécessitent pas de réclamer de nouveaux secrets dans le chat. Si un service précis échoue, nomme la capacité, le code erreur et la preuve manquante. Ne demande jamais de copier un token ou un secret dans la conversation ; la configuration éventuelle se fait dans le stockage sécurisé du service concerné.',
   'Tu exécutes toi-même tes outils (boucle d’outils native) : ne réponds jamais « je ne peux pas exécuter » ni en donnant des curl à lancer ; appuie-toi sur les TOOL_RESULT de cette requête.',
 ].join(' ');
 
+
+/**
+ * "What can you do / which tools do you have / can you <verb>?" must be
+ * answered from the runtime CAPABILITY_MANIFEST, not from the short static
+ * summary of a plain chat turn, which omits media, Workspace and the Council.
+ */
+export function isSelfCapabilityQuestion(input) {
+  const value = String(input || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (/\b(?:que|qu\W?est[- ]?ce que|quoi)\b.{0,20}\b(?:sais|peux|sait)[- ]?(?:tu|faire)?\b.{0,12}\bfaire\b/.test(value)) return true;
+  if (/\btu (?:sais|peux) faire quoi\b/.test(value)) return true;
+  if (/\b(?:quels?|quelles?|liste|montre)\b.{0,25}\b(?:outils?|capacites?|competences?|fonctionnalites?|pouvoirs?)\b/.test(value)
+    && /\b(?:tu|tes|ton|as[- ]tu|mel)\b/.test(value)) return true;
+  return /\b(?:peux[- ]tu|est[- ]ce que tu peux|tu peux|sais[- ]tu|es[- ]tu capable de?)\b/.test(value)
+    && /\b(?:generer|creer|faire|lire|analyser|ecouter|regarder|chercher|trouver|envoyer|modifier|coder|developper)\b/.test(value)
+    && /\b(?:image|photo|video|son|audio|musique|voix|mail|gmail|agenda|calendrier|drive|fichier|code|outil|capacite)s?\b/.test(value);
+}
 
 /**
  * A MEL WORK readiness question needs actual runtime observations, not a
@@ -1698,7 +1714,7 @@ export async function handleNativeChat(request, env, options = {}) {
   // The Professor model route was resolved at request intake; Normal stays null.
   const melWorkCapabilityQuestion = melWorkReadiness;
   const plainChatTurn = !professorCodeChat && !releaseSmoke && !body.capability?.id && !inferredCapability
-    && !melWorkCapabilityQuestion
+    && !melWorkCapabilityQuestion && !isSelfCapabilityQuestion(text)
     && !currentFactVerification && !personalProfileIntent
     && !negativeFeedbackRecovery && !conversationFocus.elliptical;
   if (conversationFocus.needs_clarification && !body.capability?.id && !inferredCapability) {

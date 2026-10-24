@@ -15,6 +15,7 @@ function baseState() {
     stall_limit: STALL_LIMIT,
     last_tick_at: null,
     last_advanced_at: null,
+    last_delivered_at: null,
     last_block_reason: null,
     last_job_id: null,
     last_job_status: null,
@@ -102,6 +103,8 @@ export async function recordAutonomyProgressWatchdog(db = null, tick = {}, {
   const workRemaining = progress.work_remaining === true;
   const waitingExternal = progress.waiting_external === true;
   const leaseBusy = String(tick?.status || '').toUpperCase() === 'SKIPPED_LEASE_BUSY';
+  const events = Array.isArray(progress.events) ? progress.events : [];
+  const delivered = events.includes('JOB_COMPLETED') || events.includes('ROADMAP_COMPLETION_ADVANCED');
   const explicitBlock = String(progress.block_reason || tick?.reason || tick?.status || '').slice(0, 180) || null;
   // A live lease means another heartbeat owns the runtime. Do not call that
   // a MAX stall yet: the Actions runner retries the lease explicitly and fails
@@ -137,6 +140,9 @@ export async function recordAutonomyProgressWatchdog(db = null, tick = {}, {
     stall_limit: STALL_LIMIT,
     last_tick_at: new Date(now).toISOString(),
     last_advanced_at: advanced ? new Date(now).toISOString() : previous.last_advanced_at || null,
+    // Planning, Teacher and package events keep MAX from being called stalled,
+    // but only a completed job or roadmap item is a delivery.
+    last_delivered_at: delivered ? new Date(now).toISOString() : previous.last_delivered_at || null,
     last_block_reason: advanced ? null : explicitBlock,
     last_job_id: progress.job_id || null,
     last_job_status: progress.job_status || null,
