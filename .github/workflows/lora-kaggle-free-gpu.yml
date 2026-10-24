@@ -914,16 +914,43 @@ jobs:
       - name: Save immutable checkpoint release
         if: env.SMOKE_ONLY != 'true'
         shell: bash
+        env:
+          # Optional fine-grained token with Contents: Read and write on this repository.
+          # The standard GITHUB_TOKEN remains the first choice and needs no extra secret.
+          LORA_RELEASE_FALLBACK_TOKEN: ${{ secrets.MEL_LORA_RELEASE_TOKEN }}
         run: |
           set -euo pipefail
           SHORT="${SOURCE_SHA:0:12}"
           TAG="mel-lora-kaggle-${SHORT}-c$(printf '%03d' "$CYCLE")"
           echo "CHECKPOINT_TAG=$TAG" >> "$GITHUB_ENV"
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" artifacts/mel-lora-bundle.tar.gz artifacts/kaggle-run.json --clobber --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create "$TAG" artifacts/mel-lora-bundle.tar.gz artifacts/kaggle-run.json               --repo "$GITHUB_REPOSITORY"               --target "$SOURCE_SHA"               --title "MEL LoRA Kaggle UNCENSORED cycle $CYCLE"               --notes "Free offline Kaggle GPU checkpoint. No production deployment. No paid fallback."
+          # Keep an explicit proof of publication, never infer one from a training result.
+          printf '{"tag":"%s","published":false,"artifact_fallback":"kaggle-lora-cycle-%s"}\n' "$TAG" "$GITHUB_RUN_ID" > artifacts/checkpoint-publication.json
+          publish() {
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              # Immutable means no --clobber: a previous release must not be rewritten.
+              gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' |
+                grep -Fxq 'mel-lora-bundle.tar.gz' || return 1
+              return 0
+            fi
+            gh release create "$TAG" artifacts/mel-lora-bundle.tar.gz artifacts/kaggle-run.json \
+              --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" \
+              --title "MEL LoRA Kaggle UNCENSORED cycle $CYCLE" \
+              --notes "Free offline Kaggle GPU checkpoint. No production deployment. No paid fallback."
+          }
+          if ! publish; then
+            if [[ -n "$LORA_RELEASE_FALLBACK_TOKEN" ]]; then
+              echo "::warning::Standard GITHUB_TOKEN failed to publish checkpoint; retrying with configured scoped release token."
+              export GH_TOKEN="$LORA_RELEASE_FALLBACK_TOKEN"
+              if ! publish; then
+                echo "::error::LORA_CHECKPOINT_RELEASE_DENIED: both configured publishing identities failed. Recovery artifacts uploaded in always() step; cycle must not advance."
+                exit 1
+              fi
+            else
+              echo "::error::LORA_CHECKPOINT_RELEASE_DENIED: GitHub release creation rejected. Configure MEL_LORA_RELEASE_TOKEN with Contents read/write for this repository or fix token restrictions. Recovery artifacts uploaded in always() step; cycle must not advance."
+              exit 1
+            fi
           fi
+          printf '{"tag":"%s","published":true,"artifact_fallback":null}\n' "$TAG" > artifacts/checkpoint-publication.json
 
       - name: Create zero-cost training result
         if: env.SMOKE_ONLY != 'true' && env.BENCHMARK_PREVIEW != 'true'
@@ -980,6 +1007,8 @@ jobs:
           name: kaggle-lora-cycle-${{ github.run_id }}
           path: |
             artifacts/kaggle-run.json
+            artifacts/checkpoint-publication.json
+            artifacts/mel-lora-bundle.tar.gz
             artifacts/finalize-result.json
             artifacts/lora-incoming/lora-plan.json
             artifacts/lora-incoming/training-evidence.json
