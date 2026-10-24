@@ -18,7 +18,7 @@ export async function onRequestGet() {
 @media(max-width:540px){.lora-steps{grid-template-columns:1fr}.top h1{font-size:29px}.pill{font-size:.75rem}.card{padding:14px;border-radius:17px}.mobile-home-controls{grid-template-columns:1fr 1fr}.mobile-home-controls button{font-size:.85rem}.hero{grid-template-columns:1fr;gap:10px}.hero img{width:74px;height:74px}.hero .actions{display:grid;grid-template-columns:1fr}.hero .actions button{width:100%}.roadmap-head{grid-template-columns:1fr 1fr}.filters select{width:100%}.msg{max-width:94%}.chatlog{min-height:350px}.status-row{align-items:flex-start;overflow-wrap:anywhere}}
 
 /* [ChatGPT-GPT6 / PROFESSOR-CHAT-RESIZE] Larger chat and native drag-to-resize; no chat runtime changes. */
-[data-panel="chat"] #chatlog{height:clamp(220px,calc(100dvh - 450px),460px);min-height:220px;max-height:none;resize:vertical;overflow:auto}
+[data-panel="chat"] #chatlog{height:clamp(110px,calc(100dvh - 690px),300px);min-height:110px;max-height:none;resize:vertical;overflow:auto}
 [data-panel="chat"] .chat-resize-hint{display:block;text-align:right;margin:5px 3px 0;font-size:.78rem;color:var(--muted)}
 @media(max-width:720px){[data-panel="chat"] #chatlog{height:55vh;min-height:200px}}
 /* Canonical /professor visual rules absorbed from the retired release patch. */
@@ -1918,7 +1918,7 @@ async function loadLearningProgress(){
     xp.textContent=fmtCount(d?.xp)+' XP';
     const bench=e?.benchmark_latest_score==null?'bench —':('bench '+(Math.round(Number(e.benchmark_latest_score)*1000)/10)+'%');
     const loraState=String(d?.lora_status?.state||'').toUpperCase();
-    const lora=loraState==='ACTIVE'?'LoRA actif':loraState==='TECHNICALLY_VALIDATED'?'LoRA validé techniquement':loraState==='EVALUATED'?'LoRA benchmarké':loraState==='READY'?'LoRA prêt':loraState==='TRAINING'?'LoRA en entraînement':loraState==='BLOCKED'?'LoRA bloqué':'LoRA état indisponible';
+    const lora=loraState==='ACTIVE'?'LoRA actif':loraState==='TECHNICALLY_VALIDATED'?'LoRA validé techniquement':loraState==='EVALUATED'?'LoRA benchmarké':loraState==='READY'?'LoRA préparé · entraînement requis':loraState==='TRAINING'?'LoRA en entraînement':loraState==='BLOCKED'?'LoRA bloqué':'LoRA état indisponible';
     meta.textContent=fmtCount(e?.corrections_validated)+' corr. · '+bench+' · '+lora;
     const put=(id,v)=>{const n=qs(id);if(n)n.textContent=v;};
     put('#learnNext',fmtCount(d?.xp_to_next_level)+' XP');
@@ -1944,7 +1944,7 @@ async function loadLearningProgress(){
 }
 async function runLearningAction(button,url,busy){
   const state=qs('#melLearningActionState');if(!button)return;button.disabled=true;if(state)state.textContent=busy;
-  try{const d=await jfetch(url,{method:'POST',headers:{'content-type':'application/json'},body:'{}'});if(state)state.textContent='Terminé.';await loadLearningProgress();return d}
+  try{const d=await jfetch(url,{method:'POST',headers:{'content-type':'application/json'},body:'{}'});if(d?.ok===false)throw new Error(String(d.detail||d.error||'ACTION_FAILED'));await loadLearningProgress();if(state)state.textContent=url.includes('/lora/prepare')?(d?.trainer?.available===false?'Corpus préparé · entraînement indisponible : '+String(d.trainer.reason||'exécuteur non configuré'):'Préparation effectuée · entraînement et activation non confirmés.'):'Action exécutée · voir les résultats mesurés.';return d}
   catch(e){if(state)state.textContent='Échec : '+e.message;return null}
   finally{button.disabled=false}
 }
