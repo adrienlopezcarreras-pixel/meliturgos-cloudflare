@@ -91,6 +91,7 @@ function isPassiveRuntimeJob(job) {
   }
 
   // [MEL-MANIFEST-07] Prevent duplicate jobs for the same discovery/veille.
+  // We only consider it passive if it's already being handled or has a discovery signature.
   if (job?.result_json?.discovery_id && job?.result_json?.discovery_hash) {
     return true;
   }
