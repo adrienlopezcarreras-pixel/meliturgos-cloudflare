@@ -161,7 +161,10 @@ test('production releases are batched: hourly schedule or manual dispatch, never
   assert.match(on, /- cron: '\d{1,2} \* \* \* \*'/, 'at most one scheduled release per hour');
   // A merge may request a release only through the one-hour batch window.
   assert.ok(!on.includes('  push:') || yaml.includes("MEL_RELEASE_BATCH_WINDOW_MS: ${{ github.event_name == 'push' && '3600000' || '0' }}"), 'a merge on main must not start a production release by itself');
-  assert.ok(!on.includes('  workflow_run:'), 'a finished deployment must not re-trigger another release');
+  assert.ok(on.includes('  workflow_run:'), 'a completed deployment must check whether main advanced during its run');
+  assert.ok(on.includes('workflows: [deploy-cloudflare-release]'));
+  assert.ok(on.includes('types: [completed]'));
+  assert.ok(yaml.includes("MEL_CATCHUP_COMPLETED_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || '' }}"));
   assert.ok(!on.includes('*/15'), 'no 15-minute release polling');
   assert.ok(yaml.includes("github.ref == 'refs/heads/main'"));
   assert.ok(yaml.includes("MEL_REQUIRE_PROTECTED_REFS: ${{ (github.event_name == 'push' || github.event_name == 'schedule') && 'true' || 'false' }}"));
@@ -492,4 +495,13 @@ test('release dispatch refuses an independently moved release pointer', async ()
   };
   await assert.rejects(() => requestAutonomousRelease({token:'TEST_ONLY',fetchImpl:fakeFetch}), /RELEASE_POINTER_CHANGED_BEFORE_DISPATCH/);
   assert.ok(!operations.some(line => line.includes('/dispatches')));
+});
+
+test('production completion catch-up uses SHA-aware deduplication and an exact upstream workflow', () => {
+  const yaml = readFileSync(new URL('../.github/workflows/mel-autonomous-production-release.yml',import.meta.url),'utf8');
+  assert.match(yaml,/workflows: \[deploy-cloudflare-release\]/);
+  assert.match(yaml,/types: \[completed\]/);
+  assert.match(yaml,/github\.event\.workflow_run\.event == 'workflow_dispatch'/);
+  assert.match(yaml,/MEL_SKIP_ALREADY_ATTEMPTED_SHA:.*workflow_run/);
+  assert.match(yaml,/MEL_REQUIRE_PROTECTED_REFS:.*workflow_run/);
 });
