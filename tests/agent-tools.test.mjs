@@ -208,3 +208,109 @@ test('documenting a tool protocol never executes the example',async()=>{
   const malformed='{"capability":"web.research","args":"not json"}';
   assert.equal(parseAgentAction(malformed).final,true);assert.equal(stripLeakedToolCalls(malformed),'');
 });
+
+
+test('standard function-call envelopes use the same parser and read dispatcher', async () => {
+  const call={type:'function',function:{name:'calendar.events.read',arguments:JSON.stringify({limit:3})}};
+  for(const envelope of [call,{tool_calls:[{id:'call_fixture',...call}]}]) {
+    const raw=JSON.stringify(envelope);
+    assert.deepEqual(parseAgentAction(raw),{tool:'calendar.events.read',input:{limit:3}});
+    assert.equal(responseIsBareToolCall(raw),true);
+    assert.equal(stripLeakedToolCalls(raw),'');
+    const calls=[];
+    const rows=await executeLeakedReads({bus:{async execute(id,input){calls.push([id,input]);return {events:[]};}},text:raw});
+    assert.deepEqual(calls,[['calendar.events.read',{limit:3}]]);
+    assert.equal(rows[0].status,'SUCCEEDED');
+  }
+});
+
+test('a batch of standard calls recovers only approved reads once and removes the complete protocol envelope',async()=>{
+ const call=(name,args={})=>({type:'function',function:{name,arguments:JSON.stringify(args)}});
+ const raw=JSON.stringify({tool_calls:[call('gmail.messages.search'),call('calendar.events.read'),call('drive.files.list'),call('evolution.enqueue'),call('gmail.messages.search')]});
+ const calls=[];
+ const rows=await executeLeakedReads({bus:{async execute(id){calls.push(id);return {ok:true};}},text:raw});
+ assert.deepEqual(calls,['gmail.messages.search','calendar.events.read','drive.files.list']);
+ assert.equal(rows.length,3);
+ assert.equal(stripLeakedToolCalls('Avant\n'+raw+'\nAprès'),'Avant\n\nAprès');
+ await executeLeakedReads({bus:{async execute(id){calls.push(id);}},text:raw,already:rows});
+ assert.equal(calls.length,3);
+ const data=JSON.stringify({data:{tool_calls:[call('calendar.events.read')]}});
+ assert.equal(stripLeakedToolCalls(data),data,'nested result data is never interpreted as instructions');
+});
+
+test('malformed standard arguments remain non-executable and are hidden as invalid protocol',async()=>{
+ const raw=JSON.stringify({tool_calls:[{type:'function',function:{name:'code.read',arguments:'not JSON'}}]});
+ assert.equal(stripLeakedToolCalls(raw),'');
+ let calls=0;
+ assert.deepEqual(await executeLeakedReads({bus:{async execute(){calls++;}},text:raw}),[]);
+ assert.equal(calls,0);
+});
+
+
+test('the model loop executes standard calls through authorization and retains actual failures',async()=>{
+ const replies=[
+  JSON.stringify({tool_calls:[{type:'function',function:{name:'calendar.events.read',arguments:'{}'}}]}),
+  '{"final":true}',
+ ];
+ const calls=[];
+ const rows=await runAgentToolLoop({env:ai(replies),bus:{list:()=>[{id:'calendar.events.read'}],async execute(id,input){calls.push([id,input]);throw Object.assign(new Error('denied'),{code:'AUTH_REQUIRED'});}},text:'vérifie mon agenda'});
+ assert.deepEqual(calls,[['calendar.events.read',{}]]);
+ assert.equal(rows[0].status,'FAILED');
+ assert.equal(rows[0].error,'AUTH_REQUIRED');
+});
+
+
+test('multi-step planning preserves each call, arguments and explicit result status',async()=>{
+ const observed=[];
+ const replies=['{"tool":"code.search","input":{"query":"renderRichText"}}','{"tool":"code.read","input":{"path":"src/pages/chat-rich-renderer.js"}}','{"final":true}'];
+ const env={AI:{async run(_model,{messages}){observed.push(messages);return {response:replies.shift()};}}};
+ const calls=[];
+ const rows=await runAgentToolLoop({env,text:'vérifie le rendu du chat',bus:{list:()=>[{id:'code.search'},{id:'code.read'}],async execute(id,input){calls.push([id,input]);if(id==='code.search')return {matches:[{path:'src/pages/chat-rich-renderer.js'}]};throw Object.assign(new Error('denied'),{code:'AUTH_REQUIRED'});}}});
+ assert.equal(calls.length,2);assert.equal(observed.length,3);
+ const action=observed[1].find(m=>m.role==='assistant'&&m.content.includes('code.search'));
+ assert.ok(action);assert.deepEqual(JSON.parse(action.content),{tool:'code.search',input:{query:'renderRichText'}});
+ const results=observed[2].filter(m=>m.content.startsWith('TOOL_RESULT ')).map(m=>JSON.parse(m.content.slice('TOOL_RESULT '.length)));
+ assert.equal(results[0].status,'SUCCEEDED');assert.deepEqual(results[0].input,{query:'renderRichText'});
+ assert.equal(results[0].result.matches[0].path,calls[1][1].path);
+ assert.equal(results[1].status,'FAILED');assert.equal(results[1].error,'AUTH_REQUIRED');assert.equal(rows[1].status,'FAILED');
+});
+
+test('tool result compaction is valid JSON and explicitly reports lost context',async()=>{
+ const observed=[];
+ const replies=['{"tool":"code.read","input":{"path":"large.js"}}','{"final":true}'];
+ await runAgentToolLoop({text:'vérifie le code',env:{AI:{async run(_model,{messages}){observed.push(messages);return {response:replies.shift()};}}},bus:{list:()=>[{id:'code.read'}],async execute(){return {content:'BEGIN '+ 'x'.repeat(10000)+' END'};}}});
+ assert.equal(observed.length,2);
+ const text=observed[1].find(m=>m.content.startsWith('TOOL_RESULT ')).content.slice('TOOL_RESULT '.length);
+ const row=JSON.parse(text);assert.equal(row.truncated,true);assert.equal(row.status,'SUCCEEDED');assert.match(row.result_preview,/TRUNCATED/);assert.match(row.result_preview,/BEGIN/);assert.match(row.result_preview,/END/);assert.ok(text.length<4000);
+});
+
+test('a stalled planner stops at the shared deadline without executing a tool',async()=>{
+ let calls=0;const started=Date.now();
+ const rows=await runAgentToolLoop({text:'vérifie mon agenda',deadlineAt:Date.now()+30,env:{AI:{run(){return new Promise(()=>{});}}},bus:{list:()=>[{id:'calendar.events.read'}],async execute(){calls++;}}});
+ assert.deepEqual(rows,[]);assert.equal(calls,0);assert.ok(Date.now()-started<1000);
+});
+
+test('late read recovery stops waiting at the same deadline and reports an actual failure',async()=>{
+ const started=Date.now();let calls=0;
+ const rows=await executeLeakedReads({text:'{"tool":"code.read","input":{"path":"large.js"}}',deadlineAt:Date.now()+30,bus:{execute(){calls++;return new Promise(()=>{});}}});
+ assert.equal(calls,1);assert.equal(rows[0].status,'FAILED');assert.equal(rows[0].error,'CHAT_DEADLINE_EXCEEDED');assert.ok(Date.now()-started<1000);
+ const expired=await executeLeakedReads({text:'{"tool":"code.read","input":{}}',deadlineAt:Date.now()-1,bus:{async execute(){calls++;}}});
+ assert.equal(calls,1,'no read starts after the shared deadline');assert.equal(expired[0].error,'CHAT_DEADLINE_EXCEEDED');
+});
+
+
+test('a stalled planned read stops without retries and an expired planner starts nothing',async()=>{
+ let tools=0;let models=0;
+ const env={AI:{async run(){models++;return {response:'{"tool":"code.read","input":{"path":"large.js"}}'};}}};
+ const localBus={list:()=>[{id:'code.read'}],execute(){tools++;return new Promise(()=>{});}};
+ const rows=await runAgentToolLoop({env,bus:localBus,text:'vérifie le code',deadlineAt:Date.now()+30});
+ assert.equal(rows[0].error,'CHAT_DEADLINE_EXCEEDED');assert.equal(rows[0].status,'FAILED');assert.equal(tools,1);assert.equal(models,1);
+ assert.deepEqual(await runAgentToolLoop({env,bus:localBus,text:'vérifie le code',deadlineAt:Date.now()-1}),[]);
+ assert.equal(tools,1);assert.equal(models,1);
+});
+
+test('tool-call wrapper tags from open-model templates never survive in the final prose',()=>{
+ const raw='<tool_call>{"name":"code.read","arguments":{"path":"src/index.js"}}</tool_call>';
+ assert.deepEqual(parseAgentAction(raw),{tool:'code.read',input:{path:'src/index.js'}});
+ assert.equal(stripLeakedToolCalls('Avant '+raw+' Après'),'Avant  Après');
+});

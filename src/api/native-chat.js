@@ -1844,6 +1844,8 @@ export async function handleNativeChat(request, env, options = {}) {
       env, bus: runtime.bus, text: activeTaskText, recent,
       context: nativeCapabilityContext(env, request, options),
       summarize: summarizeToolResult,
+      // Keep time for the grounded answer after optional tool planning.
+      deadlineAt: chatDeadlineAt - CONTINUATION_MIN_REMAINING_MS,
     }).catch(() => []);
     for (const row of agentResults) {
       toolResults.push(row);
@@ -2617,7 +2619,7 @@ export async function handleNativeChat(request, env, options = {}) {
   const toolExampleRequest=isToolProtocolExampleRequest(activeTaskText);
   const rawModelText = stripInternalCounters(ai.text);
   if (runtime?.bus && !toolExampleRequest) {
-    const leaked = await executeLeakedReads({ bus: runtime.bus, text: rawModelText, already: toolResults, context: nativeCapabilityContext(env, request, options) });
+    const leaked = await executeLeakedReads({ bus: runtime.bus, text: rawModelText, already: toolResults, deadlineAt: chatDeadlineAt, context: nativeCapabilityContext(env, request, options) });
     for (const row of leaked) toolResults.push(row);
   }
   const visibleModelText = toolExampleRequest ? rawModelText : stripLeakedToolCalls(rawModelText);

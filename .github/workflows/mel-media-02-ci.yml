@@ -73,6 +73,7 @@ jobs:
           tests/release-launch-bootstrap.test.mjs
           tests/chat-audio-video-execution.test.mjs
           tests/chat-media-chain.test.mjs
+          tests/chat-media-request-object.test.mjs
       - name: Prove local browser decoding, playback and private media seeking
         shell: bash
         env:

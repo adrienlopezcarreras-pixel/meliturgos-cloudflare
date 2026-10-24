@@ -74,3 +74,30 @@ test('private playback supports seeking only after authorization and authenticat
  const denied=req(path,null,false);const headers=new Headers(denied.headers);headers.set('range','bytes=0-3');const before=f.reads();assert.equal((await worker.fetch(new Request(denied,{headers}),f.env)).status,401);assert.equal(f.reads(),before);
  const stored=[...f.objects.values()][0];stored.bytes[0]^=1;const corrupt=await worker.fetch(withRange('bytes=0-3'),f.env);assert.equal(corrupt.status,409);assert.equal(corrupt.headers.get('content-range'),null);
 });
+
+test('generated WebM codec parameters retain encryption integrity and allow private playback',async()=>{
+ const {readFile}=await import('node:fs/promises');
+ const bytes=new Uint8Array(await readFile(new URL('./fixtures/media/blue-vp8.webm',import.meta.url)));
+ const f=fixture(),originalMime='VIDEO/WEBM; codecs=vp8';
+ const artifact=await storePrivateArtifact(f.env,bytes,{capability:'media.video.generate',model:'browser-fixture',mime:originalMime,extension:'webm'});
+ const path='/api/media/generated?key='+encodeURIComponent(artifact.key);
+ const response=await worker.fetch(req(path),f.env);
+ assert.equal(response.status,200,'a codec parameter produced by MediaRecorder is a valid video MIME type');
+ assert.equal(response.headers.get('content-type'),'video/webm');
+ assert.deepEqual(new Uint8Array(await response.arrayBuffer()),bytes);
+ assert.equal(f.objects.get(artifact.key).customMetadata.originalMime,originalMime,'normalizing the HTTP type must not change the authenticated encryption metadata');
+ const request=req(path);const headers=new Headers(request.headers);headers.set('range','bytes=0-3');
+ assert.equal((await worker.fetch(new Request(request,{headers}),f.env)).status,206);
+});
+
+test('MIME parameters never allow SVG or HTML through private playback or browser rendering',async t=>{
+ const f=fixture();
+ const {collectChatMedia}=await import('../src/api/chat-media.js');
+ for(const mime of ['image/svg+xml; charset=utf-8','TEXT/HTML; codecs=vp8']){
+  const artifact=await storePrivateArtifact(f.env,new TextEncoder().encode('<svg onload="alert(1)"/>'),{capability:'fixture',model:'fixture',mime,extension:'bin'});
+  const response=await worker.fetch(req('/api/media/generated?key='+encodeURIComponent(artifact.key)),f.env);assert.equal(response.status,415);
+ }
+ const item={type:'image',url:'https://cdn.example/extensionless',mime:'IMAGE/SVG+XML; charset=utf-8'};
+ assert.equal(collectChatMedia([{capability:'fixture',status:'SUCCEEDED',result:{media:[item]}}]).media.length,0);
+ assert.equal(render(t,{text:'',media:[item]}).querySelectorAll('img').length,0);
+});
