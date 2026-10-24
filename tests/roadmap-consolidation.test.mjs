@@ -88,6 +88,21 @@ test('canonical roadmap forbids bare DONE and requires exact production proof fo
     'MEL-AUDIT-05',
     'MEL-AUDIT-06',
     'MEL-AUDIT-07',
+    'MEL-UI-AUDIT-01',
+    'MEL-UI-AUDIT-02',
+    'MEL-UI-AUDIT-03',
+    'MEL-UI-AUDIT-04',
+    'MEL-UI-AUDIT-05',
+    'MEL-UI-AUDIT-06',
+    'MEL-UI-AUDIT-07',
+    'MEL-CHAT-01',
+    'MEL-CHAT-02',
+    'MEL-CHAT-03',
+    'MEL-CHAT-04',
+    'MEL-CHAT-05',
+    'MEL-CHAT-06',
+    'MEL-CHAT-07',
+    'MEL-CHAT-08',
     'MEL-FOUNDER-01',
     'MEL-FOUNDER-02',
     'MEL-FOUNDER-03',
@@ -106,7 +121,7 @@ test('canonical roadmap forbids bare DONE and requires exact production proof fo
     'MEL-MANIFEST-08',
     'MEL-MANIFEST-09',
     'MEL-MANIFEST-10',
-  ]);
+  ].sort());
 });
 
 test('MAX selects the open founder cycle instead of treating the historical registry as finished', () => {

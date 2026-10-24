@@ -99,7 +99,9 @@ export async function listD1Rows(env, { table, offset = 0, limit = D1_PAGE_LIMIT
     result = await env.DB.prepare(
       `SELECT * FROM ${quoted} ORDER BY rowid LIMIT ? OFFSET ?`
     ).bind(safeLimit, safeOffset).all();
-  } catch {
+  } catch (error) {
+    // A memory error is not an ordering problem: let the runner shrink the page.
+    if (/memory limit|too large/i.test(String(error?.message || ''))) throw error;
     result = await env.DB.prepare(
       `SELECT * FROM ${quoted} LIMIT ? OFFSET ?`
     ).bind(safeLimit, safeOffset).all();

@@ -417,7 +417,9 @@ export default {
       });
       if (ctx?.waitUntil) ctx.waitUntil(backup);
       else await backup;
-      return;
+      // No early return: the same trigger carries the daily/weekly/monthly
+      // self-audit and the nightly WORK and model jobs below. Returning here
+      // meant DAILY, WEEKLY and MONTHLY never ran once (last_runs = 0, 2026-10-24).
     }
 
     await app.scheduled(controller, env, ctx);

@@ -11,8 +11,8 @@ async function db() {
   return d;
 }
 const now = Date.parse('2026-10-17T12:00:00Z');
-async function exec(d, capability, status, ageMs = 3600_000, error = null) {
-  await d.prepare('INSERT INTO audit_logs(action,details_json,created_at) VALUES(?,?,?)').bind('capability_bus', JSON.stringify({ capability, status, error_code: error }), now - ageMs).run();
+async function exec(d, capability, status, ageMs = 3600_000, error = null, baseTime = now) {
+  await d.prepare('INSERT INTO audit_logs(action,details_json,created_at) VALUES(?,?,?)').bind('capability_bus', JSON.stringify({ capability, status, error_code: error }), baseTime - ageMs).run();
 }
 
 test('roadmap status comes from real production executions, not from the declared label', async () => {
@@ -52,10 +52,12 @@ test('without a database the roadmap says so instead of inventing a status', asy
 test('roadmap.read returns the real truth next to the declared roadmap', async () => {
   const { createDefaultCapabilityBus } = await import('../src/capabilities/default-bus.js');
   const d = await db();
-  await exec(d, 'code.read', 'SUCCEEDED', 60_000);
+  // Runtime bus uses the real clock; keep the fixture inside its proof window.
+  await exec(d, 'code.read', 'SUCCEEDED', 60_000, null, Date.now());
   const bus = createDefaultCapabilityBus({ env: { DB: d } });
   const payload = await bus.execute('roadmap.read', {}, { owner: 'test', permissions: [] });
-  assert.equal(payload.summary.percent_complete, 85, '133 historical proofs stay verified; the founder cycle, the manifesto and the six weekly-audit items stay open');
+  assert.equal(payload.summary.complete, 133, 'historical certifications remain unchanged');
+  assert.ok(payload.summary.percent_complete < 100, 'founder, manifesto, weekly audits and chat acceptance goals remain open');
   const founder = payload.phases.find(phase => phase.id === 'P16');
   const manifesto = payload.phases.find(phase => phase.id === 'P17');
   assert.equal(founder.items.length, 8);

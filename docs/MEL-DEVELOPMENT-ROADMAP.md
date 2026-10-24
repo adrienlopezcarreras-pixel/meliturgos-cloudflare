@@ -95,3 +95,15 @@ La migration de modèle ne remplace pas les gates actuels : CI complète verte, 
 - Le collage doit rejoindre le même pipeline de pièces jointes que le glisser-déposer/sélecteur : aperçu ou nom, taille, suppression avant envoi, multi-fichiers et validation type/taille.
 - Le texte collé continue à fonctionner normalement, y compris quand le presse-papiers contient texte + média.
 - DONE_VERIFIED exige une preuve navigateur réelle sur les deux modes.
+
+## Audit interface et fonctionnalités — P18 / P0 (24 octobre 2026)
+
+**Statut : PLANNED — non certifié en navigateur réel.** Les objectifs canoniques sont MEL-UI-AUDIT-01 à 07 dans `src/roadmap/master-roadmap.js`; ne pas dupliquer les tickets ni rouvrir des items `DONE_VERIFIED` sans une régression démontrée.
+
+La matrice d'acceptation doit couvrir toutes les pages et tous les contrôles visibles : MEL Normal, Complet/Professeur, Code, activité, médias, MAX, autonomie, Mon PC, MINI/Android, mémoire, Council, WORK, LoRA, connexions, diagnostics, feuille de route et thèmes. Chaque ligne documente page, contrôle, interaction, endpoint, résultat attendu et observé, verdict et preuve reproductible.
+
+**Ordre P0 :** chat multimodal/modes ; panneau d'activité/auto-scroll/réduction/continuer ; MAX et persistance ; MEL WORK ; vérité fonctionnelle des réponses/erreurs. **P1 :** companion et appareils (BLOCKED_HUMAN sans matériel), visuel responsive, accessibilité et fonctions de second rang.
+
+**Acceptation :** tester interface réelle sur bureau + mobile, états normal/chargement/erreur, navigation, accessibilité au clavier, refresh/persistance, API et durable state. Une CI verte seule ne suffit pas. Ne pas créer de faux PASS et ne pas supposer de l'état prod sans preuve. Conserver les correctifs existants (#2565 notamment), corriger à la source et produire un rapport PASS/FAIL/BLOCKED par contrôle avec SHA et preuves.
+
+**Coordination :** Codex traite déjà le blocage Mentor ; éviter de modifier en parallèle les mêmes fichiers sans réconciliation préalable. CI ciblée, puis suite complète et test post-déploiement ; fusion et déploiement seulement avec gates satisfaites et rollback disponible.

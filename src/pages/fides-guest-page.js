@@ -70,7 +70,7 @@ button,textarea{font:inherit}.shell{min-height:100vh;display:grid;grid-template-
         <div class="msg mel">Bonjour. Je suis MEL FIDES en mode invité. Vous pouvez me poser une question sur la foi catholique, la conversion d'un adulte ou le dialogue avec les Églises orthodoxes. Je préciserai mes limites lorsque nécessaire.</div>
       </div>
       <form class="composer" id="chatForm">
-        <textarea id="message" maxlength="1800" required placeholder="Votre question…"></textarea>
+        <textarea id="message" aria-label="Votre question à Fidès" maxlength="1800" required placeholder="Votre question…"></textarea>
         <button class="send" id="send" type="submit">Envoyer</button>
       </form>
       <div class="status" id="status">Mode invité : <span class="tag-good">aucun accès aux données privées ni aux actions de MEL · aucun enregistrement dans la mémoire personnelle de MEL.</span></div>

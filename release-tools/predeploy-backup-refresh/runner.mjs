@@ -54,7 +54,10 @@ async function sidecarJson({ baseUrl, token }, path, init = {}, { attempts = 12 
       try { parsed = raw ? JSON.parse(raw) : {}; } catch {}
       if (response.ok && parsed?.ok === true) return parsed;
       lastError = new Error(`SIDECAR_HTTP_${response.status}:${parsed?.status || 'INVALID'}:${parsed?.code || ''}`);
+      // Retrying the same oversized page cannot succeed: let exportD1 shrink it.
+      if (/memory limit|too large/i.test(String(parsed?.code || ''))) throw lastError;
     } catch (error) {
+      if (/memory limit|too large/i.test(String(error?.message || ''))) throw error;
       lastError = error;
     }
     if (attempt < attempts) await sleep(Math.min(2000, 500 * attempt));
