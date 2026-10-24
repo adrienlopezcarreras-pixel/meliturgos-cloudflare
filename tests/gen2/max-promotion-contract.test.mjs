@@ -17,7 +17,7 @@ test('MEL candidate is kept in sync with main and promoted only under MAX with g
   // main is pushed with the owner token (main requires PRs); match the refspec.
   const promote = s.indexOf('"$CAND:refs/heads/main"');
   assert.ok(promote > s.indexOf('if [ "$MAX" != "true" ]') && promote > s.indexOf('if [ "$OK" != "success" ]'));
-  assert.doesNotMatch(s, /push --force|push -f /);
+  assert.doesNotMatch(s, /push --force(?:\\s|$)|push -f /);
 });
 
 test('cloud bridge starts the full candidate suite and requires fresh review when candidate advances', async () => {
@@ -33,7 +33,7 @@ test('a Council rejection resets the candidate to main content instead of blocki
   const reject = s.indexOf('if [ "$DECISION" = "REJECTED" ]');
   assert.ok(reject > s.indexOf('COUNCIL_REVIEW $CAND'));
   assert.ok(reject < s.indexOf('"$CAND:refs/heads/main"', reject));
-  assert.match(s.slice(reject, reject + 800), /git push origin "HEAD:refs\/heads\/\$CANDIDATE"/);
+  assert.match(s.slice(reject, reject + 1000), /git push --force-with-lease="refs\/heads\/\$CANDIDATE:\$CAND" origin "HEAD:refs\/heads\/\$CANDIDATE"/);
 });
 
 test('candidate publication uses atomic expected-head lease rather than unchecked branch push', async () => {
@@ -65,4 +65,11 @@ test('Council never reviews a truncated candidate diff', async () => {
   assert.match(workflow, /DIFF_BYTES.*-gt 48000/);
   assert.doesNotMatch(workflow, /git diff[^\n]*\| head -c 48000/);
   assert.ok(workflow.indexOf('COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT') < workflow.indexOf('COUNCIL_REVIEW $CAND'));
+});
+
+test('all candidate reconciliation writes carry the originally fetched candidate SHA as a lease', async () => {
+  const workflow = await read('.github/workflows/mel-candidate-promotion.yml');
+  assert.match(workflow, /--force-with-lease="refs\/heads\/\$CANDIDATE:\$CAND" origin "\$MAIN:refs\/heads\/\$CANDIDATE"/);
+  assert.equal((workflow.match(/--force-with-lease="refs\/heads\/\$CANDIDATE:\$CAND" origin "HEAD:refs\/heads\/\$CANDIDATE"/g) || []).length, 2);
+  assert.doesNotMatch(workflow, /git push origin "(?:HEAD|\$MAIN):refs\/heads\/\$CANDIDATE"/);
 });

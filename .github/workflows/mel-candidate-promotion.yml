@@ -62,7 +62,7 @@ jobs:
           }
           if [ "$MAIN" = "$CAND" ]; then echo "IN_SYNC $MAIN"; exit 0; fi
           if git merge-base --is-ancestor "$CAND" "$MAIN"; then
-            git push origin "$MAIN:refs/heads/$CANDIDATE"
+            git push --force-with-lease="refs/heads/$CANDIDATE:$CAND" origin "$MAIN:refs/heads/$CANDIDATE"
             echo "CANDIDATE_FAST_FORWARDED_TO_MAIN $CAND -> $MAIN"
             exit 0
           fi
@@ -73,7 +73,7 @@ jobs:
               echo "::warning title=MEL candidate::CANDIDATE_MAIN_CONFLICT — MEL's unpromoted work conflicts with main; next tick re-plans it."
               exit 0
             fi
-            git push origin "HEAD:refs/heads/$CANDIDATE"
+            git push --force-with-lease="refs/heads/$CANDIDATE:$CAND" origin "HEAD:refs/heads/$CANDIDATE"
             echo "MAIN_MERGED_INTO_CANDIDATE ci_dispatch=$(dispatch_ci)"
             exit 0
           fi
@@ -125,7 +125,7 @@ jobs:
               if git cat-file -e "$MAIN:$f" 2>/dev/null; then git checkout "$MAIN" -- "$f"; else git rm -q -- "$f"; fi
             done
             git commit -q -m "Reconcile candidate with main after Council rejection of $CAND"
-            git push origin "HEAD:refs/heads/$CANDIDATE"
+            git push --force-with-lease="refs/heads/$CANDIDATE:$CAND" origin "HEAD:refs/heads/$CANDIDATE"
             echo "::warning title=MEL candidate::Council REJECTED $CAND - candidate reset to main content, ci_dispatch=$(dispatch_ci)"
             exit 0
           fi
