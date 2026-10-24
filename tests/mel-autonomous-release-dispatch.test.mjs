@@ -159,7 +159,8 @@ test('production releases are batched: hourly schedule or manual dispatch, never
   const on = yaml.slice(yaml.indexOf('\non:\n'), yaml.indexOf('\npermissions:'));
   assert.ok(on.includes('  workflow_dispatch:'));
   assert.match(on, /- cron: '\d{1,2} \* \* \* \*'/, 'at most one scheduled release per hour');
-  assert.ok(!on.includes('  push:'), 'a merge on main must not start a production release by itself');
+  // A merge may request a release only through the one-hour batch window.
+  assert.ok(!on.includes('  push:') || yaml.includes("MEL_RELEASE_BATCH_WINDOW_MS: ${{ github.event_name == 'push' && '3600000' || '0' }}"), 'a merge on main must not start a production release by itself');
   assert.ok(!on.includes('  workflow_run:'), 'a finished deployment must not re-trigger another release');
   assert.ok(!on.includes('*/15'), 'no 15-minute release polling');
   assert.ok(yaml.includes("github.ref == 'refs/heads/main'"));
@@ -457,4 +458,19 @@ test('workflow-scoped run guard blocks renamed active releases and deduplicates 
   const result=await requestAutonomousRelease({token:'TEST_ONLY',fetchImpl:fakeFetch,requireProtectedRefs:true});
   assert.equal(result.reason,'ALREADY_CURRENT');
   assert.ok(calls.every(x=>x.startsWith('GET ')));
+});
+
+test('a push-triggered release waits for the one-hour batch window', async () => {
+  const now=Date.parse('2026-10-24T08:00:00Z');
+  const runsAt=createdAt=>async(url,req)=>{
+    const path=new URL(url).pathname;
+    if(req.method!=='GET') throw Error('NO_WRITE_EXPECTED:'+path);
+    if(path.endsWith('/branches/main')) return {ok:true,status:200,json:async()=>({protected:true,commit:{sha:MAIN_SHA}})};
+    if(path.endsWith('/branches/'+RELEASE_BRANCH)) return {ok:true,status:200,json:async()=>({protected:true,commit:{sha:OLD_SHA}})};
+    if(path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs'))
+      return {ok:true,status:200,json:async()=>({workflow_runs:[{head_sha:OLD_SHA,status:'completed',conclusion:'success',created_at:createdAt}]})};
+    throw Error('UNEXPECTED:'+path);
+  };
+  const recent=await requestAutonomousRelease({token:'TEST_ONLY',fetchImpl:runsAt('2026-10-24T07:30:00Z'),requireProtectedRefs:true,batchWindowMs:3600000,now});
+  assert.deepEqual({accepted:recent.accepted,reason:recent.reason},{accepted:false,reason:'RELEASE_BATCH_WINDOW'});
 });
