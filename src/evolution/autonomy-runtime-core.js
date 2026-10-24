@@ -279,6 +279,37 @@ async function requeueStaleTeacherApproval(repository, jobId, diagnosticCode, st
   }, { expected: latest });
 }
 
+// A Mentor run longer than the scheduled invocation is cut by the platform
+// before it can persist anything: MAX then retried the same job every minute
+// with no trace (FOUNDER-02, 2026-10-24, 157 lease-busy ticks). Mark each
+// attempt first; an attempt still marked after the cut-off was killed.
+export const BRIDGE_ATTEMPT_KILLED_AFTER_MS = 3 * 60_000;
+export const BRIDGE_ATTEMPT_MAX_KILLED = 3;
+
+export async function markBridgePreparationAttempt(repository, jobId, { now = Date.now() } = {}) {
+  const latest = await repository.get(jobId);
+  if (latest?.status !== 'TEACHER_APPROVED') return { job: latest, killed: 0, exhausted: false };
+  const result = latest.result_json && typeof latest.result_json === 'object' ? { ...latest.result_json } : {};
+  const previous = result.bridge_preparation_attempt || {};
+  const unfinished = Number(previous.started_at) > 0 && now - Number(previous.started_at) > BRIDGE_ATTEMPT_KILLED_AFTER_MS;
+  const killed = unfinished ? Number(previous.killed || 0) + 1 : Number(previous.killed || 0);
+  if (killed >= BRIDGE_ATTEMPT_MAX_KILLED) {
+    delete result.bridge_preparation_attempt;
+    result.bridge_preparation_diagnostic = {
+      status: 'NOT_READY', code: 'BRIDGE_PREPARATION_KILLED',
+      mentor_failure_codes: [], observed_at: new Date(now).toISOString(),
+    };
+    // Exhausted: the supervisor moves to the next mission instead of looping.
+    result.autonomy_deferral = { code: 'BRIDGE_PREPARATION_KILLED', phase: 'bridge', observed_at: now,
+      retry_after: now + 60 * 60_000, attempts: killed, max_attempts: BRIDGE_ATTEMPT_MAX_KILLED, exhausted: true };
+    const job = await persistDiagnosticResult(repository, latest, result, 'bridge_preparation_diagnostic');
+    return { job, killed, exhausted: true };
+  }
+  result.bridge_preparation_attempt = { started_at: now, killed };
+  const job = await persistDiagnosticResult(repository, latest, result, 'bridge_preparation_attempt');
+  return { job, killed, exhausted: false };
+}
+
 export async function persistBridgePreparationDiagnostic(repository, jobId, diagnostic) {
   const latest = await repository.get(jobId);
   if (latest?.status !== 'TEACHER_APPROVED') return latest;
@@ -302,10 +333,12 @@ export async function persistBridgePreparationDiagnostic(repository, jobId, diag
   const owned = result.autonomy_deferral?.phase === 'bridge'
     || (!result.autonomy_deferral?.phase && previous?.code != null
       && result.autonomy_deferral?.code === previous.code);
-  if (sameDiagnostic(previous, next)
+  // A finished attempt always clears its marker, even with an unchanged diagnostic.
+  if (!result.bridge_preparation_attempt && sameDiagnostic(previous, next)
       && (deferred ? owned && result.autonomy_deferral?.context === providerRetryContext(latest)
         && Number(result.autonomy_deferral?.retry_after) > Date.now() : !owned)) return latest;
   result.bridge_preparation_diagnostic = next;
+  delete result.bridge_preparation_attempt;
   if (deferred) {
     const context = providerRetryContext(latest);
     const previousDelay = latest.result_json?.autonomy_deferral;
@@ -883,7 +916,14 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       job = job ? await jobRepository.get(job.id) : job;
     }
 
+    let attempt = null;
     if (implementation?.status === 'READY' && job && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED') {
+      attempt = await markBridgePreparationAttempt(jobRepository, job.id).catch(() => null);
+      if (attempt?.job) job = attempt.job;
+    }
+    if (attempt?.exhausted) {
+      bridgePreparation = { status: 'NOT_READY', code: 'BRIDGE_PREPARATION_KILLED', failures: [] };
+    } else if (implementation?.status === 'READY' && job && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED') {
       try {
         bridgePreparation = await prepareApprovedBridgePackage({
           env,
