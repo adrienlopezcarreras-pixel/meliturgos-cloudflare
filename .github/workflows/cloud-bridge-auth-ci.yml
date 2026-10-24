@@ -8,6 +8,7 @@ on:
       - src/core/dev-bridge-auth.js
       - .github/workflows/gen2-42-apply-ready-bridge.yml
       - .github/workflows/full-candidate-ci.yml
+      - .github/workflows/mel-candidate-promotion.yml
       - tests/gen2/max-promotion-contract.test.mjs
       - tests/dev-bridge-auth-gate.test.mjs
       - tests/gen2/cloud-bridge-fallback-contract.test.mjs
@@ -22,6 +23,7 @@ on:
       - src/core/dev-bridge-auth.js
       - .github/workflows/gen2-42-apply-ready-bridge.yml
       - .github/workflows/full-candidate-ci.yml
+      - .github/workflows/mel-candidate-promotion.yml
       - tests/gen2/max-promotion-contract.test.mjs
       - tests/dev-bridge-auth-gate.test.mjs
       - tests/gen2/cloud-bridge-fallback-contract.test.mjs

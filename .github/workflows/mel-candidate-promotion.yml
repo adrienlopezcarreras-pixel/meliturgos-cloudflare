@@ -103,7 +103,14 @@ jobs:
             exit 0
           fi
           TOKEN="$(curl -fsSL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=meliturgos-worker" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).value||""))')"
-          git diff "$MAIN" "$CAND" -- . ':(exclude)bridge-apply-result.json' | head -c 48000 > council.diff
+          # Never send a truncated diff to Council. Pipe-to-head under
+          # pipefail can also raise SIGPIPE and prevent any review at all.
+          git diff "$MAIN" "$CAND" -- . ':(exclude)bridge-apply-result.json' > council.diff
+          DIFF_BYTES="$(wc -c < council.diff | tr -d '[:space:]')"
+          if [ "$DIFF_BYTES" -gt 48000 ]; then
+            echo "::warning title=MEL Council::COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT bytes=$DIFF_BYTES — do not approve an incomplete review."
+            exit 0
+          fi
           git log --format=%s "$MAIN..$CAND" > council.log
           node -e 'const fs=require("fs");fs.writeFileSync("council.json",JSON.stringify({base:process.argv[1],head:process.argv[2],diff:fs.readFileSync("council.diff","utf8"),log:fs.readFileSync("council.log","utf8")}))' "$MAIN" "$CAND"
           REVIEW="$(curl --silent --show-error --max-time 300 --request POST --header "x-mel-github-oidc: $TOKEN" --header 'content-type: application/json' --data-binary @council.json https://meliturgos.adrien-lopezcarreras.workers.dev/api/internal/council-review || echo '{}')"
