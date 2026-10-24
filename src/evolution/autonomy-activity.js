@@ -6,11 +6,13 @@
 // cloud-bridge / GitHub Action relay dispatches and the last MEL WORK cycles.
 // Nothing here starts or changes anything.
 
+import { mentorMetrics, pipelineAlerts } from './autonomy-metrics.js';
 import { D1DevJobRepository, isPreparedDevBridgeJob } from '../dev/d1-dev-job-repository.js';
 import { D1EvolutionLedger } from './evolution-ledger.js';
 import { getAutonomyControl } from './autonomy-control.js';
 import { readAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
 import { flattenRoadmap, isClosedRoadmapStatus } from '../roadmap/master-roadmap.js';
+import { selectNextAutonomyItem } from './autonomy-supervisor.js';
 
 
 export const ACTIVITY_LIST_EPOCH_ID = 'activity-list-epoch';
@@ -188,6 +190,22 @@ function bridgeDiagnostics(result) {
   };
 }
 
+// One line per pipeline step, each tied to the exact run or SHA that proves
+// it, so a mission can be followed from package to promotion without D1.
+export function jobTrace(result) {
+  const r = obj(result);
+  const sha = value => (/^[a-f0-9]{40}$/i.test(String(value || '')) ? String(value).toLowerCase() : null);
+  const runId = value => (Number(value) > 0 ? Number(value) : null);
+  const bridge = obj(r.dev_bridge);
+  const ci = obj(obj(r.autonomy_completion).ci);
+  const council = obj(r.council_review);
+  return [
+    runId(bridge.github_run_id) && { step: 'bridge', run_id: runId(bridge.github_run_id), sha: sha(bridge.candidate_sha), status: clip(bridge.status, 40) },
+    runId(ci.run_id) && { step: 'ci', run_id: runId(ci.run_id), sha: sha(ci.head_sha), status: clip(ci.conclusion, 40) },
+    council.decision && { step: 'council', sha: sha(council.head), status: clip(council.decision, 40) },
+  ].filter(Boolean);
+}
+
 export function describeJob(job, now = Date.now()) {
   const r = obj(job?.result_json);
   const status = String(job?.status || 'UNKNOWN').toUpperCase();
@@ -213,6 +231,7 @@ export function describeJob(job, now = Date.now()) {
     tests: Array.isArray(job?.tests_json) ? job.tests_json.slice(0, 4).map(t => clip(typeof t === 'string' ? t : t?.path || t?.command, 160)) : [],
     candidate: prep.candidate_branch ? { branch: clip(prep.candidate_branch, 120), base_sha: clip(prep.candidate_sha, 40) } : null,
     completion: completion.status ? { status: clip(completion.status, 60), sha: clip(completion.candidate_sha, 40), ci_run_id: num(completion.ci?.run_id) } : null,
+    trace: jobTrace(r),
     bridge_diagnostics: bridgeDiagnostics(r),
     diagnostics: [diagnostic(r.implementation_planning_diagnostic), diagnostic(r.bridge_preparation_diagnostic)].filter(Boolean),
     error: clip(job?.error, 400),
@@ -291,6 +310,40 @@ function executionEvidence(job) {
     diff: diff ? safeExecutionText(diff, 10000) : null,
   };
 }
+// Next run of each Worker cron (wrangler.jsonc): every minute drives MAX,
+// :17 hourly and 02:43 daily run the scheduled maintenance passes.
+export function scheduledCycles(now = Date.now()) {
+  const minute = Math.floor(now / 60000) * 60000 + 60000;
+  const hourly = new Date(now); hourly.setUTCMinutes(17, 0, 0); if (hourly.getTime() <= now) hourly.setUTCHours(hourly.getUTCHours() + 1);
+  const daily = new Date(now); daily.setUTCHours(2, 43, 0, 0); if (daily.getTime() <= now) daily.setUTCDate(daily.getUTCDate() + 1);
+  return [
+    { label: 'Cycle MAX', cron: '* * * * *', next_at: minute },
+    { label: 'Passage horaire', cron: '17 * * * *', next_at: hourly.getTime() },
+    { label: 'Maintenance quotidienne', cron: '43 2 * * *', next_at: daily.getTime() },
+  ];
+}
+
+// The plan shown in the Code chat: the mission in progress with its steps,
+// the roadmap items that come next, and when the next cycles are scheduled.
+export function buildCodePlan(jobs = [], { roadmap = flattenRoadmap(), now = Date.now(), limit = 3 } = {}) {
+  const terminal = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
+  const active = jobs.filter(job => job?.roadmap_id && !terminal.has(String(job.status || '').toUpperCase()));
+  const current = active[0] || null;
+  const excluded = active.map(job => job.roadmap_id);
+  const next = [];
+  while (next.length < limit) {
+    const item = selectNextAutonomyItem({ roadmap, blockedIds: [...excluded, ...next.map(row => row.id)] });
+    if (!item) break;
+    next.push({ id: item.id, title: clip(item.title, 140), status: item.status });
+  }
+  return {
+    current: current ? { roadmap_id: current.roadmap_id, status: current.status, goal: clip(String(current.goal || '').replace(/\s*\|\s*OBJECTIF\s[\s\S]*$/, ''), 200), steps: current.pipeline || [] } : null,
+    queued: active.slice(1, 1 + limit).map(job => ({ roadmap_id: job.roadmap_id, status: job.status })),
+    next,
+    schedule: scheduledCycles(now),
+  };
+}
+
 export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30, repository = null } = {}) {
   const db = env?.DB;
   if (!db?.prepare) throw Object.assign(new Error('DB_BINDING_MISSING'), { status: 503 });
@@ -319,6 +372,7 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
   // COMMITTED still awaits CI and promotion. Only genuinely terminal jobs leave active counts.
   const terminal = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
   const jobs = supervised.slice(0, Math.max(1, Math.min(60, limit))).map(job => describeJob(job, now));
+  const mentor = mentorMetrics(supervised);
   const executorAge = executor ? now - Number(executor.last_seen || 0) : null;
   return {
     ok: true,
@@ -342,6 +396,8 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
       by_status: byStatus,
     },
     jobs,
+    plan: buildCodePlan(jobs, { now }),
+    metrics: { mentor, alerts: pipelineAlerts(supervised, mentor, { now }) },
     execution_evidence: supervised.slice(0, Math.max(1, Math.min(60, limit))).map(executionEvidence).filter(Boolean),
     timeline: foldLedger(recentLedger.filter(event => atOrAfter(event?.occurred_at, epoch)), 40),
     activity_list_epoch: epoch || null,

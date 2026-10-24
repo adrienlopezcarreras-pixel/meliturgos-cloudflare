@@ -9,6 +9,9 @@ on:
       - 'firmware/waveshare-terminal/main/mel_link_v2_protocol.h'
       - '.github/workflows/mini-phase-opcode-parity.yml'
   workflow_dispatch:
+permissions:
+  contents: read
+
 jobs:
   parity:
     runs-on: ubuntu-latest

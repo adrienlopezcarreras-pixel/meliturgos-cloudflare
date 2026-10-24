@@ -31,3 +31,5 @@ Ports use `src/core/contracts.js`: `method(input, context)`, fail-closed `NOT_IM
 | UI/PWA | `src/pages/mvp-interface.js`; manifest route in worker | MVP/UI/PWA tests | PARTIAL |
 
 Connector status is never `CONNECTED` without a successful real probe. Secrets are environment names only. No secret values are documented or committed.
+
+La chaîne de développement autonome (MAX) est décrite dans `docs/MEL-AUTONOMY-PIPELINE.md`.

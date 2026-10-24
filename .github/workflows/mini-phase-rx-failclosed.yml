@@ -6,6 +6,9 @@ on:
       - 'tests/mini-phase-failclosed-rx.test.mjs'
       - '.github/workflows/mini-phase-rx-failclosed.yml'
   workflow_dispatch:
+permissions:
+  contents: read
+
 jobs:
   contract:
     runs-on: ubuntu-latest
