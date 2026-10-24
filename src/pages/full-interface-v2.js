@@ -73,6 +73,9 @@ function requestTimeoutMs(url,method){
   if(value.includes('/api/chat'))return 120000;
   if(['/api/files/upload','/api/gen2/augmentio/fanout','/api/learning/benchmark','/api/learning/lora','/api/work/jobs','/api/work/screen-interpretation','/api/gen2/shardvault/snapshot'].some(part=>value.includes(part)))return 120000;
   if(value.includes('/api/gen2/connections/'))return 30000;
+  // MAX launch prepares a backup and a code sync before enabling MAX; at 45 s
+  // the page aborted and the activation never completed (2026-10-24).
+  if(value.includes('/api/gen2/autonomy/max'))return 240000;
   return method==='GET'?20000:45000;
 }
 function apiErrorMessage(payload,status){
@@ -958,7 +961,7 @@ async function loadAutonomy(){
 async function autonomyAction(button,url,body,label,feedback=qs('#mobileAutonomyFeedback')){
   if(!button)return null;
   const previous=button.textContent;
-  button.disabled=true;button.textContent='…';if(feedback)feedback.textContent=label+'…';
+  button.disabled=true;button.textContent='…';if(feedback)feedback.textContent=String(url).includes('/api/gen2/autonomy/max')&&body?.enabled!==false?label+' : préparation du lancement (sauvegarde et synchronisation, jusqu’à 4 min)…':label+'…';
   try{
     const d=await jfetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body||{})});
     renderAutonomy(d?.state||d);await loadAutonomy();
