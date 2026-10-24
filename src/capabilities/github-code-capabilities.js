@@ -156,6 +156,17 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
     return { query: String(query), path: prefix, matches, searched_files: selected.length, branch: ref, repository: repo };
   }
 
+  // Planning-only immutable snapshot. No caller may treat this as proof that
+  // the mutable candidate branch is still current for writing or promotion.
+  async function approvedSnapshot() {
+    if (!pinned) throw Object.assign(new Error('CODE_APPROVED_SNAPSHOT_PIN_REQUIRED'), {code:'CODE_APPROVED_SNAPSHOT_PIN_REQUIRED'});
+    const response = await fetchImpl(api('commits/' + encodeURIComponent(pinned)), {headers:headers(token)});
+    if (!response.ok) throw githubError(response, 'CODE_APPROVED_SNAPSHOT_UNAVAILABLE');
+    const body = await response.json();
+    if (String(body?.sha || '').toLowerCase() !== pinned) throw Object.assign(new Error('CODE_APPROVED_SNAPSHOT_MISMATCH'), {code:'CODE_APPROVED_SNAPSHOT_MISMATCH'});
+    return {sha:pinned,branch:ref,repository:repo,source:'github-immutable-commit',remote_verified:true,pinned:true};
+  }
+
   async function head() {
     const request = async path => {
       try { return await fetchImpl(api(path), { headers: headers(token) }); }
@@ -256,7 +267,7 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
     }
   }
   const paths = async () => (await tree()).map(x => x.path);
-  return { read, search, head, health, paths, repository: repo, branch: ref, content_ref: contentRef, pinned_sha: pinned || null };
+  return { read, search, head, approvedSnapshot, health, paths, repository: repo, branch: ref, content_ref: contentRef, pinned_sha: pinned || null };
 }
 
 export function registerGitHubCodeCapabilities(bus, options = {}) {
