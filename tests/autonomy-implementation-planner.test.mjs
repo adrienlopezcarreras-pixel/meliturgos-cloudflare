@@ -495,3 +495,13 @@ test('read-only planner binds code inspection to an immutable approved snapshot'
   assert.match(collect,/MEL_IMMUTABLE_PLANNING_ENABLED === 'true'/);
   assert.match(source,/readApprovedHead\(reader, bridge\)/);
 });
+
+test('reusable approved plan retains strict default and opts into verified immutable snapshot', async () => {
+  const {readFileSync} = await import('node:fs');
+  const source = readFileSync('src/evolution/autonomy-implementation-planner.js','utf8');
+  const reuse = source.slice(source.indexOf('async function reusableProposal('),source.indexOf('function qualityRepairPrompt('));
+  assert.match(reuse,/MEL_IMMUTABLE_PLANNING_ENABLED === 'true'/);
+  assert.match(reuse,/await readApprovedSnapshot\(reader, bridge\)/);
+  assert.match(reuse,/await readApprovedHead\(reader, bridge\)/);
+  assert.match(reuse,/existing\.candidate_sha\)\.toLowerCase\(\) !== approvedSha/);
+});
