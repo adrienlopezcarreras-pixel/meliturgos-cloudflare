@@ -388,8 +388,22 @@ jobs:
           # Defined before all error branches: nounset must never suppress
           # the persisted REPAIR_REQUIRED result on hygiene failure.
           NO_CHANGES=false
-          # Generated evidence is excluded by the repository's canonical .gitignore.
-          git add --all
+          # Stage only the exact Teacher-approved files, never auxiliary evidence
+          # or outputs created by tests. An empty/invalid list fails closed.
+          node - > "$RUNNER_TEMP/mel-stage-paths.bin" <<'NODE'
+          const fs=require('fs');
+          const job=JSON.parse(fs.readFileSync(process.env.BRIDGE_JOB_FILE,'utf8'));
+          const files=job.files_json||[];
+          if(!Array.isArray(files)||files.length<1||files.length>10) process.exit(2);
+          for(const item of files){
+            const p=String(item?.path||'').replace(/\\/g,'/');
+            if(!p||p.startsWith('/')||p.split('/').includes('..')||p.startsWith('-')||p.includes('\0')) process.exit(2);
+            process.stdout.write(p+'\0');
+          }
+          NODE
+          mapfile -d '' -t STAGE_PATHS < "$RUNNER_TEMP/mel-stage-paths.bin"
+          test "${#STAGE_PATHS[@]}" -gt 0
+          git --literal-pathspecs add -- "${STAGE_PATHS[@]}"
           set +e
           HYGIENE_OUTPUT="$(git diff --cached --check 2>&1)"
           HYGIENE_CODE=$?
