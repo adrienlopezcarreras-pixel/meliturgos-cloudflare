@@ -162,3 +162,11 @@ test('successful GEN2-42 candidate CI dispatch publishes candidate_ready before 
   assert.ok(successPosition > success.indexOf('exit 0'));
   assert.match(workflow,/CANDIDATE_READY: \$\{\{ steps\.commit\.outputs\.candidate_ready \}\}/);
 });
+
+test('Bridge reporting preserves commit-stage repair diagnostics ahead of green tests', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  const report = workflow.slice(workflow.indexOf('- name: Report cloud bridge result to production D1'),workflow.indexOf('- name: Persist claimed bridge failure before exit'));
+  assert.match(report,/base\.status==='REPAIR_REQUIRED' \|\| !testsPassed/);
+  assert.match(report,/commitOk && candidateReady/);
+  assert.doesNotMatch(report,/: 'FAILED';/);
+});
