@@ -69,6 +69,21 @@ jobs:
             fi
             echo "$code"
           }
+          dispatch_release() {
+            local code
+            code="$(curl --fail-with-body --silent --show-error --max-time 30 --request POST \
+              --header "Authorization: Bearer $GH_TOKEN" --header "Accept: application/vnd.github+json" \
+              --data '{"ref":"main"}' --output /dev/null --write-out '%{http_code}' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/mel-autonomous-production-release.yml/dispatches")" || {
+              echo "::error title=MEL release::PRODUCTION_RELEASE_DISPATCH_FAILED" >&2
+              return 1
+            }
+            if [ "$code" != "204" ]; then
+              echo "::error title=MEL release::PRODUCTION_RELEASE_DISPATCH_UNACKNOWLEDGED http=$code" >&2
+              return 1
+            fi
+            echo "PRODUCTION_RELEASE_DISPATCH_ACKNOWLEDGED http=$code"
+          }
           if [ "$MAIN" = "$CAND" ]; then echo "IN_SYNC $MAIN"; exit 0; fi
           if git merge-base --is-ancestor "$CAND" "$MAIN"; then
             git push --force-with-lease="refs/heads/$CANDIDATE:$CAND" origin "$MAIN:refs/heads/$CANDIDATE"
@@ -104,11 +119,7 @@ jobs:
           if git diff --quiet "$MAIN" "$CAND"; then
             git -c http.https://github.com/.extraheader= push "https://x-access-token:${MEL_WORKFLOW_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$CAND:refs/heads/main"
             echo "::notice title=MEL candidate::EMPTY_NET_DIFF_FAST_FORWARD main $MAIN -> $CAND (no content change)"
-                      code="$(curl --silent --show-error --max-time 30 --request POST \
-            --header "Authorization: Bearer $GH_TOKEN" --header "Accept: application/vnd.github+json" \
-            --data '{"ref":"main"}' --output /dev/null --write-out '%{http_code}' \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/mel-autonomous-production-release.yml/dispatches" || true)"
-          echo "PRODUCTION_RELEASE_DISPATCH http=$code"
+                      dispatch_release
             exit 0
           fi
           TOKEN="$(curl -fsSL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=meliturgos-worker" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).value||""))')"
@@ -141,8 +152,4 @@ jobs:
                     if [ "$DECISION" != "APPROVED" ]; then echo "::warning title=MEL candidate::Council $DECISION for $CAND - not promoted."; exit 0; fi
           git -c http.https://github.com/.extraheader= push "https://x-access-token:${MEL_WORKFLOW_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$CAND:refs/heads/main"
           echo "::notice title=MEL promoted::main $MAIN -> $CAND ($AHEAD commit(s), full-candidate-ci green). Production release follows within the hour."
-          code="$(curl --silent --show-error --max-time 30 --request POST \
-            --header "Authorization: Bearer $GH_TOKEN" --header "Accept: application/vnd.github+json" \
-            --data '{"ref":"main"}' --output /dev/null --write-out '%{http_code}' \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/mel-autonomous-production-release.yml/dispatches" || true)"
-          echo "PRODUCTION_RELEASE_DISPATCH http=$code"
+          dispatch_release

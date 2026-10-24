@@ -85,3 +85,14 @@ test('candidate CI dispatch rejects GitHub errors rather than falsely reporting 
   assert.match(snippet, /\[ "\$code" != "204" \]/);
   assert.doesNotMatch(snippet, /\|\| true/);
 });
+
+test('production release dispatch must acknowledge both candidate promotion paths', async () => {
+  const workflow = await read('.github/workflows/mel-candidate-promotion.yml');
+  const helper = workflow.slice(workflow.indexOf('dispatch_release() {'),workflow.indexOf('if [ "$MAIN" = "$CAND" ]'));
+  assert.match(helper, /--fail-with-body/);
+  assert.match(helper, /PRODUCTION_RELEASE_DISPATCH_FAILED/);
+  assert.match(helper, /PRODUCTION_RELEASE_DISPATCH_UNACKNOWLEDGED/);
+  assert.match(helper, /\[ "\$code" != "204" \]/);
+  assert.equal((workflow.match(/^\s*dispatch_release$/gm)||[]).length,2);
+  assert.doesNotMatch(workflow,/PRODUCTION_RELEASE_DISPATCH http=\$code/);
+});
