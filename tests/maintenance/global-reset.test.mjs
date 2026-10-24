@@ -44,7 +44,8 @@ test('legacy supervised jobs cancel and epoch update atomically after verified g
     async batch(statements){
       assert.equal(statements.length,2);
       assert.match(statements[0].sql,/status='CANCELLED'/);
-      assert.match(statements[1].sql,/activity-list-epoch/);
+      assert.match(statements[1].sql,/dev_bridge_state/);
+      assert.equal(statements[1].args[0],'activity-list-epoch');
       return [{meta:{changes:3}},{meta:{changes:1}}];
     }
   };
