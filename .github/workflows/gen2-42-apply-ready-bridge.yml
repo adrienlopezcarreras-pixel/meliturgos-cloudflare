@@ -229,7 +229,8 @@ jobs:
               echo "TEACHER_APPROVAL_CANDIDATE_SHA_STALE_NON_ANCESTOR"
               exit 1
             }
-            mapfile -d '' -t APPROVED_PATHS < <(node - <<'NODE'
+            # Do not hide the validation exit code inside process substitution.
+            node - > approved-paths.bin <<'NODE'
           const fs=require('fs');
           const job=JSON.parse(fs.readFileSync(process.env.BRIDGE_JOB_FILE,'utf8'));
           for(const item of job.files_json||[]){
@@ -238,7 +239,7 @@ jobs:
             process.stdout.write(path+'\0');
           }
           NODE
-            )
+            mapfile -d '' -t APPROVED_PATHS < approved-paths.bin
             test "${#APPROVED_PATHS[@]}" -gt 0
             if ! git diff --quiet "$CANDIDATE_SHA" "$HEAD_SHA" -- "${APPROVED_PATHS[@]}"; then
               echo "TEACHER_APPROVAL_CANDIDATE_SHA_STALE_OVERLAPPING_FILES"
