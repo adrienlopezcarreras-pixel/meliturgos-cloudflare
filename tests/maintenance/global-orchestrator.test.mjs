@@ -77,3 +77,23 @@ test('active WORK lease blocks orchestration before producer shutdown',async()=>
  }),/WORK_LEASES_ACTIVE/);
  assert.equal(stopped,false);
 });
+
+test('a WORK lease started during shutdown blocks all reset handlers',async()=>{
+ let leaseReads=0, executed=0;
+ const db={prepare(sql){
+  if(sql.includes('sqlite_master')) return {first:async()=>({name:'work_dag_run_leases'})};
+  if(sql.includes('COUNT(*)')) return {bind(){return {first:async()=>({n:++leaseReads===1?0:1})}}};
+  return {bind(){return {first:async()=>null,run:async()=>({meta:{changes:1}})}}};
+ }};
+ await assert.rejects(executeGlobalMaintenance({
+  db,leaseId:'racing-lease',now:()=>100,ownerApproved:true,
+  proofProvider:async()=>props,
+  handlers:Object.fromEntries(RESET_SCOPES.map(scope=>[scope,async()=>{executed++;}])),
+  stopProducers:async()=>{},
+  verifyProducersStopped:async()=>true,
+  verifyFinalState:async()=>({independently_verified:false,reconciled:false}),
+  recover:async()=>({reconciled:true})
+ }),/MAINTENANCE_INDEPENDENT_RECONCILIATION_REQUIRED/);
+ assert.equal(leaseReads,2);
+ assert.equal(executed,0);
+});
