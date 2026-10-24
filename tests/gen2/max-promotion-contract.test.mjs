@@ -73,3 +73,15 @@ test('all candidate reconciliation writes carry the originally fetched candidate
   assert.equal((workflow.match(/--force-with-lease="refs\/heads\/\$CANDIDATE:\$CAND" origin "HEAD:refs\/heads\/\$CANDIDATE"/g) || []).length, 2);
   assert.doesNotMatch(workflow, /git push origin "(?:HEAD|\$MAIN):refs\/heads\/\$CANDIDATE"/);
 });
+
+test('candidate CI dispatch rejects GitHub errors rather than falsely reporting a successful launch', async () => {
+  const workflow = await read('.github/workflows/mel-candidate-promotion.yml');
+  const start = workflow.indexOf('dispatch_ci() {');
+  const end = workflow.indexOf('if [ "$MAIN" = "$CAND" ]', start);
+  const snippet = workflow.slice(start, end);
+  assert.match(snippet, /--fail-with-body/);
+  assert.match(snippet, /FULL_CANDIDATE_CI_DISPATCH_FAILED/);
+  assert.match(snippet, /FULL_CANDIDATE_CI_DISPATCH_UNACKNOWLEDGED/);
+  assert.match(snippet, /\[ "\$code" != "204" \]/);
+  assert.doesNotMatch(snippet, /\|\| true/);
+});
