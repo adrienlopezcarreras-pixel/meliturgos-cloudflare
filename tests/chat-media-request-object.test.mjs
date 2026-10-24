@@ -10,7 +10,7 @@ test('the requested media object wins over nouns in the topic or purpose',()=>{
   ['Crée une image pour une vidéo','media.image.generate'],
   ['Crée un son pour une vidéo musicale','media.audio.generate'],
   ['Compose une musique pour une vidéo','media.music.generate'],
-  ['Fais-moi écouter un son extrait de cette vidéo','web.media.search','audio'],
+  ['Fais-moi écouter un son pour une vidéo','web.media.search','audio'],
   ['Montre une vidéo sur la musique','web.media.search','video'],
   ['Cherche 2 sons pour une vidéo','web.media.search','audio'],
  ]){
@@ -32,7 +32,7 @@ test('polite infinitive requests use the same capability path',()=>{
 });
 
 test('the correction preserves private-asset, documentation, negation and development boundaries',()=>{
- for(const text of ['Analyse ma vidéo ci-jointe','Crée une image à partir de ma vidéo','Crée une image depuis https://example.org/private.png','Donne un exemple JSON de création vidéo','Ne crée pas une vidéo','Pourquoi créer une musique ?','Crée un module de génération vidéo','Crée un test pour le générateur audio'])assert.equal(inferChatMediaCapability(text),null,text);
+ for(const text of ['Fais-moi écouter un son extrait de cette vidéo','Génère une vidéo à partir de cet audio','Analyse ma vidéo ci-jointe','Crée une image à partir de ma vidéo','Crée une image depuis https://example.org/private.png','Donne un exemple JSON de création vidéo','Ne crée pas une vidéo','Pourquoi créer une musique ?','Crée un module de génération vidéo','Crée un test pour le générateur audio'])assert.equal(inferChatMediaCapability(text),null,text);
  assert.equal(isEvolutionDevelopmentIntent('Crée un module de génération vidéo'),true);
  assert.equal(isEvolutionDevelopmentIntent('Crée un test pour le générateur audio'),true);
  assert.equal(isEvolutionDevelopmentIntent('Peux-tu me créer une image de code'),false);
