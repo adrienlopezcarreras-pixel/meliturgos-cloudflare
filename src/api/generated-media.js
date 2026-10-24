@@ -13,10 +13,11 @@ export async function handleGeneratedMedia(request, env) {
   }
   try {
     const artifact = await readPrivateArtifactBytes(env,key,{expectedOwner:env.MELITURGOS_USER || 'owner'});
-    if (!/^(?:image\/(?:png|jpeg|webp|gif|avif)|audio\/(?:wav|mpeg|ogg|mp4|webm|flac)|video\/(?:webm|mp4|ogg))$/.test(artifact.mime)) {
+    const mime = String(artifact.mime || '').split(';', 1)[0].trim().toLowerCase();
+    if (!/^(?:image\/(?:png|jpeg|webp|gif|avif)|audio\/(?:wav|mpeg|ogg|mp4|webm|flac)|video\/(?:webm|mp4|ogg))$/.test(mime)) {
       return Response.json({ok:false,code:'MEDIA_PLAYBACK_TYPE_UNSUPPORTED'},{status:415});
     }
-    const headers={'content-type':artifact.mime,'content-length':String(artifact.size),'cache-control':'private, no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'none'; sandbox",'content-disposition':'inline','accept-ranges':'bytes'};
+    const headers={'content-type':mime,'content-length':String(artifact.size),'cache-control':'private, no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'none'; sandbox",'content-disposition':'inline','accept-ranges':'bytes'};
     // Authenticate, check ownership/TTL and verify the complete ciphertext
     // before serving any byte range. No partial decryption or public URL.
     const range=request.method==='GET'&&!request.headers.has('if-range')?request.headers.get('range'):null;

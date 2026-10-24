@@ -22,7 +22,7 @@ const env={MELITURGOS_USER:'local-owner',MELITURGOS_PASSWORD:'local-fixture-pass
 let browser,server;
 try{
  const videoBytes=await readFile(new URL('../tests/fixtures/media/blue-vp8.webm',import.meta.url));
- const video=await storePrivateArtifact(env,new Uint8Array(videoBytes),{capability:'media.video.generate',model:'local-ffmpeg-fixture',mime:'video/webm',extension:'webm'});
+ const video=await storePrivateArtifact(env,new Uint8Array(videoBytes),{capability:'media.video.generate',model:'local-ffmpeg-fixture',mime:'video/webm;codecs=vp8',extension:'webm'});
  const png=Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aV1sAAAAASUVORK5CYII=','base64'));
  const image=await storePrivateArtifact(env,png,{capability:'media.image.generate',model:'local-png-fixture',mime:'image/png',extension:'png'});
  env.MEL_MEDIA_CAPABILITIES={

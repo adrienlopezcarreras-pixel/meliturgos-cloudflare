@@ -252,7 +252,7 @@ export const CHAT_RICH_RENDERER_SOURCE = String.raw`
       const url=new URL(href);
       if(url.protocol!=='https:'&&url.origin!==location.origin)continue;
       if(/^(?:localhost|127\.|0\.|10\.|192\.168\.|169\.254\.|172\.(?:1[6-9]|2[0-9]|3[01])\.|\[::1\])/i.test(url.hostname)&&url.origin!==location.origin)continue;
-      if(/\.svg(?:$|[?#])/i.test(href)||item.mime==='image/svg+xml')continue;
+      if(/\.svg(?:$|[?#])/i.test(href)||String(item.mime||'').split(';',1)[0].trim().toLowerCase()==='image/svg+xml')continue;
       const existing=[...root.querySelectorAll(kind==='document'?'a[href]':'[src]')].some(node=>(node.src||node.href)===href);
       if(!existing){
         appendMedia(root,href,item.title||kind,kind);
