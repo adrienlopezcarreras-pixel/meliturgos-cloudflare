@@ -89,6 +89,13 @@ $benchmarkSource = Join-Path $repoRoot "scripts\companion-local-ai-benchmark.ps1
 if (-not (Test-Path -LiteralPath $benchmarkSource -PathType Leaf)) { throw "WINDOWS_LOCAL_AI_BENCHMARK_MISSING" }
 Copy-Item -LiteralPath $benchmarkSource -Destination (Join-Path $stage "MEL-Local-AI-Benchmark.ps1")
 
+# Owner-run cleanup, started only from the Companion button.
+foreach ($cleanupName in @("MEL-Grand-Nettoyage.ps1","MEL-Nettoyage-GitHub.ps1","MEL-Restaurer-Branches.ps1")) {
+  $cleanupSource = Join-Path $repoRoot ("windows-companion\" + $cleanupName)
+  if (-not (Test-Path -LiteralPath $cleanupSource -PathType Leaf)) { throw "WINDOWS_CLEANUP_SCRIPT_MISSING" }
+  Copy-Item -LiteralPath $cleanupSource -Destination (Join-Path $stage $cleanupName)
+}
+
 $desktopSource = Join-Path $repoRoot "windows-companion\MEL-Companion.cs"
 if (-not (Test-Path -LiteralPath $desktopSource -PathType Leaf)) { throw "WINDOWS_DESKTOP_SOURCE_MISSING" }
 $companionSource = Join-Path $assetDir "MEL-Computer-Companion.ps1"

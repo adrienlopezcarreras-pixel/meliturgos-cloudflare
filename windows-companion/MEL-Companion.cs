@@ -30,6 +30,11 @@ static class MelApp
         "MEL-MINI-USB-Preflight.ps1", "MEL-MINI-USB-Backup.ps1", "local_readonly_preflight.py",
         "inspect_partitions.py", "inspect_ota_state.py", "inspect_image.py"
     };
+    // Owner-run maintenance: never started by MEL or on startup, only by the button.
+    public static readonly string[] CleanupFiles = new string[] {
+        "MEL-Grand-Nettoyage.ps1", "MEL-Nettoyage-GitHub.ps1", "MEL-Restaurer-Branches.ps1"
+    };
+    public static readonly string CleanupPath = Path.Combine(MelDir, "MEL-Grand-Nettoyage.ps1");
     public static bool MiniUsbPreflightInstalled()
     {
         foreach (var file in MiniUsbPreflightFiles)
@@ -595,6 +600,13 @@ static class MelApp
                 if (!string.Equals(Path.GetFullPath(from), Path.GetFullPath(to),
                     StringComparison.OrdinalIgnoreCase)) File.Copy(from, to, true);
             }
+        foreach (var name in CleanupFiles)
+        {
+            var from = Path.Combine(packageDirectory, name);
+            var to = Path.Combine(MelDir, name);
+            if (File.Exists(from) && !string.Equals(Path.GetFullPath(from), Path.GetFullPath(to),
+                StringComparison.OrdinalIgnoreCase)) File.Copy(from, to, true);
+        }
         var current = Application.ExecutablePath;
         if (!string.Equals(Path.GetFullPath(current), Path.GetFullPath(InstalledExe), StringComparison.OrdinalIgnoreCase))
             File.Copy(current, InstalledExe, true);
@@ -1775,6 +1787,7 @@ class MainForm : Form
         maintenance.Controls.Add(ActionButton("Réappairer",132,RePair));
         maintenance.Controls.Add(ActionButton("Désinstaller",148,delegate{MelApp.Uninstall();}));
         maintenance.Controls.Add(ActionButton("Tester IA locale",166,RunLocalAiBenchmark));
+        maintenance.Controls.Add(ActionButton("Grand nettoyage",160,RunGrandCleanup));
         autostart=new CheckBox {
             Text="Lancer MEL Companion avec Windows",
             Dock=DockStyle.Fill,AutoSize=false,Checked=MelApp.StartupEnabled(),
@@ -2124,6 +2137,32 @@ class MainForm : Form
             }
         }
     }
+    void RunGrandCleanup(object sender,EventArgs e)
+    {
+        if(!File.Exists(MelApp.CleanupPath))
+        {
+            MessageBox.Show("Nettoyage absent. Réinstallez le Companion depuis l'archive Windows récente.",
+                "MEL Companion",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            return;
+        }
+        if(MessageBox.Show(
+            "Lancer le grand nettoyage MEL ? Une simulation liste d'abord ce qui serait supprimé et sauvegarde les branches ; rien n'est supprimé sans votre confirmation O dans la fenêtre. Nécessite GitHub CLI (gh auth login).",
+            "Grand nettoyage MEL",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
+        try
+        {
+            var psi=new ProcessStartInfo("powershell.exe");
+            psi.UseShellExecute=true;
+            psi.WorkingDirectory=MelApp.MelDir;
+            psi.Arguments="-NoProfile -ExecutionPolicy Bypass -NoExit -File \""+MelApp.CleanupPath+"\"";
+            Process.Start(psi);
+        }
+        catch(Exception ex)
+        {
+            MessageBox.Show(this,"Impossible de lancer le nettoyage : "+ex.Message,
+                "MEL Companion",MessageBoxButtons.OK,MessageBoxIcon.Error);
+        }
+    }
+
     void RunLocalAiBenchmark(object sender,EventArgs e)
     {
         var button=sender as Button;
