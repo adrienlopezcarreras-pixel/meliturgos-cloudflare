@@ -1,3 +1,4 @@
+import { inspectMaintenanceStorage, inspectWorkDagsForReset, assertNoActiveWorkLeases } from '../maintenance/global-reset.js';
 import { approveCouncilReviewByOwner, pendingOwnerCouncilApprovals } from './council-review.js';
 import { requireAuth } from '../core/security.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
@@ -159,8 +160,9 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
   const isSovereignty = url.pathname === '/api/gen2/autonomy/sovereignty';
   const isActivity = url.pathname === '/api/gen2/autonomy/activity';
   const isActivityReset = url.pathname === '/api/gen2/autonomy/activity/reset';
+  const isMaintenanceInspect = url.pathname === '/api/gen2/autonomy/maintenance/inspect';
   const isCouncilOwner = url.pathname === '/api/gen2/autonomy/council-owner-approval';
-  if (!isPublicControl && !isState && !isActivity && !isActivityReset && !isCouncilOwner && !isTick && !isPause && !isResume && !isMax && !isLaunchReadiness && !isLaunchPrepare && !isSovereignty) return null;
+  if (!isPublicControl && !isState && !isActivity && !isActivityReset && !isMaintenanceInspect && !isCouncilOwner && !isTick && !isPause && !isResume && !isMax && !isLaunchReadiness && !isLaunchPrepare && !isSovereignty) return null;
 
   if (isPublicControl) {
     if (request.method !== 'GET') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'GET' } });
@@ -192,6 +194,25 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
   if (isActivity) {
     if (request.method !== 'GET') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'GET' } });
     return Response.json(await buildAutonomyActivity(env, { repository }), { headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (isMaintenanceInspect) {
+    if (request.method !== 'GET') return Response.json({ ok:false, code:'METHOD_NOT_ALLOWED' }, { status:405, headers:{ allow:'GET' } });
+    const [storage, work] = await Promise.all([
+      inspectMaintenanceStorage(env.DB),
+      inspectWorkDagsForReset(env.DB),
+    ]);
+    let leases = { active:null, status:'UNVERIFIED' };
+    try { leases = await assertNoActiveWorkLeases(env.DB); }
+    catch (error) {
+      if (error?.message === 'MAINTENANCE_WORK_LEASES_ACTIVE') leases = {active:true,status:'WORK_LEASES_ACTIVE'};
+      else throw error;
+    }
+    return Response.json({
+      ok:true, mode:'READ_ONLY', storage, work, leases,
+      reset_available:false,
+      blockers:['PRODUCER_SHUTDOWN_NOT_ATTESTED','RESTORE_TEST_NOT_ATTESTED','DOMAIN_RESET_HANDLERS_INCOMPLETE'],
+    }, { headers:{'cache-control':'no-store'} });
   }
 
   if (isActivityReset) {
