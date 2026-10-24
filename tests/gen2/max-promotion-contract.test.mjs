@@ -123,3 +123,10 @@ test('GEN2-42 obtains complete candidate ancestry before disjoint approved SHA r
   assert.doesNotMatch(section,/git fetch origin "\$CANDIDATE_BRANCH" --depth=/);
   assert.match(section,/git merge-base --is-ancestor "\$CANDIDATE_SHA" "\$HEAD_SHA"/);
 });
+
+test('candidate hygiene failure reporting never reads NO_CHANGES before initialization', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  const section = workflow.slice(workflow.indexOf('- name: Commit and push exact candidate change'),workflow.indexOf('- name: Report cloud bridge result'));
+  assert.ok(section.indexOf('NO_CHANGES=false') < section.indexOf('HYGIENE_OUTPUT='));
+  assert.ok(section.indexOf('NO_CHANGES=false') < section.indexOf('echo "no_changes=$NO_CHANGES"'));
+});
