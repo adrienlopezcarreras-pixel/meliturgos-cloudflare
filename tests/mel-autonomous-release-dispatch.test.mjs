@@ -503,7 +503,7 @@ test('production completion catch-up uses SHA-aware deduplication and an exact u
   const yaml = readFileSync(new URL('../.github/workflows/mel-autonomous-production-release.yml',import.meta.url),'utf8');
   assert.match(yaml,/workflows: \[deploy-cloudflare-release\]/);
   assert.match(yaml,/types: \[completed\]/);
-  assert.match(yaml,/github\.event\.workflow_run\.event == 'workflow_dispatch'/);
+  assert.match(yaml,/github\.event\.workflow_run\.status == 'completed'/);
   assert.match(yaml,/MEL_SKIP_ALREADY_ATTEMPTED_SHA:.*workflow_run/);
   assert.match(yaml,/MEL_REQUIRE_PROTECTED_REFS:.*workflow_run/);
 });
@@ -520,4 +520,12 @@ test('scheduled production catch-up is not blocked by scheduler actor identity',
  assert.ok(yaml.includes("(github.event_name == 'schedule' || github.actor == 'adrienlopezcarreras-pixel'"));
  assert.ok(yaml.includes("MEL_REQUIRE_PROTECTED_REFS:"));
  assert.ok(yaml.includes("github.event_name == 'schedule' && github.ref == 'refs/heads/main'"));
+});
+
+test('production completion catch-up supports dispatched and release-branch push deployments', () => {
+ const yaml=readFileSync(new URL('../.github/workflows/mel-autonomous-production-release.yml',import.meta.url),'utf8');
+ assert.ok(yaml.includes("github.event.workflow_run.name == 'deploy-cloudflare-release'"));
+ assert.ok(yaml.includes("github.event.workflow_run.status == 'completed'"));
+ assert.ok(!yaml.includes("github.event.workflow_run.event == 'workflow_dispatch'"));
+ assert.ok(yaml.includes("MEL_CATCHUP_COMPLETED_SHA:"));
 });
