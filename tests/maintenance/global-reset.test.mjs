@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inspectMaintenanceStorage, prepareGlobalReset, validateMaintenanceAuthorization, retireLegacyDevJobs } from '../../src/maintenance/global-reset.js';
+import { inspectMaintenanceStorage, prepareGlobalReset, validateMaintenanceAuthorization, retireLegacyDevJobs, resetWatchDiscoveryProjection, retireRevenueDiscoveries } from '../../src/maintenance/global-reset.js';
 
 const backup = { verified:true, restore_tested:true, reference:'isolated-restore-proof', sha256:'a'.repeat(64) };
 const db = {
@@ -44,4 +44,25 @@ test('legacy supervised jobs cancel only after explicit verified gate; terminal 
   assert.equal(out.history_deleted,false);
   assert.ok(calls.some(x=>typeof x==='string'&&x.includes("status='CANCELLED'")));
   assert.ok(calls.some(x=>typeof x==='string'&&x.includes("status NOT IN ('COMPLETED','COMMITTED','CANCELLED','FAILED')")));
+});
+
+test('watch reset archives old ledger and updates active projection atomically', async () => {
+  const statements=[];let batchCount=0;
+  const store={
+    prepare(sql){return {bind(...args){return {sql,args,first:async()=>({state_json:JSON.stringify({items:[{id:'past'}]})}),run:async()=>({meta:{changes:1}})};},first:async()=>({state_json:JSON.stringify({items:[{id:'past'}]})}),run:async()=>({})};},
+    async batch(queries){batchCount++;statements.push(...queries);return [{meta:{changes:1}},{meta:{changes:1}}];}
+  };
+  const out=await resetWatchDiscoveryProjection(store,{owner_approved:true,producers_paused:true,backup},{now:1792870000000});
+  assert.equal(out.active_discoveries,0);
+  assert.equal(batchCount,1);
+  assert.equal(statements.length,2);
+  assert.equal(JSON.parse(statements[1].args[0]).items.length,0);
+});
+test('revenue discovery cleanup only marks non-delivered discovery rows', async () => {
+  const sql=[];
+  const store={prepare(statement){sql.push(statement);return {first:async()=>({name:'revenue_watch'}),run:async()=>({meta:{changes:2}})};}};
+  const result=await retireRevenueDiscoveries(store,{owner_approved:true,producers_paused:true,backup});
+  assert.equal(result.changed,2);
+  assert.match(sql[1], /WHERE status IN \('NEW','DISCOVERY_ONLY'\)/);
+  assert.equal(result.historic_rows_deleted,0);
 });
