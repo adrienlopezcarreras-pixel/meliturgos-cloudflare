@@ -475,3 +475,10 @@ test('inspection terms follow the roadmap item theme and ignore the manifest sta
   assert.deepEqual(inspectionGoalTerms({ goal: '[MEL-FOUNDER-07] Prouver une restauration isolée du patrimoine — Restaurer evolution_ledger. | OBJECTIF MEL-FOUNDER-01:IN_PROGRESS gmail audit' }), ['restore', 'ledger']);
   assert.deepEqual(inspectionGoalTerms({ goal: '[MEL-MANIFEST-05] Prouver un audit profond | OBJECTIF drive' }), ['audit']);
 });
+
+test('localization ranks repository paths by the roadmap item words, French to English', async () => {
+  const { rankGoalPaths } = await import('../src/evolution/autonomy-implementation-planner.js');
+  const paths = ['src/backup/restore-service.js', 'src/evolution/autonomy-supervisor.js', 'src/evaluation/ecosystem-watch-catalog.js', 'tests/backup.test.mjs'];
+  assert.deepEqual(rankGoalPaths('[MEL-FOUNDER-07] Prouver une restauration isolée | OBJECTIF MEL-MANIFEST-05:PLANNED', paths), ['src/backup/restore-service.js']);
+  assert.deepEqual(rankGoalPaths('[MEL-MANIFEST-07] Laisser la veille ouvrir un seul travail supervisé', paths), ['src/evaluation/ecosystem-watch-catalog.js']);
+});

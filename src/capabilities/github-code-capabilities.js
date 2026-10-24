@@ -215,7 +215,8 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
       } catch { return 'DEGRADED'; }
     }
   }
-  return { read, search, head, health, repository: repo, branch: ref, content_ref: contentRef, pinned_sha: pinned || null };
+  const paths = async () => (await tree()).map(x => x.path);
+  return { read, search, head, health, paths, repository: repo, branch: ref, content_ref: contentRef, pinned_sha: pinned || null };
 }
 
 export function registerGitHubCodeCapabilities(bus, options = {}) {
