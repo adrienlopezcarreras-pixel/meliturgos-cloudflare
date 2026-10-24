@@ -167,15 +167,15 @@ test('production releases are batched: hourly schedule or manual dispatch, never
   assert.ok(yaml.includes("MEL_CATCHUP_COMPLETED_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || '' }}"));
   assert.ok(!on.includes('*/15'), 'no 15-minute release polling');
   assert.ok(yaml.includes("github.ref == 'refs/heads/main'"));
-  assert.ok(yaml.includes("MEL_REQUIRE_PROTECTED_REFS: ${{ (github.event_name == 'push' || github.event_name == 'schedule') && 'true' || 'false' }}"));
+  assert.ok(yaml.includes("MEL_REQUIRE_PROTECTED_REFS: ${{ (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_run') && 'true' || 'false' }}"));
 });
 
 test('hourly promotion uses protected refs and deduplicates failed exact SHAs', () => {
   const yaml = readFileSync(new URL('../.github/workflows/mel-autonomous-production-release.yml', import.meta.url), 'utf8');
   assert.ok(yaml.includes("  schedule:\n    - cron: '7 * * * *'"));
   assert.ok(yaml.includes("github.event_name == 'schedule' && github.ref == 'refs/heads/main'"));
-  assert.ok(yaml.includes("MEL_SKIP_ALREADY_ATTEMPTED_SHA: ${{ github.event_name == 'schedule' && 'true' || 'false' }}"));
-  assert.ok(yaml.includes("MEL_REQUIRE_PROTECTED_REFS: ${{ (github.event_name == 'push' || github.event_name == 'schedule') && 'true' || 'false' }}"));
+  assert.ok(yaml.includes("MEL_SKIP_ALREADY_ATTEMPTED_SHA: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_run') && 'true' || 'false' }}"));
+  assert.ok(yaml.includes("MEL_REQUIRE_PROTECTED_REFS: ${{ (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_run') && 'true' || 'false' }}"));
   assert.ok(!yaml.includes('owner_max_autorelease: true'));
 });
 
