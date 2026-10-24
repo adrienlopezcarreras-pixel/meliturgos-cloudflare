@@ -47,6 +47,13 @@ export class ModelRegistry {
 // Configured IDs only. Availability deliberately remains UNKNOWN until a real successful call.
 export const standardRegistry = new ModelRegistry([
   // Best free Workers AI model (120B open-weight reasoning, ~128k context); the others remain the fallback chain.
+  // MAX codes only with code-specialised models. Small ones first; the large
+  // ones (CODE_LARGE) spend far more of the free daily quota and are used only
+  // after three failed attempts (see MentorEngine._providers).
+  { id: '@cf/zai-org/glm-5.3-flash', capabilities: ['CODE_SPECIALIST'], priority: 62, cost: 0 },
+  { id: '@cf/qwen/qwen2.5-coder-32b-instruct', capabilities: ['CODE_SPECIALIST'], priority: 60, cost: 0 },
+  { id: '@cf/moonshotai/kimi-k2.7-code', capabilities: ['CODE_SPECIALIST', 'CODE_LARGE'], priority: 70, cost: 0 },
+  { id: '@cf/zai-org/glm-5.3', capabilities: ['CODE_SPECIALIST', 'CODE_LARGE'], priority: 68, cost: 0 },
   { id: '@cf/openai/gpt-oss-120b', capabilities: ['GENERAL', 'REASONING', 'CODE', 'FALLBACK'], priority: 50, cost: 0 },
   { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', capabilities: ['GENERAL', 'REASONING', 'CODE', 'FALLBACK'], priority: 40, cost: 0 },
   { id: '@cf/google/gemma-4-26b-a4b-it', capabilities: ['GENERAL', 'REASONING', 'VISION', 'CODE', 'FALLBACK'], priority: 35, cost: 0 },

@@ -10,6 +10,8 @@ import { liveTechnicalSovereigntyReport } from '../portability/technical-soverei
 import { runScheduledSystemBackup } from '../backup/system-backup-runtime.js';
 import { readPersistentCapabilityStress } from './persistent-capability-stress.js';
 import { getAutonomyControl } from '../evolution/autonomy-control.js';
+import { auditDevelopment, probeCodeModels } from './development-audit.js';
+import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { enqueueSupervisedDevelopmentRequest } from '../evolution/owner-development-queue.js';
 import { evaluateCouncilReleaseProof } from '../models/model-council-evidence.js';
 
@@ -478,6 +480,7 @@ async function maybeQueueRepair({
     '[MEL-SELF-AUDIT] Corriger une anomalie détectée automatiquement.',
     failures?.length ? `Capacités en échec runtime: ${failures.map(row => row.id).join(', ')}.` : '',
     taskNames.length ? `Contrôles récurrents en échec: ${taskNames.join(', ')}.` : '',
+    ...recurring.flatMap(row => (row.findings || []).map(f => `Audit développement ${f.code}: ${f.detail}.`)),
     'Inspecter les preuves, lancer Council, corriger sur branche candidate, tester, benchmarker et ne jamais déployer hors release gate.',
   ].filter(Boolean).join(' ');
 
@@ -621,6 +624,12 @@ export async function runMelSelfAuditSupervisor(env = {}, {
       const value = await bus.execute('system.maturity', {}, context);
       return { ...value, status: value?.ok === false ? 'MATURITY_FAILED' : 'MATURITY_OK' };
     }));
+    // MEL audits its own development every week; findings queue a repair below.
+    results.push(await capture('development-audit', async () => {
+      const jobs = deps.listDevJobs ? await deps.listDevJobs() : await new D1DevJobRepository(env.DB).list();
+      const probes = deps.probeCodeModels ? await deps.probeCodeModels() : await probeCodeModels(env);
+      return auditDevelopment({ jobs: (jobs || []).filter(job => String(job?.requested_by || '') === 'mel-autonomy'), env, now: current, maxAutonomy: control?.max_autonomy === true, probes });
+    }));
     const stressResult = await capture('weekly-capability-stress', async () => bus.execute('capability.audit', { deep: true }, context));
     results.push(stressResult);
     startedStress = stressResult.value || null;
@@ -652,7 +661,14 @@ export async function runMelSelfAuditSupervisor(env = {}, {
   }
 
   const failureStreaks = updateFailureStreaks(state.failure_streaks, results);
-  const recurring = recurringTaskFailures(failureStreaks, 2);
+  // A development finding is repaired the same week; its codes make the
+  // fingerprint, so a new problem queues a new repair.
+  const development = results.find(row => row.name === 'development-audit' && row.ok !== true);
+  const developmentFindings = Array.isArray(development?.value?.findings) ? development.value.findings : [];
+  const recurring = [
+    ...recurringTaskFailures(failureStreaks, 2).filter(row => row.name !== 'development-audit'),
+    ...(developmentFindings.length ? [{ name: 'development-audit:' + developmentFindings.map(row => row.code).sort().join(','), streak: 1, findings: developmentFindings }] : []),
+  ];
   const fingerprint = failureFingerprint({
     stressJobId: previousStress?.job_id || previousStress?.id || '',
     capabilityIds: previousStressFailures.map(row => row.id),
