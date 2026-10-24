@@ -35,7 +35,7 @@ concurrency:
 
 jobs:
   promote-and-dispatch:
-    if: ${{ (github.actor == 'adrienlopezcarreras-pixel' || github.actor == 'github-actions[bot]') && (github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'workflow_dispatch') || (github.event_name == 'schedule' && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main' && github.event.pull_request.merged_by.login == 'adrienlopezcarreras-pixel')) }}
+    if: ${{ (github.event_name == 'schedule' || github.actor == 'adrienlopezcarreras-pixel' || github.actor == 'github-actions[bot]') && (github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'workflow_dispatch') || (github.event_name == 'schedule' && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main' && github.event.pull_request.merged_by.login == 'adrienlopezcarreras-pixel')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
