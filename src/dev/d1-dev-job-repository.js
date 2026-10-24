@@ -87,6 +87,20 @@ function bridgeClaimPriority(job) {
   return 99;
 }
 
+const TERMINAL_SQL = "status IN ('CANCELLED','FAILED')";
+const FULL_LIST_SQL = 'SELECT * FROM dev_jobs ORDER BY created_at DESC LIMIT 100';
+const LIGHT_LIST_SQL = `SELECT id,created_at,updated_at,status,requested_by,goal,optional_context,
+  CASE WHEN ${TERMINAL_SQL} THEN NULL ELSE plan_json END AS plan_json,
+  CASE WHEN ${TERMINAL_SQL} THEN NULL ELSE files_json END AS files_json,
+  CASE WHEN ${TERMINAL_SQL} THEN NULL ELSE patch_json END AS patch_json,
+  CASE WHEN ${TERMINAL_SQL} THEN NULL ELSE tests_json END AS tests_json,
+  CASE WHEN ${TERMINAL_SQL} AND json_valid(result_json)
+    THEN json_remove(result_json,'$.teacher_bridge.request','$.teacher_bridge_history',
+      '$.dev_bridge_history','$.implementation_proposal','$.bridge_package')
+    ELSE result_json END AS result_json,
+  candidate_branch,approval_status,error
+  FROM dev_jobs ORDER BY created_at DESC LIMIT 100`;
+
 export class D1DevJobRepository {
   constructor(db, { memoryStore = null, evolutionLedger = null } = {}) {
     this.db = db;
@@ -189,10 +203,15 @@ export class D1DevJobRepository {
       : this.memory.get(id) || null;
   }
 
-  async list() {
+  // Every heartbeat lists jobs several times. Full rows of the last 100 jobs
+  // weighed 17 MB on 24/10 (Teacher request copies, histories, patches): the
+  // tick ran out of memory before writing anything and MAX never advanced.
+  // Finished jobs are listed without those payloads; get() and { full: true }
+  // (launch-readiness proofs read COMPLETED Teacher/Council evidence) keep them whole.
+  async list({ full = false } = {}) {
     await this.init();
     return this.db
-      ? ((await this.db.prepare('SELECT * FROM dev_jobs ORDER BY created_at DESC LIMIT 100').all()).results || []).map(x => this._row(x))
+      ? ((await this.db.prepare(full ? FULL_LIST_SQL : LIGHT_LIST_SQL).all()).results || []).map(x => this._row(x))
       : [...this.memory.values()];
   }
 
