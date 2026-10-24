@@ -152,3 +152,13 @@ test('Bridge overlap validation and apply share segment-level parent traversal p
   assert.doesNotMatch(checkout,/path\.includes\('\.\.'\)/);
   assert.match(apply,/rel\.split\('\/'\)\.includes\('\.\.'\)/);
 });
+
+test('successful GEN2-42 candidate CI dispatch publishes candidate_ready before D1 result reporting', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  const success = workflow.slice(workflow.indexOf('if [ "$code" != "204" ]; then'), workflow.indexOf('- name: Report cloud bridge result to production D1'));
+  assert.match(success,/echo "candidate_ready=false" >> "\$GITHUB_OUTPUT"/);
+  assert.match(success,/^\s*echo "candidate_ready=true" >> "\$GITHUB_OUTPUT"/m);
+  const successPosition = success.lastIndexOf('echo "candidate_ready=true"');
+  assert.ok(successPosition > success.indexOf('exit 0'));
+  assert.match(workflow,/CANDIDATE_READY: \$\{\{ steps\.commit\.outputs\.candidate_ready \}\}/);
+});
