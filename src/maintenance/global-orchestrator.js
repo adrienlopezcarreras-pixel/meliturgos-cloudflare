@@ -1,4 +1,4 @@
-import { RESET_SCOPES, globalCleanupReadiness } from './global-reset.js';
+import { RESET_SCOPES, globalCleanupReadiness, assertNoActiveWorkLeases } from './global-reset.js';
 import { withMaintenanceLease } from './maintenance-gate.js';
 
 /**
@@ -18,6 +18,8 @@ export async function executeGlobalMaintenance({
   const proofs=await proofProvider();
   const readiness=globalCleanupReadiness(proofs);
   if (!readiness.ready) return {status:'BLOCKED',mutated:false,blockers:readiness.blockers};
+  // A running signed WORK DAG lease must not be interrupted by maintenance.
+  await assertNoActiveWorkLeases(db,{now:now()});
   if (RESET_SCOPES.some(scope=>typeof handlers[scope] !== 'function'))
     throw Error('MAINTENANCE_DOMAIN_HANDLER_MISSING');
   // The final verifier must check actual producer state, active projections,
