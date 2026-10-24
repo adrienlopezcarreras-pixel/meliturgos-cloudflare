@@ -143,3 +143,12 @@ test('Bridge file writes reject parent path segments, not safe filenames contain
   assert.match(apply,/rel\.split\('\/'\)\.includes\('\.\.'\)/);
   assert.doesNotMatch(apply,/rel\.includes\('\.\.'\)/);
 });
+
+test('Bridge overlap validation and apply share segment-level parent traversal policy', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  const checkout = workflow.slice(workflow.indexOf('- name: Checkout exact approved candidate'),workflow.indexOf('- name: Apply bounded approved files'));
+  const apply = workflow.slice(workflow.indexOf('- name: Apply bounded approved files'),workflow.indexOf('- name: Run exact bounded requested tests'));
+  assert.match(checkout,/path\.split\('\/'\)\.includes\('\.\.'\)/);
+  assert.doesNotMatch(checkout,/path\.includes\('\.\.'\)/);
+  assert.match(apply,/rel\.split\('\/'\)\.includes\('\.\.'\)/);
+});
