@@ -109,3 +109,27 @@ test('fresh internal preflight does not bypass ordinary owner priority', async (
   const selected = await supervisor.ensureNextJob();
   assert.equal(selected.job.id, owner.id);
 });
+
+test('an in-flight internal Teacher review reserves shared candidate before new roadmap creation', async () => {
+  const repository = repo();
+  const reviewing = await repository.create({
+    id: 'mel-autonomy-gen2-17-review',
+    requested_by: 'mel-autonomy',
+    goal: '[GEN2-17] Dev Agent',
+    optional_context: { roadmap_id: 'GEN2-17', source: 'autonomy-supervisor', priority: 'P0' },
+  });
+  await repository.update(reviewing.id, {
+    status: 'WAITING_TEACHER',
+    result_json: { teacher_bridge: { status: 'WAITING_TEACHER' } },
+  });
+  const supervisor = new AutonomySupervisor({
+    repository,
+    roadmap: [...roadmap, { id: 'MEL-FOUNDER-02', title: 'Next candidate', status: 'PLANNED', priority: 'P0', phase_id: 'P01' }],
+  });
+  const selection = await supervisor.ensureNextJob();
+  assert.equal(selection.created, false);
+  assert.equal(selection.job, null);
+  assert.equal(selection.external_progress.job_id, reviewing.id);
+  assert.equal(selection.external_progress.status, 'TEACHER_REVIEW_IN_PROGRESS');
+  assert.equal((await repository.list()).length, 1);
+});
