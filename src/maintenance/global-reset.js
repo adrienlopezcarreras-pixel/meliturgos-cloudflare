@@ -177,3 +177,26 @@ export function globalCleanupReadiness({ restoreTestProof = null, producerFenceP
   }
   return { ready:blockers.length === 0, blockers };
 }
+
+/**
+ * Read-only backup preflight. Snapshot verification is integrity checking,
+ * NOT a tested restore. Do not convert this report to production deletion
+ * authorization without independent isolated-restore evidence.
+ */
+export async function inspectBackupReadiness(backupService) {
+  if (!backupService || typeof backupService.list !== 'function' ||
+      typeof backupService.verify !== 'function') {
+    return { verified:false, restore_tested:false, status:'BACKUP_SERVICE_UNAVAILABLE' };
+  }
+  const snapshots = await backupService.list({limit:1});
+  const latest = Array.isArray(snapshots) ? snapshots[0] : null;
+  if (!latest?.id) return {verified:false,restore_tested:false,status:'NO_BACKUP_SNAPSHOT'};
+  const proof = await backupService.verify({id:latest.id});
+  return {
+    verified:proof?.ok === true,
+    restore_tested:false,
+    status:proof?.ok === true ? 'BACKUP_INTEGRITY_VERIFIED_RESTORE_UNPROVEN' : 'BACKUP_INTEGRITY_FAILED',
+    snapshot_id:String(latest.id),
+    created_at:latest.createdAt || null,
+  };
+}

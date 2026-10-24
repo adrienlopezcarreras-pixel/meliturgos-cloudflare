@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inspectMaintenanceStorage, prepareGlobalReset, validateMaintenanceAuthorization, retireLegacyDevJobs, resetWatchDiscoveryProjection, retireRevenueDiscoveries, inspectWorkDagsForReset, assertNoActiveWorkLeases, globalCleanupReadiness } from '../../src/maintenance/global-reset.js';
+import { inspectMaintenanceStorage, prepareGlobalReset, validateMaintenanceAuthorization, retireLegacyDevJobs, resetWatchDiscoveryProjection, retireRevenueDiscoveries, inspectWorkDagsForReset, assertNoActiveWorkLeases, globalCleanupReadiness, inspectBackupReadiness } from '../../src/maintenance/global-reset.js';
 
 const backup = { verified:true, restore_tested:true, reference:'isolated-restore-proof', sha256:'a'.repeat(64) };
 const db = {
@@ -127,4 +127,14 @@ test('readiness remains false until ALL independently proven domains are ready',
  assert.ok(result.blockers.includes('RESTORE_TEST_NOT_VERIFIED'));
  assert.ok(result.blockers.includes('DOMAIN_RESET_NOT_PROVEN:WORK'));
  assert.ok(result.blockers.includes('DOMAIN_RESET_NOT_PROVEN:MENTOR'));
+});
+
+test('backup integrity cannot be confused with isolated restore proof', async () => {
+  const service={list:async()=>[{id:'snapshot-1',createdAt:'2026-10-24T00:00:00Z'}],verify:async()=>({ok:true})};
+  const result=await inspectBackupReadiness(service);
+  assert.equal(result.verified,true);
+  assert.equal(result.restore_tested,false);
+  assert.equal(result.status,'BACKUP_INTEGRITY_VERIFIED_RESTORE_UNPROVEN');
+  assert.equal((await inspectBackupReadiness(null)).verified,false);
+  assert.equal((await inspectBackupReadiness({list:async()=>[],verify:async()=>({ok:true})})).status,'NO_BACKUP_SNAPSHOT');
 });

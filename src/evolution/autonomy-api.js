@@ -1,3 +1,5 @@
+import { createSystemBackupService } from '../backup/system-backup-runtime.js';
+import { inspectBackupReadiness } from '../maintenance/global-reset.js';
 import { inspectMaintenanceStorage, inspectWorkDagsForReset, assertNoActiveWorkLeases, globalCleanupReadiness } from '../maintenance/global-reset.js';
 import { approveCouncilReviewByOwner, pendingOwnerCouncilApprovals } from './council-review.js';
 import { requireAuth } from '../core/security.js';
@@ -208,8 +210,14 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
       if (error?.message === 'MAINTENANCE_WORK_LEASES_ACTIVE') leases = {active:true,status:'WORK_LEASES_ACTIVE'};
       else throw error;
     }
+    let backup = {verified:false,restore_tested:false,status:'BACKUP_CHECK_UNAVAILABLE'};
+    try {
+      backup = await inspectBackupReadiness(createSystemBackupService(env));
+    } catch (error) {
+      backup = {verified:false,restore_tested:false,status:'BACKUP_CHECK_FAILED'};
+    }
     return Response.json({
-      ok:true, mode:'READ_ONLY', storage, work, leases,
+      ok:true, mode:'READ_ONLY', storage, work, leases, backup,
       reset_available:false,
       blockers:globalCleanupReadiness().blockers,
     }, { headers:{'cache-control':'no-store'} });
