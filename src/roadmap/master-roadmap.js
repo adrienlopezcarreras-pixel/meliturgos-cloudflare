@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
 });
 
 export function isClosedRoadmapStatus(status) {
-  return ['DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED'].includes(String(status || '').trim().toUpperCase());
+  return [ROADMAP_STATUSES.VERIFIED, 'DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED'].includes(String(status || '').trim().toUpperCase());
 }
 
 export const ROADMAP_REGISTRY_REVISION = '2026-10-19.3';
