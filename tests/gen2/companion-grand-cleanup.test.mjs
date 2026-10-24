@@ -57,3 +57,12 @@ test('GitHub cleanup fail closed unless dry-run confirms success and no errors',
   assert.match(src,/\^\[oO\]\$/);
   assert.ok(src.indexOf('MEL_GITHUB_DRY_RUN_COMPLETION_NOT_PROVEN') < src.indexOf("-Apply"));
 });
+
+test('Companion reports actual global maintenance lease and isolated restore status', async () => {
+ const source=await read('windows-companion/MEL-Grand-Nettoyage.ps1');
+ assert.match(source,/inventory\.maintenance_fence/);
+ assert.match(source,/EXPIRED_MAINTENANCE_REQUIRES_RECOVERY/);
+ assert.match(source,/inventory\.backup\.restore_tested/);
+ assert.match(source,/inventory\.reset_available/);
+ assert.doesNotMatch(source,/\$githubScript -Apply/);
+});
