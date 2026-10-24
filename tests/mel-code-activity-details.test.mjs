@@ -37,10 +37,12 @@ test('Code activity follows the last visible entry and collapse hides the full p
   assert.match(source, /aria-expanded/);
 });
 
-test('the Code activity panel expands to the approved two-entry viewport and stays resizable', async () => {
+test('the Code activity panel opens with a compact fixed height and stays resizable', async () => {
   const source = await readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8');
   const rule = source.match(/\.mel-code-live-panel\{[^}]*\}/)[0];
-  assert.match(rule, /height:240px/);
+  // Owner choice (PR #2573): a compact fixed starting height, not the full viewport.
+  const height = Number((rule.match(/;height:(\d+)px/) || [])[1]);
+  assert.ok(height > 0 && height <= 330, 'initial height ' + height);
   assert.match(rule, /resize:both/);
   assert.match(rule, /overflow:auto/);
 });
