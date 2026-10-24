@@ -238,7 +238,7 @@ jobs:
           const job=JSON.parse(fs.readFileSync(process.env.BRIDGE_JOB_FILE,'utf8'));
           for(const item of job.files_json||[]){
             const path=String(item?.path||'');
-            if(!path||path.startsWith('/')||path.includes('..')||path.includes('\\')||path.startsWith('-')) process.exit(2);
+            if(!path||path.startsWith('/')||path.split('/').includes('..')||path.includes('\\')||path.startsWith('-')) process.exit(2);
             process.stdout.write(path+'\0');
           }
           NODE
