@@ -507,3 +507,10 @@ test('production completion catch-up uses SHA-aware deduplication and an exact u
   assert.match(yaml,/MEL_SKIP_ALREADY_ATTEMPTED_SHA:.*workflow_run/);
   assert.match(yaml,/MEL_REQUIRE_PROTECTED_REFS:.*workflow_run/);
 });
+
+test('owner-merged integration PRs may trigger batched release regardless of PR author', () => {
+ const yaml=readFileSync(new URL('../.github/workflows/mel-autonomous-production-release.yml', import.meta.url),'utf8');
+ assert.ok(yaml.includes("github.event.pull_request.merged_by.login == 'adrienlopezcarreras-pixel'"));
+ assert.ok(!yaml.includes("github.event.pull_request.user.login == 'adrienlopezcarreras-pixel'"));
+ assert.ok(yaml.includes("MEL_REQUIRE_PROTECTED_REFS:"));
+});
