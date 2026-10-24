@@ -87,11 +87,12 @@ export async function resetWatchDiscoveryProjection(db, input, { now = Date.now(
   if (!Number.isSafeInteger(now) || now <= 0) throw Error('MAINTENANCE_INVALID_EPOCH');
   const id = 'ecosystem-discoveries-canonical';
   const row = await db.prepare('SELECT state_json FROM capability_watch_state WHERE id=?').bind(id).first();
-  const original = String(row?.state_json || '{}');
+  if (!row?.state_json) return { status:'EMPTY', scope:'VEILLE', active_discoveries:0, archive_id:null };
+  const original = String(row.state_json);
   let current;
   try { current = JSON.parse(original); } catch { throw Error('MAINTENANCE_WATCH_LEDGER_CORRUPT'); }
   await db.prepare('CREATE TABLE IF NOT EXISTS mel_maintenance_watch_archives (id TEXT PRIMARY KEY, source_id TEXT NOT NULL, state_json TEXT NOT NULL, archived_at INTEGER NOT NULL)').run();
-  const archiveId = 'watch-reset-' + now;
+  const archiveId = 'watch-reset-' + now + '-' + crypto.randomUUID();
   // Old discoveries and their handoffs remain archived, never represented
   // as actionable after the new generation starts.
   const empty = JSON.stringify({ ...current, items:[], maintenance_epoch:now, previous_archive_id:archiveId });
@@ -113,4 +114,24 @@ export async function retireRevenueDiscoveries(db, input, { now = Date.now() } =
   if (!exists) return { status:'NOT_INITIALIZED', changed:0 };
   const result = await db.prepare("UPDATE revenue_watch SET status='ARCHIVED_MAINTENANCE' WHERE status IN ('NEW','DISCOVERY_ONLY')").run();
   return { status:'ARCHIVED', changed:Number(result?.meta?.changes||0), historic_rows_deleted:0 };
+}
+
+// Read-only WORK inventory: the serialized DAG is integrity signed and must
+// NOT be edited with a raw SQL UPDATE. A live worker may hold a D1 lease.
+// Count statuses only; any future cancellation must run through the store
+// and fence existing leases before changing the signed record.
+export async function inspectWorkDagsForReset(db) {
+  if (!db?.prepare) throw Error('MAINTENANCE_DB_MISSING');
+  const exists = await db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='work_dags'"
+  ).first();
+  if (!exists) return { exists:false, statuses:[], total:0 };
+  const rows = (await db.prepare(
+    'SELECT status, COUNT(*) AS n FROM work_dags GROUP BY status'
+  ).all())?.results || [];
+  return {
+    exists:true,
+    total: rows.reduce((sum,row)=>sum+Number(row.n||0),0),
+    statuses:rows.map(row=>({status:String(row.status),count:Number(row.n||0)}))
+  };
 }
