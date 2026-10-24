@@ -1,3 +1,4 @@
+import { readMaintenanceFence } from '../maintenance/maintenance-gate.js';
 import { createSystemBackupService } from '../backup/system-backup-runtime.js';
 import { inspectBackupReadiness } from '../maintenance/global-reset.js';
 import { inspectMaintenanceStorage, inspectWorkDagsForReset, assertNoActiveWorkLeases, globalCleanupReadiness } from '../maintenance/global-reset.js';
@@ -210,6 +211,7 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
       if (error?.message === 'MAINTENANCE_WORK_LEASES_ACTIVE') leases = {active:true,status:'WORK_LEASES_ACTIVE'};
       else throw error;
     }
+    const maintenance_fence = await readMaintenanceFence(env.DB);
     let backup = {verified:false,restore_tested:false,status:'BACKUP_CHECK_UNAVAILABLE'};
     try {
       backup = await inspectBackupReadiness(createSystemBackupService(env));
@@ -217,9 +219,11 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
       backup = {verified:false,restore_tested:false,status:'BACKUP_CHECK_FAILED'};
     }
     return Response.json({
-      ok:true, mode:'READ_ONLY', storage, work, leases, backup,
+      ok:true, mode:'READ_ONLY', storage, work, leases, backup, maintenance_fence,
       reset_available:false,
-      blockers:globalCleanupReadiness().blockers,
+      blockers:[...globalCleanupReadiness().blockers,
+        ...(maintenance_fence.paused ? ['ACTIVE_OR_UNRECOVERED_MAINTENANCE_FENCE'] : []),
+        ...(leases.status === 'WORK_LEASES_ACTIVE' ? ['ACTIVE_WORK_LEASES'] : [])],
     }, { headers:{'cache-control':'no-store'} });
   }
 
