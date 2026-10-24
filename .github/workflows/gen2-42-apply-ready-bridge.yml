@@ -270,7 +270,7 @@ jobs:
           for(const item of job.files_json){
             const rel=String(item?.path||'').replace(/\\/g,'/');
             const body=String(item?.content??'');
-            if(!rel||path.posix.isAbsolute(rel)||rel.includes('..')||isSensitivePath(rel)) throw new Error('APPLY_PATH_DENIED:'+rel);
+            if(!rel||path.posix.isAbsolute(rel)||rel.split('/').includes('..')||isSensitivePath(rel)) throw new Error('APPLY_PATH_DENIED:'+rel);
             if(body.length>200000) throw new Error('APPLY_CONTENT_TOO_LARGE:'+rel);
             const trailingMatches=body.match(/[ \t]+(?=\r?\n|$)/g)||[];
             const normalizedBody=trailingMatches.length
