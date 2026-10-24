@@ -194,8 +194,8 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.match(d1Export, /(?:export )?const D1_PAGE_SIZE = 500;/);
   if (delegatedD1) {
     assert.match(d1Export, /export const MAX_ROWS_PER_TABLE = 250_000;/);
-    assert.match(d1Export, /page\.rows\.length > pageSize/);
-    assert.match(d1Export, /page\.has_more && page\.rows\.length !== pageSize/);
+    assert.match(d1Export, /page\.rows\.length > limit/);
+    assert.match(d1Export, /page\.has_more && page\.rows\.length !== limit/);
     assert.match(runner, /exportD1\(sidecar, sidecarJson/);
   }
   assert.match(runner, /createVerifiedBackupService/);

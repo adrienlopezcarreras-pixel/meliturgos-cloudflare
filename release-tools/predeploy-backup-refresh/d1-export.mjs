@@ -2,6 +2,7 @@
 // The sidecar caps read offsets at 250_000; never silently truncate.
 export const D1_PAGE_SIZE = 500;
 export const MAX_ROWS_PER_TABLE = 250_000;
+const MEMORY_LIMIT_RE = /memory limit|too large|exceeded/i;
 
 export async function exportD1(sidecar, sidecarJson, {
   pageSize = D1_PAGE_SIZE,
@@ -22,16 +23,29 @@ export async function exportD1(sidecar, sidecarJson, {
     if (!name || name.startsWith('_cf_')) continue;
     const tableRows = [];
     let offset = 0;
+    // Heavy rows (dev_jobs.result_json…) made a 500-row page exceed the D1
+    // memory limit and blocked every release (2026-10-24). Halve the page for
+    // that table and retry the same offset; completeness checks are unchanged.
+    let limit = pageSize;
     while (true) {
-      const qs = new URLSearchParams({ table: name, offset: String(offset), limit: String(pageSize) });
-      const page = await sidecarJson(sidecar, `/d1/rows?${qs.toString()}`);
+      const qs = new URLSearchParams({ table: name, offset: String(offset), limit: String(limit) });
+      let page;
+      try {
+        page = await sidecarJson(sidecar, `/d1/rows?${qs.toString()}`);
+      } catch (error) {
+        if (limit > 1 && MEMORY_LIMIT_RE.test(String(error?.message || error))) {
+          limit = Math.max(1, Math.floor(limit / 2));
+          continue;
+        }
+        throw error;
+      }
       if (page?.status !== 'D1_ROWS_PAGE' || String(page?.table || '') !== name
           || !Array.isArray(page.rows) || Number(page.offset) !== offset
-          || Number(page.limit) !== pageSize || typeof page.has_more !== 'boolean'
-          || page.rows.length > pageSize) {
+          || Number(page.limit) !== limit || typeof page.has_more !== 'boolean'
+          || page.rows.length > limit) {
         throw new Error(`D1_ROWS_PAGE_INVALID:${name}`);
       }
-      if (page.has_more && page.rows.length !== pageSize) throw new Error(`D1_PAGINATION_STALLED:${name}`);
+      if (page.has_more && page.rows.length !== limit) throw new Error(`D1_PAGINATION_STALLED:${name}`);
       if (tableRows.length + page.rows.length > maxRowsPerTable) throw new Error(`BACKUP_TABLE_ROW_LIMIT:${name}`);
       tableRows.push(...page.rows);
       if (page.has_more !== true) break;
