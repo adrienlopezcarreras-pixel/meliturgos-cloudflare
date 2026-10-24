@@ -1982,6 +1982,16 @@ fitInitialChatHeight();
 const initialView=new URLSearchParams(location.search).get('view');
 // MEL opens on the conversation; other panels stay one click away.
 show(initialView&&titles[initialView]?initialView:'chat');
+// Fit after activating the view: measuring a display:none chat beforehand yields
+// invalid coordinates. Set an explicit compact default and keep resize enabled.
+requestAnimationFrame(()=>{
+ const log=qs('#chatlog');
+ if(!log)return;
+ log.style.setProperty('height','180px','important');
+ log.style.setProperty('min-height','100px','important');
+ log.style.setProperty('max-height','none','important');
+ log.style.resize='vertical';
+});
 boot();
 let canonicalRefreshTimer=setInterval(()=>{
   if(document.hidden)return;
