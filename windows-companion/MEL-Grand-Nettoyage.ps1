@@ -32,33 +32,26 @@ if($base -and $cookie -and $base -match '^https://[^/]+$') {
   Report 'MAX : NON EXECUTE - URL MEL_BASE_URL ou session MEL_SESSION_COOKIE absente. Pour le faire directement, utiliser le bouton Vider la liste dans MEL.'
 }
 Report 'ETAPE 3 - INVENTAIRE GLOBAL MEL (lecture seule).'
-if($base -and $cookie -and $base -match '^https://[^/]+
-Report 'Ces files doivent etre mises a zero via des APIs ou migrations de maintenance authentifiees et testees, apres sauvegarde D1/R2 et verification des producteurs de jobs.'
-Report 'Pas de suppression des donnees de production, memoire, journaux durables, decisions DONE_VERIFIED, livraisons ou revenus.'
-Report 'ETAPE 4 - Base repository : aucun fichier, workflow, tag, PR ni archive retire automatiquement par ce lanceur.'
-Report 'A verifier ensuite : obsolete workflows, fichiers morts, doublons, bases temporaires, caches R2/D1, et dependances de reprise.'
-Report "Fin: $(Get-Date -Format o)"
-Report 'ETAT GLOBAL : PARTIEL; aucune affirmation de remise a zero totale sans preuves des endpoints applicatifs.'
-Write-Host "Rapport : $Report"
-) {
+if ($base -and $cookie -and $base -match '^https://[^/]+$') {
   try {
     $inventory=Invoke-RestMethod -Method Get -Uri "$base/api/gen2/autonomy/maintenance/inspect" -Headers @{Cookie=$cookie;Accept='application/json'} -TimeoutSec 45
-    if($inventory.ok -eq $true -and $inventory.mode -eq 'READ_ONLY') {
+    if ($inventory.ok -eq $true -and $inventory.mode -eq 'READ_ONLY') {
       $inventoryFile=Join-Path $ReportDir "MEL-inventaire-D1-$Stamp.json"
       $inventory | ConvertTo-Json -Depth 15 | Set-Content -Path $inventoryFile -Encoding UTF8
       Report "INVENTAIRE : OK - $inventoryFile"
       Report "WORK : $($inventory.work.total) DAG enregistres; baux=$($inventory.leases.status)"
       Report "NETTOYAGE GLOBAL : BLOQUE - $($inventory.blockers -join ', ')"
-    } else { Report 'INVENTAIRE : REPONSE INVALIDE - aucun succes declare.' }
+    } else {
+      Report 'INVENTAIRE : REPONSE INVALIDE - aucun succes declare.'
+    }
   } catch { Report "INVENTAIRE : ECHEC - $($_.Exception.Message)" }
 } else {
   Report 'INVENTAIRE : NON EXECUTE - session MEL indisponible dans Companion.'
 }
-Report 'ETAPE 3 - WORK, VEILLE, MENTOR, COUNCIL, FOUNDER, PLANIFICATEUR : NON MODIFIES.'
-Report 'Ces files doivent etre mises a zero via des APIs ou migrations de maintenance authentifiees et testees, apres sauvegarde D1/R2 et verification des producteurs de jobs.'
-Report 'Pas de suppression des donnees de production, memoire, journaux durables, decisions DONE_VERIFIED, livraisons ou revenus.'
-Report 'ETAPE 4 - Base repository : aucun fichier, workflow, tag, PR ni archive retire automatiquement par ce lanceur.'
-Report 'A verifier ensuite : obsolete workflows, fichiers morts, doublons, bases temporaires, caches R2/D1, et dependances de reprise.'
+Report 'ETAPE 4 - WORK, VEILLE, MENTOR, COUNCIL, FOUNDER, PLANIFICATEUR : NON MODIFIES.'
+Report 'Ces files doivent etre mises a zero via des APIs de maintenance testees, apres sauvegarde et verification de la pause des producteurs.'
+Report 'Pas de suppression de la memoire, des DONE_VERIFIED, livraisons, preuves ou revenus.'
+Report 'ETAPE 5 - Aucun workflow, tag ou PR retire automatiquement.'
 Report "Fin: $(Get-Date -Format o)"
-Report 'ETAT GLOBAL : PARTIEL; aucune affirmation de remise a zero totale sans preuves des endpoints applicatifs.'
+Report 'ETAT GLOBAL : PARTIEL; aucune affirmation de remise a zero totale.'
 Write-Host "Rapport : $Report"
