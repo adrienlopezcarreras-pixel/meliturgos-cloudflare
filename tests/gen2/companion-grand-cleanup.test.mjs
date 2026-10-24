@@ -48,3 +48,11 @@ test('Grand nettoyage never resets MAX before verified global restore preflight'
  assert.match(source, /MAX : VERROUILLE/);
  assert.match(source, /maintenance\/inspect/);
 });
+
+test('GitHub cleanup fail closed unless dry-run confirms success and no errors', async () => {
+  const src=await read('windows-companion/MEL-Grand-Nettoyage.ps1');
+  assert.match(src,/MEL_GITHUB_DRY_RUN_REPORTED_ERRORS/);
+  assert.match(src,/MEL_GITHUB_DRY_RUN_COMPLETION_NOT_PROVEN/);
+  assert.match(src,/\^\[oO\]\$/);
+  assert.ok(src.indexOf('MEL_GITHUB_DRY_RUN_COMPLETION_NOT_PROVEN') < src.indexOf("-Apply"));
+});
