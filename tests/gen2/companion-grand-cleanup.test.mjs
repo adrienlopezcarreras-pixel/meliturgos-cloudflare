@@ -16,9 +16,10 @@ test('Companion ships the owner-run grand cleanup behind a button, simulation fi
   // Never run on install: InstallFiles only copies.
   const install = native.slice(native.indexOf('public static void InstallFiles('), native.indexOf('public static void ConfigureStartup('));
   assert.doesNotMatch(install, /Process\.Start\(.*Cleanup/);
-  // Deletions require -Apply, which the orchestrator passes only after an O answer.
+  // Destructive GitHub operations are unavailable until the full preflight exists.
   assert.match(github, /param\(\[switch\]\$Apply\)/);
-  assert.match(orchestrator, /Read-Host[\s\S]*MEL-Nettoyage-GitHub\.ps1" -Apply/);
+  assert.doesNotMatch(orchestrator, /\$githubScript -Apply/);
+  assert.ok(orchestrator.indexOf('maintenance/inspect') < orchestrator.indexOf('MEL-Nettoyage-GitHub.ps1'));
   for (const prefix of ['archive/', 'release/', 'candidate/']) assert.ok(github.includes(`'${prefix}'`));
 });
 
