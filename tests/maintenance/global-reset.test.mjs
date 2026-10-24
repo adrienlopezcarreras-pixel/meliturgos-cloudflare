@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inspectMaintenanceStorage, prepareGlobalReset, validateMaintenanceAuthorization, retireLegacyDevJobs, resetWatchDiscoveryProjection, retireRevenueDiscoveries, inspectWorkDagsForReset, assertNoActiveWorkLeases } from '../../src/maintenance/global-reset.js';
+import { inspectMaintenanceStorage, prepareGlobalReset, validateMaintenanceAuthorization, retireLegacyDevJobs, resetWatchDiscoveryProjection, retireRevenueDiscoveries, inspectWorkDagsForReset, assertNoActiveWorkLeases, globalCleanupReadiness } from '../../src/maintenance/global-reset.js';
 
 const backup = { verified:true, restore_tested:true, reference:'isolated-restore-proof', sha256:'a'.repeat(64) };
 const db = {
@@ -108,4 +108,12 @@ test('maintenance inspection route is authenticated and read-only', async () => 
   const handler = source.slice(handlerPos, source.indexOf('if (isActivityReset)', handlerPos));
   assert.match(handler, /reset_available:false/);
   assert.doesNotMatch(handler, /DELETE FROM|UPDATE dev_jobs|retireLegacyDevJobs/);
+});
+
+test('readiness remains false until ALL independently proven domains are ready',()=>{
+ const result=globalCleanupReadiness();
+ assert.equal(result.ready,false);
+ assert.ok(result.blockers.includes('RESTORE_TEST_NOT_VERIFIED'));
+ assert.ok(result.blockers.includes('DOMAIN_RESET_NOT_PROVEN:WORK'));
+ assert.ok(result.blockers.includes('DOMAIN_RESET_NOT_PROVEN:MENTOR'));
 });
