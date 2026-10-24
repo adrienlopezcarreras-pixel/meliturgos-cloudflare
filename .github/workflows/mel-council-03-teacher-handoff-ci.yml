@@ -9,6 +9,9 @@ on:
       - '.github/workflows/mel-council-03-teacher-handoff-ci.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   teacher-handoff:
     runs-on: ubuntu-latest
