@@ -11,7 +11,7 @@ export function isClosedRoadmapStatus(status) {
   return [ROADMAP_STATUSES.VERIFIED, 'DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED'].includes(String(status || '').trim().toUpperCase());
 }
 
-export const ROADMAP_REGISTRY_REVISION = '2026-10-24.1';
+export const ROADMAP_REGISTRY_REVISION = '2026-10-24.2';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -227,6 +227,16 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-FOUNDER-06', 'Valider Companion, APK et MINI sur les appareils réels', 'BLOCKED_HUMAN', 'Le propriétaire doit disposer d’un PC, d’un téléphone et d’un MINI matériellement sain. L’écran cassé et l’absence de son ne se corrigent pas dans le dépôt. Ne pas les marquer vérifiés.', 'P1'),
     item('MEL-FOUNDER-07', 'Prouver une restauration isolée du patrimoine', 'PLANNED', 'Manifeste, priorité 1. Restaurer evolution_ledger, conversations et dev_jobs dans un environnement isolé. La D1 de production ne change pas. Un backup existant sans cette comparaison n’est pas une restauration prouvée. Écrire la comparaison dans scripts/ ou src/backup/ avec un test ; ne pas modifier .github/workflows/.', 'P1'),
     item('MEL-FOUNDER-08', 'Promouvoir un LoRA seulement après un gain mesuré', 'BLOCKED_EXTERNAL', 'Manifeste, priorité 2. Bloqué : un entraînement réel n’est pas à coût zéro, MAX ne le choisit pas. Un run d’entraînement n’est pas un LoRA actif. L’activation exige le même modèle de base, un gain mesuré, aucune régression majeure et un finetune_id persisté. Sinon le statut reste non actif.', 'P1')
+  ]),
+
+  phase('P18', 'Audit interface et fonctionnalités — acceptation réelle', [
+    item('MEL-UI-AUDIT-01', 'Inventaire exhaustif des pages, boutons, liens et commandes', 'PLANNED', 'Construire une matrice page/contrôle/action/API/résultat/état, incluant Normal, Complet/Professeur, Code, panneaux, Work, mémoire, LoRA, Council, diagnostics, connexions, PC, MINI et Android. Chaque contrôle visible doit avoir un verdict PASS/FAIL/BLOCKED avec preuve ; ne pas marquer vérifié sur simple inspection du code.', 'P0'),
+    item('MEL-UI-AUDIT-02', 'Chat multimodal et modes Normal / Professeur / Code', 'PLANNED', 'Vérifier saisie, envoi, streaming, reprise, interruption, messages longs, formats riches, collage/glisser-déposer/sélecteur, aperçus, images, vidéo et audio, contexte privé, et conservation du mode/model router. Réparer les causes racines, tester navigateur et API.', 'P0'),
+    item('MEL-UI-AUDIT-03', 'Panneau d’activité et commandes de continuation', 'PLANNED', 'Confirmer en navigateur le défilement jusqu’au dernier événement, réduire/rouvrir, redimensionnement, persistance, actualiser, effacer, continuer, auto-continuer et interrompre. Couvrir arrivée de nouveaux événements pendant défilement et repli ; ne pas refaire #2565 sans régression reproduite.', 'P0'),
+    item('MEL-UI-AUDIT-04', 'MAX, cycle autonome et vérité des états', 'PLANNED', 'Vérifier activation, pause, reprise, persistance après release, états QUEUED/RUNNING/DONE_VERIFIED, correspondance UI/API et absence de faux succès ; coordonner avec le correctif Mentor déjà confié à Codex sans conflit.', 'P0'),
+    item('MEL-UI-AUDIT-05', 'Mon PC, Companions et surfaces matérielles', 'PLANNED', 'Tester capture, clavier, souris, arrêter, appairer, mise à jour, connexions Windows/Android/MINI, permissions et messages d’erreur. Si appareil absent, BLOCKED_HUMAN : ne pas inventer de validation réelle.', 'P1'),
+    item('MEL-UI-AUDIT-06', 'MEL WORK, mémoire, Council, LoRA, connexions et diagnostics', 'PLANNED', 'Exercer chaque parcours utilisateur et confronter les affichages aux résultats API/état durable : soumission de missions, données réelles, import/export mémoire, réunions IA, entraînement/état LoRA, OAuth, erreurs réseau, actualisation et liens.', 'P0'),
+    item('MEL-UI-AUDIT-07', 'Régression UX, accessibilité et preuve de release', 'PLANNED', 'Valider desktop et mobile, clavier, focus, contraste, états disabled/loading/error, navigation, modales, actualisation, persistance et tests E2E. Publier inventaire PASS/FAIL/BLOCKED et preuves; DONE_VERIFIED uniquement après validation reproductible sur SHA déployé.', 'P0')
   ]),
 
   phase('P17', 'Compte du manifeste : continuer après le cycle fondateur', [
