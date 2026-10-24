@@ -4,7 +4,7 @@ import { withChatProgress } from './api/chat-progress.js';
 import { maybeDispatchCloudBridge } from './evolution/cloud-bridge-dispatch.js';
 import { handleTaskmarketWalletImport } from './revenue/taskmarket-cloud.js';
 import { runRevenueWatch } from "./revenue/revenue-watch.js";
-import { runScheduledMelWork } from "./revenue/work-schedule.js";
+import { runScheduledMelWork, isDedicatedWorkMinute } from "./revenue/work-schedule.js";
 import { runModelTournament } from "./models/model-tournament.js";
 import router from "./router.js";
 import { requireAuth, isReleaseSmokeRequest } from "./core/security.js";
@@ -636,8 +636,8 @@ export default {
             console.error('[MEL autonomy] hourly maintenance failed:', error?.code || error?.message || error);
             return null;
           }),
-          runScheduledMelWork(env).catch((error) => {
-            console.error('[MEL WORK] scheduled cycle failed:', error?.code || error?.message || error);
+          runScheduledMelWork(env, { startCycle: false }).catch((error) => {
+            console.error('[MEL WORK] hourly housekeeping failed:', error?.code || error?.message || error);
             return null;
           }),
           runExpiredMediaCleanup(env).catch((error) => {
@@ -729,6 +729,12 @@ export default {
           }),
         ]
       : [
+          ...(isDedicatedWorkMinute(new Date(Number(controller?.scheduledTime) || Date.now()))
+            ? [runScheduledMelWork(env).catch((error) => {
+                console.error('[MEL WORK] dedicated cycle failed:', error?.code || error?.message || error);
+                return null;
+              })]
+            : []),
           runPersistentCapabilityStressResumeTick(env, { waitUntil: auditWaitUntil }).catch((error) => {
             console.error('[MEL stress] scheduled D1 continuation failed:', error?.code || error?.message || error);
             return null;

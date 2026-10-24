@@ -42,7 +42,7 @@ export async function retryPendingSubmissions(env, { now = Date.now(), queue = q
   return { retried };
 }
 
-export async function runScheduledMelWork(env, { now = new Date(), run = streamDirectWork } = {}) {
+export async function runScheduledMelWork(env, { now = new Date(), run = streamDirectWork, startCycle = true } = {}) {
   if (String(env?.MEL_WORK_AUTONOMOUS || 'on').toLowerCase() === 'off') return { status: 'DISABLED' };
   if (!env?.DB?.prepare || typeof env?.AI?.run !== 'function') return { status: 'RUNTIME_UNAVAILABLE' };
   // Once: copy the PC Taskmarket keystore to the vault so hand-ins work PC off.
@@ -54,6 +54,9 @@ export async function runScheduledMelWork(env, { now = new Date(), run = streamD
     .bind(JSON.stringify({ status: 'INTERRUPTED' }), now.toISOString(), new Date(now.getTime() - 30 * 60_000).toISOString()).run().catch(() => null);
   // Won or lost? Each lost contract becomes a lesson for the next cycles.
   await reviewSubmissionOutcomes(env, { now: now.getTime() }).catch(() => null);
+  // The hourly batch only does housekeeping: a cycle started there shared the
+  // invocation with ~15 tasks and was cut (14 INTERRUPTED for 5 COMPLETE).
+  if (!startCycle) return { status: 'HOUSEKEEPING_ONLY' };
   if (!MEL_WORK_SCHEDULE_HOURS.includes(now.getUTCHours())) return { status: 'NOT_SCHEDULED_HOUR' };
   const drafts = await draftsLast24h(env.DB, now);
   if (drafts >= MEL_WORK_MAX_DAILY_DRAFTS) return { status: 'DAILY_DRAFT_LIMIT', drafts };
@@ -64,4 +67,9 @@ export async function runScheduledMelWork(env, { now = new Date(), run = streamD
   if (!done) return { status: 'FAILED', code: error?.code || 'NO_RESULT' };
   const r = done.result || {};
   return { status: r.status || 'DONE', artifactId: r.artifactId || null, missionId: r.missionId || null, submission: r.submission || null };
+}
+
+/** A WORK cycle gets its own per-minute invocation, at minute 29 of each scheduled hour. */
+export function isDedicatedWorkMinute(date) {
+  return date.getUTCMinutes() === 29 && MEL_WORK_SCHEDULE_HOURS.includes(date.getUTCHours());
 }
