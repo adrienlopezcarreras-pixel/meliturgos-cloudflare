@@ -52,7 +52,9 @@ test('without a database the roadmap says so instead of inventing a status', asy
 test('roadmap.read returns the real truth next to the declared roadmap', async () => {
   const { createDefaultCapabilityBus } = await import('../src/capabilities/default-bus.js');
   const d = await db();
-  await exec(d, 'code.read', 'SUCCEEDED', 60_000);
+  // roadmap.read judges freshness against the real clock: date this proof from
+  // now, not from the fixed fixture date (it expired after seven days).
+  await exec(d, 'code.read', 'SUCCEEDED', now - Date.now() + 60_000);
   const bus = createDefaultCapabilityBus({ env: { DB: d } });
   const payload = await bus.execute('roadmap.read', {}, { owner: 'test', permissions: [] });
   assert.equal(payload.summary.percent_complete, 85, '133 historical proofs stay verified; the founder cycle, the manifesto and the six weekly-audit items stay open');
