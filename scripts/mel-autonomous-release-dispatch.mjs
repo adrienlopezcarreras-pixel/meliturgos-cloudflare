@@ -122,6 +122,12 @@ export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo 
   if (!SHA40.test(latestMainSha) || latestMainSha !== mainSha) {
     throw new Error('CANONICAL_MAIN_CHANGED_BEFORE_DISPATCH');
   }
+  // A concurrent promotion can move the release pointer after its earlier
+  // verification. Dispatch only when the pointer still names the exact main SHA.
+  const latestReleaseSha = String((await api('/branches/' + RELEASE_BRANCH))?.commit?.sha || '');
+  if (latestReleaseSha !== mainSha) {
+    throw new Error('RELEASE_POINTER_CHANGED_BEFORE_DISPATCH');
+  }
   await api('/actions/workflows/deploy-cloudflare-release.yml/dispatches', {
     method: 'POST',
     payload: {
