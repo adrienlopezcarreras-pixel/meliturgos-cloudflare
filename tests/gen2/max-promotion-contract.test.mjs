@@ -106,3 +106,12 @@ test('Bridge permits only nonoverlapping descendant SHA rebase before mandatory 
   assert.match(workflow,/CANDIDATE_SHA=\$HEAD_SHA/);
   assert.ok(workflow.indexOf('CANDIDATE_DISJOINT_REBASE') < workflow.indexOf('- name: Run exact bounded requested tests'));
 });
+
+test('Bridge file-list validation failure cannot be swallowed by shell process substitution', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  const snippet = workflow.slice(workflow.indexOf('CANDIDATE_SHA_STALE_NON_ANCESTOR'),workflow.indexOf('CANDIDATE_DISJOINT_REBASE'));
+  assert.match(snippet,/node - > approved-paths\.bin <<'NODE'/);
+  assert.match(snippet,/mapfile -d '' -t APPROVED_PATHS < approved-paths\.bin/);
+  assert.doesNotMatch(snippet,/mapfile[^\n]*< <\(node/);
+  assert.match(snippet,/process\.exit\(2\)/);
+});
