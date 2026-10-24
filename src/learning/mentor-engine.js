@@ -175,8 +175,24 @@ function proposalFromMarkedFiles(raw) {
   return { summary, changes, tests, confidence: 0.5, lessons: [], risks: [] };
 }
 
+// Code inside JSON strings is where small models break quotes and newlines
+// (MENTOR_JSON_INVALID). Plain SEARCH/REPLACE blocks carry code verbatim.
+function proposalFromSearchReplace(raw) {
+  const text = String(raw || '');
+  if (!/<{7} SEARCH/.test(text)) return null;
+  const edits = [];
+  const pattern = /(?:^|\r?\n)EDIT[ \t]+(\S+)[ \t]*\r?\n(?:```[A-Za-z0-9_-]*\r?\n)?<{7} SEARCH\r?\n([\s\S]*?)\r?\n={7}\r?\n([\s\S]*?)\r?\n>{7} REPLACE/g;
+  for (const match of text.matchAll(pattern)) edits.push({ path: match[1], find: match[2], replace: match[3] });
+  if (!edits.length) return null;
+  const summary = (text.match(/(?:^|\n)SUMMARY[ \t]+(.+)/) || [])[1] || 'Proposition de développement MEL';
+  const tests = [...text.matchAll(/(?:^|\n)TESTS[ \t]+(.+)/g)].flatMap((row) => row[1].split(/[,\s]+/)).filter(Boolean);
+  return { summary, edits, tests, confidence: 0.5, lessons: [], risks: [] };
+}
+
 function parseJsonCandidate(raw) {
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  const blocks = proposalFromSearchReplace(raw);
+  if (blocks) return blocks;
   const marked = proposalFromMarkedFiles(raw);
   if (marked) return marked;
   let text = String(raw || '').trim();
@@ -382,8 +398,8 @@ function buildRepairPrompt({ goal, files, raw, failure, mode, reference = '' }) 
   const uninspected = /MENTOR_UNINSPECTED_PATH/.test(String(failure || ''));
   const allowed = (Array.isArray(files) ? files : []).slice(0, 6).map(file => file.path).filter(Boolean).join(', ');
   return [
-    'Tu répares une réponse de code rejetée. Réponds uniquement par un objet JSON valide.',
-    'FORMAT UNIQUE (aucun autre format): {"summary":"modification","edits":[{"path":"CHEMIN_EXACT","find":"EXTRAIT_EXACT_UNIQUE","replace":"NOUVEAU_CONTENU"}],"tests":["test:smoke"],"confidence":0.8}.',
+    'Tu répares une réponse de code rejetée.',
+    'FORMAT UNIQUE (texte brut, sans JSON) : une ligne « SUMMARY modification concrète », une ligne « TESTS test:smoke », puis pour chaque modification : une ligne « EDIT CHEMIN_EXACT », une ligne « <<<<<<< SEARCH », l’extrait EXACT et UNIQUE à remplacer, une ligne « ======= », le nouveau contenu, une ligne « >>>>>>> REPLACE ». Le JSON {"summary","edits":[{"path","find","replace"}],"tests"} reste accepté.',
     'Les edits remplacent un texte EXACT qui existe UNE SEULE FOIS dans un fichier inspecté; ne réécris pas le fichier entier.',
     'Choisis uniquement un des fichiers effectivement inspectés ci-dessous: ' + allowed,
     'Pour les gros fichiers, cible quelques lignes présentes dans les extraits fournis. Aucun import inventé, placeholder, diff, prose, bloc FILE ou marqueur MEL_FILE.',
@@ -403,12 +419,12 @@ function buildRepairPrompt({ goal, files, raw, failure, mode, reference = '' }) 
 function buildPrompt({ role, goal, files, lessons, experiences, previousAttempts, mode, reference = '' }) {
   const allowed = (Array.isArray(files) ? files : []).slice(0, 6).map(file => file.path).filter(Boolean).join(', ');
   return [
-    'Tu es le mentor code de MELITURGOS. Réponds uniquement par un objet JSON valide, sans markdown ni explication.',
+    'Tu es le mentor code de MELITURGOS. Réponds uniquement dans le format ci-dessous, sans explication.',
     'RÔLE: ' + role + '. MODE: ' + (mode === 'repair' ? 'RÉPARATION APRÈS TEST' : 'IMPLÉMENTATION') + '.',
-    'FORMAT OBLIGATOIRE: {"summary":"modification concrète","edits":[{"path":"CHEMIN_EXACT","find":"EXTRAIT_EXACT_UNIQUE","replace":"NOUVEAU_CONTENU"}],"tests":["test:smoke"],"confidence":0.8}.',
-    'Utilise edits, pas changes. find doit être un extrait EXACT et UNIQUE visible dans SOURCES_INSPECTÉES. replace est son remplacement réel.',
+    'FORMAT OBLIGATOIRE (texte brut, sans JSON) : une ligne « SUMMARY modification concrète », une ligne « TESTS test:smoke », puis pour chaque modification : une ligne « EDIT CHEMIN_EXACT », une ligne « <<<<<<< SEARCH », l’extrait EXACT et UNIQUE à remplacer, une ligne « ======= », le nouveau contenu, une ligne « >>>>>>> REPLACE ». Le JSON {"summary","edits":[{"path","find","replace"}],"tests"} reste accepté.',
+    'L’extrait SEARCH doit être EXACT et UNIQUE, copié de SOURCES_INSPECTÉES ; REPLACE est son remplacement réel.',
     'Fichiers autorisés: ' + allowed + '. Ne crée pas de fichier non inspecté.',
-    'Ne renvoie pas un fichier entier, un diff, un bloc FILE/MEL_FILE, du texte tronqué ou du code hors JSON.',
+    'Ne renvoie pas un fichier entier, un diff, un bloc FILE/MEL_FILE ou du texte tronqué.',
     'Modifie le minimum pour faire avancer l’objectif approuvé. Aucun nouvel import ou module non présent dans les fichiers/dependances vérifiés.',
     'N’invente pas un module absent : aucun nouvel import sans dépendance ou fichier vérifié.',
     'Ne modifie aucun secret et ne prétends pas que les tests ont déjà réussi.',
