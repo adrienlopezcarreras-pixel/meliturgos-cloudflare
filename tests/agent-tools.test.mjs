@@ -208,3 +208,53 @@ test('documenting a tool protocol never executes the example',async()=>{
   const malformed='{"capability":"web.research","args":"not json"}';
   assert.equal(parseAgentAction(malformed).final,true);assert.equal(stripLeakedToolCalls(malformed),'');
 });
+
+
+test('standard function-call envelopes use the same parser and read dispatcher', async () => {
+  const call={type:'function',function:{name:'calendar.events.read',arguments:JSON.stringify({limit:3})}};
+  for(const envelope of [call,{tool_calls:[{id:'call_fixture',...call}]}]) {
+    const raw=JSON.stringify(envelope);
+    assert.deepEqual(parseAgentAction(raw),{tool:'calendar.events.read',input:{limit:3}});
+    assert.equal(responseIsBareToolCall(raw),true);
+    assert.equal(stripLeakedToolCalls(raw),'');
+    const calls=[];
+    const rows=await executeLeakedReads({bus:{async execute(id,input){calls.push([id,input]);return {events:[]};}},text:raw});
+    assert.deepEqual(calls,[['calendar.events.read',{limit:3}]]);
+    assert.equal(rows[0].status,'SUCCEEDED');
+  }
+});
+
+test('a batch of standard calls recovers only approved reads once and removes the complete protocol envelope',async()=>{
+ const call=(name,args={})=>({type:'function',function:{name,arguments:JSON.stringify(args)}});
+ const raw=JSON.stringify({tool_calls:[call('gmail.messages.search'),call('calendar.events.read'),call('drive.files.list'),call('evolution.enqueue'),call('gmail.messages.search')]});
+ const calls=[];
+ const rows=await executeLeakedReads({bus:{async execute(id){calls.push(id);return {ok:true};}},text:raw});
+ assert.deepEqual(calls,['gmail.messages.search','calendar.events.read','drive.files.list']);
+ assert.equal(rows.length,3);
+ assert.equal(stripLeakedToolCalls('Avant\n'+raw+'\nAprès'),'Avant\n\nAprès');
+ await executeLeakedReads({bus:{async execute(id){calls.push(id);}},text:raw,already:rows});
+ assert.equal(calls.length,3);
+ const data=JSON.stringify({data:{tool_calls:[call('calendar.events.read')]}});
+ assert.equal(stripLeakedToolCalls(data),data,'nested result data is never interpreted as instructions');
+});
+
+test('malformed standard arguments remain non-executable and are hidden as invalid protocol',async()=>{
+ const raw=JSON.stringify({tool_calls:[{type:'function',function:{name:'code.read',arguments:'not JSON'}}]});
+ assert.equal(stripLeakedToolCalls(raw),'');
+ let calls=0;
+ assert.deepEqual(await executeLeakedReads({bus:{async execute(){calls++;}},text:raw}),[]);
+ assert.equal(calls,0);
+});
+
+
+test('the model loop executes standard calls through authorization and retains actual failures',async()=>{
+ const replies=[
+  JSON.stringify({tool_calls:[{type:'function',function:{name:'calendar.events.read',arguments:'{}'}}]}),
+  '{"final":true}',
+ ];
+ const calls=[];
+ const rows=await runAgentToolLoop({env:ai(replies),bus:{list:()=>[{id:'calendar.events.read'}],async execute(id,input){calls.push([id,input]);throw Object.assign(new Error('denied'),{code:'AUTH_REQUIRED'});}},text:'vérifie mon agenda'});
+ assert.deepEqual(calls,[['calendar.events.read',{}]]);
+ assert.equal(rows[0].status,'FAILED');
+ assert.equal(rows[0].error,'AUTH_REQUIRED');
+});

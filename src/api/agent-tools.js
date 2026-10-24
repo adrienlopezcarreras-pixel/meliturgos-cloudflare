@@ -46,8 +46,15 @@ export function parseAgentAction(text) {
   const match = String(text || '').match(/\{[\s\S]*\}/);
   if (!match) return { final: true };
   try {
-    const j = JSON.parse(match[0]);
+    let j = JSON.parse(match[0]);
     if (!j || typeof j !== 'object') return { final: true };
+    // Recognize only explicit protocol envelopes, never nested tool-shaped data.
+    if (Array.isArray(j.tool_calls)) {
+      if (j.tool_calls.length !== 1) return { final: true, invalid_tool_call: true };
+      j = j.tool_calls[0];
+    }
+    if (j?.type === 'function' && j.function && typeof j.function === 'object') j = j.function;
+    if (!j || typeof j !== 'object') return { final: true, invalid_tool_call: true };
     if (j.final === true && typeof j.tool !== 'string') return { final: true };
     // Some chat models emit an OpenAI-style {name, arguments} call rather
     // than MEL's {tool, input} protocol. Normalize the same tool intent, but
@@ -129,8 +136,15 @@ function eachJsonObject(text, visit) {
 export function leakedToolCalls(text) {
   const found = [];
   eachJsonObject(text, raw => {
-    const action = parseAgentAction(raw);
-    if (typeof action.tool === 'string') found.push(action);
+    let envelope;
+    try { envelope = JSON.parse(raw); } catch { return; }
+    // A model can return several independent calls. Recovery remains read-only,
+    // bounded and deduplicated below; arbitrary nested result objects stay data.
+    const calls = Array.isArray(envelope?.tool_calls) ? envelope.tool_calls : [envelope];
+    for (const call of calls.slice(0, 12)) {
+      const action = parseAgentAction(JSON.stringify(call));
+      if (typeof action.tool === 'string') found.push(action);
+    }
   });
   return found;
 }
