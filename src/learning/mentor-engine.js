@@ -519,7 +519,7 @@ export class MentorEngine {
     this.now = typeof now === 'function' ? now : () => Date.now();
   }
 
-  async _providers(env, { codeCouncil = false } = {}) {
+  async _providers(env, { codeCouncil = false, escalate = false } = {}) {
     if (this.providerFactory) return this.providerFactory(env);
     const pool = createDefaultAugmentioPool(env);
     await pool.refreshHealth();
@@ -527,7 +527,13 @@ export class MentorEngine {
     // ChatGPT-GPT6 / MEL-MENTOR-FALLBACK: bounded model fallback (revert this PR to remove).
     // Bound the number of eligible models, but let the mentor fall back beyond
     // the first three when those providers fail or return invalid proposals.
-    const cloud = pool.list({ capability: 'CODE' }).filter(provider => governor.allows(provider)).slice(0, codeCouncil ? 16 : 6);
+    const specialists = pool.list({ capability: 'CODE_SPECIALIST' }).filter(provider => governor.allows(provider));
+    const large = specialists.filter(provider => provider.capabilities.includes('CODE_LARGE'));
+    const small = specialists.filter(provider => !provider.capabilities.includes('CODE_LARGE'));
+    const coders = escalate ? [...large, ...small] : small;
+    // No code model answers the zero-cost proof: keep MAX moving with the
+    // general models; the weekly development audit reports the exclusion.
+    const cloud = coders.length ? coders : pool.list({ capability: 'CODE' }).filter(provider => governor.allows(provider)).slice(0, codeCouncil ? 16 : 6);
     const companion = await createMentorCompanionFallback(env);
     if (codeCouncil) return cloud;
     return companion ? [...cloud, companion] : cloud;
@@ -575,7 +581,8 @@ export class MentorEngine {
       this.memory.experienceContext(objective, { limit: learned.inference.memory_results }),
     ]);
     const codeCouncil = mode === 'repair' || previousAttempts.length >= 2;
-    const providers = await this._providers(env, { codeCouncil });
+    // Large code models only after three failed attempts with the small ones.
+    const providers = await this._providers(env, { codeCouncil, escalate: previousAttempts.length >= 3 });
     if (!providers.length) throw Object.assign(new Error('MENTOR_NO_ZERO_COST_CODE_PROVIDER'), { code: 'MENTOR_NO_ZERO_COST_CODE_PROVIDER', status: 503 });
 
     const roles = ['implémenteur principal', 'relecteur architecture et régressions', 'testeur-réparateur'];
