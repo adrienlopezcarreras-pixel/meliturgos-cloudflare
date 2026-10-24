@@ -47,7 +47,6 @@ function capability(bus, record, execute) {
 export function registerSkillRegistryCapabilities(bus, { env = {} } = {}) {
   const db = env.DB;
   const health = db ? 'HEALTHY' : 'UNAVAILABLE';
-  const hasEcartProuve = false; // TODO: implémenter la vérification de l'écart prouvé
 
   capability(bus, {
     id:'skill.list',
