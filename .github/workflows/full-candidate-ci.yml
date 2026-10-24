@@ -65,6 +65,18 @@ jobs:
     permissions:
       actions: write
     steps:
+      - name: Verify tested SHA remains current candidate HEAD
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_sha="$(git ls-remote "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" refs/heads/candidate/mel-clean-autonomy | cut -f1)"
+          if [ "$remote_sha" != "$EXPECTED_SHA" ]; then
+            echo "::error::CANDIDATE_CI_SHA_SUPERSEDED expected=$EXPECTED_SHA observed=$remote_sha"
+            exit 1
+          fi
       - name: Dispatch candidate promotion
         env:
           GH_TOKEN: ${{ github.token }}

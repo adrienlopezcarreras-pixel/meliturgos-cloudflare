@@ -36,8 +36,19 @@ test('[GPT6] SHA drift evidence survives Teacher requeue for diagnosis', () => {
 
 test('[GPT6] direct Bridge head mismatch carries both SHAs into durable recovery', () => {
   const source = readFileSync('src/evolution/autonomy-bridge-preparer.js', 'utf8');
-  const mismatch = source.slice(source.indexOf('if (!SHA40.test(String(headBefore'), source.indexOf('async function inspectSources')));
+  const mismatch = source.slice(source.indexOf('if (!SHA40.test(String(headBefore'));
   assert.match(mismatch, /expected_sha: approvedSha/);
   assert.match(mismatch, /observed_sha: SHA40\.test\(String\(headBefore\?\.sha/);
   assert.match(mismatch, /observed_sha: SHA40\.test\(String\(headAfter\?\.sha/);
+});
+
+test('[GPT6] Bridge immutable source inspection is opt-in and preserves strict default', () => {
+  const source = readFileSync('src/evolution/autonomy-bridge-preparer.js','utf8');
+  const inspect = source.slice(source.indexOf('async function inspectSources('), source.indexOf('function normalizeTests(',source.indexOf('async function inspectSources(')));
+  assert.match(inspect,/MEL_IMMUTABLE_PLANNING_ENABLED !== 'true'/);
+  assert.match(inspect,/return await reader\.approvedSnapshot\(\)/);
+  assert.match(inspect,/CODE_APPROVED_SNAPSHOT_UNAVAILABLE/);
+  assert.match(inspect,/return reader\.head\(\)/);
+  assert.match(inspect,/BRIDGE_PREPARATION_CANDIDATE_STALE/);
+  assert.match(inspect,/CANDIDATE_HEAD_CHANGED_DURING_INSPECTION/);
 });

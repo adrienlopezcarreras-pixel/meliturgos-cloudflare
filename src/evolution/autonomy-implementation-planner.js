@@ -221,6 +221,24 @@ async function readApprovedHead(reader, bridge, { movedCode = 'TEACHER_APPROVAL_
   }
 }
 
+// Read-only planning is bound to an immutable Teacher-approved commit. The
+// mutable branch HEAD remains authoritative for Bridge writes and promotion.
+async function readApprovedSnapshot(reader, bridge) {
+  let snapshot;
+  try {
+    snapshot = await reader.approvedSnapshot();
+  } catch (error) {
+    // GitHub REST commonly returns 403 for an exhausted anonymous quota.
+    // Preserve the proven strict-head path rather than blocking all planning.
+    if (error?.code !== 'CODE_APPROVED_SNAPSHOT_UNAVAILABLE') throw error;
+    return readApprovedHead(reader, bridge);
+  }
+  if (String(snapshot?.sha || '').toLowerCase() !== approvedCandidateSha(bridge) || snapshot.remote_verified !== true) {
+    throw Object.assign(new Error('TEACHER_APPROVAL_SNAPSHOT_INVALID'), {code:'TEACHER_APPROVAL_SNAPSHOT_INVALID'});
+  }
+  return snapshot;
+}
+
 function assertPlanQualityContract(value) {
   const text = String(value || '');
   const missing = QUALITY_SECTIONS.filter(([, pattern]) => !pattern.test(text)).map(([name]) => name);
@@ -236,7 +254,8 @@ function assertPlanQualityContract(value) {
 async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) {
   const { config, reader } = codeReader(env, fetchImpl, bridge);
   assertTeacherApprovedBranch(config, bridge);
-  const headBefore = await readApprovedHead(reader, bridge);
+  const snapshotPlanning = env?.MEL_IMMUTABLE_PLANNING_ENABLED === 'true';
+  const headBefore = snapshotPlanning ? await readApprovedSnapshot(reader, bridge) : await readApprovedHead(reader, bridge);
   // A request typed by the owner in chat has no roadmap entry; it still needs a
   // stable id, otherwise it blocked the whole autonomy queue forever
   // (IMPLEMENTATION_ROADMAP_ID_REQUIRED on every tick).
@@ -311,7 +330,7 @@ async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) 
     } catch {}
   }
   if (!files.length) throw Object.assign(new Error('APPROVED_IMPLEMENTATION_CODE_CONTEXT_REQUIRED'), { code: 'APPROVED_IMPLEMENTATION_CODE_CONTEXT_REQUIRED' });
-  const headAfter = await readApprovedHead(reader, bridge, { movedCode: 'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION' });
+  const headAfter = snapshotPlanning ? await readApprovedSnapshot(reader, bridge) : await readApprovedHead(reader, bridge, { movedCode: 'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION' });
   if (headBefore.sha !== headAfter.sha) {
     throw Object.assign(new Error('CANDIDATE_HEAD_CHANGED_DURING_INSPECTION'), { code: 'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION' });
   }
@@ -334,7 +353,14 @@ async function reusableProposal(env, existing, bridge, { fetchImpl = fetch, job 
   const coveredTerms = Array.isArray(existing?.inspection?.goal_terms) ? existing.inspection.goal_terms : [];
   if (requiredTerms.some((term) => !coveredTerms.includes(term))) return null;
 
-  const head = await readApprovedHead(reader, bridge);
+  // A verified immutable Teacher snapshot can preserve an already prepared
+  // read-only plan across unrelated candidate commits. The Dev Bridge still
+  // validates the current branch before any code is applied.
+  if (env?.MEL_IMMUTABLE_PLANNING_ENABLED === 'true') {
+    await readApprovedSnapshot(reader, bridge);
+  } else {
+    await readApprovedHead(reader, bridge);
+  }
   if (String(existing.candidate_sha).toLowerCase() !== approvedSha) return null;
   return { ...existing, reused: true };
 }

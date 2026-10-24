@@ -55,14 +55,38 @@ jobs:
           MAIN="$(git rev-parse origin/main)"
           CAND="$(git rev-parse "origin/$CANDIDATE")"
           dispatch_ci() {
-            curl --silent --show-error --max-time 30 --request POST \
+            local code
+            code="$(curl --fail-with-body --silent --show-error --max-time 30 --request POST \
               --header "Authorization: Bearer $GH_TOKEN" --header "Accept: application/vnd.github+json" \
               --data "{\"ref\":\"$CANDIDATE\"}" --output /dev/null --write-out '%{http_code}' \
-              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/full-candidate-ci.yml/dispatches" || true
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/full-candidate-ci.yml/dispatches")" || {
+              echo "::error title=MEL candidate::FULL_CANDIDATE_CI_DISPATCH_FAILED" >&2
+              return 1
+            }
+            if [ "$code" != "204" ]; then
+              echo "::error title=MEL candidate::FULL_CANDIDATE_CI_DISPATCH_UNACKNOWLEDGED http=$code" >&2
+              return 1
+            fi
+            echo "$code"
+          }
+          dispatch_release() {
+            local code
+            code="$(curl --fail-with-body --silent --show-error --max-time 30 --request POST \
+              --header "Authorization: Bearer $GH_TOKEN" --header "Accept: application/vnd.github+json" \
+              --data '{"ref":"main"}' --output /dev/null --write-out '%{http_code}' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/mel-autonomous-production-release.yml/dispatches")" || {
+              echo "::error title=MEL release::PRODUCTION_RELEASE_DISPATCH_FAILED" >&2
+              return 1
+            }
+            if [ "$code" != "204" ]; then
+              echo "::error title=MEL release::PRODUCTION_RELEASE_DISPATCH_UNACKNOWLEDGED http=$code" >&2
+              return 1
+            fi
+            echo "PRODUCTION_RELEASE_DISPATCH_ACKNOWLEDGED http=$code"
           }
           if [ "$MAIN" = "$CAND" ]; then echo "IN_SYNC $MAIN"; exit 0; fi
           if git merge-base --is-ancestor "$CAND" "$MAIN"; then
-            git push origin "$MAIN:refs/heads/$CANDIDATE"
+            git push --force-with-lease="refs/heads/$CANDIDATE:$CAND" origin "$MAIN:refs/heads/$CANDIDATE"
             echo "CANDIDATE_FAST_FORWARDED_TO_MAIN $CAND -> $MAIN"
             exit 0
           fi
@@ -73,7 +97,7 @@ jobs:
               echo "::warning title=MEL candidate::CANDIDATE_MAIN_CONFLICT — MEL's unpromoted work conflicts with main; next tick re-plans it."
               exit 0
             fi
-            git push origin "HEAD:refs/heads/$CANDIDATE"
+            git push --force-with-lease="refs/heads/$CANDIDATE:$CAND" origin "HEAD:refs/heads/$CANDIDATE"
             echo "MAIN_MERGED_INTO_CANDIDATE ci_dispatch=$(dispatch_ci)"
             exit 0
           fi
@@ -95,15 +119,18 @@ jobs:
           if git diff --quiet "$MAIN" "$CAND"; then
             git -c http.https://github.com/.extraheader= push "https://x-access-token:${MEL_WORKFLOW_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$CAND:refs/heads/main"
             echo "::notice title=MEL candidate::EMPTY_NET_DIFF_FAST_FORWARD main $MAIN -> $CAND (no content change)"
-                      code="$(curl --silent --show-error --max-time 30 --request POST \
-            --header "Authorization: Bearer $GH_TOKEN" --header "Accept: application/vnd.github+json" \
-            --data '{"ref":"main"}' --output /dev/null --write-out '%{http_code}' \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/mel-autonomous-production-release.yml/dispatches" || true)"
-          echo "PRODUCTION_RELEASE_DISPATCH http=$code"
+                      dispatch_release
             exit 0
           fi
           TOKEN="$(curl -fsSL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=meliturgos-worker" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).value||""))')"
-          git diff "$MAIN" "$CAND" -- . ':(exclude)bridge-apply-result.json' | head -c 48000 > council.diff
+          # Never send a truncated diff to Council. Pipe-to-head under
+          # pipefail can also raise SIGPIPE and prevent any review at all.
+          git diff "$MAIN" "$CAND" -- . ':(exclude)bridge-apply-result.json' > council.diff
+          DIFF_BYTES="$(wc -c < council.diff | tr -d '[:space:]')"
+          if [ "$DIFF_BYTES" -gt 48000 ]; then
+            echo "::warning title=MEL Council::COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT bytes=$DIFF_BYTES — do not approve an incomplete review."
+            exit 0
+          fi
           git log --format=%s "$MAIN..$CAND" > council.log
           node -e 'const fs=require("fs");fs.writeFileSync("council.json",JSON.stringify({base:process.argv[1],head:process.argv[2],diff:fs.readFileSync("council.diff","utf8"),log:fs.readFileSync("council.log","utf8")}))' "$MAIN" "$CAND"
           REVIEW="$(curl --silent --show-error --max-time 300 --request POST --header "x-mel-github-oidc: $TOKEN" --header 'content-type: application/json' --data-binary @council.json https://meliturgos.adrien-lopezcarreras.workers.dev/api/internal/council-review || echo '{}')"
@@ -118,15 +145,11 @@ jobs:
               if git cat-file -e "$MAIN:$f" 2>/dev/null; then git checkout "$MAIN" -- "$f"; else git rm -q -- "$f"; fi
             done
             git commit -q -m "Reconcile candidate with main after Council rejection of $CAND"
-            git push origin "HEAD:refs/heads/$CANDIDATE"
+            git push --force-with-lease="refs/heads/$CANDIDATE:$CAND" origin "HEAD:refs/heads/$CANDIDATE"
             echo "::warning title=MEL candidate::Council REJECTED $CAND - candidate reset to main content, ci_dispatch=$(dispatch_ci)"
             exit 0
           fi
                     if [ "$DECISION" != "APPROVED" ]; then echo "::warning title=MEL candidate::Council $DECISION for $CAND - not promoted."; exit 0; fi
           git -c http.https://github.com/.extraheader= push "https://x-access-token:${MEL_WORKFLOW_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$CAND:refs/heads/main"
           echo "::notice title=MEL promoted::main $MAIN -> $CAND ($AHEAD commit(s), full-candidate-ci green). Production release follows within the hour."
-          code="$(curl --silent --show-error --max-time 30 --request POST \
-            --header "Authorization: Bearer $GH_TOKEN" --header "Accept: application/vnd.github+json" \
-            --data '{"ref":"main"}' --output /dev/null --write-out '%{http_code}' \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/mel-autonomous-production-release.yml/dispatches" || true)"
-          echo "PRODUCTION_RELEASE_DISPATCH http=$code"
+          dispatch_release

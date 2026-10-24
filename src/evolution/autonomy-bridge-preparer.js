@@ -68,9 +68,20 @@ async function inspectSources(env, proposal, { fetchImpl = fetch } = {}) {
     pinnedSha: approvedSha,
     fetchImpl,
   });
+  // Immutable source inspection is read-only. If GitHub's commit API is
+  // rate limited, retain the original strict mutable-head validation.
+  async function inspectionHead() {
+    if (env?.MEL_IMMUTABLE_PLANNING_ENABLED !== 'true') return reader.head();
+    try {
+      return await reader.approvedSnapshot();
+    } catch (error) {
+      if (error?.code !== 'CODE_APPROVED_SNAPSHOT_UNAVAILABLE') throw error;
+      return reader.head();
+    }
+  }
   let headBefore;
   try {
-    headBefore = await reader.head();
+    headBefore = await inspectionHead();
   } catch (error) {
     if (error?.code === 'CODE_HEAD_PIN_MISMATCH') {
       throw Object.assign(new Error('BRIDGE_PREPARATION_CANDIDATE_STALE'), {
@@ -102,7 +113,7 @@ async function inspectSources(env, proposal, { fetchImpl = fetch } = {}) {
 
   let headAfter;
   try {
-    headAfter = await reader.head();
+    headAfter = await inspectionHead();
   } catch (error) {
     if (error?.code === 'CODE_HEAD_PIN_MISMATCH') {
       throw Object.assign(new Error('CANDIDATE_HEAD_CHANGED_DURING_INSPECTION'), {

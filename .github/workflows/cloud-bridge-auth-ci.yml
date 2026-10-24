@@ -6,7 +6,14 @@ on:
       - main
     paths:
       - src/core/dev-bridge-auth.js
+      - src/capabilities/github-code-capabilities.js
+      - tests/github-code-head-fallback.test.mjs
       - .github/workflows/gen2-42-apply-ready-bridge.yml
+      - .github/workflows/full-candidate-ci.yml
+      - .github/workflows/mel-candidate-promotion.yml
+      - scripts/mel-autonomous-release-dispatch.mjs
+      - tests/mel-autonomous-release-dispatch.test.mjs
+      - tests/gen2/max-promotion-contract.test.mjs
       - tests/dev-bridge-auth-gate.test.mjs
       - tests/gen2/cloud-bridge-fallback-contract.test.mjs
       - tests/cloud-bridge-output-contract.test.mjs
@@ -18,7 +25,14 @@ on:
       - main
     paths:
       - src/core/dev-bridge-auth.js
+      - src/capabilities/github-code-capabilities.js
+      - tests/github-code-head-fallback.test.mjs
       - .github/workflows/gen2-42-apply-ready-bridge.yml
+      - .github/workflows/full-candidate-ci.yml
+      - .github/workflows/mel-candidate-promotion.yml
+      - scripts/mel-autonomous-release-dispatch.mjs
+      - tests/mel-autonomous-release-dispatch.test.mjs
+      - tests/gen2/max-promotion-contract.test.mjs
       - tests/dev-bridge-auth-gate.test.mjs
       - tests/gen2/cloud-bridge-fallback-contract.test.mjs
       - tests/cloud-bridge-output-contract.test.mjs
@@ -43,4 +57,4 @@ jobs:
       - name: Syntax gate
         run: npm run check
       - name: Cloud bridge auth and fallback contract
-        run: node --test tests/dev-bridge-auth-gate.test.mjs tests/gen2/cloud-bridge-fallback-contract.test.mjs tests/cloud-bridge-output-contract.test.mjs tests/test-runner-bounded-output.test.mjs
+        run: node --test tests/dev-bridge-auth-gate.test.mjs tests/gen2/cloud-bridge-fallback-contract.test.mjs tests/cloud-bridge-output-contract.test.mjs tests/test-runner-bounded-output.test.mjs tests/gen2/max-promotion-contract.test.mjs tests/mel-autonomous-release-dispatch.test.mjs

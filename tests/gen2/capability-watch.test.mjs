@@ -82,7 +82,7 @@ test('GEN2-42 detects per-capability regressions beyond the configured threshold
   assert.ok(next.regressions[0].delta < -0.05);
 });
 
-test('GEN2-42 does not persist partial or failed runs', async () => {
+test('GEN2-42 persists a partial run with its failed sources and never a fully failed run', async () => {
   const now = Date.UTC(2026, 8, 15, 18, 0, 0);
   let stored = null;
   let saves = 0;
@@ -95,14 +95,26 @@ test('GEN2-42 does not persist partial or failed runs', async () => {
     store,
     now,
     intervalMs: HOUR,
+    evaluator: async () => { throw Object.assign(new Error('synthetic failure'), { code: 'SYNTHETIC_FAILURE' }); },
+  });
+  assert.equal(failed.status, 'FAILED');
+  assert.equal(saves, 0);
+  assert.equal(stored, null);
+
+  // One unreachable source used to void the pass, so the production watch
+  // saved nothing and stalled for five days.
+  const partial = await runPersistedCapabilityWatch({
+    store: { async load() { return null; }, async save() {} },
+    now,
+    intervalMs: HOUR,
     evaluator: async ({ capability_id }) => {
       if (capability_id === 'code_development') throw Object.assign(new Error('synthetic failure'), { code: 'SYNTHETIC_FAILURE' });
       return { score: 1 };
     },
   });
-  assert.equal(failed.status, 'FAILED');
-  assert.equal(saves, 0);
-  assert.equal(stored, null);
+  assert.equal(partial.status, 'RAN');
+  assert.deepEqual(partial.failures.map(row => row.id), ['code_development']);
+  assert.equal(partial.state.last_scores.code_development, undefined);
 
   const succeeded = await runPersistedCapabilityWatch({
     store,
