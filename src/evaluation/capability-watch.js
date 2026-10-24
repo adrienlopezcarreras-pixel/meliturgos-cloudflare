@@ -189,6 +189,7 @@ export async function runCapabilityWatch({
 
   const normalizedTargets = normalizeTargets(targets);
   const results = [];
+  const failures = [];
   const nextObservations = { ...plan.previous.last_observations };
 
   for (const target of normalizedTargets) {
@@ -203,12 +204,10 @@ export async function runCapabilityWatch({
         target: structuredClone(target),
       });
     } catch (error) {
-      return {
-        status: 'FAILED', reason: 'EVALUATOR_ERROR', capability_id: target.id,
-        failure: String(error?.code || error?.message || 'CAPABILITY_WATCH_EVALUATOR_FAILED').slice(0, 240),
-        measured_at: measuredAt, next_due_at: plan.window_started_at, state: plan.previous,
-        results, regressions: [], overall: null,
-      };
+      // One unreachable source must not void the whole pass: an aborted pass
+      // saved nothing and the watch stalled for days (19 → 24 Oct 2026).
+      failures.push({ id: target.id, reason: 'EVALUATOR_ERROR', failure: String(error?.code || error?.message || 'CAPABILITY_WATCH_EVALUATOR_FAILED').slice(0, 240) });
+      continue;
     }
 
     if (target.mode === 'observe') {
@@ -223,11 +222,8 @@ export async function runCapabilityWatch({
 
     const rawScore = typeof observation === 'number' ? observation : observation?.score;
     if (!Number.isFinite(Number(rawScore))) {
-      return {
-        status: 'FAILED', reason: 'INVALID_SCORE', capability_id: target.id,
-        failure: `CAPABILITY_WATCH_SCORE_REQUIRED:${target.id}`, measured_at: measuredAt,
-        next_due_at: plan.window_started_at, state: plan.previous, results, regressions: [], overall: null,
-      };
+      failures.push({ id: target.id, reason: 'INVALID_SCORE', failure: `CAPABILITY_WATCH_SCORE_REQUIRED:${target.id}` });
+      continue;
     }
     results.push({
       id: target.id, mode: 'score', weight: target.weight, score: clamp01(rawScore),
@@ -236,6 +232,13 @@ export async function runCapabilityWatch({
     });
   }
 
+  if (!results.length && failures.length) {
+    return {
+      status: 'FAILED', reason: failures[0].reason, capability_id: failures[0].id, failure: failures[0].failure,
+      failures, measured_at: measuredAt, next_due_at: plan.window_started_at, state: plan.previous,
+      results, regressions: [], overall: null,
+    };
+  }
   const threshold = normalizeThreshold(regressionThreshold);
   const regressions = compareScores(plan.previous.last_scores, results, threshold);
   const scored = results.filter(result => Number.isFinite(result.score));
@@ -257,7 +260,7 @@ export async function runCapabilityWatch({
   return {
     status: 'RAN', reason: runReason, measured_at: measuredAt, next_due_at: plan.next_window_at,
     source_sha: nextState.last_source_sha, interval_ms: plan.interval_ms,
-    regression_threshold: threshold, overall: scoreRun(results), results, regressions, state: nextState,
+    regression_threshold: threshold, overall: scoreRun(results), results, failures, regressions, state: nextState,
   };
 }
 
