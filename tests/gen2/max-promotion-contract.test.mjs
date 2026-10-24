@@ -115,3 +115,11 @@ test('Bridge file-list validation failure cannot be swallowed by shell process s
   assert.doesNotMatch(snippet,/mapfile[^\n]*< <\(node/);
   assert.match(snippet,/process\.exit\(2\)/);
 });
+
+test('GEN2-42 obtains complete candidate ancestry before disjoint approved SHA reconciliation', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  const section = workflow.slice(workflow.indexOf('- name: Checkout exact approved candidate'),workflow.indexOf('- name: Apply bounded approved files'));
+  assert.match(section,/git fetch origin "\$CANDIDATE_BRANCH"/);
+  assert.doesNotMatch(section,/git fetch origin "\$CANDIDATE_BRANCH" --depth=/);
+  assert.match(section,/git merge-base --is-ancestor "\$CANDIDATE_SHA" "\$HEAD_SHA"/);
+});

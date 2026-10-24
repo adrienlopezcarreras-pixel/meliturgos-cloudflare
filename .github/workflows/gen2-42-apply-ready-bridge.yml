@@ -219,7 +219,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin "$CANDIDATE_BRANCH" --depth=200
+          # An arbitrary shallow depth hides older approved ancestors and
+          # turns valid disjoint work into repeated SHA_STALE retries.
+          # Checkout already fetched the full repository history.
+          git fetch origin "$CANDIDATE_BRANCH"
           git clean -fd
           HEAD_SHA="$(git rev-parse FETCH_HEAD)"
           if [ "$HEAD_SHA" != "$CANDIDATE_SHA" ]; then
