@@ -543,8 +543,8 @@ function melCodeSetupWindow(){
     const btn=qs('#melCodeLiveCollapse');btn.textContent=open?'Réduire':'Afficher';btn.setAttribute('aria-expanded',String(open));
     if(open)requestAnimationFrame(()=>{panel.scrollTop=panel.scrollHeight;});
   };
-  // Open expanded on each new page load; collapse is an explicit in-session user action.
-  applyCollapsed(false)
+  // Start compact on each page load; expand only upon explicit user action.
+  applyCollapsed(true)
   qs('#melCodeLiveCollapse').onclick=()=>{
     const collapsed=!panel.classList.contains('is-collapsed');
     applyCollapsed(collapsed);
