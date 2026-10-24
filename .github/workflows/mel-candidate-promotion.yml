@@ -55,10 +55,19 @@ jobs:
           MAIN="$(git rev-parse origin/main)"
           CAND="$(git rev-parse "origin/$CANDIDATE")"
           dispatch_ci() {
-            curl --silent --show-error --max-time 30 --request POST \
+            local code
+            code="$(curl --fail-with-body --silent --show-error --max-time 30 --request POST \
               --header "Authorization: Bearer $GH_TOKEN" --header "Accept: application/vnd.github+json" \
               --data "{\"ref\":\"$CANDIDATE\"}" --output /dev/null --write-out '%{http_code}' \
-              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/full-candidate-ci.yml/dispatches" || true
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/full-candidate-ci.yml/dispatches")" || {
+              echo "::error title=MEL candidate::FULL_CANDIDATE_CI_DISPATCH_FAILED" >&2
+              return 1
+            }
+            if [ "$code" != "204" ]; then
+              echo "::error title=MEL candidate::FULL_CANDIDATE_CI_DISPATCH_UNACKNOWLEDGED http=$code" >&2
+              return 1
+            fi
+            echo "$code"
           }
           if [ "$MAIN" = "$CAND" ]; then echo "IN_SYNC $MAIN"; exit 0; fi
           if git merge-base --is-ancestor "$CAND" "$MAIN"; then
