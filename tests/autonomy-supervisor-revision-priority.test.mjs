@@ -109,3 +109,4 @@ test('fresh internal preflight does not bypass ordinary owner priority', async (
   const selected = await supervisor.ensureNextJob();
   assert.equal(selected.job.id, owner.id);
 });
+
