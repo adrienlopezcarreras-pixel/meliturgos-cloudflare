@@ -12,6 +12,7 @@ import { D1EvolutionLedger } from './evolution-ledger.js';
 import { getAutonomyControl } from './autonomy-control.js';
 import { readAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
 import { flattenRoadmap, isClosedRoadmapStatus } from '../roadmap/master-roadmap.js';
+import { selectNextAutonomyItem } from './autonomy-supervisor.js';
 
 
 export const ACTIVITY_LIST_EPOCH_ID = 'activity-list-epoch';
@@ -309,6 +310,40 @@ function executionEvidence(job) {
     diff: diff ? safeExecutionText(diff, 10000) : null,
   };
 }
+// Next run of each Worker cron (wrangler.jsonc): every minute drives MAX,
+// :17 hourly and 02:43 daily run the scheduled maintenance passes.
+export function scheduledCycles(now = Date.now()) {
+  const minute = Math.floor(now / 60000) * 60000 + 60000;
+  const hourly = new Date(now); hourly.setUTCMinutes(17, 0, 0); if (hourly.getTime() <= now) hourly.setUTCHours(hourly.getUTCHours() + 1);
+  const daily = new Date(now); daily.setUTCHours(2, 43, 0, 0); if (daily.getTime() <= now) daily.setUTCDate(daily.getUTCDate() + 1);
+  return [
+    { label: 'Cycle MAX', cron: '* * * * *', next_at: minute },
+    { label: 'Passage horaire', cron: '17 * * * *', next_at: hourly.getTime() },
+    { label: 'Maintenance quotidienne', cron: '43 2 * * *', next_at: daily.getTime() },
+  ];
+}
+
+// The plan shown in the Code chat: the mission in progress with its steps,
+// the roadmap items that come next, and when the next cycles are scheduled.
+export function buildCodePlan(jobs = [], { roadmap = flattenRoadmap(), now = Date.now(), limit = 3 } = {}) {
+  const terminal = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
+  const active = jobs.filter(job => job?.roadmap_id && !terminal.has(String(job.status || '').toUpperCase()));
+  const current = active[0] || null;
+  const excluded = active.map(job => job.roadmap_id);
+  const next = [];
+  while (next.length < limit) {
+    const item = selectNextAutonomyItem({ roadmap, blockedIds: [...excluded, ...next.map(row => row.id)] });
+    if (!item) break;
+    next.push({ id: item.id, title: clip(item.title, 140), status: item.status });
+  }
+  return {
+    current: current ? { roadmap_id: current.roadmap_id, status: current.status, goal: clip(String(current.goal || '').replace(/\s*\|\s*OBJECTIF\s[\s\S]*$/, ''), 200), steps: current.pipeline || [] } : null,
+    queued: active.slice(1, 1 + limit).map(job => ({ roadmap_id: job.roadmap_id, status: job.status })),
+    next,
+    schedule: scheduledCycles(now),
+  };
+}
+
 export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30, repository = null } = {}) {
   const db = env?.DB;
   if (!db?.prepare) throw Object.assign(new Error('DB_BINDING_MISSING'), { status: 503 });
@@ -361,6 +396,7 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
       by_status: byStatus,
     },
     jobs,
+    plan: buildCodePlan(jobs, { now }),
     metrics: { mentor, alerts: pipelineAlerts(supervised, mentor, { now }) },
     execution_evidence: supervised.slice(0, Math.max(1, Math.min(60, limit))).map(executionEvidence).filter(Boolean),
     timeline: foldLedger(recentLedger.filter(event => atOrAfter(event?.occurred_at, epoch)), 40),
