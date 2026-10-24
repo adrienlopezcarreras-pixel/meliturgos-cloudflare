@@ -474,3 +474,22 @@ test('a push-triggered release waits for the one-hour batch window', async () =>
   const recent=await requestAutonomousRelease({token:'TEST_ONLY',fetchImpl:runsAt('2026-10-24T07:30:00Z'),requireProtectedRefs:true,batchWindowMs:3600000,now});
   assert.deepEqual({accepted:recent.accepted,reason:recent.reason},{accepted:false,reason:'RELEASE_BATCH_WINDOW'});
 });
+
+test('release dispatch refuses an independently moved release pointer', async () => {
+  let pointerReads = 0;
+  const operations = [];
+  const fakeFetch = async (url, request) => {
+    const path = new URL(url).pathname;
+    operations.push(request.method + ' ' + path);
+    if (path.endsWith('/branches/main')) return {ok:true,status:200,json:async()=>({commit:{sha:MAIN_SHA}})};
+    if (path.endsWith('/branches/' + RELEASE_BRANCH)) {
+      pointerReads++;
+      return {ok:true,status:200,json:async()=>({commit:{sha:pointerReads >= 2 ? OLD_SHA : MAIN_SHA}})};
+    }
+    if (path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs'))
+      return {ok:true,status:200,json:async()=>({workflow_runs:[]})};
+    throw new Error('UNEXPECTED_MUTATION:'+request.method+':'+path);
+  };
+  await assert.rejects(() => requestAutonomousRelease({token:'TEST_ONLY',fetchImpl:fakeFetch}), /RELEASE_POINTER_CHANGED_BEFORE_DISPATCH/);
+  assert.ok(!operations.some(line => line.includes('/dispatches')));
+});
