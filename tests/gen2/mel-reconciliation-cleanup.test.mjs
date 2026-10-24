@@ -36,6 +36,12 @@ test('MEL reconciliation roadmap leaves the founder cycle and the manifesto acco
     .filter(row => row.status !== 'DONE_VERIFIED')
     .map(row => ({ id: row.id, status: row.status }));
   assert.deepEqual(open, [
+    { id: 'MEL-AUDIT-02', status: 'IN_PROGRESS' },
+    { id: 'MEL-AUDIT-03', status: 'IN_PROGRESS' },
+    { id: 'MEL-AUDIT-04', status: 'PLANNED' },
+    { id: 'MEL-AUDIT-05', status: 'PLANNED' },
+    { id: 'MEL-AUDIT-06', status: 'PLANNED' },
+    { id: 'MEL-AUDIT-07', status: 'IN_PROGRESS' },
     { id: 'MEL-FOUNDER-01', status: 'IN_PROGRESS' },
     { id: 'MEL-FOUNDER-02', status: 'IN_PROGRESS' },
     { id: 'MEL-FOUNDER-03', status: 'PLANNED' },
