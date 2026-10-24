@@ -69,16 +69,29 @@ try{
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  // Basic auth is cached by Chromium after credentials are supplied to the
  // challenge through CDP Fetch.authRequired, without embedding them in URLs.
- browser=spawn(process.env.MEL_TEST_BROWSER_PATH||'chromium',['--headless','--no-sandbox','--disable-dev-shm-usage','--disable-gpu','--no-first-run','--remote-debugging-port=0','--user-data-dir='+join(directory,'profile'),'about:blank'],{stdio:['ignore','ignore','pipe']});
- const endpoint=await new Promise((resolve,reject)=>{
-  const timeout=setTimeout(()=>reject(new Error('CHROMIUM_START_TIMEOUT')),15000);
-  browser.once('error',error=>{clearTimeout(timeout);reject(error)});
-  browser.once('exit',()=>{clearTimeout(timeout);reject(new Error('CHROMIUM_EXITED'))});
-  browser.stderr.on('data',data=>{const match=String(data).match(/DevTools listening on (ws:\/\/\S+)/);if(match){clearTimeout(timeout);resolve(match[1]);}});
- });
+ browser=spawn(process.env.MEL_TEST_BROWSER_PATH||'chromium',['--headless','--no-sandbox','--disable-dev-shm-usage','--disable-gpu','--no-first-run','--disable-background-networking','--disable-component-update','--remote-debugging-port=0','--user-data-dir='+join(directory,'profile'),'about:blank'],{stdio:['ignore','ignore','pipe']});
+ // DevToolsActivePort is Chromium's readiness contract. A stderr line can
+ // be split across chunks, and cold CI hosts can need more than 15 seconds.
+ let startupError=null;
+ browser.once('error',error=>{startupError=error});
+ browser.stderr.resume();
+ const endpoint=await (async()=>{
+  const started=Date.now();
+  while(Date.now()-started<30000){
+   if(startupError)throw new Error('CHROMIUM_START_ERROR:'+String(startupError.code||'UNKNOWN'));
+   if(browser.exitCode!==null||browser.signalCode)throw new Error('CHROMIUM_EXITED');
+   try{
+    const [portText,path]=(await readFile(join(directory,'profile','DevToolsActivePort'),'utf8')).trim().split('\n');
+    const port=Number(portText);
+    if(Number.isInteger(port)&&port>0&&port<=65535&&/^\/devtools\/browser\/[0-9a-f-]+$/i.test(path||''))return 'ws://127.0.0.1:'+port+path;
+   }catch(error){if(error.code!=='ENOENT')throw error;}
+   await new Promise(resolve=>setTimeout(resolve,100));
+  }
+  throw new Error('CHROMIUM_START_TIMEOUT');
+ })();
  const debugOrigin='http://'+new URL(endpoint).host;
- const pages=await (await fetch(debugOrigin+'/json/list')).json();
- const ws=new WebSocket(pages.find(page=>page.type==='page').webSocketDebuggerUrl);
+ const page=await (await fetch(debugOrigin+'/json/new?about:blank',{method:'PUT'})).json();
+ const ws=new WebSocket(page.webSocketDebuggerUrl);
  await new Promise((resolve,reject)=>{ws.addEventListener('open',resolve,{once:true});ws.addEventListener('error',reject,{once:true});});
  let serial=0;const pending=new Map();
  const send=(method,params={})=>new Promise((resolve,reject)=>{const id=++serial;const timeout=setTimeout(()=>{pending.delete(id);reject(new Error('CDP_TIMEOUT:'+method))},15000);pending.set(id,{resolve:value=>{clearTimeout(timeout);resolve(value)},reject:error=>{clearTimeout(timeout);reject(error)}});ws.send(JSON.stringify({id,method,params}));});
