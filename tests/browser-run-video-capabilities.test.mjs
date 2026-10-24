@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  MAX_INLINE_TRANSCRIPTION_BYTES,
   WORKERS_AI_IMAGE_MODEL,
   WORKERS_AI_VISION_MODEL,
   WORKERS_AI_TRANSCRIPTION_MODEL,
@@ -120,6 +121,8 @@ test('Browser Run Free video analysis samples frames and optional audio then use
   assert.equal(out.sampled_frame_count,3);
   assert.equal(out.transcript,'Bonjour vidéo.');
   assert.equal(out.transcript_status,'TRANSCRIBED');
+  assert.equal(out.status,'SUCCEEDED');
+  assert.equal(out.partial,false);
   assert.match(out.visual_analysis,/géométrique/);
   assert.match(out.summary,/Bonjour vidéo\./);
   assert.equal(f.requests[0].body.schema,'mel.media.browser-sample-video/v1');
@@ -152,4 +155,51 @@ test('all Browser Run video handlers disappear fail-closed without a current Wor
   assert.equal(caps['media.video.process'],undefined);
   assert.equal(caps['media.video.analyze'],undefined);
   assert.equal(caps['media.video.generate'],undefined);
+});
+
+
+for(const kind of ['timeout','empty','no-capture','too-large'])test('video analysis reports its real partial audio outcome: '+kind,async()=>{
+ const f=fixture();let audioCalls=0;
+ const originalAi=f.env.AI.run;
+ f.env.AI.run=async(model,input)=>{
+  if(model!==WORKERS_AI_TRANSCRIPTION_MODEL)return originalAi(model,input);
+  audioCalls++;
+  if(kind==='timeout')throw Object.assign(new Error('upstream private detail must not be exposed'),{code:'TRANSCRIPTION_PROVIDER_TIMEOUT'});
+  if(kind==='empty')return {text:''};
+  throw new Error('TRANSCRIPTION_MUST_NOT_START');
+ };
+ const fetcher=f.env.MEL_BROWSER_COMPANION.fetch;
+ f.env.MEL_BROWSER_COMPANION.fetch=async request=>{
+  const result=await fetcher(request),body=await result.json();
+  if(kind==='no-capture'){delete body.audio_base64;delete body.audio_bytes;}
+  if(kind==='too-large')body.audio_base64=Buffer.alloc(MAX_INLINE_TRANSCRIPTION_BYTES+1,1).toString('base64');
+  return Response.json(body);
+ };
+ const caps=createWorkersAiZeroCostMediaCapabilities(f.env);
+ const out=await caps['media.video.analyze']({bytes:Uint8Array.from([26,69,223,163,1,2,3]),mime:'video/webm',duration_seconds:1,image_count:3});
+ assert.equal(out.partial,true);assert.equal(out.status,'PARTIAL');assert.equal(out.transcript,null);
+ assert.match(out.visual_analysis,/géométrique/,'the successful visual result is retained');
+ assert.match(out.summary,/échantillon/,'sampling is not presented as watching the whole video');
+ const expected={timeout:'TRANSCRIPTION_PROVIDER_TIMEOUT',empty:'WORKERS_AI_TRANSCRIPTION_EMPTY','no-capture':'NO_AUDIO_TRACK_OR_NOT_CAPTURED','too-large':'AUDIO_TOO_LARGE_FOR_INLINE_TRANSCRIPTION'}[kind];
+ assert.equal(out.transcript_status,expected);
+ if(kind==='no-capture'){assert.equal(audioCalls,0);assert.match(out.summary,/aucune piste audio capturée/);}
+ else{assert.match(out.summary,new RegExp(expected));assert.doesNotMatch(out.summary,/aucune piste audio capturée/);}
+ assert.equal(audioCalls,['timeout','empty'].includes(kind)?1:0);
+ assert.doesNotMatch(JSON.stringify(out),/upstream private detail/);
+});
+
+test('video transcription failure without a safe error code never exposes the upstream body',async()=>{
+ const f=fixture(),run=f.env.AI.run;
+ f.env.AI.run=async(model,input)=>{if(model===WORKERS_AI_TRANSCRIPTION_MODEL)throw new Error('private provider body with credentials');return run(model,input);};
+ const out=await createWorkersAiZeroCostMediaCapabilities(f.env)['media.video.analyze']({bytes:Uint8Array.from([1,2,3]),mime:'video/webm'});
+ assert.equal(out.transcript_status,'AUDIO_ANALYSIS_UNAVAILABLE');assert.equal(out.status,'PARTIAL');assert.doesNotMatch(JSON.stringify(out),/private provider body/);
+});
+
+
+test('failed vision remains a failed video analysis, never a partial success',async()=>{
+ const f=fixture();let audioCalls=0;
+ f.env.AI.run=async model=>{if(model===WORKERS_AI_TRANSCRIPTION_MODEL)audioCalls++;throw Object.assign(new Error('vision unavailable'),{code:'VISION_PROVIDER_TIMEOUT'});};
+ const caps=createWorkersAiZeroCostMediaCapabilities(f.env);
+ await assert.rejects(caps['media.video.analyze']({bytes:Uint8Array.from([1,2,3]),mime:'video/webm'}),error=>error.code==='VISION_PROVIDER_TIMEOUT');
+ assert.equal(audioCalls,0);
 });
