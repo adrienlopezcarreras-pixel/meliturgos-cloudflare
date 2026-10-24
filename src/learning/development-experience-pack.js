@@ -1220,4 +1220,22 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1792838400000
   },
+  {
+    "id": "claude-paged-export-must-shrink-on-memory-20261024",
+    "source": "claude",
+    "domain": "release-backup",
+    "task": "Exporter une base qui grossit par pages de taille fixe.",
+    "input": "La sauvegarde pré-déploiement lisait D1 par pages de 500 lignes ; avec des result_json lourds, D1 a répondu Memory limit exceeded before EOF.",
+    "before": "Réessayer la même page 12 fois puis échouer : toutes les releases ont été bloquées de 11:57 à 16:33.",
+    "after": "Sur une erreur mémoire, réduire la page de moitié et relire le même offset ; ne jamais réessayer à l’identique une requête trop lourde ; garder les contrôles de complétude stricts.",
+    "rationale": "Une taille de page fixe est une bombe à retardement quand les lignes grossissent.",
+    "tests": [
+      "tests/predeploy-backup-adaptive-page.test.mjs (PR #2567)",
+      "Release 40112125333 : sauvegarde réussie puis déploiement de 4a5c800"
+    ],
+    "tags": ["backup", "d1", "release", "pagination"],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1792857600000
+  },
 ]);
