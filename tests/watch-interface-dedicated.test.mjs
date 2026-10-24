@@ -42,3 +42,14 @@ test('test-all endpoint disables discovery handoff while reusing the canonical w
   assert.match(router, /url\.pathname === "\/veille"/);
   assert.match(preview, /'\/veille'/);
 });
+
+test('watch runs outlive the request: the server starts them in the background and the page follows them', async () => {
+  const [entry, page] = await Promise.all([
+    readFile(new URL('../src/ui-entry.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/pages/watch-interface.js', import.meta.url), 'utf8'),
+  ]);
+  assert.equal((entry.match(/ctx\.waitUntil\(run\.catch/g) || []).length, 2);
+  assert.match(entry, /started: true \}, 202\)/);
+  assert.match(page, /if\(d\.started\)\{[^}]*followRun\(\)/);
+  assert.match(page, /Réponse serveur invalide \(HTTP '\+r\.status/);
+});

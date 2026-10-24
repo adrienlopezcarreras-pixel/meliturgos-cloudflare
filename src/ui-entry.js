@@ -65,7 +65,7 @@ async function capabilityWatchResponse(request, env) {
   }
 }
 
-async function capabilityWatchRunResponse(request, env) {
+async function capabilityWatchRunResponse(request, env, ctx) {
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
   let body = {};
@@ -73,11 +73,17 @@ async function capabilityWatchRunResponse(request, env) {
   const force = body?.force === true;
   try {
     const build = deployedBuild();
-    const result = await runEcosystemCapabilityWatch(env, {
+    const run = runEcosystemCapabilityWatch(env, {
       force,
       sourceSha: build?.sha || null,
     });
-    return json({ ok: true, manual: true, forced: force, result });
+    // A full watch outlives the HTTP request: Cloudflare then answered with an
+    // HTML error page and the UI showed "Réponse serveur invalide".
+    if (typeof ctx?.waitUntil === 'function') {
+      ctx.waitUntil(run.catch(() => null));
+      return json({ ok: true, manual: true, forced: force, started: true }, 202);
+    }
+    return json({ ok: true, manual: true, forced: force, result: await run });
   } catch (error) {
     return json({
       ok: false,
@@ -87,21 +93,25 @@ async function capabilityWatchRunResponse(request, env) {
   }
 }
 
-async function capabilityWatchTestAllResponse(request, env) {
+async function capabilityWatchTestAllResponse(request, env, ctx) {
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
   try {
     const build = deployedBuild();
-    const result = await runEcosystemCapabilityWatch(env, {
+    const run = runEcosystemCapabilityWatch(env, {
       force: true,
       allowHandoff: false,
       sourceSha: build?.sha || null,
     });
+    if (typeof ctx?.waitUntil === 'function') {
+      ctx.waitUntil(run.catch(() => null));
+      return json({ ok: true, test_only: true, production_activation_allowed: false, started: true }, 202);
+    }
     return json({
       ok: true,
       test_only: true,
       production_activation_allowed: false,
-      result,
+      result: await run,
     });
   } catch (error) {
     return json({
@@ -171,8 +181,8 @@ export default {
     const url = new URL(request.url);
     if (request.method === 'GET' && url.pathname === '/api/mel/activity') return activityResponse(request, env);
     if (request.method === 'GET' && url.pathname === '/api/mel/capability-watch') return capabilityWatchResponse(request, env);
-    if (request.method === 'POST' && url.pathname === '/api/mel/capability-watch/run') return capabilityWatchRunResponse(request, env);
-    if (request.method === 'POST' && url.pathname === '/api/mel/capability-watch/test-all') return capabilityWatchTestAllResponse(request, env);
+    if (request.method === 'POST' && url.pathname === '/api/mel/capability-watch/run') return capabilityWatchRunResponse(request, env, ctx);
+    if (request.method === 'POST' && url.pathname === '/api/mel/capability-watch/test-all') return capabilityWatchTestAllResponse(request, env, ctx);
     if (request.method === 'POST' && url.pathname === '/api/mel/capability-watch/proposal') return capabilityWatchProposalActionResponse(request, env);
     if (request.method === 'GET' && url.pathname === '/api/mel/conversations/latest') return latestConversationResponse(request, env);
     const response = await app.fetch(request, env, ctx);
