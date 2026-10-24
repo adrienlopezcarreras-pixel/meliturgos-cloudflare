@@ -805,3 +805,21 @@ test('mentor resolves an edit excerpt copied with different indentation when it 
   const result = await engine.propose({ env: {}, goal: 'Changer la valeur', inspectedFiles: [{ path: 'src/example.js', content: source }] });
   assert.equal(result.proposal.changes[0].content, 'export function read() {\n    const value = 2;\n    return value;\n}\n');
 });
+
+test('mentor accepts SEARCH/REPLACE blocks whose code would break a JSON string', async () => {
+  const source = 'export function greet() {\n  return "hi";\n}\n';
+  const reply = [
+    'SUMMARY Salue avec des guillemets et un retour à la ligne',
+    'TESTS test:smoke',
+    'EDIT src/example.js',
+    '<<<<<<< SEARCH',
+    '  return "hi";',
+    '=======',
+    '  const name = "MEL \\"x\\"";',
+    '  return `hi\n${name}`;',
+    '>>>>>>> REPLACE',
+  ].join('\n');
+  const engine = new MentorEngine({ providerFactory: async () => [provider('blocks', reply)] });
+  const result = await engine.propose({ env: {}, goal: 'Saluer', inspectedFiles: [{ path: 'src/example.js', content: source }] });
+  assert.equal(result.proposal.changes[0].content, 'export function greet() {\n  const name = "MEL \\"x\\"";\n  return `hi\n${name}`;\n}\n');
+});
