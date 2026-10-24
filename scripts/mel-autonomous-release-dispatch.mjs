@@ -13,7 +13,7 @@ export function assertNoActiveDeploy(runs) {
   }
 }
 
-export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo = REPO, requireProtectedRefs = false, completedReleaseSha = '', skipPreviouslyCompletedSha = false, sleepImpl = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo = REPO, requireProtectedRefs = false, completedReleaseSha = '', skipPreviouslyCompletedSha = false, batchWindowMs = 0, now = Date.now(), sleepImpl = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
   if (repo !== REPO) throw new Error('UNEXPECTED_RELEASE_REPOSITORY');
   if (typeof token !== 'string' || !token) throw new Error('GH_TOKEN_REQUIRED');
   const base = 'https://api.github.com/repos/' + repo;
@@ -75,6 +75,11 @@ export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo 
       blocking_run_sha: SHA40.test(String(active?.head_sha || '')) ? active.head_sha : null,
       blocking_run_status: ['queued', 'in_progress', 'waiting', 'pending', 'requested'].includes(String(active?.status || '').toLowerCase()) ? String(active.status).toLowerCase() : 'unknown',
     };
+  }
+  // A push-triggered request keeps releases batched: at most one per window.
+  const window = Number(batchWindowMs) || 0;
+  if (window > 0 && releaseRuns.some(row => now - Date.parse(row?.created_at || '') < window)) {
+    return { accepted: false, reason: 'RELEASE_BATCH_WINDOW', main_sha: mainSha, release_branch: RELEASE_BRANCH };
   }
   // A previous completed attempt for the latest SHA means a catch-up event
   // must not schedule a duplicate after that SHA failed. A manual dispatch
@@ -139,6 +144,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     requireProtectedRefs: process.env.MEL_REQUIRE_PROTECTED_REFS === 'true',
     completedReleaseSha: process.env.MEL_CATCHUP_COMPLETED_SHA || '',
     skipPreviouslyCompletedSha: process.env.MEL_SKIP_ALREADY_ATTEMPTED_SHA === 'true',
+    batchWindowMs: Number(process.env.MEL_RELEASE_BATCH_WINDOW_MS || 0),
   })
     .then(result => {
       console.log(JSON.stringify(result));
