@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inspectMaintenanceStorage, prepareGlobalReset, validateMaintenanceAuthorization, retireLegacyDevJobs, resetWatchDiscoveryProjection, retireRevenueDiscoveries, inspectWorkDagsForReset } from '../../src/maintenance/global-reset.js';
+import { inspectMaintenanceStorage, prepareGlobalReset, validateMaintenanceAuthorization, retireLegacyDevJobs, resetWatchDiscoveryProjection, retireRevenueDiscoveries, inspectWorkDagsForReset, assertNoActiveWorkLeases } from '../../src/maintenance/global-reset.js';
 
 const backup = { verified:true, restore_tested:true, reference:'isolated-restore-proof', sha256:'a'.repeat(64) };
 const db = {
@@ -87,4 +87,13 @@ test('WORK inventory never updates integrity-signed DAG records', async () => {
   assert.equal(result.total,5);
   assert.equal(result.statuses[0].count,2);
   assert.ok(seen.every(sql=>/^(SELECT)/.test(sql)));
+});
+
+test('global reset denies active WORK writer leases and accepts expired leases', async () => {
+  const leaseDb = count => ({prepare(sql) {return {
+    first:async()=>({name:'work_dag_run_leases'}),
+    bind() {return {first:async()=>({n:count})};}
+  };}});
+  await assert.rejects(assertNoActiveWorkLeases(leaseDb(1),{now:10}), /WORK_LEASES_ACTIVE/);
+  assert.deepEqual(await assertNoActiveWorkLeases(leaseDb(0),{now:10}), {active:0,status:'NO_ACTIVE_WORK_LEASES'});
 });
