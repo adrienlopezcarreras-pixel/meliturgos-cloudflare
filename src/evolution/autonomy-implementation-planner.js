@@ -353,7 +353,14 @@ async function reusableProposal(env, existing, bridge, { fetchImpl = fetch, job 
   const coveredTerms = Array.isArray(existing?.inspection?.goal_terms) ? existing.inspection.goal_terms : [];
   if (requiredTerms.some((term) => !coveredTerms.includes(term))) return null;
 
-  const head = await readApprovedHead(reader, bridge);
+  // A verified immutable Teacher snapshot can preserve an already prepared
+  // read-only plan across unrelated candidate commits. The Dev Bridge still
+  // validates the current branch before any code is applied.
+  if (env?.MEL_IMMUTABLE_PLANNING_ENABLED === 'true') {
+    await readApprovedSnapshot(reader, bridge);
+  } else {
+    await readApprovedHead(reader, bridge);
+  }
   if (String(existing.candidate_sha).toLowerCase() !== approvedSha) return null;
   return { ...existing, reused: true };
 }
