@@ -165,7 +165,7 @@ test('LoRA interface no longer exposes the retired Collector workflow and keeps 
 test('Professor chat can be resized vertically without changing chat behavior', async () => {
   const html = await (await onRequestGet()).text();
   assert.match(html, /data-panel="chat"/);
-  assert.match(html, /<div class="chatlog" id="chatlog">/);
+  assert.match(html, /<div class="chatlog" id="chatlog" style="height:180px;min-height:100px;max-height:none;resize:vertical;overflow:auto">/);
   assert.match(html, /\[data-panel="chat"\] #chatlog\{[^}]*resize:vertical;overflow:auto/);
   assert.match(html, /chat-resize-hint/);
   assert.match(html, /Glisse le coin inférieur droit/);
