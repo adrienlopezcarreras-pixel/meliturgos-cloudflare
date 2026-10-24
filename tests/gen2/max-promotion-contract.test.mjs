@@ -170,3 +170,10 @@ test('Bridge reporting preserves commit-stage repair diagnostics ahead of green 
   assert.match(report,/commitOk && candidateReady/);
   assert.doesNotMatch(report,/: 'FAILED';/);
 });
+
+test('approved rebase inspection never stages its temporary file with candidate code', async () => {
+  const workflow = await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+  assert.match(workflow,/node - > "\$RUNNER_TEMP\/mel-approved-paths\.bin"/);
+  assert.match(workflow,/mapfile -d '' -t APPROVED_PATHS < "\$RUNNER_TEMP\/mel-approved-paths\.bin"/);
+  assert.doesNotMatch(workflow,/node - > approved-paths\.bin/);
+});
