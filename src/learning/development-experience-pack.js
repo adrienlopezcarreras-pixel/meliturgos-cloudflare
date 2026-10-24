@@ -1202,4 +1202,22 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1792838400000
   },
+  {
+    "id": "claude-batch-must-not-abort-on-one-source-20261024",
+    "source": "claude",
+    "domain": "resilience",
+    "task": "Écrire une tâche périodique qui interroge plusieurs sources.",
+    "input": "La veille interroge 14 sources ; une seule en panne faisait échouer tout le passage sans rien enregistrer.",
+    "before": "Retourner FAILED à la première source en erreur : l’état n’est jamais sauvé, la tâche réessaie et échoue chaque heure (veille arrêtée du 19 au 24 octobre).",
+    "after": "Noter chaque source en erreur dans failures, continuer avec les autres et enregistrer le passage ; n’échouer que si toutes les sources échouent. Un audit hebdomadaire vérifie que chaque tâche périodique a tourné dans 2 fois son intervalle.",
+    "rationale": "Une tâche qui exige 100 % de sources disponibles finit par ne plus jamais tourner.",
+    "tests": [
+      "tests/gen2/capability-watch.test.mjs, tests/domain-audit.test.mjs (PR #2527)",
+      "D1 capability_watch_state.ecosystem-canonical : dernier passage 2026-10-19"
+    ],
+    "tags": ["watch", "resilience", "batch", "audit"],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1792838400000
+  },
 ]);
