@@ -192,3 +192,4 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 - `claude-council-rejection-resets-candidate-20261024` — un refus du Council remet le contenu de main sur la candidate, sans bloquer la chaîne.
 - `claude-zero-cost-proof-lists-every-model-20261024` — tout modèle du mentor doit figurer dans la preuve zéro coût, sinon il est écarté en silence.
 - `claude-batch-must-not-abort-on-one-source-20261024` — une source en panne est notée, le passage continue ; sinon la tâche ne tourne plus jamais.
+- `claude-paged-export-must-shrink-on-memory-20261024` — une page trop lourde est relue en plus petit, jamais réessayée à l’identique.
