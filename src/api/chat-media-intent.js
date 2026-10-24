@@ -21,7 +21,7 @@ export function inferChatMediaCapability(text) {
   // or open a named file. A colon keeps an absent attachment from being guessed.
   const speak=value.match(/^(?:(?:peux|pourrais)[- ]tu\s+(?:me\s+)?)?(?:lis|prononce|dis|lire|prononcer|dire)\s+(?:ceci\s+)?(?:[àa]\s+voix\s+haute|oralement)\s*[:：]\s*([\s\S]+)$/i);
   if(speak)return {id:'media.audio.synthesize',input:{text:speak[1].slice(0,4000)}};
-  if(/^(?:pourquoi|comment)\b|\bne\s+(?:me\s+)?(?:montre|cherche|recherche|affiche)\b|\b(?:exemple|syntaxe|bug|ci[- ]jointe?s?|envoyee?|televersee?|uploadee?|mon fichier|ma video|mon audio|ma photo|mon image|mes photos|mes images|capture d['’]ecran|cette\s+(?:video|image|photo)|cet\s+audio)\b/.test(normalized))return null;
+  if(/^(?:pourquoi|comment)\b|\bne\s+(?:me\s+)?(?:montre|cherche|recherche|affiche)\b|\b(?:exemple|syntaxe|bug|ci[- ]jointe?s?|jointe?s?|envoyee?s?|televersee?s?|uploadee?s?|mon fichier|ma video|mon audio|ma photo|mon image|mes fichiers|mes videos|mes audios|mes photos|mes images|capture d['’]ecran|(?:cette|ces)\s+(?:videos?|images?|photos?)|(?:cet|ces)\s+audios?)\b/.test(normalized))return null;
   if(/https?:\/\//i.test(value))return null;
   // Classify the requested object, never a media noun in its subject/purpose.
   const create=normalized.match(CREATE_MEDIA);
