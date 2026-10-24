@@ -312,6 +312,23 @@ export class AutonomySupervisor {
       return { created: false, job: passiveInternal, next: current.next };
     }
 
+    // A Teacher review is bound to an immutable candidate SHA. Avoid opening
+    // another internal candidate job while that review is in flight: otherwise
+    // the next job can advance the shared candidate branch and immediately
+    // invalidate the first approval. The Teacher lane continues externally.
+    const reviewingCandidate = current.active.find(job => job.requested_by === 'mel-autonomy'
+      && String(job.status || '').toUpperCase() === 'WAITING_TEACHER'
+      && job.result_json?.teacher_bridge?.status === 'WAITING_TEACHER');
+    if (reviewingCandidate) {
+      return {
+        created: false,
+        job: null,
+        next: current.next,
+        complete: false,
+        external_progress: { job_id: reviewingCandidate.id, status: 'TEACHER_REVIEW_IN_PROGRESS' },
+      };
+    }
+
     if (!current.next) {
       const passiveOwner = current.active
         .filter(isSupervisedAutonomyJob)
