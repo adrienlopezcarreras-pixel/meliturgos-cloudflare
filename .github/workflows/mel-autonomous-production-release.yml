@@ -10,11 +10,20 @@ on:
   # releases in one morning, each re-running Workers AI production proofs and
   # exhausting the free daily AI allocation. Urgent fixes: workflow_dispatch.
   workflow_dispatch:
+  # Trust completed runs of this repository even when their actor is a GitHub App.
+  # The inner job gate still requires the exact deploy workflow and completion.
+  workflow_run:
+    workflows: [deploy-cloudflare-release]
+    types: [completed]
   # Owner-merged PRs reach main without a MEL promotion, and GitHub skips most
   # hourly schedules. A push releases only when no release started in the last
   # hour (MEL_RELEASE_BATCH_WINDOW_MS), so releases stay batched.
   push:
     branches: [main]
+  # A merged PR is a separate event when an integration's GITHUB_TOKEN
+  # suppresses follow-on push workflows. Keep the same batch and SHA gates.
+  pull_request:
+    types: [closed]
   schedule:
     - cron: '7 * * * *'
 
@@ -28,7 +37,7 @@ concurrency:
 
 jobs:
   promote-and-dispatch:
-    if: ${{ (github.actor == 'adrienlopezcarreras-pixel' || github.actor == 'github-actions[bot]') && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/main')) }}
+    if: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_run' && github.event.workflow_run.head_repository.full_name == github.repository) || github.actor == 'adrienlopezcarreras-pixel' || github.actor == 'github-actions[bot]') && (github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.name == 'deploy-cloudflare-release' && github.event.workflow_run.status == 'completed') || (github.event_name == 'schedule' && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main' && github.event.pull_request.merged_by.login == 'adrienlopezcarreras-pixel')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -44,8 +53,8 @@ jobs:
       - name: Authorize and dispatch MEL autonomous release
         env:
           GH_TOKEN: ${{ github.token }}
-          MEL_REQUIRE_PROTECTED_REFS: ${{ (github.event_name == 'push' || github.event_name == 'schedule') && 'true' || 'false' }}
-          MEL_SKIP_ALREADY_ATTEMPTED_SHA: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
-          MEL_RELEASE_BATCH_WINDOW_MS: ${{ github.event_name == 'push' && '3600000' || '0' }}
+          MEL_REQUIRE_PROTECTED_REFS: ${{ (github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_run') && 'true' || 'false' }}
+          MEL_SKIP_ALREADY_ATTEMPTED_SHA: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_run') && 'true' || 'false' }}
+          MEL_RELEASE_BATCH_WINDOW_MS: ${{ (github.event_name == 'push' || github.event_name == 'pull_request') && '3600000' || '0' }}
           MEL_CATCHUP_COMPLETED_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || '' }}
         run: node scripts/mel-autonomous-release-dispatch.mjs

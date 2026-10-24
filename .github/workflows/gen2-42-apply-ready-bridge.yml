@@ -219,12 +219,39 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin "$CANDIDATE_BRANCH" --depth=200
+          # An arbitrary shallow depth hides older approved ancestors and
+          # turns valid disjoint work into repeated SHA_STALE retries.
+          # Checkout already fetched the full repository history.
+          git fetch origin "$CANDIDATE_BRANCH"
           git clean -fd
           HEAD_SHA="$(git rev-parse FETCH_HEAD)"
           if [ "$HEAD_SHA" != "$CANDIDATE_SHA" ]; then
-            echo "TEACHER_APPROVAL_CANDIDATE_SHA_STALE"
-            exit 1
+            # Only rebase readied work over append-only, disjoint candidate
+            # commits. Never reinterpret approval if a package file changed.
+            git merge-base --is-ancestor "$CANDIDATE_SHA" "$HEAD_SHA" || {
+              echo "TEACHER_APPROVAL_CANDIDATE_SHA_STALE_NON_ANCESTOR"
+              exit 1
+            }
+            # Do not hide the validation exit code inside process substitution.
+            node - > "$RUNNER_TEMP/mel-approved-paths.bin" <<'NODE'
+          const fs=require('fs');
+          const job=JSON.parse(fs.readFileSync(process.env.BRIDGE_JOB_FILE,'utf8'));
+          for(const item of job.files_json||[]){
+            const path=String(item?.path||'');
+            if(!path||path.startsWith('/')||path.split('/').includes('..')||path.includes('\\')||path.startsWith('-')) process.exit(2);
+            process.stdout.write(path+'\0');
+          }
+          NODE
+            mapfile -d '' -t APPROVED_PATHS < "$RUNNER_TEMP/mel-approved-paths.bin"
+            test "${#APPROVED_PATHS[@]}" -gt 0
+            if ! git --literal-pathspecs diff --quiet "$CANDIDATE_SHA" "$HEAD_SHA" -- "${APPROVED_PATHS[@]}"; then
+              echo "TEACHER_APPROVAL_CANDIDATE_SHA_STALE_OVERLAPPING_FILES"
+              exit 1
+            fi
+            echo "CANDIDATE_DISJOINT_REBASE approved=$CANDIDATE_SHA current=$HEAD_SHA"
+            echo "APPROVED_SNAPSHOT_SHA=$CANDIDATE_SHA" >> "$GITHUB_ENV"
+            echo "CANDIDATE_SHA=$HEAD_SHA" >> "$GITHUB_ENV"
+            CANDIDATE_SHA="$HEAD_SHA"
           fi
           git checkout -B "$CANDIDATE_BRANCH" "$CANDIDATE_SHA"
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
@@ -243,7 +270,7 @@ jobs:
           for(const item of job.files_json){
             const rel=String(item?.path||'').replace(/\\/g,'/');
             const body=String(item?.content??'');
-            if(!rel||path.posix.isAbsolute(rel)||rel.includes('..')||isSensitivePath(rel)) throw new Error('APPLY_PATH_DENIED:'+rel);
+            if(!rel||path.posix.isAbsolute(rel)||rel.split('/').includes('..')||isSensitivePath(rel)) throw new Error('APPLY_PATH_DENIED:'+rel);
             if(body.length>200000) throw new Error('APPLY_CONTENT_TOO_LARGE:'+rel);
             const trailingMatches=body.match(/[ \t]+(?=\r?\n|$)/g)||[];
             const normalizedBody=trailingMatches.length
@@ -358,8 +385,25 @@ jobs:
           set -euo pipefail
           git config user.name "MEL Cloud Dev Bridge"
           git config user.email "mel-cloud-bridge@localhost"
-          # Generated evidence is excluded by the repository's canonical .gitignore.
-          git add --all
+          # Defined before all error branches: nounset must never suppress
+          # the persisted REPAIR_REQUIRED result on hygiene failure.
+          NO_CHANGES=false
+          # Stage only the exact Teacher-approved files, never auxiliary evidence
+          # or outputs created by tests. An empty/invalid list fails closed.
+          node - > "$RUNNER_TEMP/mel-stage-paths.bin" <<'NODE'
+          const fs=require('fs');
+          const job=JSON.parse(fs.readFileSync(process.env.BRIDGE_JOB_FILE,'utf8'));
+          const files=job.files_json||[];
+          if(!Array.isArray(files)||files.length<1||files.length>10) process.exit(2);
+          for(const item of files){
+            const p=String(item?.path||'');
+            if(!p||p.startsWith('/')||p.split('/').includes('..')||p.startsWith('-')||p.includes('\0')||p.includes('\\')||p.split('/').includes('.')) process.exit(2);
+            process.stdout.write(p+'\0');
+          }
+          NODE
+          mapfile -d '' -t STAGE_PATHS < "$RUNNER_TEMP/mel-stage-paths.bin"
+          test "${#STAGE_PATHS[@]}" -gt 0
+          git --literal-pathspecs add -- "${STAGE_PATHS[@]}"
           set +e
           HYGIENE_OUTPUT="$(git diff --cached --check 2>&1)"
           HYGIENE_CODE=$?
@@ -463,6 +507,7 @@ jobs:
             echo "no_changes=$NO_CHANGES" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "candidate_ready=true" >> "$GITHUB_OUTPUT"
           echo "candidate_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
           echo "candidate_branch=$CANDIDATE_BRANCH" >> "$GITHUB_OUTPUT"
           echo "no_changes=$NO_CHANGES" >> "$GITHUB_OUTPUT"
@@ -486,13 +531,13 @@ jobs:
           const testsPassed=process.env.TESTS_PASSED==='true';
           const commitOk=process.env.COMMIT_OUTCOME==='success';
           const candidateReady=process.env.CANDIDATE_READY==='true';
-          const status=!testsPassed
+          // Preserve failures recorded by the commit/CI-dispatch stages.
+          // A green test suite alone does not supersede a failed publish.
+          const status=base.status==='REPAIR_REQUIRED' || !testsPassed
             ? 'REPAIR_REQUIRED'
-            : commitOk && !candidateReady
-              ? 'REPAIR_REQUIRED'
-              : commitOk && candidateReady
-                ? 'READY_FOR_REVIEW'
-                : 'FAILED';
+            : commitOk && candidateReady
+              ? 'READY_FOR_REVIEW'
+              : 'REPAIR_REQUIRED';
           const sha=String(process.env.NEW_SHA||job?.result_json?.bridge_preparation?.candidate_sha||'');
           const result={
             ...base,
@@ -579,8 +624,8 @@ jobs:
             exit 0
           fi
           NEXT_DEPTH="$((CHAIN_DEPTH + 1))"
-          NEXT_DEPTH="$NEXT_DEPTH" node -e "process.stdout.write(JSON.stringify({ref:'main',inputs:{chain_depth:process.env.NEXT_DEPTH}}))" > autonomy-next-dispatch.json
-          CODE="$(curl --silent --show-error --max-time 30             --request POST             --header "Authorization: Bearer $GH_TOKEN"             --header "Accept: application/vnd.github+json"             --header "X-GitHub-Api-Version: 2022-11-28"             --header "Content-Type: application/json"             --data-binary @autonomy-next-dispatch.json             --output autonomy-next-dispatch-response.txt             --write-out '%{http_code}'             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/gen2-42-runtime-tick.yml/dispatches")"
+          NEXT_DEPTH="$NEXT_DEPTH" node -e "process.stdout.write(JSON.stringify({ref:'main',inputs:{chain_depth:process.env.NEXT_DEPTH}}))" > "$RUNNER_TEMP/mel-autonomy-next-dispatch.json"
+          CODE="$(curl --silent --show-error --max-time 30             --request POST             --header "Authorization: Bearer $GH_TOKEN"             --header "Accept: application/vnd.github+json"             --header "X-GitHub-Api-Version: 2022-11-28"             --header "Content-Type: application/json"             --data-binary @"$RUNNER_TEMP/mel-autonomy-next-dispatch.json"             --output autonomy-next-dispatch-response.txt             --write-out '%{http_code}'             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/gen2-42-runtime-tick.yml/dispatches")"
           test "$CODE" = "204"
           echo "AUTONOMY_CHAIN_CONTINUED_AFTER_BRIDGE depth=$NEXT_DEPTH"
 
