@@ -193,3 +193,11 @@ test('approved-file staging rejects ambiguous dot or backslash path segments', a
  assert.match(stage,/p\.split\('\/'\)\.includes\('\.'\)/);
  assert.match(stage,/git --literal-pathspecs add/);
 });
+
+test('exact approved staging rejects raw backslash paths instead of normalizing them', async () => {
+ const workflow=await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+ const stage=workflow.slice(workflow.indexOf('mel-stage-paths.bin'),workflow.indexOf('HYGIENE_OUTPUT='));
+ assert.match(stage,/const p=String\(item\?\.path\|\|''\);/);
+ assert.doesNotMatch(stage,/const p=String\(item\?\.path\|\|''\)\.replace/);
+ assert.match(stage,/p\.includes\('\\\\'\)/);
+});
