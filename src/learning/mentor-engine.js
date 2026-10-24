@@ -177,12 +177,24 @@ function proposalFromMarkedFiles(raw) {
 
 // Code inside JSON strings is where small models break quotes and newlines
 // (MENTOR_JSON_INVALID). Plain SEARCH/REPLACE blocks carry code verbatim.
+const NEW_TEST_PATH = /^tests\/[A-Za-z0-9_./-]+\.test\.mjs$/;
+
+// The Council rejects code without a test that exercises it; reject earlier,
+// while other providers can still answer, an implementation without one.
+function assertTestIncluded(proposal, mode, requireTest = false) {
+  if (!requireTest || mode !== 'implement') return proposal;
+  const logic = proposal.changes.some(change => /^src\/.+\.m?js$/.test(change.path));
+  const test = proposal.changes.some(change => /^tests\/.+\.test\.mjs$/.test(change.path));
+  if (logic && !test) throw Object.assign(new Error('MENTOR_TEST_REQUIRED'), { code: 'MENTOR_TEST_REQUIRED' });
+  return proposal;
+}
+
 function proposalFromSearchReplace(raw) {
   const text = String(raw || '');
   if (!/<{7} SEARCH/.test(text)) return null;
   const edits = [];
-  const pattern = /(?:^|\r?\n)EDIT[ \t]+(\S+)[ \t]*\r?\n(?:```[A-Za-z0-9_-]*\r?\n)?<{7} SEARCH\r?\n([\s\S]*?)\r?\n={7}\r?\n([\s\S]*?)\r?\n>{7} REPLACE/g;
-  for (const match of text.matchAll(pattern)) edits.push({ path: match[1], find: match[2], replace: match[3] });
+  const pattern = /(?:^|\r?\n)EDIT[ \t]+(\S+)[ \t]*\r?\n(?:```[A-Za-z0-9_-]*\r?\n)?<{7} SEARCH\r?\n(?:([\s\S]*?)\r?\n)?={7}\r?\n([\s\S]*?)\r?\n>{7} REPLACE/g;
+  for (const match of text.matchAll(pattern)) edits.push({ path: match[1], find: match[2] || '', replace: match[3] });
   if (!edits.length) return null;
   const summary = (text.match(/(?:^|\n)SUMMARY[ \t]+(.+)/) || [])[1] || 'Proposition de développement MEL';
   const tests = [...text.matchAll(/(?:^|\n)TESTS[ \t]+(.+)/g)].flatMap((row) => row[1].split(/[,\s]+/)).filter(Boolean);
@@ -247,8 +259,18 @@ function applyInspectedEdits(edits, inspectedFiles, repairReferences = [], visib
   if (edits.length > MAX_CHANGES) throw Object.assign(new Error('MENTOR_INVALID_CHANGE:change-limit'), { code: 'MENTOR_INVALID_CHANGE' });
   const byPath = new Map((Array.isArray(inspectedFiles) ? inspectedFiles : []).map(file => [file.path, String(file.content || '')]));
   const touched = [];
+  const newTests = new Set();
   for (const edit of edits) {
     const path = safePath(edit?.path);
+    // The only file a proposal may create: a new test with an empty SEARCH.
+    if (!byPath.has(path) && NEW_TEST_PATH.test(path) && !String(edit?.find ?? '')) {
+      const created = String(edit?.replace ?? '');
+      if (!created.trim() || created.length > MAX_CHANGE_CHARS) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
+      byPath.set(path, created);
+      newTests.add(path);
+      if (!touched.includes(path)) touched.push(path);
+      continue;
+    }
     if (!byPath.has(path)) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
     const visible = visibleFiles.find(file => file.path === path);
     const find = resolveFind(visible?.content, String(edit?.find ?? ''));
@@ -273,6 +295,7 @@ function applyInspectedEdits(edits, inspectedFiles, repairReferences = [], visib
   }
   return touched.map(path => ({
     path,
+    ...(newTests.has(path) ? { created: true } : {}),
     content: byPath.get(path),
     reason: 'Modification appliquée sur le fichier inspecté',
   }));
@@ -342,6 +365,7 @@ function normalizeProposal(value, provenance = {}, inspectedFiles = [], previous
   const tests = [...new Set((Array.isArray(parsed.tests) ? parsed.tests : []).map(String).filter(name => ALLOWED_TESTS.has(name)))].slice(0, 4);
   if (!tests.length) tests.push('test:smoke');
   for (const change of changes) {
+    if (change.created) { assertMentorCodeContract(change.path, '', change.content); continue; }
     if (!visibleFiles.some(file => file.path === change.path)) throw Object.assign(new Error('MENTOR_UNINSPECTED_PATH'), { code: 'MENTOR_UNINSPECTED_PATH' });
     assertAcceptedChange(change, inspectedFiles, forbidden, !rawChanges.length);
     const inspected = inspectedFiles.find(file => file.path === change.path);
@@ -443,6 +467,7 @@ function buildPrompt({ role, goal, files, lessons, experiences, previousAttempts
     'RÔLE: ' + role + '. MODE: ' + (mode === 'repair' ? 'RÉPARATION APRÈS TEST' : 'IMPLÉMENTATION') + '.',
     'FORMAT OBLIGATOIRE (texte brut, sans JSON) : une ligne « SUMMARY modification concrète », une ligne « TESTS test:smoke », puis pour chaque modification : une ligne « EDIT CHEMIN_EXACT », une ligne « <<<<<<< SEARCH », l’extrait EXACT et UNIQUE à remplacer, une ligne « ======= », le nouveau contenu, une ligne « >>>>>>> REPLACE ». Le JSON {"summary","edits":[{"path","find","replace"}],"tests"} reste accepté.',
     'L’extrait SEARCH doit être EXACT et UNIQUE, copié de SOURCES_INSPECTÉES ; REPLACE est son remplacement réel.',
+    'TEST OBLIGATOIRE : tout changement de logique dans src/ s’accompagne d’un nouveau test, en bloc EDIT tests/<nom>.test.mjs avec une section SEARCH vide ; il utilise node:test et node:assert/strict, importe le module modifié par chemin relatif et vérifie le comportement demandé.',
     'Fichiers autorisés: ' + allowed + '. Ne crée pas de fichier non inspecté.',
     'Ne renvoie pas un fichier entier, un diff, un bloc FILE/MEL_FILE ou du texte tronqué.',
     'Modifie le minimum pour faire avancer l’objectif approuvé. Aucun nouvel import ou module non présent dans les fichiers/dependances vérifiés.',
@@ -531,7 +556,7 @@ export class MentorEngine {
     return this.memory.experienceContext(goal, options);
   }
 
-  async propose({ env, jobId, goal, inspectedFiles = [], previousAttempts = [], mode = 'implement', repairReferences = [], pathExists = null } = {}) {
+  async propose({ env, jobId, goal, inspectedFiles = [], previousAttempts = [], mode = 'implement', repairReferences = [], pathExists = null, requireTest = false } = {}) {
     // The supervisor appends the whole manifest status list; models mistake it
     // for the task and "fix" roadmap ID lists, so only the item itself is sent.
     const objective = bounded(goal, 12_000).replace(/\s*\|\s*OBJECTIF\s[\s\S]*$/, '').trim();
@@ -618,6 +643,7 @@ export class MentorEngine {
         const raw = output?.text ?? output;
         try {
           const proposal = await assertImportsResolve(normalizeProposal(raw, output?.provenance || { provider: provider.providerId, model: provider.modelId }, files, previousAttempts, references, result.value.visibleScope), pathExists, files);
+          assertTestIncluded(proposal, mode, requireTest);
           proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: false });
         } catch (error) {
           const failure = mentorFailureCode(error, 'MENTOR_PROPOSAL_INVALID');
@@ -667,6 +693,7 @@ export class MentorEngine {
               references,
               result.value.visibleScope,
             ), pathExists, files);
+            assertTestIncluded(proposal, mode, requireTest);
             proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: true });
             repairValidProposals += 1;
           } catch (error) {
