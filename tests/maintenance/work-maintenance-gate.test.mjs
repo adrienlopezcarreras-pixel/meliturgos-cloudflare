@@ -39,11 +39,27 @@ test('WORK scheduler and submission retry are blocked by maintenance lease',asyn
  assert.equal(called,0);
 });
 
-test('maintenance orchestration releases lease only after verified outcome',async()=>{
+test('lifecycle requires independent proof before lifting a WORK pause',async()=>{
  const sql=[];
- const store={prepare(q){sql.push(q);return {bind(){return {first:async()=>null,run:async()=>({meta:{changes:1}})}}}}};
- assert.equal((await withMaintenanceLease(store,{leaseId:'success',now:()=>100,ttlMs:1000,run:async()=>({reconciled:true})})).status,'COMPLETED');
- assert.equal((await withMaintenanceLease(store,{leaseId:'recover',now:()=>100,ttlMs:1000,run:async()=>{throw Error('failed')},recover:async()=>({reconciled:true})})).status,'RECOVERED');
- await assert.rejects(withMaintenanceLease(store,{leaseId:'unproven',now:()=>100,ttlMs:1000,run:async()=>{throw Error('bad')}}),/bad/);
+ const store={prepare(q){sql.push(q);return {bind(){return {
+   first:async()=>null,run:async()=>({meta:{changes:1}})
+ }}}}};
+ const verify=async()=>({reconciled:true,independently_verified:true});
+ await assert.rejects(withMaintenanceLease(store,{
+   leaseId:'not-allowed',now:()=>100,ttlMs:1000,run:async()=>({reconciled:true})
+ }),/INDEPENDENT_VERIFIER_REQUIRED/);
+ assert.equal(sql.length,0);
+ assert.equal((await withMaintenanceLease(store,{
+   leaseId:'success',now:()=>100,ttlMs:1000,
+   run:async()=>({reconciled:true}),verify
+ })).status,'COMPLETED');
+ assert.equal((await withMaintenanceLease(store,{
+   leaseId:'recover',now:()=>100,ttlMs:1000,
+   run:async()=>{throw Error('failed')},recover:async()=>({reconciled:true}),verify
+ })).status,'RECOVERED');
+ await assert.rejects(withMaintenanceLease(store,{
+   leaseId:'unproven',now:()=>100,ttlMs:1000,
+   run:async()=>({reconciled:true}),verify:async()=>({reconciled:true})
+ }),/INDEPENDENT_RECONCILIATION_REQUIRED/);
  assert.equal(sql.filter(q=>q.includes("status='RUNNING'")).length,2);
 });
