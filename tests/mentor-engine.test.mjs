@@ -841,3 +841,28 @@ test('a production implementation must ship a new test, created with an empty SE
   assert.deepEqual(result.proposal.changes.map(change => change.path).sort(), ['src/math.js', 'tests/math-double.test.mjs']);
   assert.match(result.proposal.changes.find(change => change.path.startsWith('tests/')).content, /double\(2\), 4/);
 });
+
+test('a change without its test gets the test from a follow-up request instead of being discarded', async () => {
+  const source = 'export function double(x) {\n  return x;\n}\n';
+  const edit = ['SUMMARY doubler', 'EDIT src/math.js', '<<<<<<< SEARCH', '  return x;', '=======', '  return x * 2;', '>>>>>>> REPLACE'].join('\n');
+  const testBlock = ['EDIT tests/math-double.test.mjs', '<<<<<<< SEARCH', '=======',
+    "import test from 'node:test';", "import assert from 'node:assert/strict';", "import { double } from '../src/math.js';",
+    "test('double', () => { assert.equal(double(2), 4); });", '>>>>>>> REPLACE'].join('\n');
+  const asked = [];
+  const forgetful = { id: 'forgetful', providerId: 'test', modelId: 'forgetful', async invoke({ input }) {
+    asked.push(input);
+    return { text: /n’a pas de test/.test(input) ? testBlock : edit, provenance: { provider: 'test', model: 'forgetful' } };
+  } };
+  const engine = new MentorEngine({ providerFactory: async () => [forgetful] });
+  const result = await engine.propose({ env: {}, goal: 'Doubler', inspectedFiles: [{ path: 'src/math.js', content: source }], requireTest: true });
+  assert.equal(asked.length, 2);
+  assert.deepEqual(result.proposal.changes.map(change => change.path).sort(), ['src/math.js', 'tests/math-double.test.mjs']);
+});
+
+test('miscounted SEARCH/REPLACE markers are still read', async () => {
+  const source = 'export const answer = 1;\n';
+  const reply = ['SUMMARY réponse', 'EDIT src/answer.js', '<<<<<< SEARCH', 'export const answer = 1;', '======', 'export const answer = 42;', '>>>>>> REPLACE'].join('\n');
+  const engine = new MentorEngine({ providerFactory: async () => [provider('six-markers', reply)] });
+  const result = await engine.propose({ env: {}, goal: 'Répondre', inspectedFiles: [{ path: 'src/answer.js', content: source }] });
+  assert.equal(result.proposal.changes[0].content, 'export const answer = 42;\n');
+});
