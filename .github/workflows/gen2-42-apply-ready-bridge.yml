@@ -223,8 +223,31 @@ jobs:
           git clean -fd
           HEAD_SHA="$(git rev-parse FETCH_HEAD)"
           if [ "$HEAD_SHA" != "$CANDIDATE_SHA" ]; then
-            echo "TEACHER_APPROVAL_CANDIDATE_SHA_STALE"
-            exit 1
+            # Only rebase readied work over append-only, disjoint candidate
+            # commits. Never reinterpret approval if a package file changed.
+            git merge-base --is-ancestor "$CANDIDATE_SHA" "$HEAD_SHA" || {
+              echo "TEACHER_APPROVAL_CANDIDATE_SHA_STALE_NON_ANCESTOR"
+              exit 1
+            }
+            mapfile -d '' -t APPROVED_PATHS < <(node - <<'NODE'
+          const fs=require('fs');
+          const job=JSON.parse(fs.readFileSync(process.env.BRIDGE_JOB_FILE,'utf8'));
+          for(const item of job.files_json||[]){
+            const path=String(item?.path||'');
+            if(!path||path.startsWith('/')||path.includes('..')||path.includes('\\')||path.startsWith('-')) process.exit(2);
+            process.stdout.write(path+'\0');
+          }
+          NODE
+            )
+            test "${#APPROVED_PATHS[@]}" -gt 0
+            if ! git diff --quiet "$CANDIDATE_SHA" "$HEAD_SHA" -- "${APPROVED_PATHS[@]}"; then
+              echo "TEACHER_APPROVAL_CANDIDATE_SHA_STALE_OVERLAPPING_FILES"
+              exit 1
+            fi
+            echo "CANDIDATE_DISJOINT_REBASE approved=$CANDIDATE_SHA current=$HEAD_SHA"
+            echo "APPROVED_SNAPSHOT_SHA=$CANDIDATE_SHA" >> "$GITHUB_ENV"
+            echo "CANDIDATE_SHA=$HEAD_SHA" >> "$GITHUB_ENV"
+            CANDIDATE_SHA="$HEAD_SHA"
           fi
           git checkout -B "$CANDIDATE_BRANCH" "$CANDIDATE_SHA"
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
