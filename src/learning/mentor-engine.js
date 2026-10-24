@@ -191,9 +191,10 @@ function assertTestIncluded(proposal, mode, requireTest = false) {
 
 function proposalFromSearchReplace(raw) {
   const text = String(raw || '');
-  if (!/<{7} SEARCH/.test(text)) return null;
+  // Models often miscount the conflict markers (<<<<<< SEARCH): accept 5 to 9.
+  if (!/<{5,9} ?SEARCH/.test(text)) return null;
   const edits = [];
-  const pattern = /(?:^|\r?\n)EDIT[ \t]+(\S+)[ \t]*\r?\n(?:```[A-Za-z0-9_-]*\r?\n)?<{7} SEARCH\r?\n(?:([\s\S]*?)\r?\n)?={7}\r?\n([\s\S]*?)\r?\n>{7} REPLACE/g;
+  const pattern = /(?:^|\r?\n)EDIT[ \t]+(\S+)[ \t]*\r?\n(?:```[A-Za-z0-9_-]*\r?\n)?<{5,9} ?SEARCH[ \t]*\r?\n(?:([\s\S]*?)\r?\n)?={5,9}[ \t]*\r?\n([\s\S]*?)\r?\n>{5,9} ?REPLACE/g;
   for (const match of text.matchAll(pattern)) edits.push({ path: match[1], find: match[2] || '', replace: match[3] });
   if (!edits.length) return null;
   const summary = (text.match(/(?:^|\n)SUMMARY[ \t]+(.+)/) || [])[1] || 'Proposition de développement MEL';
@@ -484,6 +485,17 @@ function buildPrompt({ role, goal, files, lessons, experiences, previousAttempts
   ].join('\n');
 }
 
+function buildTestFollowUpPrompt({ goal, change }) {
+  return [
+    'Tu es le mentor code de MELITURGOS. Ta modification ci-dessous n’a pas de test : le Council refuse un code non testé.',
+    'Écris UNIQUEMENT le test, au format : une ligne « EDIT tests/<nom>.test.mjs », une ligne « <<<<<<< SEARCH », une ligne « ======= », le contenu complet du test, une ligne « >>>>>>> REPLACE ». La section SEARCH reste vide.',
+    'Le test utilise node:test et node:assert/strict, importe le module modifié par chemin relatif (../src/…) et vérifie le comportement demandé. Aucun autre texte.',
+    'OBJECTIF: ' + goal,
+    'TA MODIFICATION:',
+    change,
+  ].join('\n');
+}
+
 // ChatGPT-GPT6 / MEL-MENTOR-TIMEOUT: each provider call is bounded even
 // if its backend ignores AbortSignal; late results never block MAX.
 async function boundedMentorInvoke(provider, request, limitMs) {
@@ -649,8 +661,22 @@ export class MentorEngine {
         const output = result.value.output;
         const raw = output?.text ?? output;
         try {
-          const proposal = await assertImportsResolve(normalizeProposal(raw, output?.provenance || { provider: provider.providerId, model: provider.modelId }, files, previousAttempts, references, result.value.visibleScope), pathExists, files);
-          assertTestIncluded(proposal, mode, requireTest);
+          const provenance = output?.provenance || { provider: provider.providerId, model: provider.modelId };
+          let proposal = await assertImportsResolve(normalizeProposal(raw, provenance, files, previousAttempts, references, result.value.visibleScope), pathExists, files);
+          try {
+            assertTestIncluded(proposal, mode, requireTest);
+          } catch (error) {
+            if (error?.code !== 'MENTOR_TEST_REQUIRED' || typeof raw !== 'string' || remaining() < 10_000) throw error;
+            // Models write the change and forget its test; ask the same model
+            // for the test alone instead of discarding a valid change.
+            const testOutput = await boundedMentorInvoke(provider, {
+              input: buildTestFollowUpPrompt({ goal: objective, change: bounded(raw, 12_000) }),
+              context: { purpose: 'mel-autonomous-development', job_id: jobId || null, mode, inference_settings: learned.inference },
+            }, Math.max(10, Math.min(this.invokeTimeoutMs, remaining())));
+            const combined = raw + '\n' + String(testOutput?.text ?? testOutput ?? '');
+            proposal = await assertImportsResolve(normalizeProposal(combined, provenance, files, previousAttempts, references, result.value.visibleScope), pathExists, files);
+            assertTestIncluded(proposal, mode, requireTest);
+          }
           proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: false });
         } catch (error) {
           const failure = mentorFailureCode(error, 'MENTOR_PROPOSAL_INVALID');
