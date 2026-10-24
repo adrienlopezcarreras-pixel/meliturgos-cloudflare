@@ -189,3 +189,5 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 - `claude-github-token-no-workflow-chaining-20261023` — un run lancé par github.token ne déclenche ni workflow_run ni push-trigger ; lancer l’étape suivante par workflow_dispatch.
 - `claude-bot-token-cannot-write-workflows-20261023` — le mentor n’écrit jamais .github/workflows/ ; pas d’élargissement du jeton du pont.
 - `claude-main-equal-is-not-candidate-applied-20261023` — un paquet n’est « déjà appliqué » que s’il égale main et la candidate exacte.
+- `claude-council-rejection-resets-candidate-20261024` — un refus du Council remet le contenu de main sur la candidate, sans bloquer la chaîne.
+- `claude-zero-cost-proof-lists-every-model-20261024` — tout modèle du mentor doit figurer dans la preuve zéro coût, sinon il est écarté en silence.
