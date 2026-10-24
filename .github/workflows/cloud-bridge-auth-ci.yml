@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - src/core/dev-bridge-auth.js
+      - src/capabilities/github-code-capabilities.js
+      - tests/github-code-head-fallback.test.mjs
       - .github/workflows/gen2-42-apply-ready-bridge.yml
       - .github/workflows/full-candidate-ci.yml
       - .github/workflows/mel-candidate-promotion.yml
@@ -23,6 +25,8 @@ on:
       - main
     paths:
       - src/core/dev-bridge-auth.js
+      - src/capabilities/github-code-capabilities.js
+      - tests/github-code-head-fallback.test.mjs
       - .github/workflows/gen2-42-apply-ready-bridge.yml
       - .github/workflows/full-candidate-ci.yml
       - .github/workflows/mel-candidate-promotion.yml
