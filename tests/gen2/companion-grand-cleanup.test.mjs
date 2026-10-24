@@ -41,3 +41,10 @@ test('Companion grand cleanup inventories global D1 without calling reset endpoi
   assert.match(source, /MEL-inventaire-D1-\$Stamp\.json/);
   assert.match(source, /NETTOYAGE GLOBAL : BLOQUE/);
 });
+
+test('Grand nettoyage never resets MAX before verified global restore preflight', async () => {
+ const source=await read('windows-companion/MEL-Grand-Nettoyage.ps1');
+ assert.doesNotMatch(source, /Invoke-RestMethod[^\n]*\/api\/gen2\/autonomy\/activity\/reset/);
+ assert.match(source, /MAX : VERROUILLE/);
+ assert.match(source, /maintenance\/inspect/);
+});
