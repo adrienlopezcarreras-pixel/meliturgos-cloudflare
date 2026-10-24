@@ -2,7 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readMaintenanceFence,startMaintenanceLease,finishMaintenanceLease,withMaintenanceLease} from '../../src/maintenance/maintenance-gate.js';
 import {retryPendingSubmissions,runScheduledMelWork} from '../../src/revenue/work-schedule.js';
-const db=status=>({prepare(){return {bind(){return {first:async()=>status===null?null:{status,metadata_json:JSON.stringify({lease_id:'cycle-1',expires_at:5000})}}};}};});
+const db = status => ({
+  prepare() {
+    return {
+      bind() {
+        return {
+          first: async () => status === null ? null : {
+            status,
+            metadata_json: JSON.stringify({lease_id:'cycle-1',expires_at:5000}),
+          },
+        };
+      },
+    };
+  },
+});
 test('temporary maintenance lease pauses until explicit release; expiry requires recovery',async()=>{
  assert.equal((await readMaintenanceFence(db(null),{now:100})).paused,false);
  assert.equal((await readMaintenanceFence(db('PAUSED'),{now:100})).reason,'MAINTENANCE_IN_PROGRESS');
