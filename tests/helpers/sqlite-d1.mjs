@@ -1,7 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 // Real SQL, disposable in-memory database. Never opens project D1 files.
-export function sqliteD1() {
+export function sqliteD1({ maintenanceFence = false } = {}) {
   const sqlite = new DatabaseSync(':memory:');
+  if (maintenanceFence) sqlite.exec('CREATE TABLE dev_bridge_state (bridge_id TEXT PRIMARY KEY, last_seen INTEGER, status TEXT, metadata_json TEXT)');
   const db = {
     prepare(sql) {
       let params = [];
