@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { onRequestGet as watchPage } from '../src/pages/watch-interface.js';
 import { enhanceFullModeControls } from '../src/pages/full-mode-control-enhancer.js';
 
-test('watch owns a dedicated page with a side-effect-free test-all control', async () => {
+test('watch owns a dedicated page with a test-all control', async () => {
   const response = await watchPage();
   const html = await response.text();
   assert.match(html, /<title>Veille MEL<\/title>/);
@@ -28,7 +28,7 @@ test('Professor exposes only navigation to watch and no watch runtime UI', async
   assert.doesNotMatch(html, /melProposalChatNotice/);
 });
 
-test('test-all endpoint disables discovery handoff while reusing the canonical watch engine', async () => {
+test('test-all endpoint hands discoveries to the Mentor through the canonical watch engine', async () => {
   const [ui, runtime, router, preview] = await Promise.all([
     readFile(new URL('../src/ui-entry.js', import.meta.url), 'utf8'),
     readFile(new URL('../src/evaluation/capability-watch-runtime.js', import.meta.url), 'utf8'),
@@ -36,7 +36,7 @@ test('test-all endpoint disables discovery handoff while reusing the canonical w
     readFile(new URL('../src/preview-auth-entry.js', import.meta.url), 'utf8'),
   ]);
   assert.match(ui, /\/api\/mel\/capability-watch\/test-all/);
-  assert.match(ui, /allowHandoff:\s*false/);
+  assert.doesNotMatch(ui, /allowHandoff:\s*false/);
   assert.match(runtime, /allowHandoff\s*=\s*true/);
   assert.match(runtime, /if \(allowHandoff && \(result\.status === 'RAN' \|\| workItems\.length > 0\)/);
   assert.match(router, /url\.pathname === "\/veille"/);
