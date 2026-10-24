@@ -26,10 +26,6 @@ const AUTONOMY_ORDER = [
   'MEL-MANIFEST-04',
   'MEL-WORK-01',
   'MEL-WORK-02',
-  'MEL-MANIFEST-01',
-  'MEL-MANIFEST-02',
-  'MEL-MANIFEST-03',
-  'MEL-MANIFEST-04',
   'MEL-MANIFEST-05',
   'MEL-MANIFEST-06',
   'MEL-MANIFEST-07',
@@ -92,12 +88,6 @@ function isPassiveRuntimeJob(job) {
     const activityEpoch = job?.result_json?.activity_epoch;
     const jobCreatedAt = job?.created_at ? new Date(job.created_at).getTime() : 0;
     if (activityEpoch && jobCreatedAt < activityEpoch) return true;
-  }
-
-  // [MEL-MANIFEST-07] Prevent duplicate jobs for the same discovery/veille.
-  // We only consider it passive if it's already being handled or has a discovery signature.
-  if (job?.result_json?.discovery_id && job?.result_json?.discovery_hash) {
-    return true;
   }
 
   return status === 'READY_FOR_REVIEW' && job?.result_json?.dev_bridge?.needs_repair !== true;
