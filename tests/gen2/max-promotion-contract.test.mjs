@@ -185,3 +185,11 @@ test('GEN2-42 stages only Teacher-approved paths and never generated test output
   assert.match(commit,/job\.files_json/);
   assert.doesNotMatch(commit,/git add --all/);
 });
+
+test('approved-file staging rejects ambiguous dot or backslash path segments', async () => {
+ const workflow=await read('.github/workflows/gen2-42-apply-ready-bridge.yml');
+ const stage=workflow.slice(workflow.indexOf('mel-stage-paths.bin'),workflow.indexOf('HYGIENE_OUTPUT='));
+ assert.match(stage,/p\.includes\('\\\\'\)/);
+ assert.match(stage,/p\.split\('\/'\)\.includes\('\.'\)/);
+ assert.match(stage,/git --literal-pathspecs add/);
+});
