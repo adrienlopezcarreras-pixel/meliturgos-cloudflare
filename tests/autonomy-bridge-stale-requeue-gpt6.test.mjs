@@ -36,7 +36,7 @@ test('[GPT6] SHA drift evidence survives Teacher requeue for diagnosis', () => {
 
 test('[GPT6] direct Bridge head mismatch carries both SHAs into durable recovery', () => {
   const source = readFileSync('src/evolution/autonomy-bridge-preparer.js', 'utf8');
-  const mismatch = source.slice(source.indexOf('if (!SHA40.test(String(headBefore'), source.indexOf('async function inspectSources')));
+  const mismatch = source.slice(source.indexOf('if (!SHA40.test(String(headBefore'));
   assert.match(mismatch, /expected_sha: approvedSha/);
   assert.match(mismatch, /observed_sha: SHA40\.test\(String\(headBefore\?\.sha/);
   assert.match(mismatch, /observed_sha: SHA40\.test\(String\(headAfter\?\.sha/);
