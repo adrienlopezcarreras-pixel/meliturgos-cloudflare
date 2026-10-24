@@ -227,3 +227,16 @@ test('a completed job is code delivered; only a verified roadmap item proves the
   assert.equal(jobPipeline(done).at(-1).key, 'objective');
   assert.equal(jobPipeline(done).at(-1).done, false);
 });
+
+test('each pipeline step of a mission is traced to its exact run and SHA', async () => {
+  const { jobTrace } = await import('../src/evolution/autonomy-activity.js');
+  const sha = 'a'.repeat(40);
+  const trace = jobTrace({
+    dev_bridge: { github_run_id: 101, candidate_sha: sha, status: 'READY_FOR_REVIEW' },
+    autonomy_completion: { ci: { run_id: 202, head_sha: sha, conclusion: 'success' } },
+    council_review: { decision: 'REJECTED', head: sha },
+  });
+  assert.deepEqual(trace.map(t => [t.step, t.run_id ?? null, t.status]), [['bridge', 101, 'READY_FOR_REVIEW'], ['ci', 202, 'success'], ['council', null, 'REJECTED']]);
+  assert.ok(trace.every(t => t.sha === sha));
+  assert.deepEqual(jobTrace({}), []);
+});

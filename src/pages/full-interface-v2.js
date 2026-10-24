@@ -968,6 +968,7 @@ function activityMarkup(a){
         +(j.files?.length?'<div class="act-kv">Fichiers : '+j.files.map(esc).join(', ')+'</div>':'')
         +(j.tests?.length?'<div class="act-kv">Tests : '+j.tests.map(esc).join(', ')+'</div>':'')
         +(j.candidate?'<div class="act-kv">Candidate : '+esc(j.candidate.branch)+' @ '+esc(String(j.candidate.base_sha||'').slice(0,12))+'</div>':'')
+        +(j.trace?.length?'<div class="act-kv">Trace : '+j.trace.map(t=>esc(t.step)+(t.status?' '+esc(t.status):'')+(t.run_id?' <a href="https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/actions/runs/'+esc(t.run_id)+'" target="_blank" rel="noopener">run '+esc(t.run_id)+'</a>':'')+(t.sha?' @ <a href="https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/commit/'+esc(t.sha)+'" target="_blank" rel="noopener">'+esc(t.sha.slice(0,12))+'</a>':'')).join(' → ')+'</div>':'')
         +(j.completion?'<div class="act-kv">Résultat : '+esc(j.completion.status)+(j.completion.sha?' @ '+esc(String(j.completion.sha).slice(0,12)):'')+(j.completion.ci_run_id?' · CI '+esc(j.completion.ci_run_id):'')+'</div>':'')
         +(j.diagnostics||[]).map(d=>'<div class="act-kv act-warn">Diagnostic : '+esc(d)+'</div>').join('')
         +(j.error?'<div class="act-kv act-bad">Erreur : '+esc(j.error)+'</div>':'')
