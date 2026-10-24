@@ -7,7 +7,19 @@ const props={
  producerFenceProof:{verified:true,all_producers_stopped:true,reference:'fence-test'},
  domainProofs:Object.fromEntries(RESET_SCOPES.map(scope=>[scope,{tested:true,idempotent:true,generation_fenced:true}])),
 };
-const store=()=>({prepare(){return {bind(){return {first:async()=>null,run:async()=>({meta:{changes:1}})}}},first:async()=>null}});
+const store = () => ({
+  prepare() {
+    return {
+      first: async () => null,
+      bind() {
+        return {
+          first: async () => null,
+          run: async () => ({meta:{changes:1}}),
+        };
+      },
+    };
+  },
+});
 test('global maintenance refuses missing owner and unverifiable restore before mutation',async()=>{
  let invoked=0;
  const args={db:store(),leaseId:'test-1',ownerApproved:true,proofProvider:async()=>({}),
