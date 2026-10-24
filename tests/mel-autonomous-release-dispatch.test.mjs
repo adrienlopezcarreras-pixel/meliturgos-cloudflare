@@ -503,7 +503,7 @@ test('production completion catch-up uses SHA-aware deduplication and an exact u
   const yaml = readFileSync(new URL('../.github/workflows/mel-autonomous-production-release.yml',import.meta.url),'utf8');
   assert.match(yaml,/workflows: \[deploy-cloudflare-release\]/);
   assert.match(yaml,/types: \[completed\]/);
-  assert.match(yaml,/github\.event\.workflow_run\.event == 'workflow_dispatch'/);
+  assert.match(yaml,/github\.event\.workflow_run\.status == 'completed'/);
   assert.match(yaml,/MEL_SKIP_ALREADY_ATTEMPTED_SHA:.*workflow_run/);
   assert.match(yaml,/MEL_REQUIRE_PROTECTED_REFS:.*workflow_run/);
 });
