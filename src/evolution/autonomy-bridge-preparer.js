@@ -82,7 +82,11 @@ async function inspectSources(env, proposal, { fetchImpl = fetch } = {}) {
     throw error;
   }
   if (!SHA40.test(String(headBefore?.sha || '')) || String(headBefore.sha).toLowerCase() !== approvedSha) {
-    throw Object.assign(new Error('BRIDGE_PREPARATION_CANDIDATE_STALE'), { code: 'BRIDGE_PREPARATION_CANDIDATE_STALE' });
+    throw Object.assign(new Error('BRIDGE_PREPARATION_CANDIDATE_STALE'), {
+      code: 'BRIDGE_PREPARATION_CANDIDATE_STALE',
+      expected_sha: approvedSha,
+      observed_sha: SHA40.test(String(headBefore?.sha || '')) ? String(headBefore.sha).toLowerCase() : null,
+    });
   }
 
   const files = [];
@@ -110,7 +114,11 @@ async function inspectSources(env, proposal, { fetchImpl = fetch } = {}) {
     throw error;
   }
   if (String(headAfter?.sha || '').toLowerCase() !== String(headBefore.sha).toLowerCase()) {
-    throw Object.assign(new Error('CANDIDATE_HEAD_CHANGED_DURING_INSPECTION'), { code: 'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION' });
+    throw Object.assign(new Error('CANDIDATE_HEAD_CHANGED_DURING_INSPECTION'), {
+      code: 'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION',
+      expected_sha: approvedSha,
+      observed_sha: SHA40.test(String(headAfter?.sha || '')) ? String(headAfter.sha).toLowerCase() : null,
+    });
   }
   return { repository, branch, candidate_sha: headAfter.sha, files };
 }
