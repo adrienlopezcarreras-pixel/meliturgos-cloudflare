@@ -2652,7 +2652,7 @@ export async function handleNativeChat(request, env, options = {}) {
         return Response.json({ ok:true, text:responseText, model:'deterministic-image-retrieval',
           provider:'mel', response_mode:'verified-image-retrieval', analysis_available:false,
           analysis_error:'CHAT_INFERENCE_FAILED', capability_used:['web.images.search'],
-          tool_results:toolResults, media:responseMedia, archive_saved:archiveSaved },
+          tool_results:toolResults, ...responseMedia, archive_saved:archiveSaved },
           { headers:{'cache-control':'no-store'} });
       } else if (explanatoryAutonomyRead) {
         // The read succeeded even when every inference provider failed. Keep
