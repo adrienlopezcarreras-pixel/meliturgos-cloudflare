@@ -1318,7 +1318,7 @@ async function loadFreeLoraStatus(){
     qs('#freeBenchmarkState').textContent=benchmarkVerified
       ?'GATES CANONIQUE ET IMPACT VALIDÉS'
       :(benchKnown
-        ?(bench.status!=null?String(bench.status):'—')+(bench.latest_score!=null?' · '+Math.round(Number(bench.latest_score)*1000)/10+'%':'')+' · GATES NON PROUVÉS'
+        ?(bench.status!=null?String(bench.status):'—')+(bench.latest_score!=null?' · '+Math.round(Number(bench.latest_score)*1000)/10+'%':'')+' · benchmark général MEL, pas ce checkpoint'
         :(traceSuccess?'TRACE D’ENTRAÎNEMENT VÉRIFIÉE · BENCHMARK NON PROUVÉ':'—'));
     qs('#freeLoraTraceState').textContent=dailyTrace?.run_id
       ?String(dailyTrace.run_id)+' · '+(traceStatus||'ÉTAT INCONNU')
