@@ -1389,4 +1389,68 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1792944000000
   },
+  {
+    "id": "claude-reasoning-model-token-budget-20261025",
+    "domain": "evaluation",
+    "task": "Mesurer MEL avec un modèle qui raisonne avant de répondre.",
+    "input": "Le benchmark général appelait glm-4.7-flash avec max_tokens 512.",
+    "before": "Toutes les mesures échouaient EMPTY_BENCHMARK_RESPONSE ; la page affichait un vieux 25,6 % comme score courant.",
+    "after": "max_tokens 2048 pour le benchmark ; la carte LoRA n'affiche plus le score général comme score du checkpoint.",
+    "rationale": "Un modèle à raisonnement consomme son budget de tokens avant la réponse finale : un budget trop court donne une réponse vide, pas un mauvais score.",
+    "tests": [
+      "PR #2694",
+      "D1 mentor_lessons BENCHMARK_CADENCE : failure EMPTY_BENCHMARK_RESPONSE répété"
+    ],
+    "tags": [
+      "benchmark",
+      "reasoning-model",
+      "workers-ai"
+    ],
+    "source": "claude",
+    "validated": true,
+    "quality": 1,
+    "created_at": 1792944000000
+  },
+  {
+    "id": "claude-limited-budget-proof-runs-weekly-20261025",
+    "domain": "release",
+    "task": "Choisir la fréquence des preuves de release.",
+    "input": "Chaque release rejouait les preuves lourdes (MEDIA-02, Council, navigateur) sur le budget IA journalier.",
+    "before": "Des releases échouaient et revenaient en arrière sur un 429 du plafond de neurones ou un 503 du Council.",
+    "after": "Les preuves qui consomment un budget limité ne tournent qu'à la première release de la semaine UTC.",
+    "rationale": "Une preuve qui dépense un quota partagé ne doit pas être rejouée à chaque release : elle finit par faire échouer la release qu'elle protège.",
+    "tests": [
+      "PR #2679",
+      "PR #2682"
+    ],
+    "tags": [
+      "release",
+      "budget",
+      "proofs"
+    ],
+    "source": "claude",
+    "validated": true,
+    "quality": 1,
+    "created_at": 1792944000000
+  },
+  {
+    "id": "claude-clone-test-sees-committed-files-20261025",
+    "domain": "tests",
+    "task": "Lancer un test qui clone le dépôt.",
+    "input": "Un test cloud-bridge clonait le dépôt alors qu'un nouveau fichier importé n'était pas commité.",
+    "before": "Le test échouait localement sur un import introuvable.",
+    "after": "Commiter avant de lancer un test fondé sur un clone.",
+    "rationale": "Un test qui clone le dépôt ne voit que les fichiers commités.",
+    "tests": [
+      "Session 25/10 : échec local cloud-bridge puis succès après commit"
+    ],
+    "tags": [
+      "tests",
+      "git"
+    ],
+    "source": "claude",
+    "validated": true,
+    "quality": 1,
+    "created_at": 1792944000000
+  },
 ]);
