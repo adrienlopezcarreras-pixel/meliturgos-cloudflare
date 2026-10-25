@@ -2,7 +2,7 @@
 export async function copyR2Inventory({inventory,snapshotId,copyObject,maxBytes=256*1024*1024}={}) {
  const objects=inventory?.objects;
  const fail=code=>{throw Error(code);};
- if(!/^system-[0-9]{17}$/.test(snapshotId||'')||!Array.isArray(objects)||inventory.objectCount!==objects.length||objects.length>5000)fail('BACKUP_R2_COPY_INVENTORY_INVALID');
+ if(!/^system-[0-9]{17}$/.test(snapshotId||'')||!Array.isArray(objects)||inventory.objectCount!==objects.length||objects.length>10000)fail('BACKUP_R2_COPY_INVENTORY_INVALID');
  const seen=new Set();let total=0;
  for(const item of objects){
   if(typeof item?.key!=='string'||!item.key||seen.has(item.key)||item.key.startsWith('backups/system/')||!item.etag||!Number.isSafeInteger(item.size)||item.size<0||item.size>32*1024*1024)fail('BACKUP_R2_COPY_INVENTORY_INVALID');
