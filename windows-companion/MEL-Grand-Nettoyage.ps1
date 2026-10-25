@@ -12,10 +12,10 @@ try {
   $backupScript=Join-Path $PSScriptRoot 'MEL-Sauvegarde-Locale-D1.ps1'
   if (-not (Test-Path -LiteralPath $backupScript -PathType Leaf)) { throw 'MEL_SAUVEGARDE_LOCALE_SCRIPT_MISSING' }
   $ErrorActionPreference='Continue'
-  $backupLog=@(& $backupScript 2>&1)
+  # Stream each line as it comes: a silent multi-minute export looked hung.
+  & $backupScript 2>&1 | ForEach-Object { Report "$_" }
   $backupExit=$LASTEXITCODE
   $ErrorActionPreference='Stop'
-  foreach ($line in $backupLog) { Report "$line" }
   if ($backupExit -eq 0) { Report 'SAUVEGARDE LOCALE : PROUVEE (export + restauration isolee).' }
   else { Report 'SAUVEGARDE LOCALE : NON PROUVEE - aucune suppression possible.' }
 } catch { Report "SAUVEGARDE LOCALE : BLOQUEE - $($_.Exception.Message)" }

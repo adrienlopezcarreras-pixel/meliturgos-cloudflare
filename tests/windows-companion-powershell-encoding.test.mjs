@@ -27,3 +27,12 @@ test('native npm/wrangler stderr notices never abort the local backup', () => {
   const cleanup = readFileSync('windows-companion/MEL-Grand-Nettoyage.ps1', 'utf8');
   assert.match(cleanup, /\$backupExit=\$LASTEXITCODE/);
 });
+
+test('the local backup never waits on a hidden prompt and streams its log', () => {
+  const backup = readFileSync('windows-companion/MEL-Sauvegarde-Locale-D1.ps1', 'utf8');
+  assert.match(backup, /\$env:WRANGLER_SEND_METRICS = 'false'/);
+  assert.match(backup, /\$env:CI = 'true'/);
+  assert.ok(backup.indexOf("$env:CI = 'true'") < backup.indexOf('d1 export'));
+  const cleanup = readFileSync('windows-companion/MEL-Grand-Nettoyage.ps1', 'utf8');
+  assert.match(cleanup, /& \$backupScript 2>&1 \| ForEach-Object \{ Report "\$_" \}/);
+});

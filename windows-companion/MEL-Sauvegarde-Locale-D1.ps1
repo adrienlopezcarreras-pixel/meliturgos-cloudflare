@@ -30,6 +30,12 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   exit 2
 }
 
+# Never wait on an invisible prompt (wrangler metrics consent, npx install):
+# this script's output is captured, so a question hung the button (25/10).
+$env:WRANGLER_SEND_METRICS = 'false'
+$env:CI = 'true'
+$env:npm_config_yes = 'true'
+$env:NO_UPDATE_NOTIFIER = '1'
 Write-Output "SAUVEGARDE D1 : export de $Database vers $Sql (peut prendre plusieurs minutes)."
 Invoke-Native { & npx --yes wrangler@4 d1 export $Database --remote --output $Sql 2>&1 } | ForEach-Object { "  $_" }
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $Sql)) {
