@@ -314,3 +314,9 @@ test('tool-call wrapper tags from open-model templates never survive in the fina
  assert.deepEqual(parseAgentAction(raw),{tool:'code.read',input:{path:'src/index.js'}});
  assert.equal(stripLeakedToolCalls('Avant '+raw+' Après'),'Avant  Après');
 });
+
+test('a request for a plan is conversation, even when the plan mentions launching or creating',async()=>{
+ const calls=[];let inference=0;
+ const result=await runAgentToolLoop({text:'Établis un plan d’action en 5 étapes pour lancer une activité de traduction en ligne',bus:bus(calls),env:{AI:{async run(){inference++;return {response:'{"tool":"evolution.enqueue","input":{"goal":"unrequested execution"}}'};}}}});
+ assert.equal(inference,0);assert.deepEqual(calls,[]);assert.deepEqual(result,[]);
+});
