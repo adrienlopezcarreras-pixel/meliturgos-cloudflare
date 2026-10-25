@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 test('daily self-improvement dispatches audit, autonomy and resumable LoRA', async () => {
   const source=await readFile(new URL('../../.github/workflows/mel-daily-self-improvement.yml', import.meta.url),'utf8');
-  assert.match(source,/cron: '37 3 \* \* \*'/);
+  assert.match(source,/cron: '37 3 \* \* 1'/);
   assert.match(source,/mel-self-audit-production-proof\.yml/);
   assert.match(source,/gen2-42-runtime-tick\.yml/);
   assert.match(source,/lora-kaggle-free-gpu\.yml/);

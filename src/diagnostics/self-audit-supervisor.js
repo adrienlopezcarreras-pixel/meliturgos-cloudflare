@@ -20,7 +20,9 @@ export const MEL_SELF_AUDIT_STATE_ID = 'mel-self-audit-supervisor';
 export const MEL_SELF_AUDIT_LEVELS = Object.freeze(['HEARTBEAT','DAILY','WEEKLY','MONTHLY']);
 export const MEL_SELF_AUDIT_CADENCE_MS = Object.freeze({
   HEARTBEAT: 60 * 60 * 1000,
-  DAILY: 24 * 60 * 60 * 1000,
+  // The DAILY tier (capability refresh, integrity, watches, AI prevalidation)
+  // now runs weekly: development is mostly done and each pass spends Workers AI.
+  DAILY: 7 * 24 * 60 * 60 * 1000,
   WEEKLY: 7 * 24 * 60 * 60 * 1000,
   MONTHLY: 30 * 24 * 60 * 60 * 1000,
 });
@@ -51,7 +53,7 @@ function resolvedCadence(env = {}) {
   };
   return Object.freeze({
     HEARTBEAT: bounded(env?.MEL_SELF_AUDIT_HEARTBEAT_MS, MEL_SELF_AUDIT_CADENCE_MS.HEARTBEAT, 15 * 60 * 1000, 6 * hour),
-    DAILY: bounded(env?.MEL_SELF_AUDIT_DAILY_MS, MEL_SELF_AUDIT_CADENCE_MS.DAILY, 6 * hour, 48 * hour),
+    DAILY: bounded(env?.MEL_SELF_AUDIT_DAILY_MS, MEL_SELF_AUDIT_CADENCE_MS.DAILY, 6 * hour, 14 * 24 * hour),
     WEEKLY: bounded(env?.MEL_SELF_AUDIT_WEEKLY_MS, MEL_SELF_AUDIT_CADENCE_MS.WEEKLY, 3 * 24 * hour, 14 * 24 * hour),
     MONTHLY: bounded(env?.MEL_SELF_AUDIT_MONTHLY_MS, MEL_SELF_AUDIT_CADENCE_MS.MONTHLY, 14 * 24 * hour, 60 * 24 * hour),
   });

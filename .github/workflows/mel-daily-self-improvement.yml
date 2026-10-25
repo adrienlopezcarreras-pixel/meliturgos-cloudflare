@@ -2,7 +2,9 @@ name: MEL daily self-improvement
 
 on:
   schedule:
-    - cron: '37 3 * * *'
+    # Weekly since development is mostly done (Workers AI budget); a failed
+    # LoRA chain is resumed hourly by lora-chain-resume.yml.
+    - cron: '37 3 * * 1'
   workflow_dispatch:
 
 permissions:
