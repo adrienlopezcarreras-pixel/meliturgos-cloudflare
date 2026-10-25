@@ -37,3 +37,18 @@ En complément du premier lot, le contrôle public depuis GitHub Actions 4021885
 XP MEL : NON. Chat IN_PROGRESS.
 
 Le chemin de réponse factuelle est partagé par le statut rapide et le repli après échec des modèles. Le reçu expose alors analysis_available=false et analysis_error=CHAT_INFERENCE_FAILED ; le texte conserve la lecture réussie et annonce que l’explication manque. La régression vérifie aussi qu’aucun corps d’erreur fournisseur n’est recopié dans la réponse et que le contrôle propriétaire reste intact.
+
+
+## Test réel du chat, puis correctif de routage des conseils
+
+Le workflow production existant `mel-chat-live-selftest`, run 40221225972, a appelé le vrai chat sur bef659cf avec les cas `short,plan` (aucun prompt propriétaire). Résultat : short réussi via `pc:qwen3:8b`, premier texte après 21 898 ms et archivage confirmé ; plan échoué après 6 687 ms, HTTP 503 / CHAT_INFERENCE_FAILED. La disponibilité professionnelle du chat Cloud n'est donc pas confirmée. La cause fournisseur/budget précise n'est pas inventée.
+
+Une erreur de routage distincte est reproduite localement : les mots « lancer » ou « créer » dans une demande de plan pouvaient ouvrir la boucle d'outils ou une demande de développement, alors que l'objet demandé était une explication ou un document. Un prédicat partagé dans la couche d'intention du chat est maintenant utilisé par la détection de développement, la préclassification sémantique et la boucle d'outils. Les conseils/plans restent des conversations ; une instruction explicite séparée (« explique puis corrige ») reste traitée comme une action. Aucun changement du moteur MAX.
+
+Régression via le vrai handler du chat : le plan synthétique en cinq étapes sort en NDJSON avec un seul appel d'inférence en streaming, sans modèle de pré-planification ni action. Le self-test récupère aussi uniquement des codes fournisseur autorisés et lit le compteur estimé existant en SELECT, sans création de table, remise à zéro ou modification du plafond. Ce compteur n'est pas présenté comme une facture Cloudflare. La CI contractuelle du self-test n'utilise aucun secret ; les tests de production restent réservés au déclenchement manuel.
+
+Validation locale : 111 tests ciblés réussis et syntaxe réussie. Ces changements sont préparés hors ligne : l'authentification GitHub de la session a cessé de fonctionner, API 401 et Git natif non authentifié, y compris depuis le checkout initial. Le jeton injecté est présent mais inutilisable. Aucun secret nouveau n'est requis ni demandé en clair. Publier et vérifier ce lot nécessite de renouveler l'accès de la session au dépôt, puis de réconcilier le HEAD courant.
+
+XP MEL : NON. Aucun résultat en production n'est attribué à ce lot non publié.
+
+Reprise : l’accès API et Git de la session a été revérifié avec succès. La PR #2686 est fusionnée en 36f1f06de6312458940840fba15be6f3677a5127 après ses contrôles verts. Le lot de conseil est réconcilié avec les développements concurrents, sans modification des boutons pris en charge par une autre page.

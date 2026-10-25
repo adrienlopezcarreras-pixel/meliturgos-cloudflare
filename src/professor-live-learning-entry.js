@@ -110,11 +110,19 @@ async function freeLoraStatusResponse(request, env) {
 
   async function latestWorkflowRun(workflowName) {
     try {
-      const response = await fetch(
-        `https://api.github.com/repos/${FREE_LORA_GITHUB_REPO}/actions/workflows/${workflowName}/runs?per_page=10`,
-        { headers: githubHeaders },
-      );
-      if (!response.ok) return null;
+      const url = `https://api.github.com/repos/${FREE_LORA_GITHUB_REPO}/actions/workflows/${workflowName}/runs?per_page=10`;
+      let response = await fetch(url, { headers: githubHeaders });
+      // Public workflows remain readable without a token. An expired token
+      // must not turn an existing run into a misleading NEVER_RUN status.
+      if ((response.status === 401 || response.status === 403) && githubHeaders.authorization) {
+        const { authorization, ...publicHeaders } = githubHeaders;
+        response = await fetch(url, { headers: publicHeaders });
+      }
+      if (!response.ok) return {
+        status: 'GITHUB_UNAVAILABLE',
+        conclusion: null,
+        http_status: response.status,
+      };
       const data = await response.json();
       const row = Array.isArray(data?.workflow_runs) ? data.workflow_runs[0] : null;
       if (!row) return null;

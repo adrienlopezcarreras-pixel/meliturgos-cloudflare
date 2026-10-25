@@ -6,6 +6,32 @@
 // returns measurements only: time to first text, duration, length, model,
 // whether it streamed, whether it was archived, and a short excerpt.
 
+import { DEFAULT_DAILY_NEURON_CAP } from '../augmentio/neuron-budget.js';
+
+const PROVIDER_DIAGNOSTIC_CODES = [
+  'WORKERS_AI_DAILY_NEURON_BUDGET_EXHAUSTED', 'WORKERS_AI_NEURON_BUDGET_UNAVAILABLE',
+  'CHAT_DEADLINE_EXCEEDED', 'CHAT_FALLBACK_TIMEOUT', 'CHAT_FALLBACK_EMPTY',
+  'CHAT_PROVIDER_TIMEOUT', 'ZERO_COST_PROVIDER_REQUIRED',
+];
+
+// Read the existing application's estimated counter; never reset it, create a
+// table, or present it as a Cloudflare billing/usage measurement.
+export async function readChatBudgetEvidence(env, { now = Date.now() } = {}) {
+  const unavailable={available:false,code:'CHAT_AI_BUDGET_UNAVAILABLE'};
+  if(!env?.DB?.prepare)return unavailable;
+  try {
+    const day=new Date(now).toISOString().slice(0,10);
+    const row=await env.DB.prepare('SELECT neurons,calls,refused FROM mel_ai_neuron_budget WHERE day=?').bind(day).first();
+    if(row&&['neurons','calls','refused'].some(key=>typeof row[key]!=='number'))return unavailable;
+    const values={neurons:Number(row?.neurons??0),calls:Number(row?.calls??0),refused:Number(row?.refused??0)};
+    if(Object.values(values).some(value=>!Number.isFinite(value)||value<0))return unavailable;
+    const cap=Number(env.MEL_AI_DAILY_NEURON_CAP)>0?Number(env.MEL_AI_DAILY_NEURON_CAP):DEFAULT_DAILY_NEURON_CAP;
+    if(!Number.isFinite(cap))return unavailable;
+    return {available:true,source:'MEL_ESTIMATED_NEURON_COUNTER',day,cap,...values,exhausted:values.neurons>=cap,
+      reset_at:new Date(Date.parse(day+'T00:00:00Z')+86400000).toISOString(),billing_verified:false};
+  } catch {return unavailable;}
+}
+
 const CASES = Object.freeze({
   short: () => ({ text: 'Bonjour MEL. En une seule phrase : qui es-tu et que peux-tu faire pour moi ?', expect: /mel/i }),
   plan: () => ({ text: 'Établis un plan d’action en 5 étapes numérotées pour lancer une petite activité de traduction en ligne. Pour chaque étape : objectif, actions concrètes, durée estimée.', expect: /(^|\n)\s*(?:#+\s*)?(?:\*\*)?(?:étape\s*)?5\b/im }),
@@ -47,7 +73,8 @@ async function readChatResponse(response, startedAt) {
   if (!type.includes('application/x-ndjson') || !response.body) {
     const data = await response.json().catch(() => ({}));
     const text = String(data?.reply || data?.response || data?.text || data?.message || '');
-    return { streamed: false, status: response.status, text, firstTextMs: text ? Date.now() - startedAt : null, model: data?.model || null, archived: data?.archive_saved === true, error: data?.code || data?.error || null };
+    return { streamed: false, status: response.status, text, firstTextMs: text ? Date.now() - startedAt : null, model: data?.model || null, archived: data?.archive_saved === true, error: data?.code || data?.error || null,
+      providerError:PROVIDER_DIAGNOSTIC_CODES.find(code=>String(data?.detail||'').includes(code))||null };
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -114,10 +141,11 @@ export async function runChatSelftest({ request, env, handleChat, chatOptions = 
       archived: outcome.archived === true,
       truncated: outcome.truncated === true,
       error: outcome.error,
+      provider_error: outcome.providerError || null,
       excerpt: outcome.text.replace(/\s+/g, ' ').trim().slice(0, excerptChars),
     });
   }
-  return Response.json({ ok: results.length > 0 && results.every(r => r.ok), results }, { headers: { 'cache-control': 'no-store' } });
+  return Response.json({ ok: results.length > 0 && results.every(r => r.ok), results, ai_budget:await readChatBudgetEvidence(env) }, { headers: { 'cache-control': 'no-store' } });
 }
 
 export const CHAT_SELFTEST_CASES = Object.keys(CASES);
