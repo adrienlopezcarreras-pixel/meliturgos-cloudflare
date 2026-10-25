@@ -40,7 +40,7 @@ test('cloud workflow writes approved bytes, runs real syntax/tests and publishes
   const jobFile = path.join(root, 'job.json');
   await writeFile(jobFile, JSON.stringify({ id: 'cloud-fixture', files_json: [{ path: 'src/__cloud_value.js', content: 'export const value=2;\n' }], tests_json: [{ name: 'real-value', command: 'test:smoke' }] }));
   const workflow = await readFile(new URL('../.github/workflows/gen2-42-apply-ready-bridge.yml', import.meta.url), 'utf8');
-  const env = { ...process.env, BRIDGE_JOB_FILE: jobFile, GITHUB_OUTPUT: path.join(root, 'outputs'), JOB_ID: 'cloud-fixture', CANDIDATE_BRANCH: 'candidate/cloud-fixture', CANDIDATE_SHA: before };
+  const env = { ...process.env, BRIDGE_JOB_FILE: jobFile, GITHUB_OUTPUT: path.join(root, 'outputs'), JOB_ID: 'cloud-fixture', CANDIDATE_BRANCH: 'candidate/cloud-fixture', CANDIDATE_SHA: before, RUNNER_TEMP: process.env.RUNNER_TEMP || root };
   function run(script) {
     const result = spawnSync('bash', ['-c', script], { cwd, env, encoding: 'utf8', timeout: 120_000, maxBuffer: 4 * 1024 * 1024 });
     assert.equal(result.status, 0, String(result.stdout) + String(result.stderr));
