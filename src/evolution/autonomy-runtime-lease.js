@@ -1,3 +1,4 @@
+import { MAINTENANCE_FENCE_ID } from '../maintenance/maintenance-gate.js';
 const LEASE_KEY = 'runtime-lease:autonomy-heartbeat';
 // The heartbeat runs every minute; an invocation killed before release used to
 // block the next 4 ticks (41 of 56 ticks LEASE_BUSY on 18/10). 90 s covers a
@@ -48,13 +49,14 @@ export async function tryAcquireAutonomyRuntimeLease({
   });
   const result = await db.prepare(`
     INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json)
-    VALUES(?,?,?,?)
+    SELECT ?,?,?,?
+    WHERE NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED')
     ON CONFLICT(bridge_id) DO UPDATE SET
       last_seen=excluded.last_seen,
       status=excluded.status,
       metadata_json=excluded.metadata_json
     WHERE dev_bridge_state.last_seen <= ?
-  `).bind(LEASE_KEY, expiresAt, ownerStatus(ownerId), metadata, acquiredAt).run();
+  `).bind(LEASE_KEY, expiresAt, ownerStatus(ownerId), metadata, MAINTENANCE_FENCE_ID, acquiredAt).run();
 
   if (changedRows(result) === 1) {
     return { acquired: true, key: LEASE_KEY, expires_at: expiresAt, owner: ownerId };

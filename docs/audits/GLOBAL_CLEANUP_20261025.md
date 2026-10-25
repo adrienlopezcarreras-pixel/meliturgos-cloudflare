@@ -121,3 +121,13 @@ de verrou dans leur CAS : ni le Bridge Windows ni le relais cloud ne peuvent
 prendre une mission existante sous maintenance. Test SQL réel sur une mission
 legacy et un paquet Teacher corrélé : états inchangés sous verrou, reprise après
 libération vérifiée et seconde prise refusée. 66 tests locaux réussis.
+
+## Admission du runtime MAX
+
+L'acquisition canonique du bail `runtime-lease:autonomy-heartbeat` porte maintenant
+le prédicat de maintenance dans l'INSERT/UPSERT lui-même. Un verrou PAUSED bloque
+la première acquisition et le remplacement d'un bail runtime expiré. Le propriétaire
+d'un cycle existant peut encore libérer son bail pour drainer sans deadlock.
+Le test SQL réel couvre ces états et la reprise après libération vérifiée du
+verrou global. 71 tests locaux réussis avec les suites voisines. Cette admission
+ne constitue ni une preuve de drain du cycle existant ni l'arrêt des sept domaines.
