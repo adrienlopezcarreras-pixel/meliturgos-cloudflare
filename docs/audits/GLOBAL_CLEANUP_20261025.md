@@ -1,0 +1,133 @@
+# Grand nettoyage — reprise du 25 octobre 2026
+
+Statut : BLOCKED, aucune purge production exécutée.
+
+## Correction de préservation
+
+Le reset des travaux legacy utilisait une exclusion de quatre états terminaux.
+Il pouvait donc annuler `DONE_VERIFIED`, `ACCEPTED`, `DELIVERED` et de futurs états.
+La sélection canonique est maintenant une liste positive d'états actifs ; les
+travaux prêts à revue/publication sont aussi conservés par prudence. Inventaire
+et mutation utilisent le même prédicat. Le test SQL réel en mémoire vérifie les
+lignes préservées intégralement et l'idempotence de l'annulation ciblée.
+
+Les tests Companion étaient incohérents avec le script de diagnostic actuel :
+regex ASCII doublement échappée et attente d'une confirmation destructive qui
+n'existe plus. Les assertions gardent l'absence de `-Apply` et de dialogue de
+purge. Ils sont maintenant exécutés dans la CI maintenance existante, dont les
+filtres incluent les trois scripts Windows.
+
+## État vérifié à la reprise
+
+- Main : `43473685b0033d5ba76e9e766d31f5d9ad11e5b9`.
+- #2609 : ouverte, test ciblé réussi ; fusion refusée par GitHub,
+  `REVIEW_REQUIRED`, auto-merge désactivé. Aucun contournement administrateur.
+- `executeGlobalMaintenance` reste une frontière injectée, sans appelant
+  d'exécution production. Ne pas annoncer sept adaptateurs raccordés.
+- Seul le scheduler WORK importe le verrou parmi les producteurs recherchés ;
+  MAX et VEILLE ne prouvent pas encore un arrêt global coordonné.
+- L'inspection HTTPS production répond 401 sans session propriétaire.
+  Cela ne prouve aucun état de données, verrou ou préférence MAX.
+- Aucune preuve de restauration complète isolée D1/R2 accessible à cet agent.
+  Le code de backup distingue inventaire R2 et copie d'octets optionnelle :
+  un reçu de snapshot ne suffit pas à affirmer leur restauration.
+- Companion reste diagnostic/simulation, sans mutation globale.
+
+## Blocages conservés
+
+MAX, WORK, VEILLE, MENTOR, COUNCIL, FOUNDER, PLANIFICATEUR : nettoyage non
+exécuté ; état live non vérifié. Requis : revue GitHub, adaptateurs de production
+et arrêt/drain vérifiés de chaque producteur, environnement isolé de restauration,
+preuve serveur des octets D1/R2 restaurés et accès propriétaire à la maintenance.
+La levée du verrou puis le fonctionnement effectif des producteurs doivent être
+vérifiés ; leur simple absence d'erreur ne vaut pas reprise.
+
+XP MEL : NON — réutilisation des règles de préservation, de preuve indépendante
+et de résultat factuel ; aucune nouvelle leçon dupliquée. Mission incomplète.
+
+## Suite : progression durable et bail
+
+Main `22c63139` (#2610, fixtures WORK) réconcilié sans perte.
+L'orchestrateur conserve désormais sa phase et son domaine dans le verrou
+canonique D1 avant/après chaque opération. Le checkpoint compare propriétaire,
+état et expiration dans la même écriture. Un bail expiré ou perdu interdit toute
+étape suivante ; aucune expiration n'implique une reprise automatique. La levée
+vérifiée conserve les métadonnées de progression au lieu de les écraser.
+
+Trois tests SQL réels couvrent propriétaire étranger, expiration, interruption
+au domaine WORK, refus des domaines suivants, conservation du verrou et levée
+explicite. Leurs preuves de restauration/arrêt sont des fixtures locales ; elles
+ne constituent jamais une attestation production. Cela ne raccorde pas encore
+les sept adaptateurs ni une procédure de récupération opérable à distance.
+
+34 tests ciblés réussis, syntaxe vérifiée. Deux fixtures explicites du scheduler
+WORK oubliées par #2610 ont été complétées avec sa même option maintenanceFence,
+sans changer le fail-closed runtime. La CI maintenance couvre désormais aussi
+ces tests. Le test élargi work-improvement-watch a été interrompu : ses recherches
+Internet réelles échouaient et prolongeaient la suite ; il n'est pas déclaré PASS.
+
+## Restauration indépendante — préparation exécutable
+
+#2609 fusionnée, main `42d2a2c5` réconcilié, améliorations MAX concurrentes
+conservées. Le runner D1 existant restaure déjà les tables dans SQLite et compare
+l'export complet et le patrimoine. Le nouveau coordinateur réutilise ce runner,
+le codec AES-GCM et `restoreR2ObjectBytes` ; il restaure les octets dans des fichiers
+temporaires isolés, relus et vérifiés. Les clés d'objet ne deviennent jamais des
+chemins locaux. Les fichiers sont supprimés à la fin, seuls les compteurs,
+empreintes et identifiant du snapshot figurent dans le reçu.
+
+Le workflow existant `mel-res-05-encrypted-backup-ci.yml` accepte maintenant
+`snapshot_key`, après fusion sur main uniquement. Il réutilise les quatre secrets
+Cloudflare/chiffrement déjà présents. Aucun nouveau secret, bucket ou D1 requis.
+Le runner distant n'invoque que `wrangler r2 object get --remote`, aucune mutation
+Cloudflare. Le job attend la CI complète et n'est jamais lancé sur une PR.
+
+Procédure après revue/fusion et CI : lancer ce workflow sur main avec la clé
+exacte `backups/system/<snapshot>.enc.json` d'un snapshot existant. Examiner le
+reçu `isolated-restore-proof`. Un inventaire sans `r2_objects`, une couverture
+incomplète (y compris tout préfixe exclu de l'inventaire sauvegardé), une corruption,
+un objet absent ou le budget 256 Mio / 5000 objets dépassé produit BLOCKED. Ne
+pas créer une preuve complète à partir d'une sauvegarde D1/R2 seulement partielle.
+Aucun dispatch de restauration production n'a été exécuté à ce stade : la clé
+exacte d'un snapshot adéquat et sa couverture réelle restent à établir.
+
+Validation locale : 61 tests réussis (maintenance, Companion, WORK scheduler,
+restauration SQL existante, R2 bytes et chiffrement). Les données de tests sont
+synthétiques ; aucune preuve locale n'est une preuve sur les données production.
+`cleanup_authorized:false` est conservé même après restauration réussie.
+
+## Admission atomique des nouvelles missions
+
+La création canonique `D1DevJobRepository.create` insère maintenant via
+`INSERT ... SELECT ... WHERE NOT EXISTS` sur le verrou global PAUSED. Le contrôle
+et l'insertion sont une seule instruction D1 : une pause acquise juste avant
+l'insertion interdit la mission, sans fenêtre lecture/écriture. Un bail expiré
+reste fermé jusqu'à récupération. Les producteurs qui passent par ce dépôt
+partagent ce même garde, sans nouveau moteur. Aucun événement JOB_CREATED n'est
+émis si l'insertion est refusée ; aucune mission préexistante n'est supprimée.
+Le mode purement mémoire des tests/laboratoires reste distinct de D1 production.
+
+65 tests locaux réussis, dont course réelle SQL, pause expirée, reprise après
+libération vérifiée et suites voisines création, queue propriétaire et jobs.
+Cela ne prouve PAS que les sept producteurs sont arrêtés : leurs autres écritures,
+leurs exécutions en cours et les DAG WORK restent à drainer et vérifier.
+
+CI complète sauvegarde/restauration réussie sur `a7a4cfed` (run 40170108826).
+Le nouveau contrôle d'admission impose une nouvelle validation sur son propre
+SHA ; ne pas lui attribuer rétroactivement le résultat du SHA précédent.
+
+Les deux prises en charge D1 `claim` et `claimPrepared` portent aussi le prédicat
+de verrou dans leur CAS : ni le Bridge Windows ni le relais cloud ne peuvent
+prendre une mission existante sous maintenance. Test SQL réel sur une mission
+legacy et un paquet Teacher corrélé : états inchangés sous verrou, reprise après
+libération vérifiée et seconde prise refusée. 66 tests locaux réussis.
+
+## Admission du runtime MAX
+
+L'acquisition canonique du bail `runtime-lease:autonomy-heartbeat` porte maintenant
+le prédicat de maintenance dans l'INSERT/UPSERT lui-même. Un verrou PAUSED bloque
+la première acquisition et le remplacement d'un bail runtime expiré. Le propriétaire
+d'un cycle existant peut encore libérer son bail pour drainer sans deadlock.
+Le test SQL réel couvre ces états et la reprise après libération vérifiée du
+verrou global. 71 tests locaux réussis avec les suites voisines. Cette admission
+ne constitue ni une preuve de drain du cycle existant ni l'arrêt des sept domaines.

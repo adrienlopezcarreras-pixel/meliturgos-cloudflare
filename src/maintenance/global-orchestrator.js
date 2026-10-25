@@ -1,5 +1,5 @@
 import { RESET_SCOPES, globalCleanupReadiness, assertNoActiveWorkLeases } from './global-reset.js';
-import { withMaintenanceLease } from './maintenance-gate.js';
+import { withMaintenanceLease, checkpointMaintenanceLease } from './maintenance-gate.js';
 
 /**
  * An injected orchestration boundary: NO production adapter is supplied here.
@@ -27,15 +27,18 @@ export async function executeGlobalMaintenance({
   return withMaintenanceLease(db,{
     leaseId,now,
     run:async()=>{
+      await checkpointMaintenanceLease(db,{leaseId,phase:'STOPPING_PRODUCERS',now:now()});
       await stopProducers();
       if ((await verifyProducersStopped()) !== true)
         throw Error('MAINTENANCE_PRODUCERS_NOT_STOPPED');
-      // Close the preflight-to-stop race: another WORK lease may have
-      // started before all producers acknowledged the maintenance fence.
+      // Drain WORK again after producer shutdown (#2609).
       await assertNoActiveWorkLeases(db,{now:now()});
+      await checkpointMaintenanceLease(db,{leaseId,phase:'PRODUCERS_STOPPED',now:now()});
       const results={};
       for (const scope of RESET_SCOPES) {
+        await checkpointMaintenanceLease(db,{leaseId,phase:'RESET_STARTED',scope,now:now()});
         results[scope]=await handlers[scope]();
+        await checkpointMaintenanceLease(db,{leaseId,phase:'RESET_COMPLETED',scope,now:now()});
       }
       return {results};
     },

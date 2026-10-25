@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - "src/backup/**"
+      - "src/dev/d1-dev-job-repository.js"
+      - "tests/maintenance/**"
+      - "release-tools/predeploy-backup-refresh/**"
+      - "tests/maintenance/system-restore-proof.test.mjs"
       - "src/resilience/**"
       - "tests/encrypted-backup-storage.test.mjs"
       - "tests/backup-system-runtime.test.mjs"
@@ -11,6 +15,11 @@ on:
       - "tests/restore-service.test.mjs"
       - ".github/workflows/mel-res-05-encrypted-backup-ci.yml"
   workflow_dispatch:
+    inputs:
+      snapshot_key:
+        description: 'Optional exact encrypted R2 snapshot key; isolated read-only restore on main only'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -30,10 +39,44 @@ jobs:
       - name: Repository syntax
         run: npm run check
       - name: Encrypted backup and restore tests
-        run: node --test tests/encrypted-backup-storage.test.mjs tests/backup-system-runtime.test.mjs tests/backup-verified-snapshot.test.mjs tests/restore-service.test.mjs tests/gen2/recovery-drill.test.mjs
+        run: node --test tests/encrypted-backup-storage.test.mjs tests/backup-system-runtime.test.mjs tests/backup-verified-snapshot.test.mjs tests/restore-service.test.mjs tests/gen2/recovery-drill.test.mjs tests/maintenance/system-restore-proof.test.mjs
       - name: Normalize branch for candidate-only integration tests
         run: git checkout -B candidate/mel-res-05-encrypted-backup-ci "$(git rev-parse HEAD)"
       - name: Full regression suite
         run: npm test
       - name: Runtime dependency security gate
         run: node scripts/runtime-security-gate.mjs
+
+  isolated-snapshot-restore:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.snapshot_key != ''
+    needs: encrypted-backup
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: mel-isolated-snapshot-restore
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Restore existing encrypted snapshot into isolated runner storage
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          MEL_BACKUP_ENCRYPTION_KEY_ID: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_ID }}
+          MEL_BACKUP_ENCRYPTION_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
+          MEL_RESTORE_SNAPSHOT_KEY: ${{ inputs.snapshot_key }}
+        run: node release-tools/predeploy-backup-refresh/isolated-restore-runner.mjs
+      - name: Store content-free independent restore receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: isolated-restore-proof
+          path: isolated-restore-proof.json
+          if-no-files-found: error
+          retention-days: 1

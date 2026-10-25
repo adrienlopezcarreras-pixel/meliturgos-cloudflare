@@ -8,6 +8,8 @@ const TABLES = Object.freeze([
   'mel_work_cycles', 'capability_watch_state', 'revenue_watch',
 ]);
 const IDENT = /^[a-z][a-z0-9_]*$/;
+// Fail closed: new or historical terminal states are never cancellation targets.
+const ACTIVE_LEGACY_JOB_PREDICATE = "status IN ('QUEUED','CLAIMED','DIAGNOSE','PLAN','BRANCH','EDIT','TEST','STAGE','COMPARE','BLOCKED','TEACHER_PENDING','TEACHER_APPROVED','COUNCIL_PENDING','COUNCIL_COMPLETE','REPAIR_REQUIRED') AND (requested_by='mel-autonomy' OR requested_by LIKE 'owner-chat%' OR requested_by LIKE 'mel-founder%')";
 
 export async function inspectMaintenanceStorage(db) {
   if (!db || typeof db.prepare !== 'function') throw Error('MAINTENANCE_DB_MISSING');
@@ -69,13 +71,13 @@ export async function retireLegacyDevJobs(db, input, { now = Date.now() } = {}) 
   validateMaintenanceAuthorization(input);
   if (!Number.isSafeInteger(now) || now <= 0) throw Error('MAINTENANCE_INVALID_EPOCH');
   const old = await db.prepare(
-    "SELECT COUNT(*) AS n FROM dev_jobs WHERE status NOT IN ('COMPLETED','COMMITTED','CANCELLED','FAILED') AND (requested_by='mel-autonomy' OR requested_by LIKE 'owner-chat%' OR requested_by LIKE 'mel-founder%')"
+    'SELECT COUNT(*) AS n FROM dev_jobs WHERE ' + ACTIVE_LEGACY_JOB_PREDICATE
   ).first();
   if (typeof db.batch !== 'function') throw Error('MAINTENANCE_ATOMIC_BATCH_REQUIRED');
   // The cancellation and visibility epoch must commit together.
   const statements = [
     db.prepare(
-      "UPDATE dev_jobs SET status='CANCELLED', updated_at=?, error='OWNER_GLOBAL_MAINTENANCE_RESET' WHERE status NOT IN ('COMPLETED','COMMITTED','CANCELLED','FAILED') AND (requested_by='mel-autonomy' OR requested_by LIKE 'owner-chat%' OR requested_by LIKE 'mel-founder%')"
+      "UPDATE dev_jobs SET status='CANCELLED', updated_at=?, error='OWNER_GLOBAL_MAINTENANCE_RESET' WHERE " + ACTIVE_LEGACY_JOB_PREDICATE
     ).bind(now),
     db.prepare(
       "INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?) ON CONFLICT(bridge_id) DO UPDATE SET last_seen=excluded.last_seen,status=excluded.status,metadata_json=excluded.metadata_json"

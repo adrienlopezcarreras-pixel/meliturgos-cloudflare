@@ -1,3 +1,4 @@
+import { MAINTENANCE_FENCE_ID } from '../maintenance/maintenance-gate.js';
 import { migrate } from '../persistence/migrations.js';
 import { createDevJobCheckpoint, verifyDevJobCheckpoint } from './dev-job-checkpoint.js';
 import { D1EvolutionLedger } from '../evolution/evolution-ledger.js';
@@ -145,9 +146,13 @@ export class D1DevJobRepository {
     });
     return j;
     }
-    await this.db.prepare('INSERT INTO dev_jobs(id,created_at,updated_at,status,requested_by,goal,optional_context,plan_json,files_json,patch_json,tests_json,result_json,candidate_branch,approval_status,error) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .bind(j.id, j.created_at, j.updated_at, j.status, j.requested_by, j.goal, JSON.stringify(j.optional_context), null, '[]', null, '[]', null, null, j.approval_status, null)
+    // Same SQL statement as the insertion: a preflight read cannot close this race.
+    const admission = await this.db.prepare("INSERT INTO dev_jobs(id,created_at,updated_at,status,requested_by,goal,optional_context,plan_json,files_json,patch_json,tests_json,result_json,candidate_branch,approval_status,error) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED')")
+      .bind(j.id, j.created_at, j.updated_at, j.status, j.requested_by, j.goal, JSON.stringify(j.optional_context), null, '[]', null, '[]', null, null, j.approval_status, null, MAINTENANCE_FENCE_ID)
       .run();
+    if (Number(admission?.meta?.changes) !== 1) {
+      throw Object.assign(new Error('MAINTENANCE_JOB_ADMISSION_BLOCKED'), {code:'MAINTENANCE_JOB_ADMISSION_BLOCKED',status:423});
+    }
     await this.recordEvolution(j, 'JOB_CREATED', {
       goal: String(j.goal || '').slice(0, 4000),
       approval_status: j.approval_status,
@@ -306,8 +311,8 @@ export class D1DevJobRepository {
     }
 
     const r = await this.db.prepare(
-      'UPDATE dev_jobs SET status=?,updated_at=? WHERE id=? AND status=?'
-    ).bind('CLAIMED', Date.now(), id, expected).run();
+      'UPDATE dev_jobs SET status=?,updated_at=? WHERE id=? AND status=? AND NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status=\'PAUSED\')'
+    ).bind('CLAIMED', Date.now(), id, expected, MAINTENANCE_FENCE_ID).run();
     return r.meta?.changes === 1 ? this.get(id) : null;
   }
 
@@ -342,8 +347,8 @@ export class D1DevJobRepository {
     const candidate = rows.find((job) => isPreparedDevBridgeJob(job)) || rows.find((job) => isLegacyQueuedDevBridgeJob(job));
     if (!candidate) return null;
     const expectedStatus = String(candidate.status || '').toUpperCase();
-    const r = await this.db.prepare('UPDATE dev_jobs SET status=?,updated_at=? WHERE id=? AND status=?')
-      .bind('CLAIMED', Date.now(), candidate.id, expectedStatus)
+    const r = await this.db.prepare('UPDATE dev_jobs SET status=?,updated_at=? WHERE id=? AND status=? AND NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status=\'PAUSED\')')
+      .bind('CLAIMED', Date.now(), candidate.id, expectedStatus, MAINTENANCE_FENCE_ID)
       .run();
     return r.meta?.changes === 1 ? this.get(candidate.id) : null;
   }

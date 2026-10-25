@@ -1,3 +1,4 @@
+import { RESET_SCOPES } from './global-reset.js';
 // Owner maintenance lease: TEMPORARY and explicitly released on verified
 // completion or safe rollback. No implicit permanent PAUSED flag.
 // A scheduler treats expired leases as unsafe until recovery confirms outcome.
@@ -40,14 +41,29 @@ export async function startMaintenanceLease(db, {leaseId, now=Date.now(), ttlMs=
   return {lease_id:leaseId,expires_at:now+ttlMs};
 }
 
+// Persist only bounded operational progress, never handler payloads or secrets.
+// This CAS also prevents an expired or superseded owner starting another step.
+export async function checkpointMaintenanceLease(db, {leaseId, phase, scope=null, now=Date.now()} = {}) {
+  const phases=['STOPPING_PRODUCERS','PRODUCERS_STOPPED','RESET_STARTED','RESET_COMPLETED'];
+  if (!String(leaseId || '').trim() || !Number.isSafeInteger(now) ||
+      !phases.includes(phase) || (phase.startsWith('RESET_') ? !RESET_SCOPES.includes(scope) : scope !== null)) {
+    throw Error('MAINTENANCE_CHECKPOINT_INVALID');
+  }
+  const result=await db.prepare(
+    "UPDATE dev_bridge_state SET last_seen=?,metadata_json=json_set(metadata_json,'$.phase',?,'$.scope',?,'$.checkpoint_at',?) WHERE bridge_id=? AND status='PAUSED' AND json_extract(metadata_json,'$.lease_id')=? AND json_extract(metadata_json,'$.expires_at')>?"
+  ).bind(now,phase,scope,now,MAINTENANCE_FENCE_ID,leaseId,now).run();
+  if (Number(result?.meta?.changes)!==1) throw Error('MAINTENANCE_LEASE_EXPIRED_OR_LOST');
+  return {phase,scope,checkpoint_at:now};
+}
+
 // Call after ALL scopes are verified clean, or after an aborted maintenance
 // has been safely reconciled. A stale owner cannot release another lease.
 export async function finishMaintenanceLease(db, {leaseId, reconciled=false, now=Date.now()} = {}) {
   if (!db?.prepare || !String(leaseId || '').trim()) throw Error('MAINTENANCE_LEASE_INPUT_REQUIRED');
   if (reconciled !== true) throw Error('MAINTENANCE_RECONCILIATION_REQUIRED');
   const result=await db.prepare(
-    "UPDATE dev_bridge_state SET status='RUNNING',last_seen=?,metadata_json=? WHERE bridge_id=? AND status='PAUSED' AND json_extract(metadata_json,'$.lease_id')=?"
-  ).bind(now,JSON.stringify({last_completed_at:now,last_lease_id:leaseId}),
+    "UPDATE dev_bridge_state SET status='RUNNING',last_seen=?,metadata_json=json_set(metadata_json,'$.last_completed_at',?,'$.last_lease_id',?) WHERE bridge_id=? AND status='PAUSED' AND json_extract(metadata_json,'$.lease_id')=?"
+  ).bind(now,now,leaseId,
     MAINTENANCE_FENCE_ID,leaseId).run();
   if (Number(result?.meta?.changes)!==1) throw Error('MAINTENANCE_RELEASE_CONFLICT');
   return {paused:false,released:true};
