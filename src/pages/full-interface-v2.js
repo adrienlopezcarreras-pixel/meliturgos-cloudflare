@@ -350,7 +350,7 @@ async function followChatComputerScreenshot(command){
 const melGoalPolls=new Set();
 async function followDurableMelGoal(id,autoTaskVersion=null){
   if(!/^mel-goal-[0-9a-f]{32}$/.test(String(id||''))||melGoalPolls.has(id))return;
-  melGoalPolls.add(id);
+  melGoalPolls.add(id);chatQueueStatus();
   let offset=0,failed=0;
   try{
     for(let attempt=0;attempt<180;attempt++){
@@ -368,7 +368,7 @@ async function followDurableMelGoal(id,autoTaskVersion=null){
         melCodeLiveRecord({id:'workstatus-'+id,label:'Travail '+id+' · '+done+'/'+total+' étape(s) · '+String(result.status||'INCONNU'),status:result.blocked?'blocked':result.complete_cycle?'done':'running',source:'server'});
         if(result.blocked===true){addMsg('mel','Le travail '+id+' est bloqué. Les parties déjà produites sont conservées ; aucun résultat supplémentaire n’est inventé.');if(autoTaskVersion!==null&&autoTaskVersion===melCodeAutoTaskVersion)melCodeCancelAuto('Auto-continuer arrêté : travail persistant bloqué.');break}
         if(result.complete_cycle===true){addMsg('mel','Cycle de travail '+id+' terminé : '+done+' étape(s) enregistrée(s). Vérifie les livrables ; le projet global peut nécessiter une suite.');
-          if(autoTaskVersion!==null&&autoTaskVersion===melCodeAutoTaskVersion&&qs('#melCodeAutoContinue')?.checked&&!melCodeInterrupted&&melChatRole==='code'){
+          if(autoTaskVersion!==null&&autoTaskVersion===melCodeAutoTaskVersion&&qs('#melCodeAutoContinue')?.checked&&!melCodeInterrupted&&melChatRole==='code'&&!chatPendingTurns.length){
             if(/DONE_VERIFIED|FINISHED|CANCELLED/i.test(String(result.status||''))){melCodeCancelAuto('Travail persistant terminé : '+String(result.status))}
             else {if(melCodeAutoTimer!==null)clearTimeout(melCodeAutoTimer);melCodeAutoTimer=setTimeout(()=>{melCodeAutoTimer=null;if(autoTaskVersion===melCodeAutoTaskVersion&&qs('#melCodeAutoContinue')?.checked&&!melCodeInterrupted)melCodeRequestContinue('code-auto')},1500);melCodeLiveRecord({id:'goal-auto-'+id,label:'Travail terminé · continuation Code programmée',status:'queued',source:'server'})}
           }
@@ -379,7 +379,33 @@ async function followDurableMelGoal(id,autoTaskVersion=null){
       }
       await new Promise(resolve=>setTimeout(resolve,document.hidden?30000:10000));
     }
-  }finally{melGoalPolls.delete(id)}
+  }finally{melGoalPolls.delete(id);chatQueueStatus();chatFlushQueue()}
+}
+const melDevJobPolls=new Set();
+async function followDevelopmentMelJob(jobId){
+  const id=String(jobId||'').trim();
+  if(!/^[a-zA-Z0-9_.:-]{5,160}$/.test(id)||melDevJobPolls.has(id))return;
+  melDevJobPolls.add(id);chatQueueStatus();
+  let unavailable=0;
+  try{
+    for(let attempt=0;attempt<180;attempt++){
+      try{
+        const data=await jfetch('/api/gen2/autonomy/activity');
+        if(data?.ok!==true)throw Error('ACTIVITY_UNAVAILABLE');
+        const job=(Array.isArray(data.jobs)?data.jobs:[]).find(row=>String(row?.id||'')===id);
+        if(!job){unavailable++;if(unavailable>=4){qs('#chatStatus').textContent='Suivi indisponible pour '+id+' ; file libérée.';break}}
+        else{
+          unavailable=0;
+          const status=String(job.status||'').toUpperCase();
+          if(['COMPLETED','FAILED','CANCELLED'].includes(status)){qs('#chatStatus').textContent='Travail '+id+' : '+status+' · envoi des messages en attente.';break}
+        }
+      }catch(error){
+        unavailable++;
+        if(unavailable>=4){qs('#chatStatus').textContent='Suivi du travail '+id+' inaccessible : '+String(error?.message||error)+'. File libérée.';break}
+      }
+      await new Promise(resolve=>setTimeout(resolve,document.hidden?30000:10000));
+    }
+  }finally{melDevJobPolls.delete(id);chatQueueStatus();chatFlushQueue()}
 }
 // [GPT] Only Code-mode events shown in a floating owner-controlled window.
 let melCodeLastRequest='';
@@ -494,7 +520,7 @@ function melCodeRequestContinue(source='code-manual'){
 }
 function melCodeScheduleAuto(d,answer,source){
   if(melChatRole!=='code'||!qs('#melCodeAutoContinue')?.checked||melCodeInterrupted)return;
-  if(d?.ok===false||d?.stream_error||d?.response_truncated===true||d?.approval_required||d?.development_job?.id||d?.computer_command?.command_id){
+  if(d?.ok===false||d?.stream_error||d?.response_truncated===true||d?.approval_required||d?.development_job?.job_id||d?.development_job?.id||d?.computer_command?.command_id){
     melCodeCancelAuto('Auto-continuer arrêté : confirmation, erreur ou travail de fond non suivi.');return;
   }
   if(d?.response_mode==='durable-work'||d?.work?.id){
@@ -592,34 +618,48 @@ setMelChatRole('code');
 melCodeSetupWindow();
 let chatActiveController=null;
 const chatPendingTurns=[];
-function chatQueueStatus(){const el=qs('#chatPendingCount');if(el)el.textContent=chatPendingTurns.length?chatPendingTurns.length+' message(s) en attente.':'';const after=qs('#chatSendAfter');if(after)after.disabled=!chatActiveController}
-async function sendChat(overrideText=null,source='text',queuedRole=null){
-  if(chatActiveController){
-    const input=qs('#chatInput');
+function chatWorkActive(){return melGoalPolls.size>0||melDevJobPolls.size>0}
+function chatQueueStatus(){
+  const el=qs('#chatPendingCount');
+  if(el)el.textContent=chatPendingTurns.length?chatPendingTurns.length+' message(s) en attente.':'';
+  const after=qs('#chatSendAfter');
+  if(after){
+    after.disabled=!Boolean(String(qs('#chatInput')?.value||'').trim()||pendingChatFiles.length);
+    after.title=chatActiveController||chatWorkActive()?'Ajouter le message à la file du Professeur jusqu’à la fin du travail suivi':'Aucun travail suivi en cours : envoyer le message maintenant';
+  }
+}
+function chatFlushQueue(){
+  if(chatActiveController||!chatPendingTurns.length)return;
+  const next=chatPendingTurns[0];
+  if(next.waitForWork&&chatWorkActive())return;
+  chatPendingTurns.shift();chatQueueStatus();
+  void Promise.resolve().then(()=>sendChat(next.text,next.source,next.role,false,next.files));
+}
+async function sendChat(overrideText=null,source='text',queuedRole=null,waitForWork=false,queuedFiles=null){
+  const input=qs('#chatInput');
+  const files=queuedFiles===null?pendingChatFiles:queuedFiles;
+  if(chatActiveController||(waitForWork&&chatWorkActive())){
     const value=String(overrideText??input.value??'').trim();
-    if(!value&&!pendingChatFiles.length)return null;
-    chatPendingTurns.push({text:value,source,role:queuedRole||melChatRole,files:pendingChatFiles.splice(0)});
-    input.value='';renderPendingChatFiles();chatQueueStatus();
-    qs('#chatStatus').textContent='Message ajouté à la file ; envoyé à la fin de la réponse en cours.';
+    if(!value&&!files.length)return null;
+    chatPendingTurns.push({text:value,source,role:queuedRole||melChatRole,files:queuedFiles===null?pendingChatFiles.splice(0):queuedFiles,waitForWork});
+    if(overrideText===null)input.value='';
+    renderPendingChatFiles();chatQueueStatus();
+    qs('#chatStatus').textContent='Message en attente : envoi après '+(waitForWork?'le travail suivi du Professeur.':'la réponse en cours.');
     return null;
   }
   const controller=new AbortController();chatActiveController=controller;chatQueueStatus();
   if(qs('#melCodeContinue'))qs('#melCodeContinue').disabled=true;
   qs('#chatInterrupt').disabled=false;
-  try{return await executeChatTurn(overrideText,source,controller,queuedRole||melChatRole)}
+  try{return await executeChatTurn(overrideText,source,controller,queuedRole||melChatRole,queuedFiles)}
   finally{
     chatActiveController=null;chatQueueStatus();qs('#chatInterrupt').disabled=false;
     if(qs('#melCodeContinue'))qs('#melCodeContinue').disabled=!melCodeLastRequest||melChatRole!=='code';
-    if(chatPendingTurns.length){
-      const next=chatPendingTurns.shift();chatQueueStatus();
-      pendingChatFiles.push(...next.files);
-      void Promise.resolve().then(()=>sendChat(next.text,next.source,next.role));
-    }
+    chatFlushQueue();
   }
 }
-async function executeChatTurn(overrideText=null,source='text',controller,role='assistant'){const input=qs('#chatInput');const originalText=String(overrideText??input.value??'').trim();let text=originalText;const staged=pendingChatFiles.splice(0);if(!text&&!staged.length)return;
+async function executeChatTurn(overrideText=null,source='text',controller,role='assistant',queuedFiles=null){const input=qs('#chatInput');const originalText=String(overrideText??input.value??'').trim();let text=originalText;const staged=queuedFiles===null?pendingChatFiles.splice(0):queuedFiles;if(!text&&!staged.length)return;
 if(role==='code'&&source!=='code-auto'&&source!=='code-manual'){melCodeInterrupted=false;if(originalText&&!/^continu(?:e|er)$/i.test(originalText))melCodeLastRequest=originalText;if(qs('#melCodeContinue'))qs('#melCodeContinue').disabled=!melCodeLastRequest;if(qs('#melCodeAutoContinue')?.checked){melCodeAutoTaskVersion++;melCodeAutoLastReply='';melCodeAutoRepeatCount=0;if(melCodeAutoTimer!==null){clearTimeout(melCodeAutoTimer);melCodeAutoTimer=null}}}
-renderPendingChatFiles();for(const item of staged){const attachment=melAttachmentContext(item);text+=(text?'\\n\\n':'Analyse ce fichier en tenant compte de son contenu.\\n\\n')+attachment}input.value='';const userLine=(originalText||'Pièce jointe')+(staged.length?' · '+staged.map(x=>'📎 '+x.name).join(', '):'');const logEl=qs('#chatlog');const lastEl=logEl&&logEl.lastElementChild;const prevEl=lastEl&&lastEl.previousElementSibling;const sameTurn=prevEl&&prevEl.classList.contains('user')&&prevEl.textContent===userLine&&lastEl.classList.contains('mel')&&/^Erreur/.test(lastEl.textContent||'');const turnId=sameTurn&&prevEl.dataset.turnId?prevEl.dataset.turnId:(crypto.randomUUID?crypto.randomUUID():String(Date.now()));if(sameTurn)lastEl.remove();else{const node=addMsg('user',userLine);if(node){node.dataset.turnId=turnId;showSentPhotos(node,staged)}}qs('#chatStatus').textContent='Réflexion…';try{const d=await melChatFetch({text,conversation_id:conversationId,device_id:deviceId,client_message_id:turnId,input_source:staged[0]?.source||source,intent_context:{surface:'mel-full',role:role==='code'?'developer':'assistant',requested_mode:role==='code'?'code':'conversation'}},{signal:controller.signal,onProgress:role==='code'?melCodeLiveRecord:null});const answer=String(d.text||d.response||'Réponse vide.');if(role==='code')melCodeLiveReceipt(d);if(!d.streamed)addMsg('mel',d.text||d.response||'Réponse vide.',d);if(typeof melRenderTrace==='function')melRenderTrace(d);if(d?.response_mode==='durable-work'&&d?.work?.id)void followDurableMelGoal(String(d.work.id),role==='code'&&qs('#melCodeAutoContinue')?.checked?melCodeAutoTaskVersion:null);qs('#chatStatus').textContent=d?.computer_command?.command_id?'Capture en cours…':'Réponse reçue.';if(d?.computer_command?.command_id)void followChatComputerScreenshot(d.computer_command);if(d?.approval_required){renderChatApproval(d.approval_required,originalText,staged[0]?.source||source);qs('#chatStatus').textContent='Confirmation requise.'}if(role==='code')melCodeScheduleAuto(d,answer,source);return answer}catch(e){if(role==='code'){melCodeCancelAuto('Auto-continuer arrêté après une erreur.');melCodeLiveRecord({id:'error-'+Date.now(),label:'Chat : '+String(e.message||'erreur').slice(0,110),status:'failed'})}pendingChatFiles.unshift(...staged);renderPendingChatFiles();addMsg('mel','Erreur : '+e.message);qs('#chatStatus').textContent=e.message;return null}finally{qs('#chatSend').disabled=false;input.focus()}}
+renderPendingChatFiles();for(const item of staged){const attachment=melAttachmentContext(item);text+=(text?'\\n\\n':'Analyse ce fichier en tenant compte de son contenu.\\n\\n')+attachment}if(overrideText===null)input.value='';const userLine=(originalText||'Pièce jointe')+(staged.length?' · '+staged.map(x=>'📎 '+x.name).join(', '):'');const logEl=qs('#chatlog');const lastEl=logEl&&logEl.lastElementChild;const prevEl=lastEl&&lastEl.previousElementSibling;const sameTurn=prevEl&&prevEl.classList.contains('user')&&prevEl.textContent===userLine&&lastEl.classList.contains('mel')&&/^Erreur/.test(lastEl.textContent||'');const turnId=sameTurn&&prevEl.dataset.turnId?prevEl.dataset.turnId:(crypto.randomUUID?crypto.randomUUID():String(Date.now()));if(sameTurn)lastEl.remove();else{const node=addMsg('user',userLine);if(node){node.dataset.turnId=turnId;showSentPhotos(node,staged)}}qs('#chatStatus').textContent='Réflexion…';try{const d=await melChatFetch({text,conversation_id:conversationId,device_id:deviceId,client_message_id:turnId,input_source:staged[0]?.source||source,intent_context:{surface:'mel-full',role:role==='code'?'developer':'assistant',requested_mode:role==='code'?'code':'conversation'}},{signal:controller.signal,onProgress:role==='code'?melCodeLiveRecord:null});const answer=String(d.text||d.response||'Réponse vide.');if(role==='code')melCodeLiveReceipt(d);if(!d.streamed)addMsg('mel',d.text||d.response||'Réponse vide.',d);if(typeof melRenderTrace==='function')melRenderTrace(d);if(role==='code'&&d?.work?.id)void followDurableMelGoal(String(d.work.id),qs('#melCodeAutoContinue')?.checked?melCodeAutoTaskVersion:null);if(role==='code'&&(d?.development_job?.job_id||d?.development_job?.id))void followDevelopmentMelJob(d.development_job.job_id||d.development_job.id);qs('#chatStatus').textContent=d?.computer_command?.command_id?'Capture en cours…':'Réponse reçue.';if(d?.computer_command?.command_id)void followChatComputerScreenshot(d.computer_command);if(d?.approval_required){renderChatApproval(d.approval_required,originalText,staged[0]?.source||source);qs('#chatStatus').textContent='Confirmation requise.'}if(role==='code')melCodeScheduleAuto(d,answer,source);return answer}catch(e){if(role==='code'){melCodeCancelAuto('Auto-continuer arrêté après une erreur.');melCodeLiveRecord({id:'error-'+Date.now(),label:'Chat : '+String(e.message||'erreur').slice(0,110),status:'failed'})}pendingChatFiles.unshift(...staged);renderPendingChatFiles();addMsg('mel','Erreur : '+e.message);qs('#chatStatus').textContent=e.message;return null}finally{qs('#chatSend').disabled=false;input.focus()}}
 const pendingChatFiles=[];const localMediaObjectUrls=new Set();
 function localPlayableMedia(file){
   const type=String(file.type||'').toLowerCase(),name=String(file.name||'').toLowerCase();
@@ -639,9 +679,9 @@ function appendLocalMedia(host,item,small=false){
   host.appendChild(media);
 }
 window.addEventListener('pagehide',()=>{for(const url of localMediaObjectUrls)URL.revokeObjectURL(url);localMediaObjectUrls.clear()},{once:true});
-function showSentPhotos(node,items){if(!node)return;for(const item of items)appendLocalMedia(node,item)}function renderPendingChatFiles(){const host=qs('#chatAttachments');host.innerHTML='';pendingChatFiles.forEach((item,index)=>{const group=document.createElement('div');group.style.cssText='display:flex;align-items:center;gap:7px;flex-wrap:wrap;max-width:100%';if(item.localUrl||item.mediaUrl)appendLocalMedia(group,item,true);const b=document.createElement('button');b.type='button';b.className='ghost';b.textContent=(item.isImage?'🖼️ ':item.isVideo?'🎞️ ':item.isAudio?'🎵 ':'📎 ')+item.name+(item.isImage&&item.analysis_status!=='IMAGE_DESCRIBED'?' · vision indisponible':'')+' · retirer';b.setAttribute('aria-label','Retirer '+item.name);b.onclick=()=>{pendingChatFiles.splice(index,1);if(item.mediaUrl){URL.revokeObjectURL(item.mediaUrl);localMediaObjectUrls.delete(item.mediaUrl)}renderPendingChatFiles()};group.appendChild(b);host.appendChild(group)})}async function uploadChatFiles(files,source='file-picker'){const added=[];for(const file of files){qs('#chatStatus').textContent='Envoi de '+file.name+'…';const fd=new FormData();fd.append('file',file);try{const r=await fetch('/api/files/upload',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.code||d.error||'FILE_UPLOAD_FAILED');if(d?.ok!==true||typeof d?.id!=='string'||!d.id.trim())throw Error('FILE_UPLOAD_NOT_ACKNOWLEDGED');const localUrl=await melLocalPhotoPreview(file);const localMedia=localPlayableMedia(file);const item={...localMedia,name:file.name,source,stored:Boolean(d.stored),stored_encrypted:Boolean(d.stored_encrypted),id:d.id||null,preview:String(d.preview_text||'').slice(0,80000),analysis_status:String(d.analysis_status||''),analysis_provider:String(d.analysis_provider||''),expires_at:String(d.expires_at||''),isImage:/^image\\//i.test(file.type),localUrl};pendingChatFiles.push(item);added.push(item);renderPendingChatFiles();qs('#chatStatus').textContent=(source==='clipboard'?'Collé · ':'')+(item.isVideo?'Vidéo jointe (non analysée) : ':item.isAudio&&!item.preview?'Audio joint (non transcrit) : ':item.isImage&&item.analysis_status!=='IMAGE_DESCRIBED'?'Photo reçue mais non analysée ('+item.analysis_status+') : ':'Pièce jointe prête : ')+file.name}catch(e){qs('#chatStatus').textContent='Échec du fichier : '+file.name+' · '+e.message}}return added}
+function showSentPhotos(node,items){if(!node)return;for(const item of items)appendLocalMedia(node,item)}function renderPendingChatFiles(){const host=qs('#chatAttachments');host.innerHTML='';pendingChatFiles.forEach((item,index)=>{const group=document.createElement('div');group.style.cssText='display:flex;align-items:center;gap:7px;flex-wrap:wrap;max-width:100%';if(item.localUrl||item.mediaUrl)appendLocalMedia(group,item,true);const b=document.createElement('button');b.type='button';b.className='ghost';b.textContent=(item.isImage?'🖼️ ':item.isVideo?'🎞️ ':item.isAudio?'🎵 ':'📎 ')+item.name+(item.isImage&&item.analysis_status!=='IMAGE_DESCRIBED'?' · vision indisponible':'')+' · retirer';b.setAttribute('aria-label','Retirer '+item.name);b.onclick=()=>{pendingChatFiles.splice(index,1);if(item.mediaUrl){URL.revokeObjectURL(item.mediaUrl);localMediaObjectUrls.delete(item.mediaUrl)}renderPendingChatFiles()};group.appendChild(b);host.appendChild(group)});chatQueueStatus()}async function uploadChatFiles(files,source='file-picker'){const added=[];for(const file of files){qs('#chatStatus').textContent='Envoi de '+file.name+'…';const fd=new FormData();fd.append('file',file);try{const r=await fetch('/api/files/upload',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.code||d.error||'FILE_UPLOAD_FAILED');if(d?.ok!==true||typeof d?.id!=='string'||!d.id.trim())throw Error('FILE_UPLOAD_NOT_ACKNOWLEDGED');const localUrl=await melLocalPhotoPreview(file);const localMedia=localPlayableMedia(file);const item={...localMedia,name:file.name,source,stored:Boolean(d.stored),stored_encrypted:Boolean(d.stored_encrypted),id:d.id||null,preview:String(d.preview_text||'').slice(0,80000),analysis_status:String(d.analysis_status||''),analysis_provider:String(d.analysis_provider||''),expires_at:String(d.expires_at||''),isImage:/^image\\//i.test(file.type),localUrl};pendingChatFiles.push(item);added.push(item);renderPendingChatFiles();qs('#chatStatus').textContent=(source==='clipboard'?'Collé · ':'')+(item.isVideo?'Vidéo jointe (non analysée) : ':item.isAudio&&!item.preview?'Audio joint (non transcrit) : ':item.isImage&&item.analysis_status!=='IMAGE_DESCRIBED'?'Photo reçue mais non analysée ('+item.analysis_status+') : ':'Pièce jointe prête : ')+file.name}catch(e){qs('#chatStatus').textContent='Échec du fichier : '+file.name+' · '+e.message}}return added}
 async function resumeLatestConversation(){const button=qs('#resumeLatestChat');if(button)button.disabled=true;qs('#chatStatus').textContent='Chargement du dernier échange…';try{const d=await jfetch('/api/mel/conversations/latest');if(!d?.conversation?.id)throw Error('Aucune conversation précédente.');conversationId=String(d.conversation.id);localStorage.setItem('mel.conversation',conversationId);qs('#chatlog').innerHTML='';for(const row of (Array.isArray(d.messages)?d.messages:[]).slice(-60)){const role=String(row?.role||'').toLowerCase();if(role==='user'||role==='assistant'||role==='mel')addMsg(role==='user'?'user':'mel',row?.content||row?.text||'',row.metadata||{})}qs('#chatStatus').textContent='Dernier échange repris.'}catch(e){qs('#chatStatus').textContent='Reprise impossible : '+e.message}finally{if(button)button.disabled=false}}
-qs('#chatInterrupt').addEventListener('click',()=>{melCodeInterrupted=true;melCodeCancelAuto('Auto-continuer arrêté par Interrompre.');chatPendingTurns.length=0;chatQueueStatus();if(chatActiveController){chatActiveController.abort();qs('#chatStatus').textContent='Réponse du chat interrompue ; messages en attente vidés. Autonomie MAX inchangée.';melCodeLiveRecord({id:'interrupt-'+Date.now(),label:'Réponse du chat interrompue · autonomie MAX inchangée',status:'done'});}else{qs('#chatStatus').textContent='Aucune réponse du chat en cours. Autonomie MAX inchangée.';}});qs('#chatForm').addEventListener('submit',e=>{e.preventDefault();sendChat()});qs('#chatSendAfter').addEventListener('click',()=>{if(chatActiveController)void sendChat()});qs('#chatInput').addEventListener('paste',e=>{const files=filesFromTransfer(e.clipboardData);if(!files.length)return;e.preventDefault();uploadChatFiles(files,'clipboard')});qs('#chatAttach').onclick=()=>qs('#chatFileInput').click();qs('#chatFileInput').addEventListener('change',e=>{const files=[...e.target.files];e.target.value='';uploadChatFiles(files,'file-picker')});qs('#resumeLatestChat').onclick=resumeLatestConversation;
+qs('#chatInterrupt').addEventListener('click',()=>{melCodeInterrupted=true;melCodeCancelAuto('Auto-continuer arrêté par Interrompre.');chatPendingTurns.length=0;chatQueueStatus();if(chatActiveController){chatActiveController.abort();qs('#chatStatus').textContent='Réponse du chat interrompue ; messages en attente vidés. Autonomie MAX inchangée.';melCodeLiveRecord({id:'interrupt-'+Date.now(),label:'Réponse du chat interrompue · autonomie MAX inchangée',status:'done'});}else{qs('#chatStatus').textContent='Aucune réponse du chat en cours. Autonomie MAX inchangée.';}});qs('#chatForm').addEventListener('submit',e=>{e.preventDefault();sendChat()});qs('#chatSendAfter').addEventListener('click',()=>{void sendChat(null,'text',null,true)});qs('#chatInput').addEventListener('input',chatQueueStatus);chatQueueStatus();qs('#chatInput').addEventListener('paste',e=>{const files=filesFromTransfer(e.clipboardData);if(!files.length)return;e.preventDefault();uploadChatFiles(files,'clipboard')});qs('#chatAttach').onclick=()=>qs('#chatFileInput').click();qs('#chatFileInput').addEventListener('change',e=>{const files=[...e.target.files];e.target.value='';uploadChatFiles(files,'file-picker')});qs('#resumeLatestChat').onclick=resumeLatestConversation;
 function statusTag(s){const good=['ONLINE','HEALTHY','DONE_VERIFIED'].includes(s),bad=['OFFLINE','BLOCKED_EXTERNAL','BLOCKED_HUMAN'].includes(s);return '<span class="tag '+(good?'good':bad?'bad':'warn')+'">'+String(s||'UNKNOWN')+'</span>'}
 function capFamily(id){const v=String(id||'').toLowerCase();if(v.startsWith('code.'))return'Code';if(/conversation|memory|rag|archive/.test(v))return'Mémoire & échanges';if(/roadmap|evolution|dev|module|work/.test(v))return'Développement';if(/augmentio|teacher|model|research|web/.test(v))return'IA & recherche';if(/device|sync|browser|mail|gmail|drive|calendar/.test(v))return'Outils & connexions';return'Autres'}
 async function loadChatCapabilities(force=false){const summary=qs('#chatCapSummary'),groups=qs('#chatCapGroups'),list=qs('#chatCapList');if(!summary||!groups||!list)return[];summary.textContent='Lecture de mes capacités…';try{const d=await loadCapabilitiesData(force);if(!Array.isArray(d?.capabilities))throw Error('Liste CapabilityBus absente');const caps=d.capabilities;const active=caps.filter(capabilityFunctional);const by={};for(const x of active){const f=capFamily(x.id);by[f]=(by[f]||0)+1}summary.textContent=active.length+' capacité'+(active.length>1?'s':'')+' signalée'+(active.length>1?'s':'')+' disponible'+(active.length>1?'s':'')+' (protégées incluses) sur '+caps.length+' enregistrée'+(caps.length>1?'s':'')+' · exécution non prouvée.';groups.innerHTML=Object.entries(by).sort((a,b)=>b[1]-a[1]).map(([k,n])=>'<span class="cap-chip">'+esc(k)+' · '+n+'</span>').join('');list.innerHTML=caps.map(x=>{const meta=capabilityHealthMeta(x);return '<div class="cap-help-item"><strong>'+esc(x.name||x.id)+'</strong><small>'+esc(x.description||x.id||'')+'</small><span class="cap-help-state '+meta.kind+'">'+esc(meta.label)+'</span></div>'}).join('')||'<div class="muted">Aucune capacité enregistrée.</div>';return caps}catch(e){summary.textContent='Capacités indisponibles : '+e.message;groups.innerHTML='';list.textContent='Impossible de lire le CapabilityBus.';throw e}}
