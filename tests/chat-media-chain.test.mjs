@@ -137,3 +137,28 @@ for(const text of ['Tu peux me montrer une photo de Rome ?', 'Je voudrais une ph
  const {host}=browser(t,result.text,result);assert.equal(host.querySelectorAll('img').length,1);
  assert.doesNotMatch(result.text,/"capability"|"args"/);
 });
+
+for(const mode of ['conversation','code'])for(const type of ['image','audio','video'])test('verified '+type+' survives total inference failure, mode='+mode,async t=>{
+ const {sqliteD1}=await import('./helpers/sqlite-d1.mjs');const DB=sqliteD1();t.after(()=>DB.close());
+ const mime={image:'image/jpeg',audio:'audio/ogg',video:'video/webm'}[type];
+ const environment={...env(async()=>Response.json({query:{pages:{1:{title:'Média récupéré',imageinfo:[{url:'https://upload.wikimedia.org/recovered.'+({image:'jpg',audio:'ogg',video:'webm'}[type]),descriptionurl:'https://commons.wikimedia.org/wiki/File:Recovered',mime}]}}}})),DB,
+  AI:{async run(){throw Object.assign(Error('PRIVATE_PROVIDER_BODY'),{code:'AI_PROVIDER_UNAVAILABLE'});}}};
+ const prompt={image:'Montre-moi une photo de chat',audio:'Fais-moi écouter un son de pluie',video:'Montre-moi une vidéo de mer'}[type];
+ const response=await worker.fetch(request(prompt,mode),environment);const data=await response.json();
+ assert.equal(response.status,200,JSON.stringify(data));assert.equal(data.analysis_available,false);assert.equal(data.analysis_error,'CHAT_INFERENCE_FAILED');
+ assert.equal(data.media.length,1);assert.equal(data.media[0].type,type);assert.match(data.text,/synthèse.*indisponible/i);
+ assert.doesNotMatch(data.text,/PRIVATE_PROVIDER_BODY/);
+ const {host}=browser(t,data.text,data);assert.equal(host.querySelectorAll(type==='image'?'img':type).length,1);
+ const {ConversationService}=await import('../src/conversations/conversation-service.js');
+ const saved=(await new ConversationService(DB).getMessages('media-'+mode)).find(row=>row.role==='assistant');
+ assert.ok(saved);assert.equal(saved.metadata.media[0].type,type);assert.equal(saved.metadata.analysis_available,false);
+});
+
+for(const result of [
+ {ok:true,status:'QUEUED',media:[{type:'video',url:'https://cdn.example/not-ready.webm',mime:'video/webm'}]},
+ {ok:true,media:[{type:'video',url:'https://127.0.0.1/private.webm',mime:'video/webm'}]},
+])test('inference failure cannot promote pending or unsafe media to completed output',async()=>{
+ const environment={MELITURGOS_USER:'test',MELITURGOS_PASSWORD:'test-only',AI:{async run(){throw Object.assign(Error('provider unavailable'),{code:'AI_PROVIDER_UNAVAILABLE'});}},MEL_MEDIA_CAPABILITIES:{'media.video.generate':async()=>result}};
+ const response=await worker.fetch(request('Génère une vidéo de mer'),environment);const data=await response.json();
+ assert.equal(response.status,503);assert.equal(data.code,'CHAT_INFERENCE_FAILED');assert.ok(!data.media?.length);
+});

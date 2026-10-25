@@ -35,6 +35,7 @@ export async function readChatBudgetEvidence(env, { now = Date.now() } = {}) {
 const CASES = Object.freeze({
   short: () => ({ text: 'Bonjour MEL. En une seule phrase : qui es-tu et que peux-tu faire pour moi ?', expect: /mel/i }),
   plan: () => ({ text: 'Établis un plan d’action en 5 étapes numérotées pour lancer une petite activité de traduction en ligne. Pour chaque étape : objectif, actions concrètes, durée estimée.', expect: /(^|\n)\s*(?:#+\s*)?(?:\*\*)?(?:étape\s*)?5\b/im }),
+  photo: () => ({text:'Montre-moi une photo de chat',expect:/photo|image|média/i,mediaType:'image'}),
   // MEL must know her real tools: no "I have no network / PC / execution",
   // and no request for keys she does not need.
   capabilities: () => ({
@@ -68,13 +69,20 @@ function bigPrompt(targetChars) {
   };
 }
 
+function mediaCounts(media) {
+  const counts={image:0,audio:0,video:0,document:0};
+  for(const item of Array.isArray(media)?media:[])if(Object.hasOwn(counts,item?.type)&&typeof item?.url==='string'&&item.url)counts[item.type]++;
+  return counts;
+}
+
 async function readChatResponse(response, startedAt) {
   const type = response.headers.get('content-type') || '';
   if (!type.includes('application/x-ndjson') || !response.body) {
     const data = await response.json().catch(() => ({}));
     const text = String(data?.reply || data?.response || data?.text || data?.message || '');
     return { streamed: false, status: response.status, text, firstTextMs: text ? Date.now() - startedAt : null, model: data?.model || null, archived: data?.archive_saved === true, error: data?.code || data?.error || null,
-      providerError:PROVIDER_DIAGNOSTIC_CODES.find(code=>String(data?.detail||'').includes(code))||null };
+      providerError:PROVIDER_DIAGNOSTIC_CODES.find(code=>String(data?.detail||'').includes(code))||null,
+      mediaCounts:mediaCounts(data?.media),analysisAvailable:data?.analysis_available??null };
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -103,7 +111,12 @@ async function readChatResponse(response, startedAt) {
       else if (event.type === 'error') failure = event;
     }
   }
-  return { streamed: true, status: response.status, text, firstTextMs, deltas, model: done?.model || null, archived: done?.archived === true, truncated: done?.truncated === true, error: failure?.code || null };
+  const completed=done?.result||done;
+  if(!text&&typeof completed?.text==='string'){text=completed.text;firstTextMs??=Date.now()-startedAt;}
+  return { streamed: true, status: response.status, text, firstTextMs, deltas, model: completed?.model || null,
+    archived:completed?.archived===true||completed?.archive_saved===true,truncated:completed?.truncated===true,
+    error:failure?.code||(completed?.ok===false?completed?.code||'CHAT_RESPONSE_FAILED':null),
+    mediaCounts:mediaCounts(completed?.media),analysisAvailable:completed?.analysis_available??null };
 }
 
 export async function runChatSelftest({ request, env, handleChat, chatOptions = {}, cases = ['short', 'plan', 'big', 'huge'] }) {
@@ -112,7 +125,7 @@ export async function runChatSelftest({ request, env, handleChat, chatOptions = 
   if (!password) return Response.json({ ok: false, code: 'OWNER_AUTH_NOT_CONFIGURED' }, { status: 503 });
   const results = [];
   for (const name of cases.filter(name => CASES[name]).slice(0, 5)) {
-    const { text, expect, reject = null, excerptChars = 280 } = CASES[name]();
+    const { text, expect, reject = null, excerptChars = 280,mediaType=null } = CASES[name]();
     const startedAt = Date.now();
     let outcome;
     try {
@@ -128,7 +141,7 @@ export async function runChatSelftest({ request, env, handleChat, chatOptions = 
     results.push({
       case: name,
       prompt_chars: text.length,
-      ok: outcome.status === 200 && !outcome.error && outcome.text.trim().length > 0 && expect.test(outcome.text) && !(reject && reject.test(outcome.text)),
+      ok: outcome.status === 200 && !outcome.error && outcome.text.trim().length > 0 && expect.test(outcome.text) && !(reject && reject.test(outcome.text)) && (!mediaType||outcome.mediaCounts?.[mediaType]>0),
       understood: expect.test(outcome.text) && !(reject && reject.test(outcome.text)),
       wrong_claim: reject ? (outcome.text.match(reject)?.[0] || null) : null,
       streamed: outcome.streamed,
@@ -142,6 +155,8 @@ export async function runChatSelftest({ request, env, handleChat, chatOptions = 
       truncated: outcome.truncated === true,
       error: outcome.error,
       provider_error: outcome.providerError || null,
+      media_counts:outcome.mediaCounts||mediaCounts([]),
+      analysis_available:outcome.analysisAvailable??null,
       excerpt: outcome.text.replace(/\s+/g, ' ').trim().slice(0, excerptChars),
     });
   }

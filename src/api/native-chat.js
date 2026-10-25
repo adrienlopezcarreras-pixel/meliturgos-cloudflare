@@ -2626,38 +2626,19 @@ export async function handleNativeChat(request, env, options = {}) {
           }), inferenceSettings:effectiveInferenceSettings
         });
       }
+      const recoveredMedia = !recovered ? collectChatMedia(toolResults,new URL(request.url).origin) : null;
       if (recovered) {
         ai = recovered;
-      } else if (!releaseSmoke && inferPublicImageLookup(activeTaskText)
-          && !/\\b(?:explique|expliquer|compare|comparer|analyse|analyser|d[ée]cris|d[ée]crire|pourquoi|comment)\\b/i.test(activeTaskText)
-          && toolResults.some(row => row.capability === 'web.images.search'
-            && row.status === 'SUCCEEDED' && Array.isArray(row.result?.images))) {
-        // A successful public-image retrieval must not be lost simply because
-        // the optional natural-language inference provider is unavailable.
-        // Reuse the canonical sourced-image renderer and media serializer.
-        const responseText = withOfficialVisual('', activeTaskText, toolResults);
-        const responseMedia = collectChatMedia(toolResults, new URL(request.url).origin);
-        let archiveSaved = false;
-        if (service) {
-          try {
-            await service.archiveMessage({ conversationId, deviceId, role:'user', content:text,
-              timestamp:Date.now(), provenance:userProvenance, metadata:userMetadata });
-            await service.archiveMessage({ conversationId, deviceId, role:'assistant', content:responseText,
-              timestamp:Date.now()+1, provenance:'native-chat:verified-image-fallback',
-              metadata:{ analysis_available:false, analysis_error:'CHAT_INFERENCE_FAILED',
-                capability:'web.images.search' } });
-            archiveSaved = true;
-          } catch {}
-        }
-        return Response.json({ ok:true, text:responseText, model:'deterministic-image-retrieval',
-          provider:'mel', response_mode:'verified-image-retrieval', analysis_available:false,
-          analysis_error:'CHAT_INFERENCE_FAILED', capability_used:['web.images.search'],
-          tool_results:toolResults, ...responseMedia, archive_saved:archiveSaved },
-          { headers:{'cache-control':'no-store'} });
       } else if (explanatoryAutonomyRead) {
         // The read succeeded even when every inference provider failed. Keep
         // that evidence, without presenting the absent analysis as successful.
         return respondWithAutonomyEvidence({ analysisUnavailable:true });
+      } else if (recoveredMedia.media.length) {
+        // Synthesis failure must not discard verified, completed artifacts.
+        // Continue through the single render/archive path with explicit status.
+        ai = {text:'Voici les médias récupérés par les outils pour ta demande.',
+          model:'deterministic-media-evidence',provider:'mel',
+          fallback_used:true,inference_unavailable:true};
       } else {
         console.error('[native-chat] inference and fallback failed', {
           primary: error?.code || error?.message || String(error),
@@ -2848,6 +2829,7 @@ export async function handleNativeChat(request, env, options = {}) {
   if(mediaEvidence?.status==='FAILED')responseText='Le média demandé n’a pas été obtenu : '+String(mediaEvidence.error||'MEDIA_FAILED')+'. Aucun résultat terminé n’est disponible.';
   else if(mediaEvidence?.result?.code==='MEDIA_SEARCH_EMPTY')responseText='Aucun son ou vidéo correspondant n’a été trouvé dans la bibliothèque libre. Précise le sujet ou essaie une autre recherche.';
   else if(mediaEvidence?.result?.provider==='mel-dsp')responseText='Création audio synthétique procédurale (sans fournisseur IA payant).\n\n'+responseText;
+  if(ai.inference_unavailable)responseText='La synthèse du modèle est indisponible pour ce tour. Les médias ci-dessous proviennent des outils réellement exécutés.\n\n'+responseText;
   if (inferPublicImageLookup(activeTaskText) && !releaseSmoke) {
     const delivered = hasVisibleImage(responseText, validatedPictureUrl(toolResults));
     toolResults.push({
@@ -2914,7 +2896,7 @@ export async function handleNativeChat(request, env, options = {}) {
   if (service) {
     try {
       await service.archiveMessage({ conversationId, deviceId, role: 'user', content: text, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now(), provenance: userProvenance, metadata: userMetadata });
-      await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: responseText, model: ai.model, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now() + 1, provenance: automaticCouncilAccepted ? 'native-chat:council-recovery' : (ai.augmentio_used ? 'native-chat:augmentio' : 'native-chat'), metadata: { ...responseMedia, ...(automaticCouncilAccepted ? { council_recovery:true, xp_gain:Number(automaticCouncilXp.xp_gain || 0) } : {}) } });
+      await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: responseText, model: ai.model, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now() + 1, provenance: automaticCouncilAccepted ? 'native-chat:council-recovery' : (ai.augmentio_used ? 'native-chat:augmentio' : 'native-chat'), metadata: { ...responseMedia, ...(ai.inference_unavailable ? { analysis_available:false,analysis_error:'CHAT_INFERENCE_FAILED' } : {}), ...(automaticCouncilAccepted ? { council_recovery:true, xp_gain:Number(automaticCouncilXp.xp_gain || 0) } : {}) } });
       archiveSaved = true;
     } catch { archiveSaved = false; }
   }
@@ -2924,6 +2906,7 @@ export async function handleNativeChat(request, env, options = {}) {
     text: responseText,
     model: ai.model,
     provider: ai.provider,
+    ...(ai.inference_unavailable ? { analysis_available:false,analysis_error:'CHAT_INFERENCE_FAILED' } : {}),
     augmentio_used: ai.augmentio_used === true,
     candidate_count: Array.isArray(ai.candidates) ? ai.candidates.length : 1,
     provenance: ai.provenance || null,

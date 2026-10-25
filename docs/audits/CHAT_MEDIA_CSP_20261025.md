@@ -52,3 +52,11 @@ Validation locale : 111 tests ciblés réussis et syntaxe réussie. Ces changeme
 XP MEL : NON. Aucun résultat en production n'est attribué à ce lot non publié.
 
 Reprise : l’accès API et Git de la session a été revérifié avec succès. La PR #2686 est fusionnée en 36f1f06de6312458940840fba15be6f3677a5127 après ses contrôles verts. Le lot de conseil est réconcilié avec les développements concurrents, sans modification des boutons pris en charge par une autre page.
+
+## Conservation des médias après échec de synthèse — reprise sur 9bb7650d
+
+La PR #2691 est déjà fusionnée. Le main courant contient également le repli photo ajouté par une autre page (#2699). Ce repli spécifique est remplacé par le chemin commun des médias terminés : images, audio et vidéo passent par les mêmes contrôles, rendu, Council et archivage. Aucun moteur parallèle ajouté. La réponse et l’archive indiquent explicitement analysis_available=false lorsque tous les modèles échouent. Les résultats en attente ou avec une URL refusée ne deviennent pas des réussites.
+
+Preuves : six régressions modes Conversation/Code × image/audio/vidéo échouent sur le parent initial puis passent avec le correctif ; 263 tests chat/intention réussis sur main réconcilié. Le test Chromium utilise le véritable entrypoint et sa CSP, avec médias publics simulés explicitement identifiés et audio DSP réel ; décodage et lecture après panne de synthèse vérifiés. Ce test local ne prouve pas la disponibilité des modèles ou du navigateur propriétaire en production.
+
+Le self-test existant sait désormais lire les deux enveloppes de fin NDJSON et vérifier une photo par ses métadonnées typées, sans se satisfaire d’un texte annonçant une image. Aucun secret ni budget modifié. XP MEL : NON (conservation des artefacts déjà couverte par le corpus). Statut global IN_PROGRESS jusqu’aux vérifications production.
