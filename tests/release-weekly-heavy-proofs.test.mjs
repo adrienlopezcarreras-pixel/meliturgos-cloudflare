@@ -9,6 +9,7 @@ test('heavy release proofs run on the first release of the week only', () => {
   const decide = wf.indexOf('- name: Decide weekly heavy release proofs');
   assert.ok(decide > 0);
   assert.match(wf, /status=success&created=>=\$MONDAY/);
+  assert.match(wf, /echo "MEL_RELEASE_DEEP_AI_PROOFS_PAUSED=true" >> "\$GITHUB_ENV"/);
   for (const name of ['Prove MEL-MEDIA-02 12/12 live on exact deployed SHA', 'Upload MEL-MEDIA-02 exact-SHA evidence', 'Dispatch decoupled downstream production proofs', 'Prove real production browser.execute', 'Prove MEL-FILE-01 in real production browser', 'Upload MEL-FILE-01 production proof']) {
     const at = wf.indexOf('- name: ' + name);
     assert.ok(at > decide, name);
