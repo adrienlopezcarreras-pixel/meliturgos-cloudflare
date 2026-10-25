@@ -312,3 +312,15 @@ de ce nouveau transport ni de restauration complète revendiquée. XP MEL : NON.
 - Validation locale : 104 tests ciblés réussis, syntaxe du dépôt réussie. Le test natif est raccordé à la CI GEN2-47 et à la découverte complète des tests.
 - Plafonds opérationnels inchangés : 32 Mio par objet et 256 Mio au total. Aucun lancement de sauvegarde multi-Go tant que la marge gratuite du compte R2 n'est pas établie. Les adaptateurs réels des sept domaines et leur reprise restent à compléter ; mission globale IN_PROGRESS/BLOCKED, aucune purge exécutée.
 - XP MEL : NON (pas de nouvelle règle persistée).
+
+## Ordre des preuves de maintenance — 25 octobre 2026
+
+Le parcours à froid était impossible : `executeGlobalMaintenance` exigeait `all_producers_stopped` avant d'acquérir son verrou et d'appeler `stopProducers`. Une régression exécutée contre l'implémentation précédente retourne BLOCKED au lieu de COMPLETED ; le contrôle post-arrêt ne pouvait donc pas être atteint.
+
+Le précontrôle conserve l'exigence de restauration indépendante et des sept procédures testées/idempotentes/protégées par génération. Seule la preuve dynamique d'arrêt est obtenue après acquisition du verrou et arrêt réel. Après vérification de cet arrêt et second contrôle des baux WORK, le fournisseur indépendant est relu : toutes les preuves doivent alors être présentes, restauration et domaines compris, avant le premier handler. Ni preuve synthétique ni drapeau client ajouté.
+
+Tests réels SQLite : démarrage à froid et ordre exact des appels ; preuve d'arrêt encore absente, restauration perdue, domaines invalides ou fournisseur inaccessible après arrêt => zéro handler, récupération obligatoire et verrou conservé si la vérification indépendante échoue ; restauration ou domaines manquants au départ => aucune acquisition de verrou. Les scénarios existants d'expiration, de concurrence et d'interruption restent verts. Validation locale : 70 tests ciblés réussis et syntaxe du dépôt réussie.
+
+Ce correctif ne raccorde pas artificiellement les sept adaptateurs et n'active aucune route destructive. La restauration complète D1/R2 reste non prouvée ; aucune purge n'est effectuée. La release 40199138810 sur 6f1f79f3 a réussi avec ses contrôles post-déploiement. Les métriques R2 observées par le run 40199179006 rapportent 145226554033 octets Standard/published, sans preuve de quota/facturation ; les nouvelles copies et publications restent suspendues à la clarification de coût.
+
+XP MEL : NON. Mission globale IN_PROGRESS/BLOCKED.
