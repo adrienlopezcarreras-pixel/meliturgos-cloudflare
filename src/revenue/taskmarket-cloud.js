@@ -162,7 +162,9 @@ export async function submitTaskmarketCloud(env, { taskId, content, fileName = '
   const task = await fetchImpl(TASKMARKET_API + '/api/tasks/' + id, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(12_000) }).then(r => r.json()).catch(() => null);
   if (task && task.submissionWindowOpen === false) return { status: 'WINDOW_CLOSED' };
   return withKey(env, { fetchImpl, vaults }, async (key, wallet) => {
-    const signature = await personalSign(key, 'taskmarket:submit:' + id);
+    // Taskmarket moved write actions under taskmarket:market:<kind> (official
+    // CLI >= 1.20); the old taskmarket:submit message is refused UNAUTHORIZED.
+    const signature = await personalSign(key, 'taskmarket:market:submit:' + id);
     const bytes = enc.encode(String(content || ''));
     let bin = ''; for (const b of bytes) bin += String.fromCharCode(b);
     const headers = {

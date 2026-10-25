@@ -55,7 +55,7 @@ test('a deliverable is signed and handed in from the cloud, PC off', async () =>
   const submit = calls.find(c => c.url.endsWith('/submissions'));
   const body = JSON.parse(submit.init.body);
   assert.equal(body.workerAddress, ADDRESS);
-  assert.equal(recoverPersonalSignAddress('taskmarket:submit:' + TASK, body.signature), ADDRESS);
+  assert.equal(recoverPersonalSignAddress('taskmarket:market:submit:' + TASK, body.signature), ADDRESS);
   assert.equal(Buffer.from(body.artifacts[0].file, 'base64').toString(), '# Livrable\nTexte.');
   assert.equal(submit.init.headers['X-Taskmarket-Legal-Receipt'], 'rcpt-123456');
   assert.match(submit.init.headers['X-Taskmarket-Idempotency-Key'], /^[0-9a-f-]{36}$/);
