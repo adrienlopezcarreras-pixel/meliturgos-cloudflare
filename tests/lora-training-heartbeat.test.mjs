@@ -261,7 +261,7 @@ test('LoRA heartbeat never restarts cycle zero when only draft or unverified che
   assert.equal(dispatched, false);
 });
 
-test('LoRA heartbeat stops UNCENSORED relaunches once AGENTIC_READY is measured', async () => {
+test('LoRA heartbeat stops UNCENSORED relaunches once AGENTIC_READY is measured and keeps observing', async () => {
   let fetchCalled = false;
   const result = await runLoraTrainingHeartbeat(baseEnv, {
     force: true,
@@ -282,7 +282,8 @@ test('LoRA heartbeat stops UNCENSORED relaunches once AGENTIC_READY is measured'
     },
   });
 
-  assert.equal(result.status, 'AGENTIC_READY');
+  // AGENTIC_READY is no longer terminal: MEL keeps observing its objectives.
+  assert.equal(result.status, 'AGENTIC_OBSERVING');
   assert.equal(result.dispatched, false);
   assert.equal(fetchCalled, false);
 });
