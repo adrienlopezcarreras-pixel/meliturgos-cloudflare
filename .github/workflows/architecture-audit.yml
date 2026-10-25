@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
   id-token: write
 
 concurrency:
@@ -42,6 +43,30 @@ jobs:
             echo "New catalog models: $(cat new-models.json)"
           else
             echo "Workers AI catalog unavailable; report sent without new_models."
+          fi
+      # MEL-UI-AUDIT: open the real production pages read-only (exact-SHA
+      # release-smoke identity, non-GET requests aborted) and record JS errors,
+      # server errors and panels stuck loading. A failure leaves the report
+      # without the ui section; it never blocks the architecture report.
+      - name: Audit the production interface (read-only)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
+        run: |
+          set -uo pipefail
+          SHA=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/deploy-cloudflare-release.yml/runs?status=success&per_page=1" -q '.workflow_runs[0].head_sha' || true)
+          if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then echo "Deployed SHA unknown; UI audit skipped."; exit 0; fi
+          MEL_PARALLEL_PROOF="$(TARGET_SHA="$SHA" node -e "const c=require('crypto');const k=Buffer.from(process.env.PROOF_KEY_B64||'','base64');if(k.length!==32)process.exit(1);process.stdout.write(Buffer.from(c.hkdfSync('sha256',k,Buffer.from('meliturgos-parallel-proof-salt-v1'),Buffer.from('MEL_PARALLEL_PROOF_V1:'+process.env.TARGET_SHA),32)).toString('base64url'))")" || { echo "Proof key unavailable; UI audit skipped."; exit 0; }
+          echo "::add-mask::$MEL_PARALLEL_PROOF"
+          export MEL_PARALLEL_PROOF
+          npm install --no-save --ignore-scripts playwright-core@1.48.2 >/dev/null 2>&1
+          if BASE_URL=https://meliturgos.adrien-lopezcarreras.workers.dev CHROME_PATH=/usr/bin/google-chrome \
+            node scripts/ui-production-audit.mjs > ui-report.json; then
+            node -e "const fs=require('fs');const r=JSON.parse(fs.readFileSync('architecture-report.json'));r.ui=JSON.parse(fs.readFileSync('ui-report.json'));fs.writeFileSync('architecture-report.json',JSON.stringify(r))"
+            node -e "const u=require('./ui-report.json');console.log('UI audit:',u.pages,'pages,',u.api_calls,'API calls,',u.blocked_calls,'blocked,',u.findings.length,'findings')"
+          else
+            echo "UI audit failed to run; report sent without ui."
           fi
       - name: Send the report to MEL
         shell: bash
