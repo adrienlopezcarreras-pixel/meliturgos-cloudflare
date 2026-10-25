@@ -14,7 +14,7 @@ function browser(t,text,metadata={}){
  dom.window.eval(CHAT_RICH_RENDERER_SOURCE);dom.window.qs=selector=>dom.window.document.querySelector(selector);dom.window.eval(addMsgSource);const host=dom.window.document.getElementById('host');
  assert.equal(dom.window.melRenderRichText(host,text,metadata),true);return {dom,host};
 }
-function env(fetcher){return {MELITURGOS_USER:'test',MELITURGOS_PASSWORD:'test-only',MEL_WEB_MIN_INTERVAL_MS:0,MEL_WEB_FETCH:fetcher,AI:{async run(){return {response:JSON.stringify({capability:'web.research',args:{query:'photo du pape François',max_results:5,pages:1}})};}}};}
+function env(fetcher){return {MELITURGOS_USER:'test',MELITURGOS_PASSWORD:'test-only',MEL_WEB_MIN_INTERVAL_MS:0,MEL_WEB_FETCH:(url,...args)=>new URL(url).hostname==='fr.wikipedia.org'?Promise.resolve(Response.json({query:{pages:{missing:{missing:''}}}})):fetcher(url,...args),AI:{async run(){return {response:JSON.stringify({capability:'web.research',args:{query:'photo du pape François',max_results:5,pages:1}})};}}};}
 function request(text,mode='conversation',stream=false){return new Request('https://mel.example/api/chat',{method:'POST',headers:{authorization:'Basic '+btoa('test:test-only'),'content-type':'application/json'},body:JSON.stringify({text,stream,conversation_id:'media-'+mode,intent_context:{surface:'mel-full',requested_mode:mode,role:mode==='code'?'developer':'assistant'}})});}
 for(const mode of ['conversation','code'])test('real sourced photos reach browser without raw tool JSON, mode='+mode,async t=>{
  let calls=0;
