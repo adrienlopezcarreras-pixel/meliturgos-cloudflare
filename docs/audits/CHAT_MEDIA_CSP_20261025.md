@@ -23,3 +23,15 @@ Statut : correction locale testée, publication et validation production à suiv
 - Aucun état DONE_VERIFIED modifié. Aucun reset, aucune modification D1 ou copie R2. Les développements concurrents de main sont préservés.
 
 XP MEL : NON. Chantier global IN_PROGRESS.
+
+## Synthèse des questions explicatives après lecture d'état
+
+Le parcours réel `/api/chat` présente une seconde rupture distincte : une lecture `autonomy.status` renvoie immédiatement une réponse déterministe pour toute demande, même « explique pourquoi MAX est bloqué et pourquoi les images ne sont pas affichées ». Reproduction avec SQLite réel : lecture réussie, zéro appel au modèle, seconde partie ignorée.
+
+Le chat conserve le chemin rapide factuel pour une simple demande de statut et pour les commandes. Une lecture réussie demandant une explication ou une analyse devient désormais un contexte de l'inférence existante : la réponse traite la question, puis conserve les faits vérifiés du runtime. Les résultats restent soumis aux filtres de preuves et aux gardes existants. Une lecture échouée est décrite comme une lecture échouée, jamais comme un cycle qui aurait été lancé.
+
+Validation locale : 109 tests ciblés réussis et syntaxe réussie. Le nouveau test SQLite passe en modes Conversation et Code, vérifie la présence de la réponse aux deux parties, l'absence de mission créée et l'identité inchangée du contrôle propriétaire. Un appel autonomy.tick proposé en JSON par le modèle n'est pas exécuté. Les tests existants de commandes non bloquantes et d'ancrage sur les preuves restent verts. Aucun fichier du moteur MAX ni de sa persistance n'est modifié.
+
+En complément du premier lot, le contrôle public depuis GitHub Actions 40218851366 / job 121245811898 a réellement récupéré image, audio et vidéo depuis Commons : trois HTTP 200, reçus non vides. Ce test ne certifie pas la session propriétaire ni les modèles de production. La PR #2684 a été fusionnée dans bef659cf ; sa release canonique 40219569562 est en cours au moment de ce checkpoint. Aucune réussite de déploiement final n'est déduite de la fusion.
+
+XP MEL : NON. Chat IN_PROGRESS.

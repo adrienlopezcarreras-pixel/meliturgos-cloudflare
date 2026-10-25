@@ -2020,7 +2020,12 @@ export async function handleNativeChat(request, env, options = {}) {
   const autonomyRuntimeObservedRow = toolResults.find((row) =>
     ['autonomy.tick', 'autonomy.status'].includes(String(row.capability))
   ) || null;
-  if (!releaseSmoke && autonomyRuntimeObservedRow) {
+  // A verified read is context for an explanation, not an answer to every
+  // question in the turn. Keep commands and simple status queries deterministic.
+  const explanatoryAutonomyRead = autonomyRuntimeObservedRow?.capability === 'autonomy.status'
+    && autonomyRuntimeObservedRow.status === 'SUCCEEDED'
+    && classifyTask(activeTaskText) !== 'conversation';
+  if (!releaseSmoke && autonomyRuntimeObservedRow && !explanatoryAutonomyRead) {
     const queued = autonomyRuntimeObservedRow.status === 'QUEUED';
     const capabilitySucceeded = autonomyRuntimeObservedRow.status === 'SUCCEEDED';
     const runtimeResult = capabilitySucceeded && autonomyRuntimeObservedRow.result && typeof autonomyRuntimeObservedRow.result === 'object'
@@ -2044,7 +2049,10 @@ export async function handleNativeChat(request, env, options = {}) {
           operation: autonomyRuntimeObservedRow.capability === 'autonomy.status' ? 'status' : 'tick',
           explainMax: isMaxModeMention(text),
         })
-      : 'Le cycle d’autonomie n’a pas pu s’exécuter : ' + String(autonomyRuntimeObservedRow.error || 'AUTONOMY_RUNTIME_FAILED').slice(0, 180) + '.';
+      : (autonomyRuntimeObservedRow.capability === 'autonomy.status'
+        ? 'Je n’ai pas pu lire l’état d’autonomie : '
+        : 'Le cycle d’autonomie n’a pas pu s’exécuter : ')
+        + String(autonomyRuntimeObservedRow.error || 'AUTONOMY_RUNTIME_FAILED').slice(0, 180) + '.';
     let archiveSaved = false;
     if (service) {
       try {
@@ -2312,6 +2320,9 @@ export async function handleNativeChat(request, env, options = {}) {
   ] : [
     buildMelIdentityPrompt(),
     buildResponseQualityInstruction(activeTaskText),
+    explanatoryAutonomyRead
+      ? 'La lecture autonomy.status fournit des faits observés, pas une commande exécutée. Réponds à toutes les parties de la demande et explique les causes uniquement lorsque les résultats les prouvent. Distingue les faits vérifiés, les hypothèses et les vérifications encore nécessaires. Cette lecture ne prouve aucune reprise, correction ou publication.'
+      : '',
     conversationFocusInstruction,
     MEL_REAL_CAPABILITIES,
     // [ChatGPT-GPT6] Only explicit Professor Code gets a developer context.
@@ -2676,7 +2687,8 @@ export async function handleNativeChat(request, env, options = {}) {
     : devBridgeStatusObserved
       ? formatVerifiedDevBridgeStatusResponse(devBridgeStatusObserved, { fallback: modelResponseText })
       : autonomyRuntimeObserved
-        ? formatVerifiedAutonomyRuntimeResponse(autonomyRuntimeObserved, { fallback: modelResponseText, operation: autonomyRuntimeObservedRow?.capability === 'autonomy.status' ? 'status' : 'tick' })
+        ? (explanatoryAutonomyRead ? modelResponseText + '\n\n' : '')
+          + formatVerifiedAutonomyRuntimeResponse(autonomyRuntimeObserved, { fallback: modelResponseText, operation: autonomyRuntimeObservedRow?.capability === 'autonomy.status' ? 'status' : 'tick' })
       : autonomyActivityObserved
         ? formatVerifiedAutonomyActivityResponse(autonomyActivityObserved, { fallback: modelResponseText })
         : capabilityAuditObserved
