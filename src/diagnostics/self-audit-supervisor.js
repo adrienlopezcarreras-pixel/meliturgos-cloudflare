@@ -1,3 +1,4 @@
+import { runD1Retention } from '../maintenance/d1-retention.js';
 import { runShardVaultCycle } from '../continuity/shardvault-runtime.js';
 import { runLoraTrainingHeartbeat } from '../learning/lora-training-heartbeat.js';
 import { runEcosystemCapabilityWatch } from '../evaluation/capability-watch-runtime.js';
@@ -624,6 +625,9 @@ export async function runMelSelfAuditSupervisor(env = {}, {
 
   let startedStress = null;
   if (due.includes('WEEKLY')) {
+    // Weekly retention of finished, known-fate data (FAILED/CANCELLED job
+    // payloads, old audit logs, old PC command results).
+    results.push(await capture('d1-retention', async () => (deps.runD1Retention || runD1Retention)(env.DB)));
     results.push(await capture('maturity-audit', async () => {
       const value = await bus.execute('system.maturity', {}, context);
       return { ...value, status: value?.ok === false ? 'MATURITY_FAILED' : 'MATURITY_OK' };
