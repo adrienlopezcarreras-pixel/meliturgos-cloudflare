@@ -1,3 +1,4 @@
+import { architectureFindings, readArchitectureReport } from './architecture-audit-store.js';
 import { hasLeakedToolProtocol, isToolProtocolExampleRequest } from '../api/agent-tools.js';
 // Weekly outcome audit of every MEL domain: does the chat answer, does the
 // watch still run, does WORK deliver. The capability stress proves that a
@@ -57,13 +58,43 @@ export function auditWork(cycles = [], { now = Date.now() } = {}) {
   return findings;
 }
 
+/** Core, memory and security (MEL-AUDIT-05): recurring runtime errors,
+ * unconsolidated memory, expired sessions still stored, stale backups. */
+export function auditCore({ errors = [], memory = {}, sessions = {}, lastBackupAt } = {}, { now = Date.now() } = {}) {
+  const findings = [];
+  for (const row of errors) {
+    if (Number(row?.n) >= 10) findings.push({ code: 'CORE_RECURRING_ERROR', detail: row.n + ' fois cette semaine : ' + String(row.path || '—') + ' ' + String(row.error || row.status || '').slice(0, 120) });
+  }
+  if (Number(memory.pending_old) > 100) {
+    findings.push({ code: 'MEMORY_UNCONSOLIDATED', detail: memory.pending_old + ' souvenirs candidats en attente depuis plus de 7 jours (' + (Number(memory.pending) || 0) + ' en attente au total)' });
+  }
+  if (Number(sessions.expired) > 0) findings.push({ code: 'SECURITY_EXPIRED_SESSIONS_KEPT', detail: sessions.expired + ' sessions web expirées encore stockées' });
+  const backup = time(lastBackupAt);
+  if (lastBackupAt === undefined) return findings;
+  if (!backup || now - backup > 3 * DAY_MS) {
+    findings.push({ code: 'BACKUP_STALE', detail: backup ? 'dernière sauvegarde il y a ' + Math.round((now - backup) / 3_600_000) + ' h' : 'aucune sauvegarde enregistrée' });
+  }
+  return findings;
+}
+
 export async function runDomainAudit(db, { now = Date.now() } = {}) {
   const rows = async sql => (await db.prepare(sql).all().catch(() => ({ results: [] })))?.results || [];
-  const [events, states, cycles] = await Promise.all([
+  // A missing table means "not measured", never a finding.
+  const one = async (sql, ...binds) => { try { return await db.prepare(sql).bind(...binds).first(); } catch { return null; } };
+  const weekAgo = now - WEEK_MS;
+  const [events, states, cycles, errors, memory, sessions, backup, architecture] = await Promise.all([
     rows('SELECT user_excerpt, issues_json, response_excerpt, created_at FROM mel_response_quality_events ORDER BY created_at DESC LIMIT 500'),
     rows('SELECT id, state_json, updated_at FROM capability_watch_state'),
     rows('SELECT state, updated_at FROM mel_work_cycles ORDER BY updated_at DESC LIMIT 500'),
+    (async () => { try { return (await db.prepare(`SELECT path, response_status AS status, substr(coalesce(error_message, ''), 1, 120) AS error, count(*) AS n FROM audit_logs
+      WHERE timestamp > ? AND (response_status >= 500 OR error_message IS NOT NULL) GROUP BY 1, 2, 3 ORDER BY n DESC LIMIT 20`).bind(weekAgo).all())?.results || []; } catch { return []; } })(),
+    one("SELECT count(*) AS pending, sum(CASE WHEN created_at < ? THEN 1 ELSE 0 END) AS pending_old FROM memory_candidates WHERE status = 'PENDING'", weekAgo),
+    one('SELECT count(*) AS expired FROM web_sessions WHERE expires_at < ?', now),
+    one('SELECT max(created_at) AS last FROM backup_objects'),
+    readArchitectureReport(db),
   ]);
-  const findings = [...auditChat(events, { now }), ...auditWatch(states, { now }), ...auditWork(cycles, { now })];
+  const findings = [...auditChat(events, { now }), ...auditWatch(states, { now }), ...auditWork(cycles, { now }),
+    ...auditCore({ errors, memory: memory || {}, sessions: sessions || {}, lastBackupAt: backup ? backup.last : undefined }, { now }),
+    ...architectureFindings(architecture, { now })];
   return { ok: findings.length === 0, status: findings.length ? 'DOMAIN_AUDIT_FAILED' : 'DOMAIN_AUDIT_OK', findings };
 }

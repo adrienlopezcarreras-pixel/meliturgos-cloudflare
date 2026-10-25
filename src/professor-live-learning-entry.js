@@ -1,3 +1,4 @@
+import { maybeHandleArchitectureAuditInternal } from './diagnostics/architecture-audit-store.js';
 import app from './ui-entry.js';
 import { selectLatestCheckpointRelease } from './learning/lora-training-heartbeat.js';
 import { requireAuth } from './core/security.js';
@@ -445,6 +446,8 @@ export async function stripLegacyNormalVisualLayers(response) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    const architectureInternal=await maybeHandleArchitectureAuditInternal(request,env);
+    if(architectureInternal)return architectureInternal;
     const loraTraceInternal=await maybeHandleLoraTraceInternal(request,env);
     if(loraTraceInternal)return loraTraceInternal;
     if (url.pathname.startsWith('/api/dev-bridge/') && !isOidcBridgeCall(request)) {
