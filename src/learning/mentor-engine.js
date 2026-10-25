@@ -293,7 +293,11 @@ function applyInspectedEdits(edits, inspectedFiles, repairReferences = [], visib
     const visible = visibleFiles.find(file => file.path === path);
     const find = resolveFind(visible?.content, String(edit?.find ?? ''));
     if (!visibleFiles.some(file => file.path === path && file.content.includes(find))) {
-      throw Object.assign(new Error('MENTOR_UNINSPECTED_EDIT'), { code: 'MENTOR_UNINSPECTED_EDIT' });
+      // Name the first SEARCH line the model did not copy verbatim; a bare code
+      // let it resend the same guessed SEARCH (×9 on 25/10).
+      const visibleLines = new Set(String(visible?.content || '').split('\n').map(line => line.trim()));
+      const missing = String(find).split(/\r?\n/).map(line => line.trim()).find(line => line && !visibleLines.has(line));
+      throw Object.assign(new Error(`MENTOR_UNINSPECTED_EDIT:${path} — SEARCH absent de l'extrait${missing ? ' ; ligne introuvable : ' + JSON.stringify(missing.slice(0, 160)) : ' ; lignes non contiguës'}`), { code: 'MENTOR_UNINSPECTED_EDIT' });
     }
     const replace = String(edit?.replace ?? '');
     if (!find || find.length > 8000 || replace.length > MAX_CHANGE_CHARS) {
