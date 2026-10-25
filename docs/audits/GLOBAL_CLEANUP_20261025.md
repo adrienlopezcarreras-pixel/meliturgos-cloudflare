@@ -173,3 +173,31 @@ sans snapshot ; elle n'est plus répétée pour le simple diagnostic distant san
 mutation production. Le job reste réservé à main et attend son job de validation.
 Aucun garde de purge ou de production n'est assoupli. Ce diagnostic ne doit pas
 être déclaré restauration réussie, ni autorisation de nettoyage.
+
+## Preuve du blocage R2 et préparation de sa correction
+
+#2624 fusionnée bd9e6c21. Troisième test réel 40172817025 : contrôles ciblés
+réussis, déchiffrement abouti, échec RESTORE / ISOLATED_R2_BYTES_MANIFEST_REQUIRED.
+La sauvegarde testée n'inclut pas r2_objects : aucun reçu de restauration complète
+ni aucune autorisation de purge.
+
+Le runner canonique reçoit une option explicite full_r2_backup, désactivée par
+défaut, transmise via le dispatch canonique existant. L'option ajoute r2_objects au
+snapshot chiffré. L'inventaire R2 est partagé/fixé entre les deux sources. Le
+sidecar authentifié réutilise backupR2ObjectBytes, un objet par requête, et refuse
+les sources de backups, les ETag changés et toute écriture hors du nouveau préfixe
+backups/system/r2-bytes/<snapshot-id>/. Les originaux ne sont jamais effacés.
+
+Prévalidation complète avant copie : 5000 objets maximum, 32 Mio par objet et
+256 Mio au total. Dépassement => échec avant la première copie. Le mode par défaut
+ne crée aucune copie R2 supplémentaire. Aucun autre chemin de déploiement ni
+nouveau service. Les archives existantes restent exclues de la copie récursive
+et protégées du nettoyage ; la portée copiée est exactement l'inventaire des
+données applicatives R2 du snapshot, pas tous les anciens backups du bucket.
+
+110 tests ciblés passent : copie/empreinte, préservation des originaux, budgets,
+ETag périmé, auth sidecar, multipart, dispatch opt-in et suites voisines. Cette
+preuve locale n'est pas une sauvegarde complète production. Il faut valider la
+PR, attendre la fin de toute release active, déclencher une seule release avec
+full_r2_backup=true, puis restaurer le nouveau snapshot réel indépendamment.
+Les sept adaptateurs, le drain et le nettoyage réel restent à prouver.

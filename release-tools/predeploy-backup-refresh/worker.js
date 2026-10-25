@@ -1,3 +1,4 @@
+import { backupR2ObjectBytes } from '../../src/backup/r2-byte-backup.js';
 const SYSTEM_BACKUP_PREFIX = 'backups/system/';
 const INVENTORY_PATH = '/inventory';
 const D1_TABLES_PATH = '/d1/tables';
@@ -250,6 +251,32 @@ export async function registerBackupMetadata(env, input) {
   };
 }
 
+// Reuse the canonical byte-copy proof, bounded to one original per request.
+export async function copyBackupR2Object(env, input) {
+  const id=String(input?.snapshot_id||''), key=String(input?.key||'');
+  if(!/^system-[0-9]{17}$/.test(id)||!key||key.length>1024||key.startsWith(SYSTEM_BACKUP_PREFIX)||
+     !Number.isSafeInteger(input?.size)||input.size<0||input.size>32*1024*1024||typeof input.etag!=='string'||!input.etag)
+    return {ok:false,status:'BACKUP_R2_COPY_INPUT_INVALID'};
+  const bucket=env?.MEDIA_BUCKET,prefix=`backups/system/r2-bytes/${id}/`;
+  if(!bucket?.get||!bucket?.put||!bucket?.delete)return {ok:false,status:'R2_BINDING_REQUIRED'};
+  const target=k=>{if(!k.startsWith(prefix))throw Error('BACKUP_R2_COPY_TARGET_INVALID');};
+  try {
+    const adapter={
+      list:async()=>({objects:[{key,size:input.size,etag:input.etag}],truncated:false}),
+      async get(k){
+        if(k!==key)target(k);
+        const object=await bucket.get(k);
+        if(k===key&&(!object||object.etag!==input.etag))throw Error('BACKUP_R2_SOURCE_CHANGED');
+        return object;
+      },
+      async put(k,value,options){target(k);return bucket.put(k,value,options);},
+      async delete(k){target(k);return bucket.delete(k);},
+    };
+    const manifest=await backupR2ObjectBytes(adapter,{snapshotId:id,maxObjects:1,maxObjectBytes:32*1024*1024});
+    return {ok:true,status:'BACKUP_R2_OBJECT_COPIED',manifest};
+  }catch(error){return {ok:false,status:/^BACKUP_[A-Z0-9_]+$/.test(error.code||error.message||'')?error.code||error.message:'BACKUP_R2_COPY_FAILED'};}
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -258,6 +285,13 @@ export default {
     if (!equalToken(expected, supplied)) return json({ ok: false, status: 'AUTH_REQUIRED' }, 401);
 
     try {
+      if (url.pathname === '/r2-copy' && request.method === 'POST') {
+        const parsed=await readSmallJson(request,4096);
+        if(parsed.error)return json({ok:false,status:parsed.error},400);
+        const result=await copyBackupR2Object(env,parsed.value);
+        return json(result,result.ok?200:409);
+      }
+
       if (url.pathname === INVENTORY_PATH && request.method === 'GET') {
         const cursor = String(url.searchParams.get('cursor') || '');
         if (cursor.length > 4096) return json({ ok: false, status: 'CURSOR_INVALID' }, 400);

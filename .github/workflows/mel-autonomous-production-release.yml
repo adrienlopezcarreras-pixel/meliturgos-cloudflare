@@ -10,6 +10,11 @@ on:
   # releases in one morning, each re-running Workers AI production proofs and
   # exhausting the free daily AI allocation. Urgent fixes: workflow_dispatch.
   workflow_dispatch:
+    inputs:
+      full_r2_backup:
+        description: Include verified R2 byte copies in the pre-release maintenance backup
+        type: boolean
+        default: false
   # Trust completed runs of this repository even when their actor is a GitHub App.
   # The inner job gate still requires the exact deploy workflow and completion.
   workflow_run:
@@ -52,6 +57,7 @@ jobs:
           node-version: '22'
       - name: Authorize and dispatch MEL autonomous release
         env:
+          MEL_FULL_R2_BACKUP: ${{ inputs.full_r2_backup && 'true' || 'false' }}
           GH_TOKEN: ${{ github.token }}
           MEL_REQUIRE_PROTECTED_REFS: ${{ (github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_run') && 'true' || 'false' }}
           MEL_SKIP_ALREADY_ATTEMPTED_SHA: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_run') && 'true' || 'false' }}
