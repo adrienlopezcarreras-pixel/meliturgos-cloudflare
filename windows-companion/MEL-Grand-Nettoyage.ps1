@@ -11,9 +11,12 @@ Report 'ETAPE 0 - SAUVEGARDE LOCALE D1 + restauration isolee de test (aucune cop
 try {
   $backupScript=Join-Path $PSScriptRoot 'MEL-Sauvegarde-Locale-D1.ps1'
   if (-not (Test-Path -LiteralPath $backupScript -PathType Leaf)) { throw 'MEL_SAUVEGARDE_LOCALE_SCRIPT_MISSING' }
+  $ErrorActionPreference='Continue'
   $backupLog=@(& $backupScript 2>&1)
+  $backupExit=$LASTEXITCODE
+  $ErrorActionPreference='Stop'
   foreach ($line in $backupLog) { Report "$line" }
-  if ($LASTEXITCODE -eq 0) { Report 'SAUVEGARDE LOCALE : PROUVEE (export + restauration isolee).' }
+  if ($backupExit -eq 0) { Report 'SAUVEGARDE LOCALE : PROUVEE (export + restauration isolee).' }
   else { Report 'SAUVEGARDE LOCALE : NON PROUVEE - aucune suppression possible.' }
 } catch { Report "SAUVEGARDE LOCALE : BLOQUEE - $($_.Exception.Message)" }
 Report 'ETAPE 1 - PREFLIGHT MEL : aucune suppression avant inspection.'

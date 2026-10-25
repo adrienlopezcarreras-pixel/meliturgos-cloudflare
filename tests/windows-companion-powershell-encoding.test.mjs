@@ -20,3 +20,10 @@ test('restarts and updates never leave a stale cleanup script installed', () => 
   assert.match(update, /COMPANION_PACKAGE_SCRIPT_INVALID/);
   assert.ok(update.indexOf('$scriptsUpdated') < update.indexOf('deja a jour'));
 });
+
+test('native npm/wrangler stderr notices never abort the local backup', () => {
+  const backup = readFileSync('windows-companion/MEL-Sauvegarde-Locale-D1.ps1', 'utf8');
+  assert.equal((backup.match(/& (npx|node) /g) || []).length, (backup.match(/Invoke-Native \{ & (npx|node) /g) || []).length);
+  const cleanup = readFileSync('windows-companion/MEL-Grand-Nettoyage.ps1', 'utf8');
+  assert.match(cleanup, /\$backupExit=\$LASTEXITCODE/);
+});

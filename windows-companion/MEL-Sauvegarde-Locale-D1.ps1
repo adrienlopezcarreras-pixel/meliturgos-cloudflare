@@ -6,6 +6,14 @@
 # CLOUDFLARE_ACCOUNT_ID dans l'environnement (jamais affiches).
 param([string]$OutDir = (Join-Path $PSScriptRoot 'SAUVEGARDES'))
 $ErrorActionPreference = 'Stop'
+# npm/wrangler write notices on stderr. Windows PowerShell 5.1 turns any native
+# stderr line into a terminating error under 'Stop' ("npm notice", 25/10), so
+# native tools run with 'Continue' and are judged by their exit code only.
+function Invoke-Native([scriptblock]$Command) {
+  $previous = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try { & $Command } finally { $ErrorActionPreference = $previous }
+}
 $Database = 'meliturgos-memory'
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $Stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -23,7 +31,7 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
 }
 
 Write-Output "SAUVEGARDE D1 : export de $Database vers $Sql (peut prendre plusieurs minutes)."
-& npx --yes wrangler@4 d1 export $Database --remote --output $Sql 2>&1 | ForEach-Object { "  $_" }
+Invoke-Native { & npx --yes wrangler@4 d1 export $Database --remote --output $Sql 2>&1 } | ForEach-Object { "  $_" }
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $Sql)) {
   Write-Output 'SAUVEGARDE D1 : ECHEC de l''export - aucun nettoyage possible.'
   exit 1
@@ -56,8 +64,8 @@ const [sqlFile, dbFile] = process.argv.slice(-2);
 '@
 $RestoreScript = Join-Path $OutDir 'restore-test.cjs'
 Set-Content -LiteralPath $RestoreScript -Value $Restore -Encoding UTF8
-$restoreJson = & node $RestoreScript $Sql $Restored 2>$null
-if ($LASTEXITCODE -ne 0) { $restoreJson = & node --experimental-sqlite $RestoreScript $Sql $Restored }
+$restoreJson = Invoke-Native { & node $RestoreScript $Sql $Restored 2>$null }
+if ($LASTEXITCODE -ne 0) { $restoreJson = Invoke-Native { & node --experimental-sqlite $RestoreScript $Sql $Restored 2>$null } }
 if ($LASTEXITCODE -ne 0) {
   Write-Output 'RESTAURATION TEST : ECHEC - sauvegarde NON prouvee, aucun nettoyage possible.'
   exit 1
@@ -71,7 +79,7 @@ if ($restore.integrity -ne 'ok' -or $restore.tables -lt 1) {
 # Comparaison avec la production : un ecart vient d'ecritures pendant l'export.
 $names = @($restore.counts.PSObject.Properties.Name)
 $union = ($names | ForEach-Object { "SELECT '$($_ -replace "'", "''")' AS t, COUNT(*) AS n FROM `"$($_ -replace '"', '""')`"" }) -join ' UNION ALL '
-$remote = (& npx --yes wrangler@4 d1 execute $Database --remote --json --command $union 2>$null | Out-String | ConvertFrom-Json)[0].results
+$remote = (Invoke-Native { & npx --yes wrangler@4 d1 execute $Database --remote --json --command $union 2>$null } | Out-String | ConvertFrom-Json)[0].results
 $diff = @()
 foreach ($row in $remote) {
   $local = [int64]$restore.counts.($row.t)
