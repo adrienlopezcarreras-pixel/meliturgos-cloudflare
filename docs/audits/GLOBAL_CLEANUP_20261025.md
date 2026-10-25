@@ -265,3 +265,15 @@ La suite locale complète a rencontré une erreur d'environnement : RUNNER_TEMP
 pointait vers un répertoire absent. Le test cloud-bridge-execution a été relancé
 avec un répertoire existant et réussit ; ce n'est pas une correction du runtime.
 La validation CI du nouveau HEAD reste nécessaire, pas de succès rétroactif.
+
+## Reçu lisible sans accès au stockage des artefacts
+
+#2636 fusionnée f59b5e16 après quatre CI vertes. Le diagnostic réel
+40189672775 produit un reçu, mais son téléchargement reste Forbidden, y compris
+après réessai réseau. Le runner émet maintenant une annotation GitHub native
+avec le seul résultat d'échec déjà filtré : codes, étape, type, compteurs et date
+de l'inventaire du snapshot. Aucun nom d'objet, message brut, donnée ou secret.
+Le test du vrai CLI confirme un refus explicite sans appel R2 et l'absence de
+fuite d'une sentinelle secrète dans stdout/stderr. Huit tests ciblés passent.
+Cette observabilité n'autorise toujours aucune purge et ne prouve pas une
+restauration réussie. XP MEL : NON (réemploi du canal d'annotation existant).

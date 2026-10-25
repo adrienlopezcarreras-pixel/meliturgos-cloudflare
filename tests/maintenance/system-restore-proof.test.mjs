@@ -84,3 +84,25 @@ test('restore admission matches the approved 10000-object creator limit without 
  await assert.rejects(proveSystemSnapshotRestore(large,{get:async()=>{reads++;return null;}}),/BACKUP_R2_COPY_MISSING/);
  assert.equal(reads,1);
 });
+
+test('real restore CLI publishes a safe failure annotation without reading R2 or leaking environment secrets',async()=>{
+ const {spawnSync}=await import('node:child_process');
+ const {mkdtemp,readFile,rm}=await import('node:fs/promises');
+ const {tmpdir}=await import('node:os');
+ const {join}=await import('node:path');
+ const {fileURLToPath}=await import('node:url');
+ const directory=await mkdtemp(join(tmpdir(),'mel-restore-notice-test-'));
+ try{
+  const script=fileURLToPath(new URL('../../release-tools/predeploy-backup-refresh/isolated-restore-runner.mjs',import.meta.url));
+  const result=spawnSync(process.execPath,[script],{cwd:directory,encoding:'utf8',timeout:10000,
+   env:{...process.env,GITHUB_ACTIONS:'true',MEL_RESTORE_SNAPSHOT_KEY:'invalid',MEL_BACKUP_ENCRYPTION_KEY_B64:'PRIVATE_SENTINEL'}});
+  assert.equal(result.status,1);
+  const prefix='::notice title=MEL isolated restore::';
+  const line=result.stdout.split('\n').find(x=>x.startsWith(prefix));assert.ok(line);
+  const proof=JSON.parse(line.slice(prefix.length));
+  assert.equal(proof.code,'ISOLATED_SNAPSHOT_KEY_INVALID');assert.equal(proof.stage,'CONFIGURATION');
+  assert.equal(proof.cleanup_authorized,false);assert.equal(proof.production_written,false);
+  assert.deepEqual(JSON.parse(await readFile(join(directory,'isolated-restore-proof.json'),'utf8')),proof);
+  assert.doesNotMatch(result.stdout+result.stderr,/PRIVATE_SENTINEL/);
+ }finally{await rm(directory,{recursive:true,force:true});}
+});

@@ -30,5 +30,8 @@ try {
  // Never print upstream bodies, object keys, decrypted data or secret material.
  const proof=isolatedRestoreFailure(error,stage);
  await writeFile('isolated-restore-proof.json',JSON.stringify(proof),{mode:0o600});
+ // The failure proof is already allowlisted: only codes, stages, dates and counters.
+ // Native annotations remain readable when signed artifact downloads are unavailable.
+ if(process.env.GITHUB_ACTIONS==='true')console.log('::notice title=MEL isolated restore::'+JSON.stringify(proof));
  console.error(proof.code+'; stage='+proof.stage+'; kind='+proof.error_kind);process.exitCode=1;
 }finally{await rm(directory,{recursive:true,force:true});}
