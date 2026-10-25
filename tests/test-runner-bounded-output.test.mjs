@@ -32,3 +32,11 @@ test('[GPT6] externally signalled passing TAP child is not silently accepted',()
  assert.match(source,/summaryCleanupTriggered = true/);
  assert.match(source,/!deadlineExceeded && summaryCleanupTriggered && completeTapSummary/);
 });
+
+test('failed files and their not-ok subtests are repeated at the end for tail-only readers', () => {
+  const source=fs.readFileSync('scripts/run-tests.mjs','utf8');
+  assert.match(source,/Failed test files:/);
+  assert.match(source,/not ok \\d\+/);
+  const bridge=fs.readFileSync('.github/workflows/gen2-42-apply-ready-bridge.yml','utf8');
+  assert.match(bridge,/\^\\s\+not ok \[0-9\]\+ - /);
+});
