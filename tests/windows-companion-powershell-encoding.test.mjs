@@ -49,3 +49,8 @@ test('the isolated restore runs in one transaction and ignores the export transa
   assert.match(backup, /db\.exec\('COMMIT'\)/);
   assert.match(backup, /BEGIN\( TRANSACTION\)\?\|COMMIT/);
 });
+
+test('the GitHub cleanup reads the repository without a trailing slash', () => {
+  const script = readFileSync('windows-companion/MEL-Nettoyage-GitHub.ps1', 'utf8');
+  assert.match(script, /\$endpoint= if\(\$path\)\{"repos\/\$Repo\/\$path"\}else\{"repos\/\$Repo"\}/);
+});
