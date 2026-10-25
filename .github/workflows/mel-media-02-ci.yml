@@ -1,6 +1,12 @@
 name: mel-media-02-ci
 
 on:
+  workflow_dispatch:
+    inputs:
+      public_provider_probe:
+        description: 'Read-only public image/audio/video retrieval from the CI network (no AI or storage writes)'
+        type: boolean
+        default: false
   pull_request:
     paths:
       - 'src/media/**'
@@ -13,9 +19,11 @@ on:
       - 'tests/procedural-audio-capabilities.test.mjs'
       - 'tests/chat-audio-video-execution.test.mjs'
       - 'scripts/verify-chat-media-browser.mjs'
+      - 'scripts/verify-public-media-provider.mjs'
       - 'tests/fixtures/media/**'
       - 'src/api/*media*.js'
       - 'src/pages/chat-rich-renderer.js'
+      - 'src/visual-final-entry.js'
       - '.github/workflows/workers-ai-zero-cost-proof-refresh.yml'
       - '.github/workflows/mel-media-02-ci.yml'
   push:
@@ -33,9 +41,11 @@ on:
       - 'tests/procedural-audio-capabilities.test.mjs'
       - 'tests/chat-audio-video-execution.test.mjs'
       - 'scripts/verify-chat-media-browser.mjs'
+      - 'scripts/verify-public-media-provider.mjs'
       - 'tests/fixtures/media/**'
       - 'src/api/*media*.js'
       - 'src/pages/chat-rich-renderer.js'
+      - 'src/visual-final-entry.js'
       - '.github/workflows/workers-ai-zero-cost-proof-refresh.yml'
       - '.github/workflows/mel-media-02-ci.yml'
 
@@ -43,7 +53,19 @@ permissions:
   contents: read
 
 jobs:
+  public-provider-readonly:
+    if: github.event_name == 'workflow_dispatch' && inputs.public_provider_probe
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - run: node scripts/verify-public-media-provider.mjs
+
   media-12-targeted:
+    if: github.event_name != 'workflow_dispatch' || !inputs.public_provider_probe
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -75,6 +97,7 @@ jobs:
           tests/chat-media-chain.test.mjs
           tests/chat-media-request-object.test.mjs
           tests/chat-media-understanding.test.mjs
+          tests/site-hardening-cleanup.test.mjs
       - name: Prove local browser decoding, playback and private media seeking
         shell: bash
         env:
