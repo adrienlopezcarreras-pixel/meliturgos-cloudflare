@@ -20,6 +20,7 @@ on:
       - "src/api/chat-stream.js"
       - "src/api/native-chat.js"
       - "tests/chat-stream.test.mjs"
+      - "tests/chat-readonly-explanation.test.mjs"
       - "src/api/response-grounding.js"
       - "src/identity/mel-operating-manual.js"
       - "src/capabilities/**"
@@ -65,7 +66,7 @@ jobs:
       - name: Audit capability health semantics
         run: node --test tests/capability-protected-health.test.mjs tests/gen2/platform-read-capabilities.test.mjs
       - name: Verify self-state chat grounding
-        run: node --test tests/response-grounding.test.mjs
+        run: node --test tests/response-grounding.test.mjs tests/chat-readonly-explanation.test.mjs
       - name: Verify autonomy evidence and reset isolation
         run: >-
           node --test tests/autonomy-activity-detail.test.mjs
