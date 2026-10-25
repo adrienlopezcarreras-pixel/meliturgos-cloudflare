@@ -194,3 +194,7 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 - `claude-batch-must-not-abort-on-one-source-20261024` — une source en panne est notée, le passage continue ; sinon la tâche ne tourne plus jamais.
 - `claude-paged-export-must-shrink-on-memory-20261024` — une page trop lourde est relue en plus petit, jamais réessayée à l’identique.
 - `claude-heartbeat-list-must-stay-light-20261025` — une liste lue à chaque tick ne charge pas les gros JSON des missions terminées.
+- `claude-lease-must-outlive-the-work-20261025` — un bail court est renouvelé tant que son tick vit ; l'écriture finale se réapplique si l'approbation tient.
+- `claude-hidden-cap-must-not-override-setting-20261025` — aucun plafond interne ne contredit un réglage affiché.
+- `claude-shared-candidate-follows-main-20261025` — la candidate partagée suit main en fast-forward.
+- `claude-origin-is-not-target-roadmap-20261025` — l'item d'origine d'une mission n'est pas l'item qu'elle réalise.

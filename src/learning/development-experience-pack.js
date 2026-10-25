@@ -1256,4 +1256,93 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1792886400000
   },
+  {
+    "id": "claude-lease-must-outlive-the-work-20261025",
+    "source": "claude",
+    "domain": "autonomy-runtime",
+    "task": "Protéger une tâche cron longue par un bail.",
+    "input": "Bail fixe de 90 s alors qu'un tick attend les modèles plusieurs minutes.",
+    "before": "Deux ticks travaillaient la même mission : JOB_UPDATE_CONFLICT, propositions jetées, TEACHER_REQUEST_ALREADY_PENDING.",
+    "after": "Un bail court doit être renouvelé par son propriétaire tant qu'il vit (expire seul si le tick meurt) ; une écriture finale après une longue attente sait se réappliquer sur la dernière version si l'approbation tient toujours.",
+    "rationale": "Un bail plus court que le travail protégé n'exclut rien.",
+    "tests": [
+      "tests/autonomy-lease-renewal.test.mjs (PR #2619)",
+      "tests/autonomy-implementation-planner.test.mjs (PR #2617)",
+      "Prod 25/10 : plus aucun JOB_UPDATE_CONFLICT après e9d6d7da ; FOUNDER-01 COMPLETED à 09:02 UTC"
+    ],
+    "tags": [
+      "autonomy",
+      "lease",
+      "cas",
+      "max"
+    ],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1792915200000
+  },
+  {
+    "id": "claude-hidden-cap-must-not-override-setting-20261025",
+    "source": "claude",
+    "domain": "mentor",
+    "task": "Régler le délai des appels aux modèles.",
+    "input": "invokeTimeoutMs = 50 s, mais boundedMentorInvoke plafonnait tout appel à 30 s.",
+    "before": "Presque toutes les propositions finissaient en MENTOR_PROVIDER_TIMEOUT malgré le réglage annoncé.",
+    "after": "Un plafond interne ne doit jamais contredire un réglage : un test vérifie que la borne basse honore la valeur configurée.",
+    "rationale": "Le réglage visible mentait sur le comportement réel.",
+    "tests": [
+      "tests/mentor-engine.test.mjs « per-call cap » (PR #2628)",
+      "Prod 25/10 après a89d201a : FOUNDER-03 paquet READY sans timeout"
+    ],
+    "tags": [
+      "mentor",
+      "timeout",
+      "models"
+    ],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1792915200000
+  },
+  {
+    "id": "claude-shared-candidate-follows-main-20261025",
+    "source": "claude",
+    "domain": "release",
+    "task": "Tenir la branche candidate partagée à jour.",
+    "input": "Les fusions du propriétaire arrivaient sur main seulement ; candidate 165 commits en retard.",
+    "before": "Le pont testait du code périmé et le mentor réparait des tests déjà corrigés.",
+    "after": "À chaque push sur main, avancer la candidate en fast-forward si elle n'a rien de propre ; jamais de force push.",
+    "rationale": "Une branche de travail partagée qui ne suit pas la source de vérité fait tester le passé.",
+    "tests": [
+      "workflow candidate-fast-forward (PR #2633), run réussi : candidate -> a89d201a"
+    ],
+    "tags": [
+      "candidate",
+      "branches",
+      "ci"
+    ],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1792915200000
+  },
+  {
+    "id": "claude-origin-is-not-target-roadmap-20261025",
+    "source": "claude",
+    "domain": "autonomy-supervisor",
+    "task": "Filtrer les missions dont l'item de feuille de route est clos.",
+    "input": "Les découvertes de veille portaient roadmap_id GEN2-42 (leur origine), item DONE_VERIFIED.",
+    "before": "Toutes les découvertes étaient écartées comme « déjà faites » : chaîne veille -> mentor -> prod morte depuis des jours.",
+    "after": "Distinguer l'item d'origine de l'item à réaliser ; une découverte est son propre objectif.",
+    "rationale": "Un identifiant de provenance utilisé comme identifiant de cible bloque silencieusement tout un flux.",
+    "tests": [
+      "tests/autonomy-watch-discovery-selection.test.mjs (PR #2635)",
+      "Prod 25/10 : ecosystem-watch-aab2c00… QUEUED depuis 02:57 -> TEACHER_APPROVED à 09:15 UTC"
+    ],
+    "tags": [
+      "veille",
+      "supervisor",
+      "roadmap"
+    ],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1792915200000
+  },
 ]);
