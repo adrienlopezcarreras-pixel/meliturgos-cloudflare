@@ -110,14 +110,17 @@ async function freeLoraStatusResponse(request, env) {
 
   async function latestWorkflowRun(workflowName) {
     try {
-      const response = await fetch(
-        `https://api.github.com/repos/${FREE_LORA_GITHUB_REPO}/actions/workflows/${workflowName}/runs?per_page=10`,
-        { headers: githubHeaders },
-      );
-      if (!response.ok) return null;
+      const url = `https://api.github.com/repos/${FREE_LORA_GITHUB_REPO}/actions/workflows/${workflowName}/runs?per_page=10`;
+      let response = await fetch(url, { headers: githubHeaders });
+      // Public Actions remain observable if the configured token is expired.
+      if ((response.status === 401 || response.status === 403) && githubHeaders.authorization) {
+        const { authorization, ...publicHeaders } = githubHeaders;
+        response = await fetch(url, { headers: publicHeaders });
+      }
+      if (!response.ok) return { status: 'UNKNOWN', conclusion: null, observation_error: 'GITHUB_HTTP_' + response.status };
       const data = await response.json();
       const row = Array.isArray(data?.workflow_runs) ? data.workflow_runs[0] : null;
-      if (!row) return null;
+      if (!row) return { status: 'NEVER_RUN', conclusion: null, observed_empty: true };
       return {
         id: row.id,
         status: row.status || null,
@@ -129,7 +132,7 @@ async function freeLoraStatusResponse(request, env) {
         html_url: row.html_url || null,
       };
     } catch {
-      return null;
+      return { status: 'UNKNOWN', conclusion: null, observation_error: 'GITHUB_FETCH_ERROR' };
     }
   }
 
@@ -168,6 +171,8 @@ async function freeLoraStatusResponse(request, env) {
           published_at: latest.published_at,
           html_url: `https://github.com/${FREE_LORA_GITHUB_REPO}/releases/tag/${encodeURIComponent(latest.tag)}`,
           artifact_available: true,
+          publication_verified: true,
+          evidence_source: 'GITHUB_RELEASE',
           validation_status: latest.local_gate_ready ? 'LOCAL_GATE_READY_FOR_CANONICAL_BENCHMARK' : 'TRAINED_UNBENCHMARKED',
         };
       }
@@ -206,12 +211,44 @@ async function freeLoraStatusResponse(request, env) {
   } catch {}
 
   let dailyTrace=null;
+  let verifiedTrainingTrace=null;
   let dailyStatus=null;
   try{
-    const traces=await listLoraDailyTraces(env,{limit:1});
+    const traces=await listLoraDailyTraces(env,{limit:30});
     dailyTrace=traces[0]||null;
+    // A RUNNING trace must not hide a previous cycle with verified output.
+    verifiedTrainingTrace=traces.find(row=>{
+      if(row?.status!=='SUCCEEDED'||Number(row?.trace_verified)!==1
+        || !/^[0-9a-f]{40}$/i.test(String(row?.source_sha||''))
+        || !Number.isSafeInteger(Number(row?.cycle))) return false;
+      const artifacts=Array.isArray(row.artifacts)?row.artifacts:[];
+      const kinds=new Set(artifacts.filter(a=>/^[0-9a-f]{64}$/i.test(String(a?.sha256||''))).map(a=>a.kind));
+      return Number(row.training?.steps??row.training?.global_step??0)>0
+        && kinds.has('adapter')&&kinds.has('bundle')&&kinds.has('checkpoint');
+    })||null;
     dailyStatus=await getLoraDailyStatus(env,new Date().toISOString().slice(0,10));
   }catch{}
+
+  // D1 evidence is useful during a GitHub outage, but is not independent
+  // confirmation that the corresponding public release remains accessible.
+  if (!checkpoint && verifiedTrainingTrace) {
+    const source=String(verifiedTrainingTrace.source_sha).toLowerCase();
+    const cycle=Number(verifiedTrainingTrace.cycle);
+    const expectedTag=`mel-lora-kaggle-${source.slice(0,12)}-c${String(cycle).padStart(3,'0')}`;
+    const artifact=(verifiedTrainingTrace.artifacts||[]).find(row=>
+      row?.kind==='checkpoint' && row?.name===expectedTag
+      && /^[0-9a-f]{64}$/i.test(String(row?.sha256||'')));
+    if (artifact) {
+      checkpoint={
+        tag:expectedTag,cycle,source_sha:source,published_at:null,
+        html_url:`https://github.com/${FREE_LORA_GITHUB_REPO}/releases/tag/${encodeURIComponent(expectedTag)}`,
+        artifact_available:null,publication_verified:false,
+        evidence_source:'DURABLE_VERIFIED_TRACE',
+        validation_status:'TRAINED_UNBENCHMARKED',
+      };
+      checkpointDiscovery.trace_fallback_used=true;
+    }
+  }
 
   return json({
     ok: true,
@@ -245,15 +282,29 @@ async function freeLoraStatusResponse(request, env) {
         base_model: adapterRegistry.base_model || null,
       } : null,
     },
-    workflow: workflow || { status: 'NEVER_RUN', conclusion: null },
+    workflow: workflow || { status: 'UNKNOWN', conclusion: null },
     workflow_url: `https://github.com/${FREE_LORA_GITHUB_REPO}/actions/workflows/${FREE_LORA_WORKFLOW}`,
-    training_workflow: trainingWorkflow || { status: 'NEVER_RUN', conclusion: null },
+    training_workflow: trainingWorkflow || { status: 'UNKNOWN', conclusion: null },
     training_workflow_url: `https://github.com/${FREE_LORA_GITHUB_REPO}/actions/workflows/${FREE_LORA_TRAINING_WORKFLOW}`,
     kaggle_url: 'https://www.kaggle.com/code/adrienlopezcarreras/mel-lora-uncensored-notebook-t4',
     checkpoint,
     checkpoint_discovery: checkpointDiscovery,
     learning,
     daily_trace: dailyTrace,
+    verified_training_trace: verifiedTrainingTrace ? {
+      run_id:verifiedTrainingTrace.run_id,
+      workflow_run_id:verifiedTrainingTrace.workflow_run_id,
+      cycle:verifiedTrainingTrace.cycle,
+      source_sha:verifiedTrainingTrace.source_sha,
+      status:'SUCCEEDED',trace_verified:true,
+      dataset:{examples:verifiedTrainingTrace.dataset?.examples??null},
+      training:{steps:verifiedTrainingTrace.training?.steps??verifiedTrainingTrace.training?.global_step??null},
+      results:{
+        train_loss:verifiedTrainingTrace.results?.train_loss??null,
+        progression:verifiedTrainingTrace.results?.progression||null,
+        metrics:verifiedTrainingTrace.results?.metrics||null,
+      },
+    } : null,
     daily_status: dailyStatus,
   });
 }
