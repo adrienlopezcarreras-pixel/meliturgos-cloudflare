@@ -50,3 +50,19 @@ test('authenticated endpoint copies exactly one source through the real sidecar 
  assert.equal(response.status,200);
  const result=await response.json();assert.equal(result.manifest.objectCount,1);assert.equal(objects.size,2);
 });
+
+test('preflight exposes only bounded counters and reason codes for oversized or incomplete inventory',async()=>{
+ let calls=0;
+ const options={snapshotId:id,copyObject:async()=>{calls++;}};
+ const huge={objectCount:1,objects:[{key:'private-object-name',size:33*1024*1024,etag:'private-etag'}]};
+ await assert.rejects(copyR2Inventory({...options,inventory:huge}),error=>{
+  assert.equal(error.code,'BACKUP_R2_COPY_OBJECT_BYTE_LIMIT');
+  assert.equal(error.diagnostic.largest_object_bytes,33*1024*1024);
+  assert.equal(error.diagnostic.total_bytes,33*1024*1024);
+  assert.doesNotMatch(JSON.stringify(error.diagnostic),/private/);return true;
+ });
+ await assert.rejects(copyR2Inventory({...options,inventory:{objectCount:1,objects:[{key:'private-object-name',size:1}]}}),error=>{
+  assert.equal(error.diagnostic.reason,'MISSING_ETAG');assert.doesNotMatch(JSON.stringify(error.diagnostic),/private/);return true;
+ });
+ assert.equal(calls,0);
+});

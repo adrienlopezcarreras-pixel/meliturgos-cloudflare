@@ -201,3 +201,31 @@ preuve locale n'est pas une sauvegarde complète production. Il faut valider la
 PR, attendre la fin de toute release active, déclencher une seule release avec
 full_r2_backup=true, puis restaurer le nouveau snapshot réel indépendamment.
 Les sept adaptateurs, le drain et le nettoyage réel restent à prouver.
+
+## Exécution de la sauvegarde complète et protection WORK
+
+#2630 fusionnée 1dbd8b96 après 11 contrôles réussis. Release précédente
+40172136929 terminée SUCCESS sur e9d6d7da. Demande canonique full_r2_backup=true
+acceptée (40174187587), release 40174216660 : arrêt avant déploiement au backup,
+code BACKUP_R2_COPY_INVENTORY_INVALID. La prévalidation précède toute copie :
+aucun original effacé et pas de sauvegarde complète revendiquée.
+Lecture D1 après cet échec : run 40175137154, contrôle 121114087551, VERIFIED,
+RUNNING, paused=false, max_autonomy=true. Aucun arrêt résiduel MAX observé.
+
+Le précontrôle R2 distingue maintenant nombre/taille/budget et métadonnées invalides,
+avec compteurs et raisons strictement bornés, sans clés ni ETag privés. Les limites
+restent inchangées. Le motif réel de l'inventaire production devra être mesuré,
+pas déduit d'une fixture ou de valeurs historiques.
+
+Le bail WORK D1 est fermé atomiquement sous le verrou PAUSED, y compris reprise
+manuelle/cron et bail global expiré. Les cycles streamDirectWork refusent avant
+réseau/modèle/remise, et leur INSERT RUNNING porte également le prédicat atomique
+contre une pause arrivée après le premier SELECT. Un refus ne crée pas un faux
+cycle FAILED. Les cycles déjà admis peuvent terminer pour être drainés ; cette
+admission seule ne prouve donc pas le drain des travaux en cours.
+
+90 tests ciblés passent, dont course réelle SQL, DAG signé conservé octet pour
+octet, reprise sans double exécution, schéma global absent fail-closed, budgets et
+diagnostics R2 non divulguants. Aucune mutation de DAG signé ni de paiements.
+Les fixtures sont explicitement initialisées avec le schéma de maintenance,
+sans affaiblir le contrôle runtime. Nettoyage réel toujours BLOCKED.

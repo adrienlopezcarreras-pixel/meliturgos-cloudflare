@@ -9,7 +9,7 @@ class FakeD1Statement {
   async run() {
     if (this.sql.startsWith('CREATE TABLE')) return { success: true, meta: { changes: 0 } };
     if (this.sql.startsWith('INSERT INTO work_dag_run_leases')) {
-      const [id, token, until, now] = this.args;
+      const [id, token, until, _maintenanceFenceId, now] = this.args;
       const previous = this.db.leases.get(id);
       if (previous && previous.until > now) return { success: true, meta: { changes: 0 } };
       this.db.leases.set(id, { token, until });

@@ -1,3 +1,4 @@
+import { MAINTENANCE_FENCE_ID } from '../maintenance/maintenance-gate.js';
 // An atomic D1 lease prevents a manual resume and the periodic open-loop
 // worker from running the same persistent DAG node concurrently.
 // A Worker that crashes leaves a bounded lease; the next invocation may
@@ -37,12 +38,13 @@ export async function acquireD1WorkRunLease(db, dagId, {
   // One SQLite statement performs the test-and-set atomically across Workers:
   // a second worker cannot replace an unexpired lease.
   const result = await db.prepare(`INSERT INTO work_dag_run_leases
-    (dag_id, lease_token, lease_until) VALUES (?, ?, ?)
+    (dag_id, lease_token, lease_until) SELECT ?, ?, ?
+    WHERE NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED')
     ON CONFLICT(dag_id) DO UPDATE SET
       lease_token=excluded.lease_token,
       lease_until=excluded.lease_until
     WHERE work_dag_run_leases.lease_until <= ?`)
-    .bind(String(dagId), String(token), timestamp + ttl, timestamp).run();
+    .bind(String(dagId), String(token), timestamp + ttl, MAINTENANCE_FENCE_ID, timestamp).run();
   const changes = Number(result?.meta?.changes);
   if (!Number.isFinite(changes)) throw leaseError('WORK_DAG_LEASE_WRITE_UNVERIFIED');
   if (changes !== 1) return null;
