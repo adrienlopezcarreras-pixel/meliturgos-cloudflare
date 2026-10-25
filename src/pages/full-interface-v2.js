@@ -1307,11 +1307,19 @@ async function loadFreeLoraStatus(){
     qs('#freeTrainingExamples').textContent=training?.examples!=null?Number(training.examples).toLocaleString('fr-FR'):(dataset?.examples!=null?Number(dataset.examples).toLocaleString('fr-FR'):'—');
     qs('#freeCheckpointStage').textContent=checkpoint?.tag?String(checkpoint.tag):(d?.checkpoint_discovery?.status==='GITHUB_HTTP_ERROR'||d?.checkpoint_discovery?.status==='GITHUB_FETCH_ERROR'?'GITHUB INDISPONIBLE · CHECKPOINT NON VÉRIFIABLE':(traceSuccess?'SAUVEGARDÉ · TRACE VÉRIFIÉE':(training?.stage?String(training.stage).toUpperCase():(bundleKnown?'AUCUN CHECKPOINT':'—'))));
     qs('#freeCompatibleLoras').textContent=registry?.compatible_count!=null?Number(registry.compatible_count).toLocaleString('fr-FR'):'—';
+    const impactKnown=Boolean(d?.learning?.impact&&typeof d.learning.impact==='object');
+    const impact=impactKnown?d.learning.impact:{};
+    // A completed training trace proves the immutable training output, never the
+    // canonical + impact benchmark of the candidate adapter.
+    const benchmarkVerified=impact?.canonical_gate_passed===true&&impact?.impact_gate_passed===true
+      &&Boolean(impact?.adapter_id)&&Boolean(impact?.measured_at);
     const benchKnown=Boolean(d?.learning?.benchmark_status&&typeof d.learning.benchmark_status==='object');
     const bench=benchKnown?d.learning.benchmark_status:{};
-    qs('#freeBenchmarkState').textContent=benchKnown
-      ?(bench.status!=null?String(bench.status):'—')+(bench.latest_score!=null?' · '+Math.round(Number(bench.latest_score)*1000)/10+'%':'')
-      :(traceSuccess?'VALIDATION TECHNIQUE RÉUSSIE':'—');
+    qs('#freeBenchmarkState').textContent=benchmarkVerified
+      ?'GATES CANONIQUE ET IMPACT VALIDÉS'
+      :(benchKnown
+        ?(bench.status!=null?String(bench.status):'—')+(bench.latest_score!=null?' · '+Math.round(Number(bench.latest_score)*1000)/10+'%':'')+' · GATES NON PROUVÉS'
+        :(traceSuccess?'TRACE D’ENTRAÎNEMENT VÉRIFIÉE · BENCHMARK NON PROUVÉ':'—'));
     qs('#freeLoraTraceState').textContent=dailyTrace?.run_id
       ?String(dailyTrace.run_id)+' · '+(traceStatus||'ÉTAT INCONNU')
       :'AUCUNE TRACE';
@@ -1327,8 +1335,6 @@ async function loadFreeLoraStatus(){
     qs('#freeLoraTraceReport').textContent=dailyTrace?.summary_fr
       ?String(dailyTrace.summary_fr)
       :(dailyStatus?.report_fr?String(dailyStatus.report_fr):'Aucune trace LoRA durable disponible.');
-    const impactKnown=Boolean(d?.learning?.impact&&typeof d.learning.impact==='object');
-    const impact=impactKnown?d.learning.impact:{};
     qs('#freeImpactStage').textContent=impact.next_stage||'—';
     const agenticKnown=impact.next_stage!=null&&String(impact.next_stage).trim()!=='';
     const agenticReady=agenticKnown&&String(impact.next_stage)==='AGENTIC_READY';
@@ -1351,8 +1357,8 @@ async function loadFreeLoraStatus(){
       checkpoint?.tag?'CHECKPOINT '+('C'+String(checkpointCycle).padStart(3,'0')):(traceSuccess?'CHECKPOINT VÉRIFIÉ':(bundleKnown?(bundleReady?'BUNDLE PRÊT':'EN ATTENTE'):'INDISPONIBLE')),
       checkpoint?.tag||traceSuccess||bundleReady===true?'good':'warn');
 
-    const validationDone=traceSuccess||checkpoint?.local_gate_ready===true||loraState==='EVALUATED'||loraState==='ACTIVE';
-    const validationKnown=traceSuccess||Boolean(checkpoint)||benchKnown||loraKnown;
+    const validationDone=benchmarkVerified||loraState==='ACTIVE';
+    const validationKnown=traceSuccess||Boolean(checkpoint)||benchKnown||loraKnown||impactKnown;
     setLoraTag('#freeValidationState',!validationKnown?'INDISPONIBLE':(validationDone?'VALIDÉ':'À VALIDER'),validationDone?'good':'warn');
 
     let wfKind='warn',wfLabel=wfStatus==='NEVER_RUN'?'NON LANCÉE · OPTIONNELLE':'Indisponible';

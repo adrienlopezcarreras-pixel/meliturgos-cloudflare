@@ -20,6 +20,16 @@ test('Professor LoRA panel keeps only the stages tied to a real run', async () =
   assert.ok(source.includes('const applicable=knownStages.filter(x=>x.known)'), 'progress must be computed from known/applicable stages');
 });
 
+test('Kaggle training success cannot impersonate a passed canonical benchmark', async () => {
+  const source = await read('src/pages/full-interface-v2.js');
+  const panel = source.slice(source.indexOf('async function loadFreeLoraStatus(){'), source.indexOf("qs('#freeLoraRefresh').onclick="));
+  assert.match(panel, /const benchmarkVerified=impact\?\.canonical_gate_passed===true&&impact\?\.impact_gate_passed===true/);
+  assert.match(panel, /const validationDone=benchmarkVerified\|\|loraState==='ACTIVE'/);
+  assert.doesNotMatch(panel, /const validationDone=traceSuccess/);
+  assert.match(panel, /BENCHMARK NON PROUVÉ/);
+  assert.match(panel, /CHECKPOINT VÉRIFIÉ/, 'preserve the independent successful training checkpoint state');
+});
+
 test('Professor LoRA panel does not render empty benchmark pseudo-metrics', async () => {
   const source = await read('src/pages/full-interface-v2.js');
   for (const id of [

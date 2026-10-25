@@ -18,7 +18,20 @@ function extractText(result) {
   const value = result?.response ?? result?.text ?? result?.result?.response ?? result?.choices?.[0]?.message?.content ?? result?.output_text ?? responses ?? null;
   // Some Workers AI models (llama-3.3-70b) return a JSON answer already
   // parsed; String(object) gave "[object Object]" and lost every proposal.
-  return value && typeof value === 'object' ? JSON.stringify(value) : value;
+  const text = value && typeof value === 'object' ? JSON.stringify(value) : value;
+  return typeof text === 'string' ? harmonyFinal(text) : text;
+}
+
+// gpt-oss can leak its raw harmony channels ("<|channel|>analysis ...") into
+// the answer; the Mentor then rejected it as MENTOR_JSON_REQUIRED (25/10).
+// Keep only the final channel; an answer with no final channel is empty.
+export function harmonyFinal(text) {
+  if (!text.includes('<|channel|>')) return text;
+  const marker = text.lastIndexOf('<|channel|>final');
+  if (marker < 0) return '';
+  const start = text.indexOf('<|message|>', marker);
+  const body = start < 0 ? text.slice(marker + '<|channel|>final'.length) : text.slice(start + '<|message|>'.length);
+  return body.replace(/<\|(end|return|call)\|>[\s\S]*$/, '').trim();
 }
 
 function boundedNumber(value, min, max) {
