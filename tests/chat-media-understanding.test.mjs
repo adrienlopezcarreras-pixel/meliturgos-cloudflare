@@ -80,3 +80,18 @@ test('an explanatory comparison never dispatches an image or video search',async
  const response=await worker.fetch(request('Montre les différences entre une photo et une vidéo'),env);
  const data=await response.json();assert.equal(response.status,200);assert.equal(searches,0);assert.equal(data.media.length,0);assert.ok(!data.tool_results.some(row=>['web.images.search','web.media.search'].includes(row.capability)));assert.match(data.text,/image fixe/);
 });
+
+test('conversational media requests retain the actual subject and quantity',()=>{
+ for(const [text,id,query,count] of [
+  ['Tu peux me montrer trois photos de Rome ?', 'web.images.search','Rome',3],
+  ['Est-ce que tu peux me montrer une vidéo de chats ?', 'web.media.search','chats',1],
+  ['Je voudrais deux images de Montréal', 'web.images.search','Montréal',2],
+  ["J’aimerais une photo de la Lune", 'web.images.search','la Lune',1],
+  ["S’il te plaît, montre-moi une photo de la tour Eiffel", 'web.images.search','la tour Eiffel',1],
+  ['Je veux écouter un son de pluie, stp', 'web.media.search','pluie',1],
+ ]){
+  const actual=inferChatMediaCapability(text);assert.equal(actual?.id,id,text);assert.equal(actual.input.query,query,text);
+  assert.equal(actual.input.max_images||actual.input.max_results,count,text);
+ }
+ for(const text of ['Je veux comprendre comment une image fonctionne','Tu peux me montrer le code pour créer une image ?',"Je voudrais une photo mais ne cherche pas sur internet",'Je voudrais voir ma photo ci-jointe'])assert.equal(inferChatMediaCapability(text),null,text);
+});

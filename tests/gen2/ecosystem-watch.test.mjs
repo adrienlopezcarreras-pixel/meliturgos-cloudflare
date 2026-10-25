@@ -682,3 +682,14 @@ test('GEN2-42 reconciliation keeps a QUEUED Teacher handoff blocking when stale 
   assert.equal(handoff.code,null);
   assert.equal(handoff.terminal_reason,null);
 });
+
+test('the watch covers what MEL depends on: its platform, model labs, local runtimes, free compute, security and longevity', async () => {
+  const { getEcosystemWatchCatalog } = await import('../../src/evaluation/ecosystem-watch-catalog.js');
+  const ids = getEcosystemWatchCatalog().targets.map(row => row.id);
+  for (const id of ['watch_cloudflare_platform', 'watch_open_model_labs', 'watch_local_runtimes', 'watch_free_compute', 'watch_dependency_security', 'watch_longevity']) {
+    assert.ok(ids.includes(id), id);
+  }
+  for (const row of getEcosystemWatchCatalog().targets) {
+    assert.ok(row.metadata.sources.length > 0 && row.metadata.sources.every(url => /^https:\/\//.test(url)), row.id);
+  }
+});

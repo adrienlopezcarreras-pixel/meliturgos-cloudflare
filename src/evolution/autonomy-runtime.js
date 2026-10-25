@@ -1,7 +1,8 @@
 import { runAutonomyRuntimeTick as runCoreAutonomyRuntimeTick, autonomyTickAdvanced, currentAutonomyRepository } from './autonomy-runtime-core.js';
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
 import { getAutonomyControl } from './autonomy-control.js';
-import { AutonomySupervisor, selectActionableAutonomyJob } from './autonomy-supervisor.js';
+import { AutonomySupervisor, selectActionableAutonomyJob, setRuntimeRoadmapRegressions } from './autonomy-supervisor.js';
+import { activeRoadmapRegressions } from '../roadmap/roadmap-regressions.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { applyOwnerMaxApproval } from '../teachers/owner-max-approval.js';
 import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-mirror.js';
@@ -13,6 +14,7 @@ import { createZeroCostBenchmarkEvaluator } from '../learning/operator-actions.j
 import { reconcileRuntimeCompletions } from '../teachers/github-completion-reconciler.js';
 import { recordAutonomyProgressWatchdog, resetAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
 import { readActivityListEpoch } from './autonomy-activity.js';
+import { backgroundNeuronBudgetExhausted } from '../augmentio/neuron-budget.js';
 
 export * from './autonomy-runtime-core.js';
 
@@ -644,6 +646,7 @@ function augmentTickProgress(tick = {}) {
 }
 
 export async function runAutonomyRuntimeTick(env, options = {}) {
+  setRuntimeRoadmapRegressions(await activeRoadmapRegressions(env?.DB).catch(() => []));
   const control = await getAutonomyControl(env?.DB, { memoryState: options.autonomyControlState || null });
   const repository = options.repository || (env?.DB ? new D1DevJobRepository(env.DB) : null);
 
@@ -661,6 +664,19 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
         block_reason: 'PAUSED',
       },
       watchdog,
+      candidate_branch: env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
+      control,
+    };
+  }
+
+  // Daily Workers AI share spent: wait for 00:00 UTC instead of burning
+  // attempts on refused AI calls (missions went FAILED, 25/10).
+  if (options.ignoreNeuronBudget !== true && await backgroundNeuronBudgetExhausted(env)) {
+    return {
+      status: 'AI_BUDGET_EXHAUSTED',
+      paused: false,
+      advanced: false,
+      progress: { advanced: false, events: [], work_remaining: null, waiting_external: true, block_reason: 'AI_DAILY_NEURON_BUDGET_EXHAUSTED' },
       candidate_branch: env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
       control,
     };

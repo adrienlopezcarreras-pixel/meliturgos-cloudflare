@@ -1,5 +1,17 @@
 const ALLOWED = new Set(['DEVELOPMENT_REQUEST', 'AUTONOMY_ADVANCE', 'AUTONOMY_STATUS', 'CAPABILITY_STATUS', 'SELF_STATE', 'WEB_RESEARCH', 'NONE']);
 
+// Classify the requested speech act, not action words inside its subject:
+// a plan "pour lancer" is a document, not authorization to launch anything.
+export function isReadOnlyAdviceRequest(text) {
+  const value=String(text||'').trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
+    .replace(/^(?:(?:peux|pourrais)[- ]tu|tu\s+(?:peux|pourrais))\s+(?:me\s+|m['’])?/,'');
+  const explanation=/^(?:explique(?:r)?|pourquoi|comment|compare(?:r)?|decris|decrire|apprends[- ]moi)\b/.test(value);
+  const plan=/^(?:etablis|etablir|prepare(?:r)?|propose(?:r)?|redige(?:r)?|fais|faire|donne(?:r)?)(?:[- ]moi)?\s+(?:(?:un|une|le|la)\s+)?(?:plan|strategie|explication|comparaison)\b/.test(value);
+  if(!explanation&&!plan)return false;
+  // Preserve a separate, explicit imperative after the requested explanation.
+  return !/\b(?:puis|ensuite|et)\s+(?:execute|lance|cree|ajoute|corrige|repare|modifie|supprime|deploie|demarre|developpe|implemente|teste|verifie|audite)\b/.test(value);
+}
+
 function extractJson(text) {
   const raw = String(text || '').trim();
   if (!raw) return null;
@@ -19,6 +31,7 @@ function extractJson(text) {
 export function shouldSemanticIntentCheck(text, context = '') {
   const value = String(text || '').trim();
   if (!value) return false;
+  if (isReadOnlyAdviceRequest(value)) return false;
   const history = String(context || '').slice(-8000);
 
   // Being addressed in the second person is not itself a system command.

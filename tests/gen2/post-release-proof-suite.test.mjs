@@ -55,6 +55,13 @@ test('post-release proofs use the same immutable release SHA; shared-lease proof
   }
   assert.match(source, /summary:\n\s+needs: \[resolve, platform, persistent-stress, workers-ai-proof-refresh, council-rich-ui, connections, sovereignty\]/);
   assert.match(source, /if\(values\.some\(value=>value!=='success'\)\) process\.exit\(1\)/);
+  // Releases run the light gates; the AI-heavy proofs run weekly on the deployed SHA.
+  for (const name of ['persistent-stress', 'council-rich-ui', 'sovereignty']) {
+    assert.match(section(name), /needs\.resolve\.outputs\.full == 'true'/, name);
+  }
+  assert.match(source, /cron: '41 4 \* \* 1'/);
+  assert.match(source, /if\(!proof\.full&&heavy\.some\(value=>value!=='skipped'\)\) process\.exit\(1\)/);
+  assert.match(source, /deploy-cloudflare-release\.yml\/runs\?status=success/);
 });
 
 test('post-release parent grants actions write required by called platform proof', async () => {

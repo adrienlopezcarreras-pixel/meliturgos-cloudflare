@@ -4,6 +4,11 @@ name: mel-chat-live-selftest
 # prompts. Uses the per-deployment proof key (derived from the deployed SHA);
 # the Worker calls its real chat in-process and returns metrics only.
 on:
+  pull_request:
+    paths:
+      - 'src/diagnostics/chat-selftest.js'
+      - 'tests/chat-selftest.test.mjs'
+      - '.github/workflows/mel-chat-live-selftest.yml'
   workflow_dispatch:
     inputs:
       cases:
@@ -17,7 +22,19 @@ permissions:
   actions: read
 
 jobs:
+  selftest-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - run: node --test tests/chat-selftest.test.mjs
+
   selftest:
+    if: github.event_name == 'workflow_dispatch'
+    needs: selftest-contract
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -53,8 +70,9 @@ jobs:
           node -e "
           const d=JSON.parse(require('fs').readFileSync('selftest.json','utf8'));
           for(const r of d.results||[]){
-            const line=[r.case,r.ok?'OK':'ÉCHEC','prompt='+r.prompt_chars,'compris='+r.understood,'flux='+r.streamed,'1er_texte_ms='+r.first_text_ms,'total_ms='+r.total_ms,'réponse='+r.reply_chars,'modèle='+r.model,'archivé='+r.archived,r.error?'erreur='+r.error:'',r.wrong_claim?'affirmation_fausse='+r.wrong_claim:''].join(' · ');
+            const line=[r.case,r.ok?'OK':'ÉCHEC','prompt='+r.prompt_chars,'compris='+r.understood,'flux='+r.streamed,'1er_texte_ms='+r.first_text_ms,'total_ms='+r.total_ms,'réponse='+r.reply_chars,'modèle='+r.model,'archivé='+r.archived,r.error?'erreur='+r.error:'',r.provider_error?'fournisseur='+r.provider_error:'',r.wrong_claim?'affirmation_fausse='+r.wrong_claim:''].join(' · ');
             console.log((r.ok?'::notice':'::error')+' title=MEL chat '+r.case+'::'+line+' — « '+String(r.excerpt||'').replace(/[\r\n]+/g,' ')+' »');
           }
+          console.log('::notice title=MEL chat AI budget::'+JSON.stringify(d.ai_budget||{available:false}));
           if(d.ok!==true)process.exit(1);
           " || { cat selftest.json | head -c 2000; exit 1; }

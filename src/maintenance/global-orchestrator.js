@@ -4,8 +4,9 @@ import { withMaintenanceLease, checkpointMaintenanceLease } from './maintenance-
 /**
  * An injected orchestration boundary: NO production adapter is supplied here.
  * A caller must independently attest a restored snapshot and every domain
- * handler before ANY lease is acquired. It must also verify completed work
- * independently before producers resume.
+ * handler before ANY lease is acquired. Stop evidence is collected after the
+ * fence and shutdown, then all proofs are refreshed before any reset. Completed
+ * work is independently verified before producers resume.
  */
 export async function executeGlobalMaintenance({
   db, ownerApproved=false, proofProvider, handlers={}, stopProducers,
@@ -17,7 +18,10 @@ export async function executeGlobalMaintenance({
       typeof recover !== 'function') throw Error('MAINTENANCE_REQUIRED_ADAPTERS_MISSING');
   const proofs=await proofProvider();
   const readiness=globalCleanupReadiness(proofs);
-  if (!readiness.ready) return {status:'BLOCKED',mutated:false,blockers:readiness.blockers};
+  // Shutdown evidence cannot exist before this coordinator stops producers.
+  // Only that runtime prerequisite is deferred; restore/domain gates stay here.
+  const preflightBlockers=readiness.blockers.filter(code=>code!=='PRODUCER_FENCE_NOT_VERIFIED');
+  if (preflightBlockers.length) return {status:'BLOCKED',mutated:false,blockers:preflightBlockers};
   // A running signed WORK DAG lease must not be interrupted by maintenance.
   await assertNoActiveWorkLeases(db,{now:now()});
   if (RESET_SCOPES.some(scope=>typeof handlers[scope] !== 'function'))
@@ -33,6 +37,14 @@ export async function executeGlobalMaintenance({
         throw Error('MAINTENANCE_PRODUCERS_NOT_STOPPED');
       // Drain WORK again after producer shutdown (#2609).
       await assertNoActiveWorkLeases(db,{now:now()});
+      // A stop callback's return value is not proof. Require fresh, complete
+      // evidence from the independent provider, including restore and domains.
+      const stoppedReadiness=globalCleanupReadiness(await proofProvider());
+      if (!stoppedReadiness.ready) {
+        throw Object.assign(new Error('MAINTENANCE_POST_STOP_PROOF_REQUIRED'), {
+          code:'MAINTENANCE_POST_STOP_PROOF_REQUIRED',blockers:stoppedReadiness.blockers,
+        });
+      }
       await checkpointMaintenanceLease(db,{leaseId,phase:'PRODUCERS_STOPPED',now:now()});
       const results={};
       for (const scope of RESET_SCOPES) {

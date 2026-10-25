@@ -51,6 +51,22 @@ test('authenticated endpoint copies exactly one source through the real sidecar 
  const result=await response.json();assert.equal(result.manifest.objectCount,1);assert.equal(objects.size,2);
 });
 
+test('preflight exposes only bounded counters and reason codes for oversized or incomplete inventory',async()=>{
+ let calls=0;
+ const options={snapshotId:id,copyObject:async()=>{calls++;}};
+ const huge={objectCount:1,objects:[{key:'private-object-name',size:33*1024*1024,etag:'private-etag'}]};
+ await assert.rejects(copyR2Inventory({...options,inventory:huge}),error=>{
+  assert.equal(error.code,'BACKUP_R2_COPY_OBJECT_BYTE_LIMIT');
+  assert.equal(error.diagnostic.largest_object_bytes,33*1024*1024);
+  assert.equal(error.diagnostic.total_bytes,33*1024*1024);
+  assert.doesNotMatch(JSON.stringify(error.diagnostic),/private/);return true;
+ });
+ await assert.rejects(copyR2Inventory({...options,inventory:{objectCount:1,objects:[{key:'private-object-name',size:1}]}}),error=>{
+  assert.equal(error.diagnostic.reason,'MISSING_ETAG');assert.doesNotMatch(JSON.stringify(error.diagnostic),/private/);return true;
+ });
+ assert.equal(calls,0);
+});
+
 test('realistic 7378 object R2 inventory stays bounded by bytes and rejects malformed inventories',async()=>{
  const objects=Array.from({length:7378},(_,i)=>({key:'media/object-'+i,size:1,etag:'etag-'+i}));
  let copied=0;
@@ -62,6 +78,6 @@ test('realistic 7378 object R2 inventory stays bounded by bytes and rejects malf
  assert.equal(copied,7378);
  let rejectedCopies=0;
  await assert.rejects(copyR2Inventory({inventory:{objectCount:objects.length,objects},snapshotId:id,maxBytes:7377,copyObject:async()=>{rejectedCopies++;}}),/BUDGET_EXCEEDED/);
- await assert.rejects(copyR2Inventory({inventory:{objectCount:10001,objects:[...objects,...Array.from({length:2623},(_,i)=>({key:'extra/'+i,size:0,etag:'etag'}))]},snapshotId:id,copyObject:async()=>{rejectedCopies++;}}),/INVENTORY_INVALID/);
+ await assert.rejects(copyR2Inventory({inventory:{objectCount:10001,objects:[...objects,...Array.from({length:2623},(_,i)=>({key:'extra/'+i,size:0,etag:'etag'}))]},snapshotId:id,copyObject:async()=>{rejectedCopies++;}}),/OBJECT_COUNT_LIMIT/);
  assert.equal(rejectedCopies,0);
 });

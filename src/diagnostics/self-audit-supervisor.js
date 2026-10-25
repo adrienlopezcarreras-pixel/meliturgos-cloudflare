@@ -1,3 +1,5 @@
+import { runD1Retention } from '../maintenance/d1-retention.js';
+import { runShardVaultCycle } from '../continuity/shardvault-runtime.js';
 import { runLoraTrainingHeartbeat } from '../learning/lora-training-heartbeat.js';
 import { runEcosystemCapabilityWatch } from '../evaluation/capability-watch-runtime.js';
 import { runDependencyLongevityWatchRuntime } from '../evaluation/dependency-longevity-watch-runtime.js';
@@ -20,7 +22,9 @@ export const MEL_SELF_AUDIT_STATE_ID = 'mel-self-audit-supervisor';
 export const MEL_SELF_AUDIT_LEVELS = Object.freeze(['HEARTBEAT','DAILY','WEEKLY','MONTHLY']);
 export const MEL_SELF_AUDIT_CADENCE_MS = Object.freeze({
   HEARTBEAT: 60 * 60 * 1000,
-  DAILY: 24 * 60 * 60 * 1000,
+  // The DAILY tier (capability refresh, integrity, watches, AI prevalidation)
+  // now runs weekly: development is mostly done and each pass spends Workers AI.
+  DAILY: 7 * 24 * 60 * 60 * 1000,
   WEEKLY: 7 * 24 * 60 * 60 * 1000,
   MONTHLY: 30 * 24 * 60 * 60 * 1000,
 });
@@ -51,7 +55,7 @@ function resolvedCadence(env = {}) {
   };
   return Object.freeze({
     HEARTBEAT: bounded(env?.MEL_SELF_AUDIT_HEARTBEAT_MS, MEL_SELF_AUDIT_CADENCE_MS.HEARTBEAT, 15 * 60 * 1000, 6 * hour),
-    DAILY: bounded(env?.MEL_SELF_AUDIT_DAILY_MS, MEL_SELF_AUDIT_CADENCE_MS.DAILY, 6 * hour, 48 * hour),
+    DAILY: bounded(env?.MEL_SELF_AUDIT_DAILY_MS, MEL_SELF_AUDIT_CADENCE_MS.DAILY, 6 * hour, 14 * 24 * hour),
     WEEKLY: bounded(env?.MEL_SELF_AUDIT_WEEKLY_MS, MEL_SELF_AUDIT_CADENCE_MS.WEEKLY, 3 * 24 * hour, 14 * 24 * hour),
     MONTHLY: bounded(env?.MEL_SELF_AUDIT_MONTHLY_MS, MEL_SELF_AUDIT_CADENCE_MS.MONTHLY, 14 * 24 * hour, 60 * 24 * hour),
   });
@@ -621,6 +625,9 @@ export async function runMelSelfAuditSupervisor(env = {}, {
 
   let startedStress = null;
   if (due.includes('WEEKLY')) {
+    // Weekly retention of finished, known-fate data (FAILED/CANCELLED job
+    // payloads, old audit logs, old PC command results).
+    results.push(await capture('d1-retention', async () => (deps.runD1Retention || runD1Retention)(env.DB)));
     results.push(await capture('maturity-audit', async () => {
       const value = await bus.execute('system.maturity', {}, context);
       return { ...value, status: value?.ok === false ? 'MATURITY_FAILED' : 'MATURITY_OK' };
@@ -638,6 +645,12 @@ export async function runMelSelfAuditSupervisor(env = {}, {
   }
 
   if (due.includes('MONTHLY')) {
+    // Owner rule: once a month MEL re-activates its online backup shards,
+    // re-checks every shard and repairs missing ones (forced full cycle).
+    results.push(await capture('monthly-shardvault-reactivation', async () => {
+      const value = await (deps.runShardVaultCycle || runShardVaultCycle)(env, { force: true });
+      return { ...value, status: value?.enabled === false ? 'SHARDVAULT_DISABLED' : value?.ok === true ? 'SHARDVAULT_REACTIVATED' : 'SHARDVAULT_REPAIR_FAILED' };
+    }));
     results.push(await capture('monthly-system-backup-drill', async () => (deps.runScheduledSystemBackup || runScheduledSystemBackup)(env, {
       force: true,
       compactPostPersistVerify: true,

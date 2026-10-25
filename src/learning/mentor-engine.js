@@ -33,7 +33,10 @@ function bounded(value, max) {
 function mentorFailureDetail(error, raw) {
   const message = String(error?.message || '');
   const path = /^MENTOR_(?:PATH_DENIED|INVALID_CHANGE|UNINSPECTED_EDIT|LONG_FILE_REQUIRES_EDIT|MISSING_IMPORT):(.+)$/.exec(message)?.[1];
-  if (path) return 'path=' + path.slice(0, 160);
+  if (path) return 'path=' + path.slice(0, 240);
+  // The model needs the parser's message to fix its code; its own reply alone
+  // made the repair round resend the same invalid code (25/10).
+  if (error?.syntax) return 'syntax=' + String(error.syntax).slice(0, 240);
   const text = String(typeof raw === 'string' ? raw : JSON.stringify(raw ?? '')).replace(/\s+/g, ' ').trim();
   return text ? 'reply=' + text.slice(0, 160) : null;
 }
@@ -187,7 +190,9 @@ function proposalFromMarkedFiles(raw) {
 
 // Code inside JSON strings is where small models break quotes and newlines
 // (MENTOR_JSON_INVALID). Plain SEARCH/REPLACE blocks carry code verbatim.
-const NEW_TEST_PATH = /^tests\/[A-Za-z0-9_./-]+\.test\.mjs$/;
+// New tests live directly in tests/: their `../src/...` imports only resolve
+// there (FOUNDER-02 failed 4 repairs on tests/src/roadmap/…, 25/10).
+const NEW_TEST_PATH = /^tests\/[A-Za-z0-9_.-]+\.test\.mjs$/;
 
 // The Council rejects code without a test that exercises it; reject earlier,
 // while other providers can still answer, an implementation without one.
@@ -286,24 +291,28 @@ function applyInspectedEdits(edits, inspectedFiles, repairReferences = [], visib
       if (!touched.includes(path)) touched.push(path);
       continue;
     }
-    if (!byPath.has(path)) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
+    if (!byPath.has(path)) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path} — fichier non inspecté : seuls les fichiers de SOURCES_INSPECTÉES ou un nouveau tests/<nom>.test.mjs directement dans tests/ (imports en ../src/...)`), { code: 'MENTOR_INVALID_CHANGE' });
     const visible = visibleFiles.find(file => file.path === path);
     const find = resolveFind(visible?.content, String(edit?.find ?? ''));
     if (!visibleFiles.some(file => file.path === path && file.content.includes(find))) {
-      throw Object.assign(new Error('MENTOR_UNINSPECTED_EDIT'), { code: 'MENTOR_UNINSPECTED_EDIT' });
+      // Name the first SEARCH line the model did not copy verbatim; a bare code
+      // let it resend the same guessed SEARCH (×9 on 25/10).
+      const visibleLines = new Set(String(visible?.content || '').split('\n').map(line => line.trim()));
+      const missing = String(find).split(/\r?\n/).map(line => line.trim()).find(line => line && !visibleLines.has(line));
+      throw Object.assign(new Error(`MENTOR_UNINSPECTED_EDIT:${path} — SEARCH absent de l'extrait${missing ? ' ; ligne introuvable : ' + JSON.stringify(missing.slice(0, 160)) : ' ; lignes non contiguës'}`), { code: 'MENTOR_UNINSPECTED_EDIT' });
     }
     const replace = String(edit?.replace ?? '');
     if (!find || find.length > 8000 || replace.length > MAX_CHANGE_CHARS) {
-      throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
+      throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path} — SEARCH vide ou REPLACE trop long`), { code: 'MENTOR_INVALID_CHANGE' });
     }
     const source = byPath.get(path);
     const at = source.indexOf(find);
     if (at < 0 || source.indexOf(find, at + find.length) >= 0) {
-      throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
+      throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path} — SEARCH absent du fichier ou présent plusieurs fois : copie un extrait exact et unique`), { code: 'MENTOR_INVALID_CHANGE' });
     }
     const content = source.slice(0, at) + replace + source.slice(at + find.length);
     if (!content || content.length > MAX_CHANGE_CHARS || incompleteFile(content, source + (repairReferences.find(file => file.path === path)?.content || ''))) {
-      throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
+      throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path} — fichier résultant incomplet ou tronqué`), { code: 'MENTOR_INVALID_CHANGE' });
     }
     byPath.set(path, content);
     if (!touched.includes(path)) touched.push(path);

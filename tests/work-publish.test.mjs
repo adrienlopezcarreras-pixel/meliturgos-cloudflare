@@ -39,7 +39,7 @@ test('markdown renderer only emits http(s) links', () => {
 });
 
 test('a mission asking for a public link gets one: MEL publishes and appends it to the deliverable', async () => {
-  const db = sqliteD1();
+  const db = sqliteD1({ maintenanceFence: true });
   const NOW = Date.parse('2026-10-17T12:00:00Z');
   const env = { DB: db, MEL_PUBLIC_ORIGIN: 'https://mel.test', AI: { async run(_m, input) {
     if (input.messages[0].content.startsWith('Tu es MEL WORK')) return { response: '# Article\n\nContenu.' };

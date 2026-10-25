@@ -7,6 +7,18 @@ $Report=Join-Path $ReportDir "MEL-NETTOYAGE-TOTAL-$Stamp.txt"
 function Report([string]$Line) { $Line | Tee-Object -FilePath $Report -Append }
 Report 'MEL - Diagnostic de grand nettoyage. Aucun producteur suspendu par ce script.'
 Report "Debut: $(Get-Date -Format o)"
+Report 'ETAPE 0 - SAUVEGARDE LOCALE D1 + restauration isolee de test (aucune copie R2, aucune depense).'
+try {
+  $backupScript=Join-Path $PSScriptRoot 'MEL-Sauvegarde-Locale-D1.ps1'
+  if (-not (Test-Path -LiteralPath $backupScript -PathType Leaf)) { throw 'MEL_SAUVEGARDE_LOCALE_SCRIPT_MISSING' }
+  $ErrorActionPreference='Continue'
+  # Stream each line as it comes: a silent multi-minute export looked hung.
+  & $backupScript 2>&1 | ForEach-Object { Report "$_" }
+  $backupExit=$LASTEXITCODE
+  $ErrorActionPreference='Stop'
+  if ($backupExit -eq 0) { Report 'SAUVEGARDE LOCALE : PROUVEE (export + restauration isolee).' }
+  else { Report 'SAUVEGARDE LOCALE : NON PROUVEE - aucune suppression possible.' }
+} catch { Report "SAUVEGARDE LOCALE : BLOQUEE - $($_.Exception.Message)" }
 Report 'ETAPE 1 - PREFLIGHT MEL : aucune suppression avant inspection.'
 $base=$env:MEL_BASE_URL
 $cookie=$env:MEL_SESSION_COOKIE

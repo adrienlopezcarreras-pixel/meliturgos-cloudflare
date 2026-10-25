@@ -201,3 +201,126 @@ preuve locale n'est pas une sauvegarde complète production. Il faut valider la
 PR, attendre la fin de toute release active, déclencher une seule release avec
 full_r2_backup=true, puis restaurer le nouveau snapshot réel indépendamment.
 Les sept adaptateurs, le drain et le nettoyage réel restent à prouver.
+
+## Exécution de la sauvegarde complète et protection WORK
+
+#2630 fusionnée 1dbd8b96 après 11 contrôles réussis. Release précédente
+40172136929 terminée SUCCESS sur e9d6d7da. Demande canonique full_r2_backup=true
+acceptée (40174187587), release 40174216660 : arrêt avant déploiement au backup,
+code BACKUP_R2_COPY_INVENTORY_INVALID. La prévalidation précède toute copie :
+aucun original effacé et pas de sauvegarde complète revendiquée.
+Lecture D1 après cet échec : run 40175137154, contrôle 121114087551, VERIFIED,
+RUNNING, paused=false, max_autonomy=true. Aucun arrêt résiduel MAX observé.
+
+Le précontrôle R2 distingue maintenant nombre/taille/budget et métadonnées invalides,
+avec compteurs et raisons strictement bornés, sans clés ni ETag privés. Les limites
+restent inchangées. Le motif réel de l'inventaire production devra être mesuré,
+pas déduit d'une fixture ou de valeurs historiques.
+
+Le bail WORK D1 est fermé atomiquement sous le verrou PAUSED, y compris reprise
+manuelle/cron et bail global expiré. Les cycles streamDirectWork refusent avant
+réseau/modèle/remise, et leur INSERT RUNNING porte également le prédicat atomique
+contre une pause arrivée après le premier SELECT. Un refus ne crée pas un faux
+cycle FAILED. Les cycles déjà admis peuvent terminer pour être drainés ; cette
+admission seule ne prouve donc pas le drain des travaux en cours.
+
+90 tests ciblés passent, dont course réelle SQL, DAG signé conservé octet pour
+octet, reprise sans double exécution, schéma global absent fail-closed, budgets et
+diagnostics R2 non divulguants. Aucune mutation de DAG signé ni de paiements.
+Les fixtures sont explicitement initialisées avec le schéma de maintenance,
+sans affaiblir le contrôle runtime. Nettoyage réel toujours BLOCKED.
+
+Le diagnostic de restauration peut aussi décrire les seuls compteurs de
+l'inventaire contenu dans un snapshot chiffré vérifié : source explicitement
+SNAPSHOT_INVENTORY et date du snapshot. Ces valeurs historiques ne sont jamais
+présentées comme état courant de production ni comme preuve de restauration.
+Le prévalidateur R2 est partagé avec le créateur de sauvegarde, sans nouvelle
+copie ni nouveau client de stockage. 91 tests ciblés réussis après cet ajout.
+
+## Réconciliation du volume R2 déjà corrigé sur main
+
+Main ea737e23 inclut #2634 (9ae82f39), qui accepte des inventaires bornés à
+10000 objets et teste 7378 objets. Cette correction parallèle est conservée,
+ainsi que les modifications Mentor, Taskmarket, UI et synchronisation candidate.
+Le restaurateur conservait un défaut à 5000 : il aurait refusé un snapshot accepté
+par le créateur. Les deux partagent désormais les constantes 10000 objets,
+256 Mio au total et 32 Mio par objet ; seul le plafond de nombre déjà approuvé
+sur main est repris, aucun budget d'octets augmenté. Le test de restauration
+admet 7378 références mais refuse encore réellement les octets absents.
+
+93 tests ciblés passent après résolution des conflits. Les valeurs du test ne
+sont pas présentées comme une mesure fraîche de production. Aucune restauration
+complète ni purge encore prouvée. XP MEL : NON.
+
+## Reprise CI de #2636
+
+Main edd09b23 réconcilié sans perdre les modifications Mentor, modèles, UI et
+capabilities. La CI durable-work échouait sur les fixtures SQLite des reprises
+open-loop, sans table dev_bridge_state. Ces fixtures utilisent maintenant l'option
+maintenanceFence du helper partagé, comme les autres intégrations WORK. Aucun
+assouplissement du runtime : schéma absent reste refusé. Les 26 tests ciblés de
+reprise/durable/contexte passent localement.
+
+La suite locale complète a rencontré une erreur d'environnement : RUNNER_TEMP
+pointait vers un répertoire absent. Le test cloud-bridge-execution a été relancé
+avec un répertoire existant et réussit ; ce n'est pas une correction du runtime.
+La validation CI du nouveau HEAD reste nécessaire, pas de succès rétroactif.
+
+## Reçu lisible sans accès au stockage des artefacts
+
+#2636 fusionnée f59b5e16 après quatre CI vertes. Le diagnostic réel
+40189672775 produit un reçu, mais son téléchargement reste Forbidden, y compris
+après réessai réseau. Le runner émet maintenant une annotation GitHub native
+avec le seul résultat d'échec déjà filtré : codes, étape, type, compteurs et date
+de l'inventaire du snapshot. Aucun nom d'objet, message brut, donnée ou secret.
+Le test du vrai CLI confirme un refus explicite sans appel R2 et l'absence de
+fuite d'une sentinelle secrète dans stdout/stderr. Huit tests ciblés passent.
+Cette observabilité n'autorise toujours aucune purge et ne prouve pas une
+restauration réussie. XP MEL : NON (réemploi du canal d'annotation existant).
+
+## Volume constaté et lecture R2 sans processus par objet
+
+Annotation réelle du run 40192437466 / check 121166301784 : le snapshot daté
+2026-10-25T10:21:07.312Z contient 7394 objets, total 2983598322 octets,
+plus grand objet 42988386 octets. Source SNAPSHOT_INVENTORY, non état courant.
+Son absence de r2_objects reste bloquante ; les budgets 256 Mio/32 Mio sont aussi
+insuffisants pour ce contenu. Capacité gratuite du compte demandée au propriétaire
+avant toute hausse de budgets ou copie supplémentaire de ce volume.
+
+Le lecteur de restauration utilise maintenant le même endpoint GET authentifié
+que le Wrangler verrouillé, dans un seul processus. Origine fixe, clés limitées
+aux backups, redirections interdites, tailles contrôlées avant et pendant lecture,
+retries bornés et Retry-After partagé respecté. Aucun nouveau service, secret ou
+objet R2 écrit. Les limites de stockage restent inchangées, y compris côté
+restaurateur pour le plafond par objet partagé.
+
+La restauration canonique accepte une concurrence de 1 à 4 (défaut 1 conservé).
+Le drill isolé choisit 4 ; tous les travaux en vol terminent avant rollback, les
+cibles préexistantes sont refusées sans écrasement, les rejets falsy ne deviennent
+jamais un succès. Le job de lecture seule dispose de 60 minutes pour respecter les
+attentes de rate-limit au volume de 10000 objets. Les gardes de purge restent
+inchangés. 86 tests ciblés passent et syntaxe dépôt vérifiée ; pas de preuve live
+de ce nouveau transport ni de restauration complète revendiquée. XP MEL : NON.
+
+## Lecture Cloudflare réelle et copie en flux — 25 octobre 2026
+
+- PR #2656 fusionnée : `59780c9c500ef7e523873e0dec17d2f0d9eb8842`, contrôles `encrypted-backup`, `validate` et `gen2-17-targeted` réussis.
+- Drill isolé `40198302375`, job `121184047676` : lecture native HTTPS et vérification du snapshot réussies jusqu'au refus explicite `ISOLATED_R2_BYTES_MANIFEST_REQUIRED`. Le snapshot daté du 25/10 à 10:21:07 UTC référence 7 394 objets, 2 983 598 322 octets et un objet maximal de 42 988 386 octets ; il ne contient pas de manifeste de copies R2. Aucune preuve de restauration complète, aucune autorisation de purge.
+- Le helper canonique de sauvegarde utilise `crypto.DigestStream` lorsque le runtime le fournit : première lecture hachée en flux, seconde lecture du même ETag/taille pour copier le corps R2 natif, puis vérification de la copie en flux. Le chemin borné existant reste utilisé sur les fournisseurs sans DigestStream. Format du manifeste et SHA-256 inchangés.
+- Une destination existante est refusée sans écrasement ni suppression. Les destinations tentées sont suivies avant `put` : une écriture réussie suivie d'un échec de réponse ou de vérification ne laisse plus de copie orpheline.
+- Régression exécutée dans un vrai workerd local avec R2 isolé : copie intègre de 40 Mio sans appel à `arrayBuffer`, source modifiée entre les lectures refusée avant copie, copie corrompue et écriture partielle retirées. Aucun accès cloud dans ce test.
+- Validation locale : 104 tests ciblés réussis, syntaxe du dépôt réussie. Le test natif est raccordé à la CI GEN2-47 et à la découverte complète des tests.
+- Plafonds opérationnels inchangés : 32 Mio par objet et 256 Mio au total. Aucun lancement de sauvegarde multi-Go tant que la marge gratuite du compte R2 n'est pas établie. Les adaptateurs réels des sept domaines et leur reprise restent à compléter ; mission globale IN_PROGRESS/BLOCKED, aucune purge exécutée.
+- XP MEL : NON (pas de nouvelle règle persistée).
+
+## Ordre des preuves de maintenance — 25 octobre 2026
+
+Le parcours à froid était impossible : `executeGlobalMaintenance` exigeait `all_producers_stopped` avant d'acquérir son verrou et d'appeler `stopProducers`. Une régression exécutée contre l'implémentation précédente retourne BLOCKED au lieu de COMPLETED ; le contrôle post-arrêt ne pouvait donc pas être atteint.
+
+Le précontrôle conserve l'exigence de restauration indépendante et des sept procédures testées/idempotentes/protégées par génération. Seule la preuve dynamique d'arrêt est obtenue après acquisition du verrou et arrêt réel. Après vérification de cet arrêt et second contrôle des baux WORK, le fournisseur indépendant est relu : toutes les preuves doivent alors être présentes, restauration et domaines compris, avant le premier handler. Ni preuve synthétique ni drapeau client ajouté.
+
+Tests réels SQLite : démarrage à froid et ordre exact des appels ; preuve d'arrêt encore absente, restauration perdue, domaines invalides ou fournisseur inaccessible après arrêt => zéro handler, récupération obligatoire et verrou conservé si la vérification indépendante échoue ; restauration ou domaines manquants au départ => aucune acquisition de verrou. Les scénarios existants d'expiration, de concurrence et d'interruption restent verts. Validation locale : 70 tests ciblés réussis et syntaxe du dépôt réussie.
+
+Ce correctif ne raccorde pas artificiellement les sept adaptateurs et n'active aucune route destructive. La restauration complète D1/R2 reste non prouvée ; aucune purge n'est effectuée. La release 40199138810 sur 6f1f79f3 a réussi avec ses contrôles post-déploiement. Les métriques R2 observées par le run 40199179006 rapportent 145226554033 octets Standard/published, sans preuve de quota/facturation ; les nouvelles copies et publications restent suspendues à la clarification de coût.
+
+XP MEL : NON. Mission globale IN_PROGRESS/BLOCKED.

@@ -1,5 +1,6 @@
 import { validateUrl } from '../devices/web-capability.js';
 import { inferCurrentFactVerificationPolicy } from '../api/current-fact-reliability.js';
+import { inferChatMediaCapability } from '../api/chat-media-intent.js';
 
 function publicHttps(value) {
   const checked=validateUrl(String(value || ''));
@@ -41,7 +42,8 @@ export async function searchPublicMedia(service,{query,type,max_results=3}={}) {
   if(!['image','audio','video'].includes(type))throw Object.assign(new Error('MEDIA_TYPE_INVALID'),{code:'MEDIA_TYPE_INVALID'});
   const limit=Math.min(6,Math.max(1,Number(max_results)||3));
   const prefix=type==='image'?'IMAGE':'MEDIA';
-  const subject=String(query||'').replace(/\b(?:montre[- ]?moi|montre|moi|affiche|cherche|recherche|trouve|donne|fais|ecouter|une?|des|les|de|du|trois|deux|quatre|photos?|images?|portraits?|videos?|audios?|sons?)\b/gi,' ').replace(/\s+/g,' ').trim();
+  const request=inferChatMediaCapability(query);
+  const subject=String(['web.images.search','web.media.search'].includes(request?.id)?request.input.query:query||'').trim();
   if(!subject)throw Object.assign(new Error(prefix+'_QUERY_REQUIRED'),{code:prefix+'_QUERY_REQUIRED'});
   const endpoint=new URL('https://commons.wikimedia.org/w/api.php');
   endpoint.search=new URLSearchParams({action:'query',format:'json',generator:'search',gsrnamespace:'6',gsrsearch:subject+' filetype:'+({image:'bitmap',audio:'audio',video:'video'}[type]),gsrlimit:String(limit),prop:'imageinfo',iiprop:'url|mime|extmetadata',...(type==='image'?{iiurlwidth:'960'}:{})}).toString();

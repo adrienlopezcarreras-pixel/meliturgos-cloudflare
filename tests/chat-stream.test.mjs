@@ -381,3 +381,32 @@ test('Professor Code verification failure does not emit or archive unverified co
   assert.equal(events.at(-1).type,'error');
   assert.equal(events.at(-1).code,'PROOF_UNAVAILABLE');
 });
+
+test('a model that never starts streaming is skipped after the start timeout', async () => {
+  const { streamChatResponse } = await import('../src/api/chat-stream.js');
+  const tried = [];
+  const env = { MEL_STREAM_START_TIMEOUT_MS: '5000', AI: { run: async (model) => {
+    tried.push(model);
+    if (tried.length === 1) return new Promise(() => {});
+    return { response: 'Bonjour Adrien' };
+  } } };
+  const started = Date.now();
+  const response = streamChatResponse({ env, messages: [{ role: 'user', content: 'bonjour' }] });
+  const text = await response.text();
+  assert.ok(Date.now() - started < 9000);
+  assert.equal(tried.length, 2);
+  assert.match(text, /STREAM_START_TIMEOUT/);
+  assert.match(text, /Bonjour Adrien/);
+  assert.match(text, /"fallbacks":\[\{"model":"[^"]+","reason":"STREAM_START_TIMEOUT"\}\]/);
+});
+
+test('an advisory plan streams through the real chat with one inference and no action planner',async()=>{
+ const calls=[];
+ const response=await handleNativeChat(new Request('https://mel.example/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:'Établis un plan d’action en 5 étapes pour lancer une activité de traduction en ligne',stream:true,use_companion_compute:false})}),{
+  AI:{async run(model,input){calls.push({model,stream:input.stream});assert.equal(input.stream,true);return sse(['1. Définir l’offre.\n','2. Choisir une clientèle.\n','3. Préparer des exemples.\n','4. Présenter les services.\n','5. Mesurer les résultats.']);}}
+ },{authorized:true});
+ assert.equal(response.status,200);assert.match(response.headers.get('content-type'),/ndjson/);
+ const events=await readNdjson(response);
+ assert.equal(calls.length,1);assert.equal(events.at(-1).type,'done');
+ assert.match(events.filter(event=>event.type==='delta').map(event=>event.text).join(''),/5\. Mesurer/);
+});

@@ -261,7 +261,7 @@ test('LoRA heartbeat never restarts cycle zero when only draft or unverified che
   assert.equal(dispatched, false);
 });
 
-test('LoRA heartbeat stops UNCENSORED relaunches once AGENTIC_READY is measured', async () => {
+test('LoRA heartbeat stops UNCENSORED relaunches once AGENTIC_READY is measured and keeps observing', async () => {
   let fetchCalled = false;
   const result = await runLoraTrainingHeartbeat(baseEnv, {
     force: true,
@@ -282,7 +282,8 @@ test('LoRA heartbeat stops UNCENSORED relaunches once AGENTIC_READY is measured'
     },
   });
 
-  assert.equal(result.status, 'AGENTIC_READY');
+  // AGENTIC_READY is no longer terminal: MEL keeps observing its objectives.
+  assert.equal(result.status, 'AGENTIC_OBSERVING');
   assert.equal(result.dispatched, false);
   assert.equal(fetchCalled, false);
 });
@@ -338,4 +339,56 @@ test('canonical Kaggle GPU workflow retries one transient cancellation and then 
   assert.match(source, /Retrying the same immutable cycle once/);
   assert.match(source, /CANCEL_RETRY_USED=1/);
   assert.match(source, /Kaggle GPU run cancelled twice/);
+});
+
+test('LoRA heartbeat trains the agentic lane on the pinned public sets MEL discovered', async () => {
+  const weak = { kind: 'lora-impact-candidate', metadata: { next_stage: 'AGENTIC_READY', candidate: { agentic_execution: 0.3, over_refusal_rate: 0.1, technical_depth: 0.9 } } };
+  const hf = (id) => ({ id, sha: SHA, downloads: 5000, tags: ['license:apache-2.0', 'language:en'] });
+  let dispatchPayload = null;
+  const result = await runLoraTrainingHeartbeat(baseEnv, {
+    force: true,
+    engine: engineWith([weak, weak]),
+    fetchImpl: async (url, options = {}) => {
+      const href = String(url);
+      if (href.startsWith('https://huggingface.co/api/datasets')) {
+        return Response.json(href.includes('leaderboard') || href.includes('bfcl') || href.includes('benchmark') ? [hf('org/bfcl-eval')] : [hf('org/tool-calls')]);
+      }
+      if (href.includes('/actions/workflows/') && href.includes('/runs')) return Response.json({ workflow_runs: [] });
+      if (href.includes('/releases')) return Response.json([]);
+      if (href.includes('/git/ref/heads/')) return Response.json({ object: { sha: NEW_SHA } });
+      if (href.endsWith('/dispatches')) { dispatchPayload = JSON.parse(options.body); return new Response(null, { status: 204 }); }
+      return Response.json([]);
+    },
+  });
+  assert.equal(result.status, 'TRAINING_CHAIN_DISPATCHED');
+  assert.equal(dispatchPayload.inputs.objective, 'agentic');
+  const sources = JSON.parse(dispatchPayload.inputs.agentic_sources);
+  assert.deepEqual(sources, [{ id: 'org/tool-calls', revision: SHA }]);
+});
+
+test('Kaggle chain carries the agentic objective and never stops it at AGENTIC_READY', async () => {
+  const workflow = await readFile(new URL('../.github/workflows/lora-kaggle-free-gpu.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /--objective "\$OBJECTIVE"/);
+  assert.match(workflow, /NEXT_STAGE" == "AGENTIC_READY" && "\$OBJECTIVE" != "agentic"/);
+  assert.match(workflow, /-f objective="\$OBJECTIVE"\s+-f agentic_sources="\$AGENTIC_SOURCES"/);
+  const shard = await readFile(new URL('../scripts/prepare-kaggle-lora-shard.py', import.meta.url), 'utf8');
+  assert.match(shard, /revision=revision/);
+  assert.match(shard, /risky=mod\.is_high_risk_operational/);
+});
+
+test('a pipeline-caused gap becomes a MAX code mission instead of a training run', async () => {
+  const ok = { kind: 'lora-impact-candidate', metadata: { next_stage: 'AGENTIC_READY', candidate: { agentic_execution: 0.9, over_refusal_rate: 0.1, technical_depth: 0.9 } } };
+  const failed = Array.from({ length: 5 }, (_, i) => ({ id: 'j' + i, status: 'FAILED', result_json: { bridge_preparation_diagnostic: { mentor_failure_codes: [{ code: 'MENTOR_PROVIDER_TIMEOUT' }] } } }));
+  let enqueued = null, fetched = false;
+  const result = await runLoraTrainingHeartbeat({ ...baseEnv, DB: {} }, {
+    force: true, engine: engineWith([ok, ok]),
+    jobs: failed,
+    enqueueDevelopment: async (request) => { enqueued = request; return { job: { id: 'lora-fix-1' } }; },
+    fetchImpl: async () => { fetched = true; return Response.json([]); },
+  });
+  assert.equal(result.status, 'CODE_FIX_REQUIRED');
+  assert.equal(result.mission.queued, true);
+  assert.equal(enqueued.source, 'lora-objective-observer');
+  assert.match(enqueued.goal, /MEL-LORA-CODE-FIX/);
+  assert.equal(fetched, false);
 });

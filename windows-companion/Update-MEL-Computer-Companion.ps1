@@ -23,6 +23,23 @@ $newHash = (Get-FileHash -LiteralPath $packageExe -Algorithm SHA256).Hash
 $expectedEngineHash = (Get-FileHash -LiteralPath $packageEngine -Algorithm SHA256).Hash
 $engineCurrent = (Test-Path -LiteralPath $installedEngine -PathType Leaf) -and
   ((Get-FileHash -LiteralPath $installedEngine -Algorithm SHA256).Hash -eq $expectedEngineHash)
+# Owner maintenance scripts ship beside the executable; an unchanged EXE must
+# not leave stale or broken copies installed.
+$scriptsUpdated = 0
+foreach ($name in @('MEL-Grand-Nettoyage.ps1','MEL-Nettoyage-GitHub.ps1','MEL-Restaurer-Branches.ps1','MEL-Sauvegarde-Locale-D1.ps1')) {
+  $from = Join-Path $PSScriptRoot $name
+  $to = Join-Path $melDir $name
+  if (!(Test-Path -LiteralPath $from -PathType Leaf)) { continue }
+  $parseErrors = $null
+  [void][System.Management.Automation.Language.Parser]::ParseFile($from,[ref]$null,[ref]$parseErrors)
+  if ($parseErrors.Count) { throw "COMPANION_PACKAGE_SCRIPT_INVALID:$name" }
+  if (!(Test-Path -LiteralPath $to -PathType Leaf) -or
+      (Get-FileHash -LiteralPath $to -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $from -Algorithm SHA256).Hash) {
+    Copy-Item -LiteralPath $from -Destination $to -Force
+    $scriptsUpdated++
+  }
+}
+if ($scriptsUpdated) { Write-Host "Scripts de maintenance mis a jour : $scriptsUpdated." }
 if ($previousHash -eq $newHash -and $engineCurrent) {
   Write-Host 'Application native et moteur deja a jour. Appairage conserve.'
   return

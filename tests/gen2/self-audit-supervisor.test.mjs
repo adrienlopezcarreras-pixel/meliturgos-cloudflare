@@ -466,3 +466,12 @@ test('Worker scheduler routes 02:43 daily cron to the self-audit supervisor and 
   assert.match(source, /runSelfAudit\('HEARTBEAT'\)/);
   assert.match(source, /runLoraTrainingHeartbeat/);
 });
+
+test('the monthly audit force-reactivates ShardVault and repairs its shards', async () => {
+  const fs = await import('node:fs/promises');
+  const source = await fs.readFile(new URL('../../src/diagnostics/self-audit-supervisor.js', import.meta.url), 'utf8');
+  const monthly = source.slice(source.indexOf("if (due.includes('MONTHLY')) {"));
+  assert.match(monthly.slice(0, 900), /monthly-shardvault-reactivation[\s\S]*runShardVaultCycle\)\(env, \{ force: true \}\)/);
+  const index = await fs.readFile(new URL('../../src/index.js', import.meta.url), 'utf8');
+  assert.match(index, /new Date\(\)\.getUTCDay\(\) === 1 \? runModelTournament\(env\)/);
+});

@@ -1,6 +1,7 @@
 import { extractWorkersAIText } from '../augmentio/workers-ai-adapter.js';
 import { raceChatDeadline, hasChatBudget, chatDeadlineError } from './chat-deadline.js';
 import { stableStringify } from '../resilience/recovery-bundle.js';
+import { isReadOnlyAdviceRequest } from '../evolution/semantic-intent.js';
 
 // Native tool use for MEL chat: the model chooses and calls its own
 // CapabilityBus capabilities (strict JSON protocol, works on any Workers AI
@@ -31,6 +32,7 @@ export function isToolProtocolExampleRequest(text) {
 
 export function wantsAgentTools(text) {
   if (isToolProtocolExampleRequest(text)) return false;
+  if (isReadOnlyAdviceRequest(text)) return false;
   if (/aucune action|sans (?:aucune )?action|ne (?:fais|lance|touche)/i.test(String(text || ''))) return false;
   return /\b(?:lance\w*|ex[ée]cute\w*|teste\w*|test|audit\w*|v[ée]rifie\w*|corrige\w*|r[ée]pare\w*|d[ée]veloppe\w*|cr[ée]e\w*|connecte\w*|appelle\w*|d[ée]marre\w*|active\w*|council|stress|d1|base de donn[ée]es|companion|github|outil\w*|autonom\w*|max)\b/i.test(String(text || ''));
 }

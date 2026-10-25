@@ -32,7 +32,8 @@ static class MelApp
     };
     // Owner-run maintenance: never started by MEL or on startup, only by the button.
     public static readonly string[] CleanupFiles = new string[] {
-        "MEL-Grand-Nettoyage.ps1", "MEL-Nettoyage-GitHub.ps1", "MEL-Restaurer-Branches.ps1"
+        "MEL-Grand-Nettoyage.ps1", "MEL-Nettoyage-GitHub.ps1", "MEL-Restaurer-Branches.ps1",
+        "MEL-Sauvegarde-Locale-D1.ps1"
     };
     public static readonly string CleanupPath = Path.Combine(MelDir, "MEL-Grand-Nettoyage.ps1");
     public static bool MiniUsbPreflightInstalled()
@@ -600,12 +601,16 @@ static class MelApp
                 if (!string.Equals(Path.GetFullPath(from), Path.GetFullPath(to),
                     StringComparison.OrdinalIgnoreCase)) File.Copy(from, to, true);
             }
+        // Never replace a newer cleanup script with the copy bundled in an older
+        // package: each restart reinstalled a stale script (25/10).
         foreach (var name in CleanupFiles)
         {
             var from = Path.Combine(packageDirectory, name);
             var to = Path.Combine(MelDir, name);
             if (File.Exists(from) && !string.Equals(Path.GetFullPath(from), Path.GetFullPath(to),
-                StringComparison.OrdinalIgnoreCase)) File.Copy(from, to, true);
+                StringComparison.OrdinalIgnoreCase) &&
+                (!File.Exists(to) || File.GetLastWriteTimeUtc(from) > File.GetLastWriteTimeUtc(to)))
+                File.Copy(from, to, true);
         }
         var current = Application.ExecutablePath;
         if (!string.Equals(Path.GetFullPath(current), Path.GetFullPath(InstalledExe), StringComparison.OrdinalIgnoreCase))

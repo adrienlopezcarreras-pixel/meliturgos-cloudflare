@@ -51,6 +51,11 @@ export function selectStreamModel(messages, env = {}) {
   return streamModelCandidates(messages, env)[0];
 }
 
+export function streamStartTimeoutMs(env = {}) {
+  const configured = Number(env?.MEL_STREAM_START_TIMEOUT_MS);
+  return Math.max(5_000, Math.min(60_000, Number.isFinite(configured) && configured > 0 ? configured : 20_000));
+}
+
 export function streamOutputTokens(env = {}) {
   const configured = Number(env?.MEL_STREAM_MAX_OUTPUT_TOKENS);
   return Math.max(512, Math.min(16_000, Number.isFinite(configured) && configured > 0 ? configured : 8_192));
@@ -245,18 +250,26 @@ export function streamChatResponse({ env, messages, archive = async () => false,
       send({ type: 'start', model: usedModel });
       let finishReason = null;
       let lastError = null;
+      // Why each skipped model failed, kept with the reply so a slow answer
+      // can be explained afterwards (three silent models on "bonjour", 25/10).
+      const fallbacks = [];
       try {
         // Un modèle qui échoue AVANT d'avoir écrit quoi que ce soit est remplacé par le
         // suivant, sans que l'utilisateur ne voie d'erreur. Une fois du texte envoyé,
         // on ne change plus de modèle.
         for (const candidate of candidates) {
           if (fullText) break;
-          if (candidate !== usedModel) send({ type: 'model', model: candidate, fallback_from: usedModel, reason: lastError });
+          if (candidate !== usedModel) { fallbacks.push({ model: usedModel, reason: lastError }); send({ type: 'model', model: candidate, fallback_from: usedModel, reason: lastError }); }
           usedModel = candidate;
           try {
             const filter = createToolLeakFilter({preserveToolExamples});
             const emit = text => { if (text) { fullText += text; if (!gated) send({ type: 'delta', text }); } };
-            const source = await env.AI.run(candidate, { messages: withNoToolsNote(messages,{preserveToolExamples}), stream: true, max_tokens: maxTokens });
+            // A model that has not started streaming within the bound is skipped:
+            // three silent models made "bonjour" take 76 s (25/10).
+            const started = env.AI.run(candidate, { messages: withNoToolsNote(messages,{preserveToolExamples}), stream: true, max_tokens: maxTokens });
+            let timer;
+            const source = await Promise.race([started, new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error('STREAM_START_TIMEOUT'), { code: 'STREAM_START_TIMEOUT' })), streamStartTimeoutMs(env)); })])
+              .finally(() => clearTimeout(timer));
             if (!source || typeof source.getReader !== 'function') {
               emit(filter.push(sseEventText(source) || String(source?.result?.response || '')));
             } else {
@@ -289,8 +302,8 @@ export function streamChatResponse({ env, messages, archive = async () => false,
         }
         const truncated = finishReason === 'length';
         let archived = false;
-        try { archived = await archive(fullText, { model: usedModel, truncated }); } catch {}
-        send({ type: 'done', model: usedModel, chars: fullText.length, archived: archived === true, truncated });
+        try { archived = await archive(fullText, { model: usedModel, truncated, fallbacks }); } catch {}
+        send({ type: 'done', model: usedModel, chars: fullText.length, archived: archived === true, truncated, fallbacks });
       } catch (error) {
         const code = String(error?.code || error?.message || 'STREAM_FAILED').slice(0, 120);
         if (fullText.trim() && !gated) {

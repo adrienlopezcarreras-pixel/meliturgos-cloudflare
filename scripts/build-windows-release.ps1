@@ -90,7 +90,7 @@ if (-not (Test-Path -LiteralPath $benchmarkSource -PathType Leaf)) { throw "WIND
 Copy-Item -LiteralPath $benchmarkSource -Destination (Join-Path $stage "MEL-Local-AI-Benchmark.ps1")
 
 # Owner-run cleanup, started only from the Companion button.
-foreach ($cleanupName in @("MEL-Grand-Nettoyage.ps1","MEL-Nettoyage-GitHub.ps1","MEL-Restaurer-Branches.ps1")) {
+foreach ($cleanupName in @("MEL-Grand-Nettoyage.ps1","MEL-Nettoyage-GitHub.ps1","MEL-Restaurer-Branches.ps1","MEL-Sauvegarde-Locale-D1.ps1")) {
   $cleanupSource = Join-Path $repoRoot ("windows-companion\" + $cleanupName)
   if (-not (Test-Path -LiteralPath $cleanupSource -PathType Leaf)) { throw "WINDOWS_CLEANUP_SCRIPT_MISSING" }
   Copy-Item -LiteralPath $cleanupSource -Destination (Join-Path $stage $cleanupName)

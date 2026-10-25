@@ -616,10 +616,12 @@ export default {
             console.error('[MEL WORK] daily revenue watch failed:', error?.code || error?.message || error);
             return null;
           }),
-          runModelTournament(env).catch((error) => {
-            console.error('[MEL models] nightly tournament failed:', error?.code || error?.message || error);
+          // Weekly (Monday) since development is mostly done: each tournament
+          // runs every candidate model and spends Workers AI neurons.
+          new Date().getUTCDay() === 1 ? runModelTournament(env).catch((error) => {
+            console.error('[MEL models] weekly tournament failed:', error?.code || error?.message || error);
             return null;
-          }),
+          }) : null,
           runSelfAudit('MONTHLY').then((result) => {
             if (result?.status === 'SELF_AUDIT_DEGRADED') {
               console.error('[MEL self-audit] daily supervisor detected anomalies.');

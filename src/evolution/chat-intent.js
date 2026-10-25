@@ -1,11 +1,11 @@
-import { classifySemanticOwnerIntent, shouldSemanticIntentCheck } from './semantic-intent.js';
+import { classifySemanticOwnerIntent, shouldSemanticIntentCheck, isReadOnlyAdviceRequest } from './semantic-intent.js';
 import { createConversationService } from '../conversations/conversation-service.js';
 import { inferKnowledgeCapability } from '../api/knowledge-intent.js';
 import { inferChatMediaCapability } from '../api/chat-media-intent.js';
 
 export function isEvolutionDevelopmentIntent(text) {
   const value = String(text || '').trim();
-  if (!value || inferChatMediaCapability(value)) return false;
+  if (!value || isReadOnlyAdviceRequest(value) || inferChatMediaCapability(value)) return false;
   // Teaching the owner is a conversation, not a request for MEL to build a skill.
   if (/\bapprends[-\s]moi\b/i.test(value)) return false;
 

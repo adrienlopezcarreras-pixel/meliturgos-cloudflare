@@ -14,7 +14,9 @@ $Log=Join-Path $ReportDir "MEL-grand-nettoyage-$Stamp.log"
 $Summary=[ordered]@{mode=$(if($Apply){'APPLY'}else{'SIMULATION'});date=(Get-Date).ToString('o');repo=$Repo;deleted_branches=@();deleted_branch_shas=@();deleted_caches=@();deleted_cancelled_runs=@();deleted_artifacts=@();preserved=@();errors=@();open_prs=@();workflows=@();notes=@()}
 function Note([string]$m) { Write-Host $m; Add-Content -Path $Log -Value $m -Encoding utf8 }
 function Api([string]$path,[string]$method='GET') {
-  $argsList=@('api','--method',$method,'-H','Accept: application/vnd.github+json',"repos/$Repo/$path")
+  # No trailing slash for the repository itself: "repos/<repo>/" is a 404.
+  $endpoint= if($path){"repos/$Repo/$path"}else{"repos/$Repo"}
+  $argsList=@('api','--method',$method,'-H','Accept: application/vnd.github+json',$endpoint)
   $result=& gh @argsList 2>&1
   if($LASTEXITCODE -ne 0){throw "GitHub API erreur pour ${method} $path : $result"}
   $raw=($result | Out-String).Trim()

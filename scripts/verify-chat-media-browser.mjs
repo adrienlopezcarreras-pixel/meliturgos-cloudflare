@@ -7,12 +7,12 @@ import {spawn} from 'node:child_process';
 import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import worker from '../src/index.js';
-import {storePrivateArtifact} from '../src/media/workers-ai-media-capabilities.js';
+import worker, {hardenResponseHeaders} from '../src/visual-final-entry.js';
+import {storePrivateArtifact,readPrivateArtifactBytes} from '../src/media/workers-ai-media-capabilities.js';
 import {CHAT_RICH_RENDERER_SOURCE} from '../src/pages/chat-rich-renderer.js';
 
 const directory=await mkdtemp(join(tmpdir(),'mel-browser-media-'));
-const objects=new Map(),ranges=[];
+const objects=new Map(),ranges=[],externalRequests=[];
 const credential='Basic '+btoa('local-owner:local-fixture-password');
 const env={MELITURGOS_USER:'local-owner',MELITURGOS_PASSWORD:'local-fixture-password',
  MEL_MEDIA_ENCRYPTION_KEY_ID:'local-fixture',MEL_MEDIA_ENCRYPTION_KEY_B64:Buffer.alloc(32,29).toString('base64'),
@@ -29,9 +29,10 @@ try{
   'media.video.generate':async()=>({ok:true,zero_added_cost:true,provider:'local-fixture',artifact:video}),
   'media.image.generate':async()=>({ok:true,zero_added_cost:true,provider:'local-fixture',artifact:image}),
  };
- const html='<!doctype html><meta charset="utf-8"><title>MEL local media proof</title><h1>MEL — local media proof</h1><p>Actual DSP audio; image/video provider fixtures. Not production.</p><div id="out"></div><button id="play">Lire les médias</button><script>'+CHAT_RICH_RENDERER_SOURCE+'</script><script>'+`
+ const html='<!doctype html><meta charset="utf-8"><title>MEL local media proof</title><h1>MEL — local media proof</h1><p>Actual DSP audio; image/video provider fixtures. Not production.</p><div id="out"></div><div id="public"></div><button id="play">Lire les médias</button><script>'+CHAT_RICH_RENDERER_SOURCE+'</script><script>'+`
  (async()=>{
-   const media=[];const kinds=[];
+   const media=[];const kinds=[];window.__policyViolations=[];
+   document.addEventListener('securitypolicyviolation',event=>window.__policyViolations.push(event.effectiveDirective));
    for(const text of ['Crée une image de test','Génère un son de notification','Génère une vidéo de test']){
      const r=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json','authorization':${JSON.stringify(credential)}},body:JSON.stringify({text})});
      const d=await r.json();if(!r.ok||d.media?.length!==1)throw new Error('CHAT_MEDIA_RESULT_MISSING:'+JSON.stringify({status:r.status,code:d.code,mode:d.response_mode,tools:d.tool_results,text:d.text,media:d.media}));media.push(...d.media);kinds.push(d.media[0].type);
@@ -39,13 +40,29 @@ try{
    // Establish HTTP Basic authentication for native media element requests.
    await fetch(media[0].url,{headers:{authorization:${JSON.stringify(credential)}}});
    melRenderRichText(document.querySelector('#out'),'Trois résultats du vrai Worker local.',{media});
+   melRenderRichText(document.querySelector('#public'),['Médias publics HTTPS provenant du fournisseur de test.','','https://www.youtube.com/watch?v=fixture1234','','https://vimeo.com/123456'].join(String.fromCharCode(10)),{media:[
+     {type:'image',url:'https://media.mel-browser-fixture.test/image.png'},
+     {type:'audio',url:'https://media.mel-browser-fixture.test/audio.wav'},
+     {type:'video',url:'https://media.mel-browser-fixture.test/video.webm'},
+   ]});
+   for(const img of document.querySelectorAll('img'))img.loading='eager';
+   // These forbidden resources must remain blocked by the actual CSP.
+   const forbiddenScript=document.createElement('script');forbiddenScript.src='https://media.mel-browser-fixture.test/attack.js';document.body.appendChild(forbiddenScript);
+   const forbiddenFrame=document.createElement('iframe');forbiddenFrame.src='https://blocked-frame.mel-browser-fixture.test/';document.body.appendChild(forbiddenFrame);
+   fetch('https://media.mel-browser-fixture.test/connect').catch(()=>{});
    document.querySelector('#play').onclick=async()=>{
      try{
        const audio=document.querySelector('audio'),video=document.querySelector('video');
        await audio.play();await video.play();
        await new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(new Error('SEEK_TIMEOUT')),5000);video.addEventListener('seeked',()=>{clearTimeout(timeout);resolve()},{once:true});video.currentTime=0.75;});
        await new Promise(resolve=>setTimeout(resolve,350));
-       const img=document.querySelector('img');window.__mediaProof={ok:img.complete&&img.naturalWidth>0&&audio.currentTime>0&&video.currentTime>=0.75,image_width:img.naturalWidth,audio_time:audio.currentTime,video_time:video.currentTime,audio_ready:audio.readyState,video_ready:video.readyState,kinds};
+       const externalAudio=document.querySelector('#public audio'),externalVideo=document.querySelector('#public video');
+       await externalAudio.play();await externalVideo.play();await new Promise(resolve=>setTimeout(resolve,350));
+       const externalImage=document.querySelector('#public img');
+       const external={image_width:externalImage.naturalWidth,audio_time:externalAudio.currentTime,video_time:externalVideo.currentTime};
+       if(!external.image_width||external.audio_time<=0||external.video_time<=0)throw new Error('EXTERNAL_MEDIA_NOT_DECODED:'+JSON.stringify(external));
+       externalAudio.pause();externalVideo.pause();
+       const img=document.querySelector('img');window.__mediaProof={ok:img.complete&&img.naturalWidth>0&&audio.currentTime>0&&video.currentTime>=0.75,image_width:img.naturalWidth,audio_time:audio.currentTime,video_time:video.currentTime,audio_ready:audio.readyState,video_ready:video.readyState,kinds,external,embeds:[...document.querySelectorAll('#public iframe')].map(frame=>frame.src),policy_violations:window.__policyViolations,untrusted_script:window.__untrusted===true};
        audio.pause();video.pause();
      }catch(error){window.__mediaProof={ok:false,error:error.message}}
    };
@@ -54,7 +71,7 @@ try{
  `+'</script>';
  server=createServer(async(incoming,outgoing)=>{
   try{
-   if(incoming.url==='/proof'){outgoing.writeHead(200,{'content-type':'text/html; charset=utf-8'});outgoing.end(html);return;}
+   if(incoming.url==='/proof'){const page=hardenResponseHeaders(new Response(html,{headers:{'content-type':'text/html; charset=utf-8'}}));outgoing.writeHead(page.status,Object.fromEntries(page.headers));outgoing.end(await page.text());return;}
    const chunks=[];for await(const chunk of incoming)chunks.push(chunk);
    const body=Buffer.concat(chunks),headers=new Headers(incoming.headers);
    // Native media elements receive the same browser-scoped test identity;
@@ -99,7 +116,22 @@ try{
   const message=JSON.parse(event.data);const promise=pending.get(message.id);
   if(promise){pending.delete(message.id);message.error?promise.reject(new Error(message.error.message)):promise.resolve(message.result);}
   else if(message.method==='Fetch.authRequired')send('Fetch.continueWithAuth',{requestId:message.params.requestId,authChallengeResponse:{response:'ProvideCredentials',username:'local-owner',password:'local-fixture-password'}}).catch(()=>{});
-  else if(message.method==='Fetch.requestPaused')send('Fetch.continueRequest',{requestId:message.params.requestId}).catch(()=>{});
+  else if(message.method==='Fetch.requestPaused'){
+   const {requestId,request}=message.params;const url=new URL(request.url);
+   if(url.hostname.endsWith('mel-browser-fixture.test')||['www.youtube-nocookie.com','player.vimeo.com'].includes(url.hostname)){
+    externalRequests.push(url.pathname);
+    (async()=>{
+     let bytes=Buffer.from('<!doctype html><title>Local frame fixture</title>'),mime='text/html';
+     if(url.pathname==='/image.png'){bytes=Buffer.from(png);mime='image/png';}
+     else if(url.pathname==='/video.webm'){bytes=videoBytes;mime='video/webm';}
+     else if(url.pathname==='/audio.wav'){
+      const key=[...objects].find(([,object])=>object.customMetadata.originalMime?.startsWith('audio/'))?.[0];
+      const audio=await readPrivateArtifactBytes(env,key);bytes=Buffer.from(audio.bytes);mime=audio.mime;
+     }else if(url.pathname==='/attack.js'){bytes=Buffer.from('window.__untrusted=true');mime='text/javascript';}
+     await send('Fetch.fulfillRequest',{requestId,responseCode:200,responseHeaders:[{name:'content-type',value:mime},{name:'content-length',value:String(bytes.length)}],body:bytes.toString('base64')});
+    })().catch(()=>send('Fetch.failRequest',{requestId,errorReason:'Failed'}).catch(()=>{}));
+   }else send('Fetch.continueRequest',{requestId}).catch(()=>{});
+  }
  });
  await send('Fetch.enable',{handleAuthRequests:true});
  await send('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+'/proof'});
@@ -110,10 +142,14 @@ try{
  await send('Runtime.evaluate',{expression:"document.querySelector('#play').click()",userGesture:true});
  const proof=await until('window.__mediaProof');
  assert.equal(proof.ok,true,JSON.stringify(proof));assert.deepEqual(proof.kinds,['image','audio','video']);
+ assert.equal(proof.untrusted_script,false);
+ assert.deepEqual(proof.embeds,['https://www.youtube-nocookie.com/embed/fixture1234','https://player.vimeo.com/video/123456']);
+ for(const directive of ['script-src-elem','frame-src','connect-src'])assert.ok(proof.policy_violations.includes(directive),directive);
+ assert.ok(!externalRequests.includes('/attack.js')&&!externalRequests.includes('/connect'));
  assert.ok(ranges.some(row=>row.status===206),'Chromium must receive an authenticated byte range');
  const screenshot=process.env.MEL_TEST_SCREENSHOT_PATH;
  if(screenshot){const capture=await send('Page.captureScreenshot',{format:'png'});await writeFile(screenshot,Buffer.from(capture.data,'base64'));}
- console.log(JSON.stringify({schema:'mel.local-browser-media-proof/v1',browser:'Chromium',production:false,provider_fixtures:['image','video'],real_dsp_audio:true,proof,range_responses:ranges},null,2));
+ console.log(JSON.stringify({schema:'mel.local-browser-media-proof/v1',browser:'Chromium',production:false,provider_fixtures:['image','video'],real_dsp_audio:true,production_csp:true,external_fixture_requests:externalRequests,proof,range_responses:ranges},null,2));
  ws.close();
 } finally {
  if(browser&&!browser.killed){browser.kill('SIGTERM');await new Promise(resolve=>{if(browser.exitCode!==null)return resolve();browser.once('exit',resolve);setTimeout(resolve,3000)});}

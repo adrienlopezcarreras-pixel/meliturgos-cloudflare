@@ -60,6 +60,17 @@ function isWaitingTeacher(job) {
   return String(job?.status || '').toUpperCase() === 'WAITING_TEACHER';
 }
 
+// Mentor rounds a bridge-phase job gets: 3 small-model rounds, then the large one.
+export const BRIDGE_MENTOR_ROUNDS = 4;
+
+// Set at the start of each tick from the monthly re-verification.
+let runtimeRegressions = new Set();
+export function setRuntimeRoadmapRegressions(ids = []) { runtimeRegressions = new Set(ids); }
+function currentRoadmap() {
+  const items = flattenRoadmap();
+  return runtimeRegressions.size ? items.map(item => runtimeRegressions.has(item.id) ? { ...item, status: 'REGRESSED' } : item) : items;
+}
+
 // CODEX: a durable, bounded provider delay is passive, not a global MAX lock.
 export function providerRetryContext(job) {
   const result = job?.result_json || {};
@@ -73,7 +84,11 @@ export function providerRetryContext(job) {
 function providerDeferred(job) {
   const delay = job?.result_json?.autonomy_deferral;
   if (delay?.context && delay.context !== providerRetryContext(job)) return false;
-  return delay?.exhausted === true || Number(delay?.retry_after || 0) > Date.now();
+  // Bridge-phase jobs parked under the old one-round limit (FOUNDER-02..07,
+  // 25/10) get the rounds the current policy grants before the large model.
+  const exhausted = delay?.exhausted === true
+    && !(delay?.phase === 'bridge' && Number(delay?.max_attempts) === 1 && Number(delay?.attempts || 0) < BRIDGE_MENTOR_ROUNDS);
+  return exhausted || Number(delay?.retry_after || 0) > Date.now();
 }
 
 function isPassiveRuntimeJob(job) {
@@ -212,7 +227,7 @@ export function isSupervisedAutonomyJob(job) {
 }
 
 export class AutonomySupervisor {
-  constructor({ repository, roadmap = flattenRoadmap(), evolutionLoader = null, epochMs = 0 } = {}) {
+  constructor({ repository, roadmap = currentRoadmap(), evolutionLoader = null, epochMs = 0 } = {}) {
     if (!repository || typeof repository.list !== 'function' || typeof repository.create !== 'function') {
       throw Object.assign(new Error('AUTONOMY_JOB_REPOSITORY_REQUIRED'), { code: 'AUTONOMY_JOB_REPOSITORY_REQUIRED' });
     }

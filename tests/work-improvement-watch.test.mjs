@@ -61,7 +61,7 @@ test('missing capability names are normalised and empty answers ignored', () => 
 
 test('a WORK cycle records the capability missing for each skipped paid offer', async () => {
   const { streamDirectWork } = await import('../src/revenue/work-stream.js');
-  const db = sqliteD1();
+  const db = sqliteD1({ maintenanceFence: true });
   const NOW = Date.parse('2026-10-17T12:00:00Z');
   const env = { DB: db, AI: { async run(_m, input) {
     if (input.messages[0].content.startsWith('Tu es MEL WORK')) throw new Error('no draft expected');

@@ -1,3 +1,4 @@
+import { readMaintenanceFence, MAINTENANCE_FENCE_ID } from '../maintenance/maintenance-gate.js';
 // MEL WORK — one owner click, one streamed request, one reviewable draft.
 //
 // The former cycle ran in ctx.waitUntil (≈30 s after the response) and chained
@@ -261,8 +262,17 @@ async function alreadyDraftedIds(db) {
 async function recordCycle(db, id, state, result) {
   if (typeof db?.prepare !== 'function') throw new Error('WORK_CYCLE_DB_REQUIRED');
   await db.prepare('CREATE TABLE IF NOT EXISTS mel_work_cycles (id TEXT PRIMARY KEY, state TEXT NOT NULL, result TEXT, updated_at TEXT NOT NULL)').run();
-  await db.prepare('INSERT INTO mel_work_cycles (id,state,result,updated_at) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state,result=excluded.result,updated_at=excluded.updated_at')
-    .bind(id, state, result ? JSON.stringify(result) : null, new Date().toISOString()).run();
+  const admission = state === 'RUNNING';
+  const values = admission
+    ? "SELECT ?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED')"
+    : 'VALUES (?,?,?,?)';
+  const params=[id,state,result?JSON.stringify(result):null,new Date().toISOString()];
+  if(admission)params.push(MAINTENANCE_FENCE_ID);
+  const written=await db.prepare('INSERT INTO mel_work_cycles (id,state,result,updated_at) '+values+' ON CONFLICT(id) DO UPDATE SET state=excluded.state,result=excluded.result,updated_at=excluded.updated_at')
+    .bind(...params).run();
+  const changes=Number(written?.meta?.changes);
+  if(!Number.isSafeInteger(changes))throw Error('WORK_CYCLE_WRITE_UNVERIFIED');
+  return changes===1;
 }
 
 // Each cycle (scheduled or "Travailler maintenant") discovers real bounties,
@@ -282,8 +292,12 @@ export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(
     {
       const send = event => { try { controller.enqueue(encoder.encode(JSON.stringify(event) + '\n')); } catch {} };
       const step = text => send({ type: 'step', text });
+      let cycleAdmitted=false;
       try {
-        await recordCycle(env.DB, cycleId, 'RUNNING', null);
+        const fence=await readMaintenanceFence(env?.DB);
+        if (fence.paused) {send({type:'error',code:'WORK_PAUSED_FOR_MAINTENANCE'});return;}
+        cycleAdmitted=await recordCycle(env.DB, cycleId, 'RUNNING', null);
+        if(!cycleAdmitted){send({type:'error',code:'WORK_PAUSED_FOR_MAINTENANCE'});return;}
         step('Lecture des offres Taskmarket ouvertes…');
         const response = await fetchImpl(TASKMARKET_TASKS_URL, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(12_000) });
         if (!response.ok) throw new Error('TASKMARKET_UPSTREAM_ERROR');
@@ -354,7 +368,7 @@ export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(
         send({ type: 'done', cycleId, result: full });
       } catch (error) {
         const code = String(error?.code || error?.message || 'WORK_DIRECT_EXECUTION_FAILED').slice(0, 120);
-        try { await recordCycle(env.DB, cycleId, 'FAILED', { code }); } catch { /* Report the original failure; D1 remains unavailable. */ }
+        try { if(cycleAdmitted) await recordCycle(env.DB, cycleId, 'FAILED', { code }); } catch { /* Report the original failure; D1 remains unavailable. */ }
         send({ type: 'error', code });
       } finally {
         try { controller.close(); } catch {}

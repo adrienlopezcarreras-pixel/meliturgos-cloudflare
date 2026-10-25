@@ -16,7 +16,13 @@ function mediaKind(noun) {
 export function inferChatMediaCapability(text) {
   const value=String(text||'').trim();
   if(!value||value.length>2000)return null;
-  const normalized=value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  // Normalize common conversational forms once, before the shared grammar.
+  // The requested object must still immediately follow the command.
+  const request=value.normalize('NFC')
+    .replace(/^(?:s['’]il te pla[iî]t|stp|svp)[,\s]+/i,'')
+    .replace(/^(?:est-ce que\s+)?tu\s+(peux|pourrais)\s+(?:me\s+)?/i,(_,verb)=>verb+'-tu me ')
+    .replace(/^(?:je\s+(?:veux|voudrais|souhaite)|j['’]aimerais)\s+(?:(?:voir|regarder|[eé]couter|entendre)\s+)?/i,'montre ');
+  const normalized=request.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
   // Speech quotes are literal content, not a request to fetch a referenced URL
   // or open a named file. A colon keeps an absent attachment from being guessed.
   const speak=value.match(/^(?:(?:peux|pourrais)[- ]tu\s+(?:me\s+)?)?(?:lis|prononce|dis|lire|prononcer|dire)\s+(?:ceci\s+)?(?:[àa]\s+voix\s+haute|oralement)\s*[:：]\s*([\s\S]+)$/i);
@@ -30,6 +36,12 @@ export function inferChatMediaCapability(text) {
   if(!find)return null;
   const kind=mediaKind(find[2]);
   const count=Math.max(1,Math.min(6,COUNTS[find[1]]||Number(find[1])||1));
-  if(kind==='image')return {id:'web.images.search',input:{query:value.slice(0,240),max_images:count}};
-  return {id:'web.media.search',input:{query:value,type:kind==='video'?'video':'audio',max_results:count}};
+  // Pass the subject, not polite instructions, to the retrieval provider.
+  // Strip only grammatical boundaries; never delete words inside a title.
+  const subject=request.slice(find[0].length).trim()
+    .replace(/^(?:du\s+|des\s+|de\s+|d['’])/i,'')
+    .replace(/[,\s]+(?:s['’]il te pla[iî]t|stp|svp)[.!?]*$/i,'').replace(/[.!?,;:]+$/,'').trim();
+  const query=(subject||value).slice(0,240);
+  if(kind==='image')return {id:'web.images.search',input:{query,max_images:count}};
+  return {id:'web.media.search',input:{query,type:kind==='video'?'video':'audio',max_results:count}};
 }

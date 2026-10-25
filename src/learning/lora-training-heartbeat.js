@@ -1,3 +1,6 @@
+import { enqueueSupervisedDevelopmentRequest } from '../evolution/owner-development-queue.js';
+import { discoverLoraDatasets } from './lora-dataset-discovery.js';
+import { observeLoraObjectives } from './lora-objective-observer.js';
 import { createLearningEngine } from './learning-engine.js';
 
 const DEFAULT_REPOSITORY = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
@@ -32,12 +35,21 @@ function epochNow(now) {
   return value instanceof Date ? value.getTime() : Number(value);
 }
 
+async function recentJobs(env) {
+  if (!env?.DB) return [];
+  const since = Date.now() - 7 * 86_400_000;
+  const rows = (await env.DB.prepare(`SELECT status, json_extract(result_json,'$.bridge_preparation_diagnostic') AS diag
+    FROM dev_jobs WHERE created_at > ? AND requested_by='mel-autonomy' LIMIT 300`).bind(since).all()).results || [];
+  return rows.map(row => { let diag = null; try { diag = JSON.parse(row.diag || 'null'); } catch {} return { status: row.status, result_json: { bridge_preparation_diagnostic: diag } }; });
+}
+
 async function latestImpactStage(env, options = {}) {
   try {
     const engine = options.engine || createLearningEngine(env);
     const rows = await engine.benchmarks({ limit: 120 });
     const latest = rows.slice().reverse().find((row) => row?.kind === 'lora-impact-candidate') || null;
     return {
+      rows,
       next_stage: String(latest?.metadata?.next_stage || 'UNCENSORED_WAITING'),
       uncensored_gate: latest?.metadata?.uncensored_gate === true,
       canonical_gate_passed: latest?.metadata?.canonical_gate_passed === true,
@@ -191,13 +203,47 @@ export async function runLoraTrainingHeartbeat(env = {}, options = {}) {
   }
 
   const impact = await latestImpactStage(env, options);
-  if (impact.next_stage === 'AGENTIC_READY') {
-    return {
-      status: 'AGENTIC_READY',
-      dispatched: false,
-      impact,
-      reason: 'UNCENSORED_GATE_REACHED',
-    };
+  // AGENTIC_READY used to end learning for good. It now only changes the
+  // objective: the observer decides from repeated measured gaps whether a new
+  // cycle is needed (uncensored regression, agentic gap) or whether the gap is
+  // a code problem that a LoRA cannot fix.
+  const objective = impact.next_stage === 'AGENTIC_READY'
+    ? observeLoraObjectives({ impactRows: impact.rows || [], jobs: options.jobs || await recentJobs(env).catch(() => []) })
+    : { decision: 'TRAIN_UNCENSORED', reason: 'UNCENSORED_GATE_NOT_REACHED' };
+  delete impact.rows;
+  if (objective.decision === 'OBSERVE') {
+    return { status: 'AGENTIC_OBSERVING', dispatched: false, impact, objective };
+  }
+  if (objective.decision === 'CODE_FIX') {
+    // The gap is the pipeline, not the model: hand it to MAX as a code mission
+    // (one per distinct finding set) instead of training on it.
+    const findings = (objective.findings || []).map(f => `${f.code}: ${f.detail}`);
+    const mission = await (options.enqueueDevelopment || enqueueSupervisedDevelopmentRequest)({
+      env,
+      goal: ['[MEL-LORA-CODE-FIX] Le manque mesuré vient du pipeline, pas du modèle : le corriger dans le code.', ...findings,
+        'Inspecter les rejets dominants, corriger sur la branche candidate, tester, sans entraînement LoRA.'].join(' '),
+      requestKey: 'lora-code-fix:' + findings.join('|').slice(0, 200),
+      requestedBy: 'mel-autonomy',
+      source: 'lora-objective-observer',
+      priority: 'P1',
+      capabilities: [],
+    }).then(result => ({ queued: true, id: result?.job?.id || result?.id || null }))
+      .catch(error => ({ queued: false, error: String(error?.code || error?.message || error).slice(0, 120) }));
+    return { status: 'CODE_FIX_REQUIRED', dispatched: false, impact, objective, mission };
+  }
+  // The gap names the skill; MEL looks up public training sets and benchmarks for it herself.
+  if (objective.decision === 'TRAIN_AGENTIC' || objective.reason === 'OVER_REFUSAL_REGRESSED') {
+    objective.datasets = await discoverLoraDatasets(objective.reason, { fetchImpl: options.fetchImpl || fetch }).catch(error => ({ status: 'DISCOVERY_FAILED', code: String(error?.code || error?.message || '').slice(0, 80) }));
+  }
+  // The Kaggle chain trains the agentic lane on the pinned public sets MEL found.
+  // Without an enabled lane or a pinned train set, never relaunch the uncensored
+  // chain to answer an agentic gap.
+  const agenticSources = (objective.datasets?.train || []).filter(row => row?.id && /^[0-9a-f]{40}$/.test(String(row.revision || ''))).slice(0, 3).map(row => ({ id: row.id, revision: row.revision }));
+  if (objective.decision === 'TRAIN_AGENTIC' && String(env?.MEL_LORA_AGENTIC_TRAINING || 'true') !== 'true') {
+    return { status: 'AGENTIC_TRAINING_REQUIRED', dispatched: false, impact, objective, reason: 'AGENTIC_LANE_NOT_ENABLED' };
+  }
+  if (objective.decision === 'TRAIN_AGENTIC' && !agenticSources.length) {
+    return { status: 'AGENTIC_TRAINING_REQUIRED', dispatched: false, impact, objective, reason: 'NO_PINNED_AGENTIC_DATASET' };
   }
 
   const fetchImpl = options.fetchImpl || fetch;
@@ -275,6 +321,7 @@ export async function runLoraTrainingHeartbeat(env = {}, options = {}) {
         shard_size: shardSize,
         max_cycles: maxCycles,
         benchmark_preview: 'false',
+        ...(objective.decision === 'TRAIN_AGENTIC' ? { objective: 'agentic', agentic_sources: JSON.stringify(agenticSources) } : {}),
       },
     });
 
