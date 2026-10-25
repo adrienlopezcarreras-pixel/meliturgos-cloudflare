@@ -1,3 +1,4 @@
+import { observeLoraObjectives } from './lora-objective-observer.js';
 import { createLearningEngine } from './learning-engine.js';
 
 const DEFAULT_REPOSITORY = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
@@ -32,12 +33,21 @@ function epochNow(now) {
   return value instanceof Date ? value.getTime() : Number(value);
 }
 
+async function recentJobs(env) {
+  if (!env?.DB) return [];
+  const since = Date.now() - 7 * 86_400_000;
+  const rows = (await env.DB.prepare(`SELECT status, json_extract(result_json,'$.bridge_preparation_diagnostic') AS diag
+    FROM dev_jobs WHERE created_at > ? AND requested_by='mel-autonomy' LIMIT 300`).bind(since).all()).results || [];
+  return rows.map(row => { let diag = null; try { diag = JSON.parse(row.diag || 'null'); } catch {} return { status: row.status, result_json: { bridge_preparation_diagnostic: diag } }; });
+}
+
 async function latestImpactStage(env, options = {}) {
   try {
     const engine = options.engine || createLearningEngine(env);
     const rows = await engine.benchmarks({ limit: 120 });
     const latest = rows.slice().reverse().find((row) => row?.kind === 'lora-impact-candidate') || null;
     return {
+      rows,
       next_stage: String(latest?.metadata?.next_stage || 'UNCENSORED_WAITING'),
       uncensored_gate: latest?.metadata?.uncensored_gate === true,
       canonical_gate_passed: latest?.metadata?.canonical_gate_passed === true,
@@ -191,13 +201,21 @@ export async function runLoraTrainingHeartbeat(env = {}, options = {}) {
   }
 
   const impact = await latestImpactStage(env, options);
-  if (impact.next_stage === 'AGENTIC_READY') {
-    return {
-      status: 'AGENTIC_READY',
-      dispatched: false,
-      impact,
-      reason: 'UNCENSORED_GATE_REACHED',
-    };
+  // AGENTIC_READY used to end learning for good. It now only changes the
+  // objective: the observer decides from repeated measured gaps whether a new
+  // cycle is needed (uncensored regression, agentic gap) or whether the gap is
+  // a code problem that a LoRA cannot fix.
+  const objective = impact.next_stage === 'AGENTIC_READY'
+    ? observeLoraObjectives({ impactRows: impact.rows || [], jobs: await recentJobs(env).catch(() => []) })
+    : { decision: 'TRAIN_UNCENSORED', reason: 'UNCENSORED_GATE_NOT_REACHED' };
+  delete impact.rows;
+  if (objective.decision === 'OBSERVE' || objective.decision === 'CODE_FIX') {
+    return { status: objective.decision === 'CODE_FIX' ? 'CODE_FIX_REQUIRED' : 'AGENTIC_OBSERVING', dispatched: false, impact, objective };
+  }
+  if (objective.decision === 'TRAIN_AGENTIC' && String(env?.MEL_LORA_AGENTIC_TRAINING || 'false') !== 'true') {
+    // The agentic dataset lane is not wired into the free Kaggle chain yet;
+    // never relaunch the uncensored chain to answer an agentic gap.
+    return { status: 'AGENTIC_TRAINING_REQUIRED', dispatched: false, impact, objective, reason: 'AGENTIC_LANE_NOT_ENABLED' };
   }
 
   const fetchImpl = options.fetchImpl || fetch;
