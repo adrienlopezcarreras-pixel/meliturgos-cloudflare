@@ -111,3 +111,15 @@ test('ordinary MEL chat uses the real conversational path without pre-routing AI
     assert.equal(routed, request, 'ordinary chat must bypass preprocessing without rebuilding the request: ' + text.slice(0, 80));
   }
 });
+
+test('explanations and plans do not become code work because their subject mentions creating a module',async()=>{
+ const {shouldSemanticIntentCheck}=await import('../src/evolution/semantic-intent.js');
+ for(const text of ['Explique comment créer un module calendrier','Pourquoi faut-il modifier ce code ?','Prépare un plan pour corriger le chat','Propose une stratégie pour développer une API','Établis un plan d’action pour lancer une activité de traduction']){
+  assert.equal(isEvolutionDevelopmentIntent(text),false,text);
+  assert.equal(shouldSemanticIntentCheck(text),false,text);
+  const req=new Request('https://mel.test/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text})});
+  const body=await(await injectEvolutionPreflightCapability(req)).json();
+  assert.equal(body.capability,undefined,text);assert.equal(body.text,text);
+ }
+ assert.equal(isEvolutionDevelopmentIntent('Explique le problème puis corrige le module'),true);
+});

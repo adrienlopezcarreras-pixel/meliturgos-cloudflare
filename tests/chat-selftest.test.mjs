@@ -53,3 +53,21 @@ test('self-knowledge case fails when MEL denies her real tools or asks for keys 
   assert.equal(bad.ok, false);
   assert.ok(bad.wrong_claim);
 });
+
+test('live self-test preserves an allowlisted provider reason without upstream text',async()=>{
+ const handleChat=async()=>Response.json({code:'CHAT_INFERENCE_FAILED',detail:'WORKERS_AI_DAILY_NEURON_BUDGET_EXHAUSTED:9320/9000 PRIVATE_PROVIDER_BODY'},{status:503});
+ const body=await(await runChatSelftest({request,env:{MELITURGOS_PASSWORD:'pw'},handleChat,cases:['plan']})).json();
+ assert.equal(body.ok,false);assert.equal(body.results[0].provider_error,'WORKERS_AI_DAILY_NEURON_BUDGET_EXHAUSTED');
+ assert.equal(JSON.stringify(body).includes('PRIVATE_PROVIDER_BODY'),false);assert.equal(body.ai_budget.available,false);
+});
+
+test('chat budget diagnostic is a bounded read of estimated usage, never a mutation or billing proof',async()=>{
+ const {readChatBudgetEvidence}=await import('../src/diagnostics/chat-selftest.js');let queried=false;
+ const env={DB:{prepare(sql){assert.equal(sql,'SELECT neurons,calls,refused FROM mel_ai_neuron_budget WHERE day=?');return {bind(day){assert.equal(day,'2026-10-25');queried=true;return {first:async()=>({neurons:9320,calls:40,refused:6})};}};}}};
+ const result=await readChatBudgetEvidence(env,{now:Date.parse('2026-10-25T12:00:00Z')});
+ assert.equal(queried,true);assert.equal(result.exhausted,true);assert.equal(result.cap,9000);assert.equal(result.neurons,9320);
+ assert.equal(result.reset_at,'2026-10-26T00:00:00.000Z');assert.equal(result.billing_verified,false);
+ assert.equal(result.source,'MEL_ESTIMATED_NEURON_COUNTER');
+ const unavailable=await readChatBudgetEvidence({DB:{prepare(){throw Error('PRIVATE_CONNECTION');}}});
+ assert.equal(unavailable.available,false);assert.equal(JSON.stringify(unavailable).includes('PRIVATE_CONNECTION'),false);
+});
