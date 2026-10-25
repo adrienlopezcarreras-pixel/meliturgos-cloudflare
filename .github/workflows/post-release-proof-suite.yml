@@ -6,12 +6,26 @@ on:
       expected_sha:
         required: true
         type: string
+      full:
+        description: "Also run the AI-heavy proofs (stress, Council, sovereignty)"
+        required: false
+        default: false
+        type: boolean
   workflow_dispatch:
     inputs:
       expected_sha:
         description: "Exact release SHA to prove; defaults to current main"
         required: false
         type: string
+      full:
+        description: "Also run the AI-heavy proofs (stress, Council, sovereignty)"
+        required: false
+        default: true
+        type: boolean
+  # Releases re-prove only the light gates; the AI-heavy proofs, already
+  # validated, run weekly on the deployed SHA (Workers AI neuron budget).
+  schedule:
+    - cron: '41 4 * * 1'
   pull_request:
     branches: [main]
     paths:
@@ -41,17 +55,28 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       expected_sha: ${{ steps.sha.outputs.expected_sha }}
+      full: ${{ steps.sha.outputs.full }}
     steps:
       - id: sha
         shell: bash
         env:
           INPUT_SHA: ${{ inputs.expected_sha }}
           FALLBACK_SHA: ${{ github.sha }}
+          INPUT_FULL: ${{ inputs.full }}
+          WEEKLY: ${{ github.event_name == 'schedule' && github.workflow == 'post-release-proof-suite' }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           SHA="${INPUT_SHA:-${FALLBACK_SHA}}"
+          FULL="${INPUT_FULL:-false}"
+          if [[ "$WEEKLY" == "true" ]]; then
+            # Prove what production runs, not whatever main points to.
+            SHA="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/deploy-cloudflare-release.yml/runs?status=success&per_page=1" --jq '.workflow_runs[0].head_sha')"
+            FULL="true"
+          fi
           [[ "${SHA}" =~ ^[0-9a-fA-F]{40}$ ]]
           echo "expected_sha=${SHA,,}" >> "$GITHUB_OUTPUT"
+          echo "full=${FULL}" >> "$GITHUB_OUTPUT"
 
   platform:
     needs: resolve
@@ -65,7 +90,7 @@ jobs:
   # within each release; never cancel queued proof or deployment runs.
   persistent-stress:
     needs: [resolve, platform]
-    if: always() && needs.resolve.result == 'success'
+    if: always() && needs.resolve.result == 'success' && needs.resolve.outputs.full == 'true'
     uses: ./.github/workflows/persistent-capability-stress-live-proof.yml
     with:
       expected_sha: ${{ needs.resolve.outputs.expected_sha }}
@@ -79,7 +104,7 @@ jobs:
 
   council-rich-ui:
     needs: [resolve, persistent-stress]
-    if: always() && needs.resolve.result == 'success'
+    if: always() && needs.resolve.result == 'success' && needs.resolve.outputs.full == 'true'
     uses: ./.github/workflows/council-rich-ui-production-proof.yml
     with:
       expected_sha: ${{ needs.resolve.outputs.expected_sha }}
@@ -95,7 +120,7 @@ jobs:
 
   sovereignty:
     needs: [resolve, council-rich-ui]
-    if: always() && needs.resolve.result == 'success'
+    if: always() && needs.resolve.result == 'success' && needs.resolve.outputs.full == 'true'
     uses: ./.github/workflows/mel-sov-01-live-proof.yml
     with:
       expected_sha: ${{ needs.resolve.outputs.expected_sha }}
@@ -114,6 +139,7 @@ jobs:
           STRESS: ${{ needs.persistent-stress.result }}
           WORKERS_AI_PROOF_REFRESH: ${{ needs.workers-ai-proof-refresh.result }}
           COUNCIL_RICH_UI: ${{ needs.council-rich-ui.result }}
+          FULL: ${{ needs.resolve.outputs.full }}
           CONNECTIONS: ${{ needs.connections.result }}
           SOVEREIGNTY: ${{ needs.sovereignty.result }}
         run: |
@@ -130,6 +156,10 @@ jobs:
             sovereignty:process.env.SOVEREIGNTY||'unknown',
           };
           console.log(JSON.stringify(proof,null,2));
-          const values=[proof.platform,proof.persistent_stress,proof.workers_ai_proof_refresh,proof.council_rich_ui,proof.connections,proof.sovereignty];
+          proof.full=process.env.FULL==='true';
+          // A light (per-release) run must skip exactly the weekly heavy proofs.
+          const heavy=[proof.persistent_stress,proof.council_rich_ui,proof.sovereignty];
+          if(!proof.full&&heavy.some(value=>value!=='skipped')) process.exit(1);
+          const values=proof.full?[proof.platform,proof.persistent_stress,proof.workers_ai_proof_refresh,proof.council_rich_ui,proof.connections,proof.sovereignty]:[proof.platform,proof.workers_ai_proof_refresh,proof.connections];
           if(values.some(value=>value!=='success')) process.exit(1);
           NODE
