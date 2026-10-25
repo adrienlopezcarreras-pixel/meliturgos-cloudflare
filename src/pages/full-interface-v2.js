@@ -1316,7 +1316,13 @@ async function loadFreeLoraStatus(){
     // A completed training trace proves the immutable training output, never the
     // canonical + impact benchmark of the candidate adapter.
     const benchmarkVerified=impact?.canonical_gate_passed===true&&impact?.impact_gate_passed===true
-      &&Boolean(impact?.adapter_id)&&Boolean(impact?.measured_at);
+      &&Boolean(impact?.adapter_id)&&Boolean(impact?.measured_at)
+      // A historical benchmark cannot approve a new Kaggle checkpoint.
+      &&Boolean(checkpoint?.source_sha)&&Boolean(verifiedTrace?.adapter_digest)
+      &&String(impact?.source_sha||'').toLowerCase()===String(checkpoint.source_sha).toLowerCase()
+      &&String(verifiedTrace.source_sha||'').toLowerCase()===String(checkpoint.source_sha).toLowerCase()
+      &&String(impact?.artifact_digest||'').replace(/^sha256:/i,'').toLowerCase()
+        ===String(verifiedTrace.adapter_digest).replace(/^sha256:/i,'').toLowerCase();
     const benchKnown=Boolean(d?.learning?.benchmark_status&&typeof d.learning.benchmark_status==='object');
     const bench=benchKnown?d.learning.benchmark_status:{};
     qs('#freeBenchmarkState').textContent=benchmarkVerified?'GATES CANONIQUE ET IMPACT VALIDÉS':((verifiedTraining||traceSuccess||checkpoint?.tag)?'CHECKPOINT ENTRAÎNÉ · BENCHMARK CANONIQUE NON PROUVÉ':(benchKnown?'BENCHMARK HISTORIQUE NON RELIÉ AU CHECKPOINT · GATES NON PROUVÉS':'—'));
@@ -1335,7 +1341,7 @@ async function loadFreeLoraStatus(){
       :(dailyStatus?.report_fr?String(dailyStatus.report_fr):'Aucune trace LoRA durable disponible.');
     qs('#freeImpactStage').textContent=!benchmarkVerified&&verifiedTrace?.results?.progression?.local_next_stage?String(verifiedTrace.results.progression.local_next_stage):(impact.next_stage||'—');
     const agenticKnown=impact.next_stage!=null&&String(impact.next_stage).trim()!=='';
-    const agenticReady=agenticKnown&&String(impact.next_stage)==='AGENTIC_READY';
+    const agenticReady=benchmarkVerified&&agenticKnown&&String(impact.next_stage)==='AGENTIC_READY';
     setLoraTag('#freeAgenticState',!agenticKnown?'Indisponible':(agenticReady?'AGENTIC_READY':'VERROUILLÉ'),agenticReady?'good':'warn');
     const agenticLink=qs('#freeAgenticColab');
     if(agenticLink){
@@ -1356,7 +1362,7 @@ async function loadFreeLoraStatus(){
       checkpoint?.tag?(checkpoint.publication_verified===false?'TRACE VÉRIFIÉE C':'CHECKPOINT C')+String(checkpointCycle).padStart(3,'0'):(traceSuccess||verifiedTraining?'CHECKPOINT VÉRIFIÉ':(bundleKnown?(bundleReady?'BUNDLE PRÊT':'EN ATTENTE'):'INDISPONIBLE')),
       checkpoint?.tag||traceSuccess||bundleReady===true?'good':'warn');
 
-    const validationDone=benchmarkVerified||loraState==='ACTIVE';
+    const validationDone=benchmarkVerified;
     const validationKnown=verifiedTraining||traceSuccess||Boolean(checkpoint)||benchKnown||loraKnown||impactKnown;
     setLoraTag('#freeValidationState',!validationKnown?'INDISPONIBLE':(validationDone?'VALIDÉ':'À VALIDER'),validationDone?'good':'warn');
 
