@@ -205,6 +205,8 @@ async function freeLoraStatusResponse(request, env) {
         impact_gate_passed: impactCandidate?.metadata?.uncensored_gate === true,
         next_stage: impactCandidate?.metadata?.next_stage || 'UNCENSORED_WAITING',
         adapter_id: impactCandidate?.adapter_id || null,
+        source_sha: impactCandidate?.source_sha || null,
+        artifact_digest: impactCandidate?.metadata?.artifact_digest || null,
         measured_at: impactCandidate?.created_at || null,
       },
     };
@@ -299,6 +301,7 @@ async function freeLoraStatusResponse(request, env) {
       status:'SUCCEEDED',trace_verified:true,
       dataset:{examples:verifiedTrainingTrace.dataset?.examples??null},
       training:{steps:verifiedTrainingTrace.training?.steps??verifiedTrainingTrace.training?.global_step??null},
+      adapter_digest:(verifiedTrainingTrace.artifacts||[]).find(row=>row?.kind==='adapter')?.sha256||null,
       results:{
         train_loss:verifiedTrainingTrace.results?.train_loss??null,
         progression:verifiedTrainingTrace.results?.progression||null,
