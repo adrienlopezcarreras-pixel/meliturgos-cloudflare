@@ -1238,4 +1238,22 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1792857600000
   },
+  {
+    "id": "claude-heartbeat-list-must-stay-light-20261025",
+    "source": "claude",
+    "domain": "autonomy-runtime",
+    "task": "Lister les missions à chaque tick d'un Worker cron.",
+    "input": "list() lisait les 100 dernières dev_jobs complètes (17 Mo de JSON : requêtes Teacher/Council, historiques, patchs), plusieurs fois par tick.",
+    "before": "Chaque tick mourait en mémoire avant d'écrire : MAX en boucle LEASE_BUSY, mission QUEUED 7 h sans aucune trace d'erreur.",
+    "after": "Une liste lue par le chemin chaud ne charge pas les gros JSON des lignes terminées ; seul get() ou une option explicite { full: true } les lit. Mesurer la taille réelle des lignes en prod quand un tick meurt sans trace.",
+    "rationale": "Un tick tué ne journalise rien : l'absence d'erreur avec un bail toujours occupé signale une mort mémoire/CPU, pas une attente.",
+    "tests": [
+      "tests/dev-job-list-light.test.mjs (PR #2612)",
+      "Prod 25/10 après release 7d5daa4 : FOUNDER-01 QUEUED -> COUNCIL_COMPLETE -> WAITING_TEACHER -> TEACHER_APPROVED en 1 min, FOUNDER-02 créée et approuvée"
+    ],
+    "tags": ["autonomy", "d1", "memory", "cron", "max"],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1792886400000
+  },
 ]);
