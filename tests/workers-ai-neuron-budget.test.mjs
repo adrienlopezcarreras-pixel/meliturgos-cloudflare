@@ -38,3 +38,16 @@ test('unknown and streamed calls are charged conservatively', () => {
   assert.ok(estimateNeurons('@cf/unknown/model', { prompt: 'x'.repeat(4000) }, new ReadableStream()) > estimateNeurons(model, { prompt: 'x'.repeat(4000) }, { response: 'y' }));
   assert.equal(estimateNeurons('@cf/black-forest-labs/flux-1-schnell', {}, {}), 2000);
 });
+
+test('background work stops at its share so the chat keeps a reserve', async () => {
+  const db = await sqliteD1();
+  const calls = [];
+  const now = () => Date.parse('2026-11-02T10:00:00Z');
+  const cron = withNeuronBudget({ DB: db, AI: aiFake(calls), MEL_AI_DAILY_NEURON_CAP: '9000' }, { now, background: true });
+  const chat = withNeuronBudget({ DB: db, AI: aiFake(calls), MEL_AI_DAILY_NEURON_CAP: '9000' }, { now });
+  await cron.AI.run(model, {});
+  await cron.AI.run(model, {});
+  await assert.rejects(cron.AI.run(model, {}), error => error.code === 'WORKERS_AI_DAILY_NEURON_BUDGET_EXHAUSTED');
+  await chat.AI.run(model, {});
+  assert.equal(calls.length, 3);
+});
