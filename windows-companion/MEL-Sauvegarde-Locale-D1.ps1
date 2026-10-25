@@ -84,8 +84,14 @@ if ($restore.integrity -ne 'ok' -or $restore.tables -lt 1) {
 
 # Comparaison avec la production : un ecart vient d'ecritures pendant l'export.
 $names = @($restore.counts.PSObject.Properties.Name)
-$union = ($names | ForEach-Object { "SELECT '$($_ -replace "'", "''")' AS t, COUNT(*) AS n FROM `"$($_ -replace '"', '""')`"" }) -join ' UNION ALL '
-$remote = (Invoke-Native { & npx --yes wrangler@4 d1 execute $Database --remote --json --command $union 2>$null } | Out-String | ConvertFrom-Json)[0].results
+# Batches of 20 tables: one query over every table exceeded the Windows
+# command-line limit ("La ligne de commande est trop longue", 25/10).
+$remote = @()
+for ($i = 0; $i -lt $names.Count; $i += 20) {
+  $batch = $names[$i..([Math]::Min($i + 19, $names.Count - 1))]
+  $union = ($batch | ForEach-Object { "SELECT '$($_ -replace "'", "''")' AS t, COUNT(*) AS n FROM `"$($_ -replace '"', '""')`"" }) -join ' UNION ALL '
+  $remote += (Invoke-Native { & npx --yes wrangler@4 d1 execute $Database --remote --json --command $union 2>$null } | Out-String | ConvertFrom-Json)[0].results
+}
 $diff = @()
 foreach ($row in $remote) {
   $local = [int64]$restore.counts.($row.t)
