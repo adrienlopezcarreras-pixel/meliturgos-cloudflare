@@ -157,3 +157,19 @@ pas inventée. Les sept adaptateurs et la purge restent non vérifiés.
 
 XP MEL : NON — application des règles existantes de mémoire bornée et de preuve
 réelle, sans ajout d'une leçon redondante. Mission BLOCKED, aucune purge production.
+
+## Deuxième test réel et diagnostic borné
+
+#2621 fusionnée (82e2268a). Run 40171881887 : suite complète main réussie,
+plus de crash OOM ; le job échoue avec ISOLATED_RESTORE_FAILED et produit un reçu.
+Le filtre initial masquait les codes sûrs BACKUP_* du codec. Correction : seuls
+les identifiants internes bornés, l'étape CONFIGURATION/DOWNLOAD/DECRYPT/RESTORE
+et la classe d'erreur sont conservés. Messages bruts, URLs, clés d'objet et données
+restent exclus. 12 tests ciblés passent, dont tests de non-divulgation.
+
+Le dispatch manuel de lecture seule conserve tests ciblés de restauration,
+syntaxe et sécurité. La suite complète reste exigée sur les PR et les exécutions
+sans snapshot ; elle n'est plus répétée pour le simple diagnostic distant sans
+mutation production. Le job reste réservé à main et attend son job de validation.
+Aucun garde de purge ou de production n'est assoupli. Ce diagnostic ne doit pas
+être déclaré restauration réussie, ni autorisation de nettoyage.
