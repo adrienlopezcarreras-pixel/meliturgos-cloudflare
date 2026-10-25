@@ -3,6 +3,9 @@ import { rejectCrossSiteMutation } from './core/security.js';
 import { withStoredZeroCostProofs, requestZeroCostProofRefresh } from './augmentio/zero-cost-proof-store.js';
 import { withNeuronBudget } from './augmentio/neuron-budget.js';
 
+// Crons run MAX, mentor and watches: they get the background share only.
+const BACKGROUND_AI_BUDGET = Object.freeze({ background: true });
+
 const NORMAL_PATHS = new Set(['/', '/mvp']);
 const PROFESSOR_PATHS = new Set(['/professor']);
 const RETIRED_VISUAL_IDS = Object.freeze([
@@ -111,7 +114,7 @@ export default {
   },
   async scheduled(controller, env, ctx) {
     env = await withStoredZeroCostProofs(env);
-    env = withNeuronBudget(env, { background: true });
+    env = withNeuronBudget(env, BACKGROUND_AI_BUDGET);
     // Refresh evidence while MAX is paused too; provider authorization stays
     // fail-closed until the existing privileged workflow publishes a new proof.
     await requestZeroCostProofRefresh(env).catch(() => null);
