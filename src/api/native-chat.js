@@ -2628,6 +2628,32 @@ export async function handleNativeChat(request, env, options = {}) {
       }
       if (recovered) {
         ai = recovered;
+      } else if (!releaseSmoke && inferPublicImageLookup(activeTaskText)
+          && !/\\b(?:explique|expliquer|compare|comparer|analyse|analyser|d[ée]cris|d[ée]crire|pourquoi|comment)\\b/i.test(activeTaskText)
+          && toolResults.some(row => row.capability === 'web.images.search'
+            && row.status === 'SUCCEEDED' && Array.isArray(row.result?.images))) {
+        // A successful public-image retrieval must not be lost simply because
+        // the optional natural-language inference provider is unavailable.
+        // Reuse the canonical sourced-image renderer and media serializer.
+        const responseText = withOfficialVisual('', activeTaskText, toolResults);
+        const responseMedia = collectChatMedia(toolResults, new URL(request.url).origin);
+        let archiveSaved = false;
+        if (service) {
+          try {
+            await service.archiveMessage({ conversationId, deviceId, role:'user', content:text,
+              timestamp:Date.now(), provenance:userProvenance, metadata:userMetadata });
+            await service.archiveMessage({ conversationId, deviceId, role:'assistant', content:responseText,
+              timestamp:Date.now()+1, provenance:'native-chat:verified-image-fallback',
+              metadata:{ analysis_available:false, analysis_error:'CHAT_INFERENCE_FAILED',
+                capability:'web.images.search' } });
+            archiveSaved = true;
+          } catch {}
+        }
+        return Response.json({ ok:true, text:responseText, model:'deterministic-image-retrieval',
+          provider:'mel', response_mode:'verified-image-retrieval', analysis_available:false,
+          analysis_error:'CHAT_INFERENCE_FAILED', capability_used:['web.images.search'],
+          tool_results:toolResults, media:responseMedia, archive_saved:archiveSaved },
+          { headers:{'cache-control':'no-store'} });
       } else if (explanatoryAutonomyRead) {
         // The read succeeded even when every inference provider failed. Keep
         // that evidence, without presenting the absent analysis as successful.
