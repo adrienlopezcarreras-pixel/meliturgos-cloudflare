@@ -9,7 +9,13 @@ function fail(code) {
 function contract(source) {
   let tree;
   try { tree = parse(source, { ecmaVersion: 'latest', sourceType: 'module' }); }
-  catch { fail('MENTOR_CODE_SYNTAX_INVALID'); }
+  catch (error) {
+    const line = String(source).split('\n')[(error?.loc?.line || 1) - 1] || '';
+    throw Object.assign(new Error('MENTOR_CODE_SYNTAX_INVALID'), {
+      code: 'MENTOR_CODE_SYNTAX_INVALID',
+      syntax: `${String(error?.message || 'parse error')} — ligne: ${line.trim().slice(0, 140)}`,
+    });
+  }
   const names = new Set();
   const classes = new Map();
   function binding(node) {
