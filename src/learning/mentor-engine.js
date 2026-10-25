@@ -242,7 +242,11 @@ function normalizeInspectedFiles(files = []) {
 function resolveFind(text, find) {
   const source = String(text || '');
   if (!find || source.includes(find)) return find;
-  const wanted = String(find).split(/\r?\n/).map(line => line.trim());
+  // Models copy our own truncation notice into SEARCH (MENTOR_UNINSPECTED_EDIT
+  // on FOUNDER-05, 25/10); it is never part of the file, so ignore it.
+  const wanted = String(find).split(/\r?\n/)
+    .filter(line => !/^\s*\[EXTRAIT (PARTIEL|TRONQUÉ)/.test(line))
+    .map(line => line.trim());
   while (wanted.length && !wanted[0]) wanted.shift();
   while (wanted.length && !wanted.at(-1)) wanted.pop();
   if (!wanted.length) return find;

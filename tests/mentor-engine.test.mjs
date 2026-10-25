@@ -873,3 +873,21 @@ test('the per-call cap no longer cuts the configured model timeout to 30 s', asy
   const cap = Number(source.match(/function boundedMentorInvoke[\s\S]*?Math\.min\((\d+)_000/)[1]) * 1000;
   assert.ok(cap >= new MentorEngine({}).invokeTimeoutMs, 'boundedMentorInvoke must honour invokeTimeoutMs');
 });
+
+test('a SEARCH block that copied our truncation notice still matches the visible code', async () => {
+  const source = 'export function greet() {\n  return "hi";\n}\n';
+  const reply = [
+    'SUMMARY Change le salut',
+    'TESTS test:smoke',
+    'EDIT src/example.js',
+    '<<<<<<< SEARCH',
+    '  return "hi";',
+    '[EXTRAIT TRONQUÉ: 400 caractères au total. Modifie ce fichier par edits avec un find copié de cet extrait.]',
+    '=======',
+    '  return "salut";',
+    '>>>>>>> REPLACE',
+  ].join('\n');
+  const engine = new MentorEngine({ providerFactory: async () => [provider('blocks', reply)] });
+  const result = await engine.propose({ env: {}, goal: 'Saluer', inspectedFiles: [{ path: 'src/example.js', content: source }] });
+  assert.equal(result.proposal.changes[0].content, 'export function greet() {\n  return "salut";\n}\n');
+});
