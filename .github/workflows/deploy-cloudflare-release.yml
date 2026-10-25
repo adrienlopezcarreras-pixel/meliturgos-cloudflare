@@ -961,7 +961,21 @@ jobs:
           echo "Production HTTP verification passed with status ${PROD_STATUS}."
 
 
+      - name: Decide weekly heavy release proofs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Browser, file and downstream capability proofs (Browser Run hours and
+          # Workers AI neurons) run on the first release of each UTC week only;
+          # later releases keep deploy and health gates (owner rule, 25/10).
+          MONDAY="$(date -u -d "$(date -u +%Y-%m-%d) -$(( ($(date -u +%u) + 6) % 7 )) days" +%Y-%m-%dT00:00:00Z)"
+          DONE="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/deploy-cloudflare-release.yml/runs?status=success&created=>=$MONDAY&per_page=1" --jq '.total_count' || echo 0)"
+          if [ "${DONE:-0}" = "0" ]; then echo "HEAVY_PROOFS=true" >> "$GITHUB_ENV"; else echo "HEAVY_PROOFS=false" >> "$GITHUB_ENV"; fi
+          echo "Heavy release proofs this week already done: ${DONE:-0}"
       - name: Dispatch decoupled downstream production proofs
+        if: env.HEAVY_PROOFS == 'true'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -999,6 +1013,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
 
       - name: Prove real production browser.execute
+        if: env.HEAVY_PROOFS == 'true'
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -1043,6 +1058,7 @@ jobs:
 
 
       - name: Prove MEL-FILE-01 in real production browser
+        if: env.HEAVY_PROOFS == 'true'
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -1120,6 +1136,7 @@ jobs:
           rm -f production-file-browser-proof.json
 
       - name: Upload MEL-FILE-01 production proof
+        if: env.HEAVY_PROOFS == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: mel-file-browser-production-proof-${{ env.EXPECTED_SHA }}
