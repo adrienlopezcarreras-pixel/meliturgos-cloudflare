@@ -33,3 +33,17 @@ test('LoRA status uses verified published checkpoints, not an arbitrary release 
   assert.match(source, /impact_gate_passed: impactCandidate\?\.metadata\?\.uncensored_gate === true/);
   assert.doesNotMatch(source, /releases\.find\(\(release\)/);
 });
+
+test('LoRA free-status recovers verified cycle history and preserves GitHub verification distinction', async () => {
+  const source = await readFile(new URL('../src/professor-live-learning-entry.js', import.meta.url), 'utf8');
+  assert.match(source, /listLoraDailyTraces\(env,\{limit:30\}\)/);
+  assert.match(source, /verifiedTrainingTrace=traces\.find/);
+  assert.match(source, /Number\(row\?\.trace_verified\)!==1/);
+  assert.match(source, /kinds\.has\('adapter'\)&&kinds\.has\('bundle'\)&&kinds\.has\('checkpoint'\)/);
+  assert.match(source, /publication_verified:false/);
+  assert.match(source, /evidence_source:'DURABLE_VERIFIED_TRACE'/);
+  assert.match(source, /evidence_source: 'GITHUB_RELEASE'/);
+  assert.match(source, /status: 'UNKNOWN', conclusion: null, observation_error: 'GITHUB_FETCH_ERROR'/);
+  assert.match(source, /verified_training_trace: verifiedTrainingTrace/);
+  assert.match(source, /artifact_digest: impactCandidate\?\.metadata\?\.artifact_digest \|\| null/);
+});

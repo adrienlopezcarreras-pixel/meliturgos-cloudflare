@@ -24,9 +24,9 @@ test('Kaggle training success cannot impersonate a passed canonical benchmark', 
   const source = await read('src/pages/full-interface-v2.js');
   const panel = source.slice(source.indexOf('async function loadFreeLoraStatus(){'), source.indexOf("qs('#freeLoraRefresh').onclick="));
   assert.match(panel, /const benchmarkVerified=impact\?\.canonical_gate_passed===true&&impact\?\.impact_gate_passed===true/);
-  assert.match(panel, /const validationDone=benchmarkVerified\|\|loraState==='ACTIVE'/);
+  assert.match(panel, /const validationDone=benchmarkVerified;/);
   assert.doesNotMatch(panel, /const validationDone=traceSuccess/);
-  assert.match(panel, /BENCHMARK NON PROUVÉ/);
+  assert.match(panel, /BENCHMARK CANONIQUE NON PROUVÉ/);
   assert.match(panel, /CHECKPOINT VÉRIFIÉ/, 'preserve the independent successful training checkpoint state');
 });
 
@@ -70,4 +70,19 @@ test('a failed LoRA refresh invalidates all displayed status and does not cache 
     'stale agentic promotion link must become unavailable');
   assert.match(catchBranch, /throw e;\s*}\s*finally/,
     'loadPanel must not set its success cache timestamp on failed LoRA refresh');
+});
+
+test('Free LoRA UI falls back to durable training proof without reusing an unrelated benchmark', async () => {
+  const source = await read('src/pages/full-interface-v2.js');
+  const panel = source.slice(source.indexOf('async function loadFreeLoraStatus(){'), source.indexOf("qs('#freeLoraRefresh').onclick="));
+  assert.match(panel, /verified_training_trace/);
+  assert.match(panel, /verifiedTrace\.adapter_digest/);
+  assert.match(panel, /impact\?\.artifact_digest/);
+  assert.match(panel, /impact\?\.source_sha/);
+  assert.match(panel, /benchmarkVerified&&agenticKnown/);
+  assert.match(panel, /BENCHMARK CANONIQUE NON PROUVÉ/);
+  assert.match(panel, /BENCHMARK HISTORIQUE NON RELIÉ AU CHECKPOINT/);
+  assert.doesNotMatch(panel, /bench\.latest_score!=null/, 'a prior benchmark score must not certify the current adapter');
+  assert.match(panel, /const knownStages=\[/);
+  assert.doesNotMatch(panel, /\{known:promotionApplicable,done:promotionDone\}/, 'hidden promotion does not belong in the three-stage progress');
 });
