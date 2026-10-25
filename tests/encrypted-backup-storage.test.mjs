@@ -234,3 +234,22 @@ test('MEL-RES-05 environment codec requires a named 256-bit key and never silent
   assert.equal(valid.key_id,'key-id');
   assert.equal(valid.algorithm,'AES-GCM-256');
 });
+
+test('large encrypted snapshot roundtrip stays within bounded Node heap', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const moduleUrl = new URL('../src/backup/encrypted-backup-storage.js', import.meta.url).href;
+  const code = `
+    import {createBackupEncryptionCodec} from ${JSON.stringify(moduleUrl)};
+    const codec=createBackupEncryptionCodec({keyId:'synthetic',keyBytes:new Uint8Array(32).fill(7)});
+    const snapshot={id:'synthetic-large',schema:'MEL_VERIFIED_SNAPSHOT_V1',integritySha256:'a'.repeat(64),data:'x'.repeat(16*1024*1024)};
+    const envelope=await codec.seal(snapshot);
+    const restored=await codec.open(envelope);
+    if(restored.data!==snapshot.data)process.exit(1);
+    console.log('ROUNDTRIP_OK');
+  `;
+  const child = spawnSync(process.execPath, ['--max-old-space-size=192','--input-type=module','-e',code], {
+    encoding:'utf8',timeout:30_000,maxBuffer:1024*1024,
+  });
+  assert.equal(child.status,0,`bounded codec subprocess failed: status=${child.status}, signal=${child.signal}`);
+  assert.equal(child.stdout.trim(),'ROUNDTRIP_OK');
+});

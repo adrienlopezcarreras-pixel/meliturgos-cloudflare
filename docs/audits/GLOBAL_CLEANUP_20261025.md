@@ -131,3 +131,29 @@ d'un cycle existant peut encore libérer son bail pour drainer sans deadlock.
 Le test SQL réel couvre ces états et la reprise après libération vérifiée du
 verrou global. 71 tests locaux réussis avec les suites voisines. Cette admission
 ne constitue ni une preuve de drain du cycle existant ni l'arrêt des sept domaines.
+
+## Résultats réels et correction mémoire du codec
+
+#2611 fusionnée dans main 9b7b9934. Lecture D1 réelle run 40170884401 :
+MAX RUNNING, paused=false, max_autonomy=true. Simulation GitHub run 40171121567 :
+2659 branches, 1951 proposées par l'autre outil, zéro suppression appliquée.
+La proposition seule n'autorise aucune suppression ni ne prouve la sécurité des
+mutations de cet outil. Dernière release vérifiée réussie : 40169084435 / 7d5daa4b.
+Promotion après fusion différée par RELEASE_BATCH_WINDOW, pas de nouvelle release
+manuelle concurrente créée.
+
+Run réel 40170898667 sur snapshot system-20261025063233609 : CI complète réussie,
+mais restauration isolée échouée avec exit 134, heap OOM et aucun reçu. Aucune
+restauration réussie revendiquée. Les logs restent privés et ne sont pas committés.
+
+Le codec partagé utilisait Uint8Array.from(string, mapper) pour convertir la
+chaîne binaire : cette itération matérialise un intermédiaire coûteux. Reproduction
+synthétique 16 Mio / heap 192 Mio : ancien code exit 134, code corrigé ROUNDTRIP_OK.
+La conversion écrit désormais directement dans un Uint8Array préalloué. AES-GCM,
+AAD, intégrité, format, validation base64 et clés restent inchangés. 27 tests
+ciblés réussis, dont test du codec en sous-processus avec heap limité. Le test
+réel devra être relancé après revue/fusion ; sa cause restante éventuelle n'est
+pas inventée. Les sept adaptateurs et la purge restent non vérifiés.
+
+XP MEL : NON — application des règles existantes de mémoire bornée et de preuve
+réelle, sans ajout d'une leçon redondante. Mission BLOCKED, aucune purge production.
