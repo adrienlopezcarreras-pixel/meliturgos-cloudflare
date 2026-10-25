@@ -92,5 +92,31 @@ export async function releaseAutonomyRuntimeLease({
   return changedRows(result) === 1;
 }
 
+// A tick that waits on models for minutes outlived the 90 s lease: the next
+// tick started on the same job and their writes collided (JOB_UPDATE_CONFLICT,
+// TEACHER_REQUEST_ALREADY_PENDING on 25/10). The owner extends the lease while
+// it is alive; a killed tick stops renewing and the lease still expires.
+export async function renewAutonomyRuntimeLease({ db = null, owner, leaseMs = DEFAULT_LEASE_MS, now = Date.now(), memoryStore = null } = {}) {
+  const ownerId = String(owner || '');
+  if (!ownerId) return false;
+  const expiresAt = Number(now) + normalizedLeaseMs(leaseMs);
+  if (!db) {
+    const current = memoryStore?.get(LEASE_KEY) || null;
+    if (!current || current.owner !== ownerId) return false;
+    memoryStore.set(LEASE_KEY, { ...current, expires_at: expiresAt });
+    return true;
+  }
+  const result = await db.prepare(`
+    UPDATE dev_bridge_state SET last_seen=?
+    WHERE bridge_id=? AND status=?
+  `).bind(expiresAt, LEASE_KEY, ownerStatus(ownerId)).run();
+  return changedRows(result) === 1;
+}
+
+export function keepAutonomyRuntimeLeaseAlive(args, { everyMs = 30_000 } = {}) {
+  const timer = setInterval(() => { renewAutonomyRuntimeLease({ ...args, now: Date.now() }).catch(() => false); }, everyMs);
+  return () => clearInterval(timer);
+}
+
 export const AUTONOMY_RUNTIME_LEASE_KEY = LEASE_KEY;
 export const AUTONOMY_RUNTIME_LEASE_MS = DEFAULT_LEASE_MS;
