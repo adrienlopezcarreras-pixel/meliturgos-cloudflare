@@ -8,7 +8,7 @@ import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-
 import { mirrorAllWaitingOwnerChatTeachers } from '../teachers/owner-chat-teacher-mirror.js';
 import { recoverPassiveRuntimeStates } from './passive-state-recovery.js';
 import { retireObsoleteQueueJobs } from './queue-hygiene.js';
-import { tryAcquireAutonomyRuntimeLease, releaseAutonomyRuntimeLease } from './autonomy-runtime-lease.js';
+import { tryAcquireAutonomyRuntimeLease, releaseAutonomyRuntimeLease, keepAutonomyRuntimeLeaseAlive } from './autonomy-runtime-lease.js';
 import { createZeroCostBenchmarkEvaluator } from '../learning/operator-actions.js';
 import { reconcileRuntimeCompletions } from '../teachers/github-completion-reconciler.js';
 import { recordAutonomyProgressWatchdog, resetAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
@@ -785,6 +785,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
       : { ...base, watchdog };
   }
 
+  const stopRenewal = keepAutonomyRuntimeLeaseAlive({ db: leaseArgs.db, owner: leaseArgs.owner, leaseMs: leaseArgs.leaseMs, memoryStore: leaseArgs.memoryStore });
   try {
     const raw = await runAutonomyRuntimeTickUnlocked(env, { ...options, epochMs, repository: repository || options.repository }, control);
     const tick = augmentTickProgress(raw);
@@ -805,6 +806,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     }
     return { ...tick, watchdog };
   } finally {
+    stopRenewal();
     await releaseAutonomyRuntimeLease({
       db: env?.DB || null,
       owner,
