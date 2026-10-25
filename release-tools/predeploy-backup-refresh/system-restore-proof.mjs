@@ -1,4 +1,4 @@
-import { validateR2CopyInventory, MAX_R2_SNAPSHOT_OBJECTS, MAX_R2_SNAPSHOT_BYTES } from './r2-copy.mjs';
+import { validateR2CopyInventory, MAX_R2_SNAPSHOT_OBJECTS, MAX_R2_SNAPSHOT_BYTES, MAX_R2_SNAPSHOT_OBJECT_BYTES } from './r2-copy.mjs';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -30,6 +30,7 @@ export async function proveSystemSnapshotRestore(snapshot, source, {maxBytes=MAX
   for(const object of manifest.objects) {
     if(typeof object.key!=='string'||descriptors.has(object.key)||!Number.isSafeInteger(object.size)||object.size<0||
        !/^[a-f0-9]{64}$/.test(object.sha256||'')||!String(object.backup_key||'').startsWith('backups/system/r2-bytes/')) fail('ISOLATED_R2_MANIFEST_INVALID');
+    if(object.size>MAX_R2_SNAPSHOT_OBJECT_BYTES)fail('ISOLATED_RESTORE_BUDGET_EXCEEDED');
     descriptors.set(object.key,object); bytes+=object.size;
   }
   if(manifest.objectCount!==descriptors.size||manifest.totalBytes!==bytes) fail('ISOLATED_R2_MANIFEST_INVALID');
@@ -47,7 +48,7 @@ export async function proveSystemSnapshotRestore(snapshot, source, {maxBytes=MAX
     async delete(key){await rm(pathFor(key),{force:true});},
   };
   try {
-    const r2=await restoreR2ObjectBytes({get:key=>source.get(key)},target,manifest);
+    const r2=await restoreR2ObjectBytes({get:key=>source.get(key)},target,manifest,{concurrency:4});
     return {ok:true,status:'ISOLATED_RESTORE_VERIFIED',snapshot_id:snapshot.id,integrity_sha256:snapshot.integritySha256,
       database,r2:{object_count:r2.objectCount,total_bytes:r2.totalBytes,target:'ISOLATED_FILESYSTEM'},production_written:false,
       cleanup_authorized:false};

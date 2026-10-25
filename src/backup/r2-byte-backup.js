@@ -135,32 +135,40 @@ export async function backupR2ObjectBytes(bucket, {
 export async function restoreR2ObjectBytes(sourceBucket, targetBucket, manifest, {
   targetPrefix = '',
   verify = true,
+  concurrency = 1,
 } = {}) {
   requireValue(sourceBucket?.get, 'BACKUP_R2_SOURCE_UNAVAILABLE', 503);
   requireValue(targetBucket?.put && targetBucket?.get && targetBucket?.delete, 'BACKUP_R2_TARGET_UNAVAILABLE', 503);
   requireValue(manifest?.type === R2_BYTE_BACKUP_SCHEMA && Array.isArray(manifest.objects), 'BACKUP_R2_MANIFEST_INVALID', 400);
 
-  const restored = [];
-  try {
-    for (const descriptor of manifest.objects) {
-      const source = await sourceBucket.get(descriptor.backup_key);
-      requireValue(source, 'BACKUP_R2_COPY_MISSING', 409);
-      const bytes = await readObjectBytes(source, Number(descriptor.size), descriptor.backup_key);
-      requireValue(await sha256Hex(bytes) === descriptor.sha256, 'BACKUP_R2_COPY_INTEGRITY_MISMATCH', 409);
-      const targetKey = `${targetPrefix}${descriptor.key}`;
-      await targetBucket.put(targetKey, bytes, source?.httpMetadata ? { httpMetadata: source.httpMetadata } : undefined);
-      if (verify) {
-        const target = await targetBucket.get(targetKey);
-        requireValue(target, 'BACKUP_R2_RESTORE_MISSING', 503);
-        const restoredBytes = await readObjectBytes(target, bytes.byteLength, targetKey);
-        requireValue(await sha256Hex(restoredBytes) === descriptor.sha256, 'BACKUP_R2_RESTORE_INTEGRITY_MISMATCH', 409);
-      }
-      restored.push({ key: descriptor.key, target_key: targetKey, size: bytes.byteLength, sha256: descriptor.sha256 });
+  requireValue(Number.isInteger(concurrency)&&concurrency>=1&&concurrency<=4,'BACKUP_R2_RESTORE_CONCURRENCY_INVALID',400);
+  const restored = new Array(manifest.objects.length), written=new Set();
+  let next=0, failure; let failed=false;
+  async function worker() {
+    while(!failed&&next<manifest.objects.length) {
+      const index=next++, descriptor=manifest.objects[index];
+      try {
+        const source = await sourceBucket.get(descriptor.backup_key);
+        requireValue(source, 'BACKUP_R2_COPY_MISSING', 409);
+        const bytes = await readObjectBytes(source, Number(descriptor.size), descriptor.backup_key);
+        requireValue(await sha256Hex(bytes) === descriptor.sha256, 'BACKUP_R2_COPY_INTEGRITY_MISMATCH', 409);
+        const targetKey = `${targetPrefix}${descriptor.key}`;
+        requireValue(!(await targetBucket.get(targetKey)), 'BACKUP_R2_RESTORE_TARGET_NOT_EMPTY', 409);
+        written.add(targetKey);
+        await targetBucket.put(targetKey, bytes, source?.httpMetadata ? { httpMetadata: source.httpMetadata } : undefined);
+        if (verify) {
+          const target = await targetBucket.get(targetKey);
+          requireValue(target, 'BACKUP_R2_RESTORE_MISSING', 503);
+          const restoredBytes = await readObjectBytes(target, bytes.byteLength, targetKey);
+          requireValue(await sha256Hex(restoredBytes) === descriptor.sha256, 'BACKUP_R2_RESTORE_INTEGRITY_MISMATCH', 409);
+        }
+        restored[index]={key:descriptor.key,target_key:targetKey,size:bytes.byteLength,sha256:descriptor.sha256};
+      }catch(error){if(!failed){failed=true;failure=error;}}
     }
-  } catch (error) {
-    await cleanup(targetBucket, restored.map(row => row.target_key));
-    throw error;
   }
+  // All in-flight copies finish before rollback, so none can write after cleanup.
+  await Promise.all(Array.from({length:Math.min(concurrency,manifest.objects.length)},()=>worker()));
+  if(failed){await cleanup(targetBucket,[...written]);throw failure;}
 
   return {
     ok: true,
