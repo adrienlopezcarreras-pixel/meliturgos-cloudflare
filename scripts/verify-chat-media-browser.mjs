@@ -17,9 +17,10 @@ const credential='Basic '+btoa('local-owner:local-fixture-password');
 const env={MELITURGOS_USER:'local-owner',MELITURGOS_PASSWORD:'local-fixture-password',
  MEL_MEDIA_ENCRYPTION_KEY_ID:'local-fixture',MEL_MEDIA_ENCRYPTION_KEY_B64:Buffer.alloc(32,29).toString('base64'),
  MEDIA_BUCKET:{async put(key,bytes,options){objects.set(key,{bytes,customMetadata:options.customMetadata});},async get(key){const object=objects.get(key);return object?{customMetadata:object.customMetadata,arrayBuffer:async()=>object.bytes.buffer.slice(object.bytes.byteOffset,object.bytes.byteOffset+object.bytes.byteLength)}:null;}},
- AI:{async run(){return {response:'Le média est prêt pour le lecteur.'};}},
+ AI:{async run(){if(failInference)throw Object.assign(Error('LOCAL_INFERENCE_UNAVAILABLE'),{code:'AI_PROVIDER_UNAVAILABLE'});return {response:'Le média est prêt pour le lecteur.'};}},
 };
 let browser,server;
+let failInference=false;
 try{
  const videoBytes=await readFile(new URL('../tests/fixtures/media/blue-vp8.webm',import.meta.url));
  const video=await storePrivateArtifact(env,new Uint8Array(videoBytes),{capability:'media.video.generate',model:'local-ffmpeg-fixture',mime:'video/webm;codecs=vp8',extension:'webm'});
@@ -28,6 +29,13 @@ try{
  env.MEL_MEDIA_CAPABILITIES={
   'media.video.generate':async()=>({ok:true,zero_added_cost:true,provider:'local-fixture',artifact:video}),
   'media.image.generate':async()=>({ok:true,zero_added_cost:true,provider:'local-fixture',artifact:image}),
+ };
+ env.MEL_WEB_FETCH=async raw=>{
+  const query=new URL(raw).searchParams.get('gsrsearch')||'';
+  const type=query.includes('filetype:audio')?'audio':query.includes('filetype:video')?'video':'image';
+  const mime={image:'image/png',audio:'audio/wav',video:'video/webm'}[type];
+  const name={image:'image.png',audio:'audio.wav',video:'video.webm'}[type];
+  return Response.json({query:{pages:{1:{title:'Local media fixture',imageinfo:[{url:'https://media.mel-browser-fixture.test/'+name,mime,descriptionurl:'https://commons.wikimedia.org/wiki/File:Local_fixture'}]}}}});
  };
  const html='<!doctype html><meta charset="utf-8"><title>MEL local media proof</title><h1>MEL — local media proof</h1><p>Actual DSP audio; image/video provider fixtures. Not production.</p><div id="out"></div><div id="public"></div><button id="play">Lire les médias</button><script>'+CHAT_RICH_RENDERER_SOURCE+'</script><script>'+`
  (async()=>{
@@ -40,11 +48,15 @@ try{
    // Establish HTTP Basic authentication for native media element requests.
    await fetch(media[0].url,{headers:{authorization:${JSON.stringify(credential)}}});
    melRenderRichText(document.querySelector('#out'),'Trois résultats du vrai Worker local.',{media});
-   melRenderRichText(document.querySelector('#public'),['Médias publics HTTPS provenant du fournisseur de test.','','https://www.youtube.com/watch?v=fixture1234','','https://vimeo.com/123456'].join(String.fromCharCode(10)),{media:[
-     {type:'image',url:'https://media.mel-browser-fixture.test/image.png'},
-     {type:'audio',url:'https://media.mel-browser-fixture.test/audio.wav'},
-     {type:'video',url:'https://media.mel-browser-fixture.test/video.webm'},
-   ]});
+   await fetch('/proof/inference-unavailable',{method:'POST'});
+   const recoveredMedia=[];
+   for(const text of ['Montre-moi une photo de chat','Fais-moi écouter un son de pluie','Montre-moi une vidéo de mer']){
+     const r=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json','authorization':${JSON.stringify(credential)}},body:JSON.stringify({text})});
+     const d=await r.json();
+     if(!r.ok||d.analysis_available!==false||d.media?.length!==1)throw Error('VERIFIED_MEDIA_LOST_AFTER_INFERENCE_FAILURE');
+     recoveredMedia.push(...d.media);
+   }
+   melRenderRichText(document.querySelector('#public'),['Médias récupérés malgré une synthèse indisponible.','','https://www.youtube.com/watch?v=fixture1234','','https://vimeo.com/123456'].join(String.fromCharCode(10)),{media:recoveredMedia});
    for(const img of document.querySelectorAll('img'))img.loading='eager';
    // These forbidden resources must remain blocked by the actual CSP.
    const forbiddenScript=document.createElement('script');forbiddenScript.src='https://media.mel-browser-fixture.test/attack.js';document.body.appendChild(forbiddenScript);
@@ -62,7 +74,7 @@ try{
        const external={image_width:externalImage.naturalWidth,audio_time:externalAudio.currentTime,video_time:externalVideo.currentTime};
        if(!external.image_width||external.audio_time<=0||external.video_time<=0)throw new Error('EXTERNAL_MEDIA_NOT_DECODED:'+JSON.stringify(external));
        externalAudio.pause();externalVideo.pause();
-       const img=document.querySelector('img');window.__mediaProof={ok:img.complete&&img.naturalWidth>0&&audio.currentTime>0&&video.currentTime>=0.75,image_width:img.naturalWidth,audio_time:audio.currentTime,video_time:video.currentTime,audio_ready:audio.readyState,video_ready:video.readyState,kinds,external,embeds:[...document.querySelectorAll('#public iframe')].map(frame=>frame.src),policy_violations:window.__policyViolations,untrusted_script:window.__untrusted===true};
+       const img=document.querySelector('img');window.__mediaProof={ok:img.complete&&img.naturalWidth>0&&audio.currentTime>0&&video.currentTime>=0.75,image_width:img.naturalWidth,audio_time:audio.currentTime,video_time:video.currentTime,audio_ready:audio.readyState,video_ready:video.readyState,kinds,external,inference_unavailable_media:recoveredMedia.length===3,embeds:[...document.querySelectorAll('#public iframe')].map(frame=>frame.src),policy_violations:window.__policyViolations,untrusted_script:window.__untrusted===true};
        audio.pause();video.pause();
      }catch(error){window.__mediaProof={ok:false,error:error.message}}
    };
@@ -71,6 +83,7 @@ try{
  `+'</script>';
  server=createServer(async(incoming,outgoing)=>{
   try{
+   if(incoming.url==='/proof/inference-unavailable'&&incoming.method==='POST'){failInference=true;outgoing.writeHead(204);outgoing.end();return;}
    if(incoming.url==='/proof'){const page=hardenResponseHeaders(new Response(html,{headers:{'content-type':'text/html; charset=utf-8'}}));outgoing.writeHead(page.status,Object.fromEntries(page.headers));outgoing.end(await page.text());return;}
    const chunks=[];for await(const chunk of incoming)chunks.push(chunk);
    const body=Buffer.concat(chunks),headers=new Headers(incoming.headers);
@@ -142,7 +155,7 @@ try{
  await send('Runtime.evaluate',{expression:"document.querySelector('#play').click()",userGesture:true});
  const proof=await until('window.__mediaProof');
  assert.equal(proof.ok,true,JSON.stringify(proof));assert.deepEqual(proof.kinds,['image','audio','video']);
- assert.equal(proof.untrusted_script,false);
+ assert.equal(proof.untrusted_script,false);assert.equal(proof.inference_unavailable_media,true);
  assert.deepEqual(proof.embeds,['https://www.youtube-nocookie.com/embed/fixture1234','https://player.vimeo.com/video/123456']);
  for(const directive of ['script-src-elem','frame-src','connect-src'])assert.ok(proof.policy_violations.includes(directive),directive);
  assert.ok(!externalRequests.includes('/attack.js')&&!externalRequests.includes('/connect'));
