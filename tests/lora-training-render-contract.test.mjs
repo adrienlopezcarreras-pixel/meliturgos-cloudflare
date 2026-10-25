@@ -22,3 +22,12 @@ test('LoRA status exposes training workflow plus durable daily trace instead of 
   assert.doesNotMatch(source, /FREE_LORA_COLLECTOR_WORKFLOW/);
   assert.doesNotMatch(source, /collector_workflow:/);
 });
+
+
+test('LoRA status uses verified published checkpoints, not an arbitrary release tag', async () => {
+  const source = await readFile(new URL('../src/professor-live-learning-entry.js', import.meta.url), 'utf8');
+  assert.match(source, /selectLatestCheckpointRelease\(releases\)/);
+  assert.match(source, /artifact_available: true/);
+  assert.match(source, /TRAINED_UNBENCHMARKED/);
+  assert.doesNotMatch(source, /releases\.find\(\(release\)/);
+});

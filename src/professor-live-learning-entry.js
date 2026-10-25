@@ -1,4 +1,5 @@
 import app from './ui-entry.js';
+import { selectLatestCheckpointRelease } from './learning/lora-training-heartbeat.js';
 import { requireAuth } from './core/security.js';
 import { authorizeDevBridge, isOidcBridgeCall } from './core/dev-bridge-auth.js';
 import { createLearningEngine } from './learning/learning-engine.js';
@@ -145,19 +146,19 @@ async function freeLoraStatusResponse(request, env) {
     );
     if (response.ok) {
       const releases = await response.json();
-      const row = Array.isArray(releases)
-        ? releases.find((release) => /^mel-lora-kaggle-[0-9a-f]{12}-c\\d+$/i.test(String(release?.tag_name || '')))
-        : null;
-      if (row) {
-        const match = /-c(\\d+)$/i.exec(String(row.tag_name || ''));
-        const body = String(row.body || '');
+      // A real checkpoint requires a published, source-matched release with
+      // both nonempty immutable assets, not merely a plausible tag.
+      const latest = selectLatestCheckpointRelease(releases);
+      if (latest) {
         checkpoint = {
-          tag: row.tag_name,
-          cycle: match ? Number(match[1]) : null,
-          source_sha: /^[0-9a-f]{40}$/i.test(String(row.target_commitish || '')) ? row.target_commitish : null,
-          local_gate_ready: body.includes('LOCAL_GATE_READY_FOR_CANONICAL_BENCHMARK'),
-          published_at: row.published_at || row.created_at || null,
-          html_url: row.html_url || null,
+          tag: latest.tag,
+          cycle: latest.cycle,
+          source_sha: latest.target_commitish,
+          local_gate_ready: latest.local_gate_ready,
+          published_at: latest.published_at,
+          html_url: `https://github.com/${FREE_LORA_GITHUB_REPO}/releases/tag/${encodeURIComponent(latest.tag)}`,
+          artifact_available: true,
+          validation_status: latest.local_gate_ready ? 'LOCAL_GATE_READY_FOR_CANONICAL_BENCHMARK' : 'TRAINED_UNBENCHMARKED',
         };
       }
     }
