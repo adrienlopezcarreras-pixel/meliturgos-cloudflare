@@ -251,3 +251,17 @@ admet 7378 références mais refuse encore réellement les octets absents.
 93 tests ciblés passent après résolution des conflits. Les valeurs du test ne
 sont pas présentées comme une mesure fraîche de production. Aucune restauration
 complète ni purge encore prouvée. XP MEL : NON.
+
+## Reprise CI de #2636
+
+Main edd09b23 réconcilié sans perdre les modifications Mentor, modèles, UI et
+capabilities. La CI durable-work échouait sur les fixtures SQLite des reprises
+open-loop, sans table dev_bridge_state. Ces fixtures utilisent maintenant l'option
+maintenanceFence du helper partagé, comme les autres intégrations WORK. Aucun
+assouplissement du runtime : schéma absent reste refusé. Les 26 tests ciblés de
+reprise/durable/contexte passent localement.
+
+La suite locale complète a rencontré une erreur d'environnement : RUNNER_TEMP
+pointait vers un répertoire absent. Le test cloud-bridge-execution a été relancé
+avec un répertoire existant et réussit ; ce n'est pas une correction du runtime.
+La validation CI du nouveau HEAD reste nécessaire, pas de succès rétroactif.
