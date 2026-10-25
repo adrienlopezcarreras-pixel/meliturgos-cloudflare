@@ -774,7 +774,6 @@ jobs:
                 training:{failed_at:new Date().toISOString()},
               },null,2)+'\n');
           NODE
-              node .mel-trace-control/scripts/lora-daily-trace-client.mjs TRAINING_ERROR artifacts/lora-trace-error.json RUNNING || true
               # Kaggle sometimes reports a terminal worker ERROR after the
               # notebook finisher has already completed successfully.  Do not
               # discard a real, durable model bundle solely for that status.
@@ -798,6 +797,7 @@ PY
                   break
                 fi
               fi
+              node .mel-trace-control/scripts/lora-daily-trace-client.mjs TRAINING_ERROR artifacts/lora-trace-error.json RUNNING || true
               echo "::error title=Kaggle GPU run failed::$STATUS"
               exit 1
             fi
@@ -850,7 +850,14 @@ PY
         run: |
           set -euo pipefail
           mkdir -p artifacts/kaggle-output artifacts/lora-incoming
-          kaggle kernels output "$KERNEL_REF" -p artifacts/kaggle-output --force
+          if ! kaggle kernels output "$KERNEL_REF" -p artifacts/kaggle-output --force; then
+            echo "::warning::Kaggle output retry failed; checking the already downloaded recovery bundle."
+          fi
+          if [[ -s artifacts/kaggle-recovery-run.json ]]; then
+            RECOVERY_BUNDLE="$(find artifacts/kaggle-error -type f -name 'mel-lora-bundle.tar.gz' -print -quit)"
+            [[ -n "$RECOVERY_BUNDLE" && -s "$RECOVERY_BUNDLE" ]] || exit 1
+            cp "$RECOVERY_BUNDLE" artifacts/kaggle-output/mel-lora-bundle.tar.gz
+          fi
           BUNDLE="$(find artifacts/kaggle-output -type f -name 'mel-lora-bundle.tar.gz' -print -quit)"
           [[ -n "$BUNDLE" && -s "$BUNDLE" ]] || {
             echo "KAGGLE_BUNDLE_MISSING"
