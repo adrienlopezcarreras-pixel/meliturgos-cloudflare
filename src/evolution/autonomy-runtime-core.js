@@ -1,6 +1,6 @@
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
-import { AutonomySupervisor, providerRetryContext } from './autonomy-supervisor.js';
+import { AutonomySupervisor, providerRetryContext, BRIDGE_MENTOR_ROUNDS } from './autonomy-supervisor.js';
 import { prepareDevelopmentRequest } from './development-preflight.js';
 import { createGitHubCodeReader } from '../capabilities/github-code-capabilities.js';
 import { createTeacherReviewRequest } from '../teachers/teacher-request.js';
@@ -368,7 +368,7 @@ export async function persistBridgePreparationDiagnostic(repository, jobId, diag
     // large code model (after 3 rejected rounds) never got its turn and
     // FOUNDER-02..07 sat idle on 25/10. Each new round now sees its previous
     // errors (mentor_attempt_history), so retrying is no longer identical.
-    const maxAttempts = structural ? 4 : 3;
+    const maxAttempts = structural ? BRIDGE_MENTOR_ROUNDS : 3;
     result.autonomy_deferral = { ...deferred, phase: 'bridge', context, attempts,
       max_attempts: maxAttempts, exhausted: attempts >= maxAttempts };
   }
