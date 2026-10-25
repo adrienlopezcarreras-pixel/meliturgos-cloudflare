@@ -42,3 +42,10 @@ test('production row counts are queried in batches that fit the Windows command 
   assert.match(backup, /\$i \+= 20/);
   assert.match(backup, /\$batch = \$names\[/);
 });
+
+test('the isolated restore runs in one transaction and ignores the export transaction markers', () => {
+  const backup = readFileSync('windows-companion/MEL-Sauvegarde-Locale-D1.ps1', 'utf8');
+  assert.match(backup, /PRAGMA journal_mode=OFF; PRAGMA synchronous=OFF; BEGIN/);
+  assert.match(backup, /db\.exec\('COMMIT'\)/);
+  assert.match(backup, /BEGIN\( TRANSACTION\)\?\|COMMIT/);
+});

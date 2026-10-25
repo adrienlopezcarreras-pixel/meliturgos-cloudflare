@@ -54,14 +54,20 @@ const [sqlFile, dbFile] = process.argv.slice(-2);
 (async () => {
   fs.rmSync(dbFile, { force: true });
   const db = new DatabaseSync(dbFile);
+  // One transaction, no journal: per-statement commits made a 350 MB restore
+  // take hours on the owner PC (25/10). The file is a throwaway test copy.
+  db.exec('PRAGMA journal_mode=OFF; PRAGMA synchronous=OFF; BEGIN');
   let buffer = '', statements = 0;
   for await (const line of readline.createInterface({ input: fs.createReadStream(sqlFile, 'utf8'), crlfDelay: Infinity })) {
     buffer += line + '\n';
     // A statement ends on ';' outside a string literal ('' escapes keep parity).
     if (!line.trimEnd().endsWith(';') || (buffer.split("'").length - 1) % 2) continue;
-    db.exec(buffer); statements++; buffer = '';
+    // The export's own transaction markers would nest inside ours.
+    if (!/^\s*(BEGIN( TRANSACTION)?|COMMIT|END( TRANSACTION)?);\s*$/i.test(buffer)) { db.exec(buffer); statements++; }
+    buffer = '';
   }
   if (buffer.trim()) throw new Error('RESTORE_TRAILING_STATEMENT_INCOMPLETE');
+  db.exec('COMMIT');
   const integrity = db.prepare('PRAGMA integrity_check').get();
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY name").all().map(row => row.name);
   const counts = Object.fromEntries(tables.map(name => [name, db.prepare(`SELECT COUNT(*) AS n FROM "${name.replace(/"/g, '""')}"`).get().n]));
