@@ -51,3 +51,17 @@ test('background work stops at its share so the chat keeps a reserve', async () 
   await chat.AI.run(model, {});
   assert.equal(calls.length, 3);
 });
+
+test('MAX waits for the next UTC day instead of failing missions once its share is spent', async () => {
+  const { runAutonomyRuntimeTick } = await import('../src/evolution/autonomy-runtime.js');
+  const db = await sqliteD1();
+  const env = { DB: db, MEL_AI_DAILY_NEURON_CAP: '9000' };
+  const { setAutonomyControl } = await import('../src/evolution/autonomy-control.js');
+  await setAutonomyControl(db, { paused: false, actor: 'test', reason: 'test' });
+  await readNeuronBudget(db);
+  const day = new Date().toISOString().slice(0, 10);
+  await db.prepare('INSERT INTO mel_ai_neuron_budget (day, neurons, calls) VALUES (?, 5400, 10)').bind(day).run();
+  const result = await runAutonomyRuntimeTick(env);
+  assert.equal(result.status, 'AI_BUDGET_EXHAUSTED');
+  assert.equal(result.progress.block_reason, 'AI_DAILY_NEURON_BUDGET_EXHAUSTED');
+});

@@ -66,6 +66,17 @@ export async function readNeuronBudget(db, { now = Date.now(), cap = DEFAULT_DAI
   return { day, cap, neurons: Number(row?.neurons || 0), calls: Number(row?.calls || 0), refused: Number(row?.refused || 0) };
 }
 
+// Background work must stop before its share is spent, not fail: a Council
+// left without answers marked missions FAILED (25/10).
+export async function backgroundNeuronBudgetExhausted(env, { now = Date.now() } = {}) {
+  if (!env?.DB) return false;
+  const dayCap = Number(env.MEL_AI_DAILY_NEURON_CAP) > 0 ? Number(env.MEL_AI_DAILY_NEURON_CAP) : DEFAULT_DAILY_NEURON_CAP;
+  try {
+    const budget = await readNeuronBudget(env.DB, { now, cap: dayCap });
+    return budget.neurons >= Math.floor(dayCap * BACKGROUND_NEURON_SHARE);
+  } catch { return true; }
+}
+
 export function withNeuronBudget(env, { now = () => Date.now(), background = false } = {}) {
   const ai = env?.AI;
   if (!ai || ai.__melNeuronBudget || !env?.DB) return env;
