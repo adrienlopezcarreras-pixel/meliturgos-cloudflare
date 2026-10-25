@@ -43,6 +43,16 @@ on:
         required: true
         default: false
         type: boolean
+      objective:
+        description: "Training objective chosen by MEL (uncensored|agentic)"
+        required: false
+        default: "uncensored"
+        type: string
+      agentic_sources:
+        description: "JSON list of MEL-discovered public datasets pinned by revision"
+        required: false
+        default: "[]"
+        type: string
       smoke_only:
         description: "Run exactly one optimizer step and stop before checkpoint/benchmark/promotion"
         required: true
@@ -99,6 +109,8 @@ jobs:
           INPUT_MAX_CYCLES: ${{ inputs.max_cycles }}
           INPUT_BENCHMARK_PREVIEW: ${{ inputs.benchmark_preview }}
           INPUT_SMOKE_ONLY: ${{ inputs.smoke_only }}
+          INPUT_OBJECTIVE: ${{ inputs.objective }}
+          INPUT_AGENTIC_SOURCES: ${{ inputs.agentic_sources }}
         run: |
           set -euo pipefail
           SOURCE_SHA="${INPUT_SOURCE_SHA:-$GITHUB_SHA}"
@@ -137,6 +149,11 @@ jobs:
           echo "SHARD_SIZE=$SHARD_SIZE" >> "$GITHUB_ENV"
           echo "MAX_CYCLES=$MAX_CYCLES" >> "$GITHUB_ENV"
           echo "BENCHMARK_PREVIEW=$BENCHMARK_PREVIEW" >> "$GITHUB_ENV"
+          OBJECTIVE="${INPUT_OBJECTIVE:-uncensored}"
+          [[ "$OBJECTIVE" == "agentic" ]] || OBJECTIVE="uncensored"
+          AGENTIC_SOURCES="$(printf '%s' "${INPUT_AGENTIC_SOURCES:-[]}" | jq -c 'if type=="array" then .[:3] else [] end')"
+          echo "OBJECTIVE=$OBJECTIVE" >> "$GITHUB_ENV"
+          echo "AGENTIC_SOURCES=$AGENTIC_SOURCES" >> "$GITHUB_ENV"
           echo "SMOKE_ONLY=$SMOKE_ONLY" >> "$GITHUB_ENV"
           echo "MAX_STEPS=$MAX_STEPS" >> "$GITHUB_ENV"
           echo "KAGGLE_KERNEL_TIMEOUT_SECONDS=$KAGGLE_KERNEL_TIMEOUT_SECONDS" >> "$GITHUB_ENV"
@@ -255,7 +272,7 @@ jobs:
             echo "Smoke shard includes all $CANONICAL_MEL_COUNT canonical lessons."
           fi
           # Build deterministic shard with the effective size used by later stages.
-          python scripts/prepare-kaggle-lora-shard.py             --cycle "$CYCLE"             --shard-size "$SHARD_SIZE"             --mel-lessons /tmp/mel-canonical-50.jsonl             --output /tmp/mel-training-shard.jsonl
+          python scripts/prepare-kaggle-lora-shard.py             --cycle "$CYCLE"             --shard-size "$SHARD_SIZE"             --mel-lessons /tmp/mel-canonical-50.jsonl             --output /tmp/mel-training-shard.jsonl             --objective "$OBJECTIVE"             --agentic-sources "$AGENTIC_SOURCES"
           gzip -9 -c /tmp/mel-training-shard.jsonl > /tmp/mel-training-shard.jsonl.gz
           test -s /tmp/mel-training-shard.jsonl.gz
           test -s /tmp/mel-training-shard.jsonl.meta.json
@@ -1104,7 +1121,7 @@ jobs:
             echo "- Zero-cost only: true"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          if [[ "$NEXT_STAGE" == "AGENTIC_READY" ]]; then
+          if [[ "$NEXT_STAGE" == "AGENTIC_READY" && "$OBJECTIVE" != "agentic" ]]; then
             echo "Canonical UNCENSORED gate reached; preserve parent and stop before AGENTIC."
             exit 0
           fi
@@ -1126,7 +1143,7 @@ jobs:
 
           NEXT_BENCHMARK_PREVIEW="$BENCHMARK_PREVIEW"
           if [[ "$CYCLE" == "6" ]]; then NEXT_BENCHMARK_PREVIEW="false"; fi
-          gh workflow run lora-kaggle-free-gpu.yml             --repo "$GITHUB_REPOSITORY"             --ref main             -f source_sha="$SOURCE_SHA"             -f cycle="$NEXT_CYCLE"             -f parent_release_tag="$CHECKPOINT_TAG"             -f shard_size="$SHARD_SIZE"             -f max_cycles="$MAX_CYCLES"             -f benchmark_preview="$NEXT_BENCHMARK_PREVIEW"
+          gh workflow run lora-kaggle-free-gpu.yml             --repo "$GITHUB_REPOSITORY"             --ref main             -f source_sha="$SOURCE_SHA"             -f cycle="$NEXT_CYCLE"             -f parent_release_tag="$CHECKPOINT_TAG"             -f shard_size="$SHARD_SIZE"             -f max_cycles="$MAX_CYCLES"             -f benchmark_preview="$NEXT_BENCHMARK_PREVIEW"             -f objective="$OBJECTIVE"             -f agentic_sources="$AGENTIC_SOURCES"
           echo "Submitted next cycle: $NEXT_CYCLE (benchmark_preview=$NEXT_BENCHMARK_PREVIEW)"
 
       - name: Verify actual Kaggle one-step smoke evidence before recording success
