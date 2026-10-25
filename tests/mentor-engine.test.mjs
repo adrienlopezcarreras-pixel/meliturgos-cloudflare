@@ -891,3 +891,12 @@ test('a SEARCH block that copied our truncation notice still matches the visible
   const result = await engine.propose({ env: {}, goal: 'Saluer', inspectedFiles: [{ path: 'src/example.js', content: source }] });
   assert.equal(result.proposal.changes[0].content, 'export function greet() {\n  return "salut";\n}\n');
 });
+
+test('a long file is shown around the code the goal is about, so an edit there is accepted', async () => {
+  const filler = Array.from({ length: 400 }, (_, i) => `export const f${i} = ${i};`).join('\n');
+  const source = filler + '\nexport function greetOwner() {\n  return "hi";\n}\n';
+  const reply = ['SUMMARY Change le salut', 'TESTS test:smoke', 'EDIT src/example.js', '<<<<<<< SEARCH', '  return "hi";', '=======', '  return "salut";', '>>>>>>> REPLACE'].join('\n');
+  const engine = new MentorEngine({ providerFactory: async () => [{ ...provider('blocks', reply), maxInputChars: 7000 }] });
+  const result = await engine.propose({ env: {}, goal: 'Modifier greetOwner pour saluer en français', inspectedFiles: [{ path: 'src/example.js', content: source }] });
+  assert.ok(result.proposal.changes[0].content.endsWith('  return "salut";\n}\n'));
+});
