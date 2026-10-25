@@ -135,3 +135,20 @@ test('restore refuses target collisions without overwriting or deleting pre-exis
  assert.deepEqual([...target.objects.keys()].sort(),['a','unrelated']);
  assert.equal(new TextDecoder().decode(target.objects.get('a').bytes),'keep');
 });
+
+test('backup preserves a pre-existing destination instead of overwriting or deleting it',async()=>{
+ const bucket=new FakeBucket({a:'original'});
+ const manifest=await backupR2ObjectBytes(bucket,{snapshotId:'existing-destination'});
+ const destination=manifest.objects[0].backup_key;
+ const saved=new Uint8Array(bucket.objects.get(destination).bytes);
+ await assert.rejects(backupR2ObjectBytes(bucket,{snapshotId:'existing-destination'}),error=>error?.code==='BACKUP_R2_COPY_TARGET_NOT_EMPTY');
+ assert.deepEqual(bucket.objects.get(destination).bytes,saved);
+ assert.equal(new TextDecoder().decode(bucket.objects.get('a').bytes),'original');
+});
+
+test('backup removes the attempted destination even when put writes then rejects',async()=>{
+ const bucket=new FakeBucket({a:'original'}),put=bucket.put.bind(bucket);
+ bucket.put=async(...args)=>{await put(...args);throw Error('SYNTHETIC_WRITE_RESPONSE_LOST');};
+ await assert.rejects(backupR2ObjectBytes(bucket,{snapshotId:'partial-write'}),/SYNTHETIC_WRITE_RESPONSE_LOST/);
+ assert.deepEqual([...bucket.objects.keys()],['a']);
+});
