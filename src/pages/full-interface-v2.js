@@ -1396,8 +1396,8 @@ async function loadFreeLoraStatus(){
     // The workflow link was removed from the page; a missing link must never stop the refresh.
     if(d.workflow_url)setLoraLink('#freeLoraWorkflow',d.workflow_url);
 
-    const trainingDone=verifiedTraining||traceSuccess||(trainStatus==='COMPLETED'&&trainConclusion==='SUCCESS');
-    const checkpointDone=Boolean(checkpoint?.tag)||verifiedTraining||traceSuccess||bundleReady===true;
+    const trainingDone=verifiedTraining||traceSuccess;
+    const checkpointDone=Boolean(checkpoint?.tag)||verifiedTraining||traceSuccess;
     const promotionRunning=wfStatus==='IN_PROGRESS'||wfStatus==='QUEUED';
     const promotionDone=wfStatus==='COMPLETED'&&wfConclusion==='SUCCESS';
     const promotionApplicable=wfStatus!=='NEVER_RUN'&&wfStatus!=='UNKNOWN';
@@ -1415,7 +1415,7 @@ async function loadFreeLoraStatus(){
     qs('#freeLoraProgressPercent').textContent=percent==null?'—':percent+'%';
     qs('#freeLoraProgressText').textContent=percent==null
       ?'Statut indisponible'
-      :runtimeDone
+      :runtimeDone&&benchmarkVerified
         ?'LoRA validé et actif dans MEL'
         :promotionRunning
           ?'Promotion en cours'
@@ -1423,6 +1423,7 @@ async function loadFreeLoraStatus(){
             ?'Entraînement, checkpoint et validation confirmés · activation MEL à vérifier'
             :trainActive
               ?'Entraînement Kaggle en cours · cycle '+(visibleCycle==null?'?':visibleCycle)
+              :trainingDone&&checkpointDone?'Entraînement et checkpoint vérifiés · benchmark canonique non prouvé'
               :'Pipeline en attente de la prochaine preuve réelle'+(lora.reason?' · '+String(lora.reason):'');
   }catch(e){
     // Treat a failed refresh as a failure, not a new successful 30-second
