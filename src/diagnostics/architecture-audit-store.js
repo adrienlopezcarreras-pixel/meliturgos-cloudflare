@@ -28,6 +28,13 @@ export async function storeArchitectureReport(db, report, { sha = '', now = Date
     legacy_imported: list(report.legacy_imported, 50),
     duplicate_exports: list(report.duplicate_exports, 50),
     ...(Array.isArray(report.new_models) ? { new_models: list(report.new_models, 30).map(String) } : {}),
+    ...(report.ui?.schema === 'mel.ui-production-audit/v1' ? { ui: {
+      schema: report.ui.schema,
+      pages: Number(report.ui.pages) || 0,
+      api_calls: Number(report.ui.api_calls) || 0,
+      blocked_calls: Number(report.ui.blocked_calls) || 0,
+      findings: list(report.ui.findings, 40).map(row => ({ code: String(row?.code || '').slice(0, 60), detail: String(row?.detail || '').slice(0, 300) })),
+    } } : {}),
   };
   await ensureSchema(db);
   await db.prepare(`INSERT INTO mel_architecture_audit (id, report_json, source_sha, received_at) VALUES (?, ?, ?, ?)
@@ -58,6 +65,8 @@ export function architectureFindings(latest, { now = Date.now() } = {}) {
   // MEL-AUDIT-06: each free model MEL does not use yet is a discovery to
   // measure through the MAX chain before any registry change.
   for (const model of (r.new_models || []).slice(0, 10)) findings.push({ code: 'UPGRADE_MODEL_AVAILABLE', detail: model + ' disponible sur Workers AI, absent de ModelRegistry : à mesurer (sonde code, coût) avant adoption' });
+  // MEL-UI-AUDIT: what the owner would see broken on the real pages.
+  for (const row of (r.ui?.findings || []).filter(row => /^UI_/.test(row.code))) findings.push(row);
   const untested = r.untested_modules || [];
   if (untested.length) findings.push({ code: 'ARCH_UNTESTED_MODULES', detail: untested.length + ' modules src/ sans test qui les importe, dont ' + untested.slice(0, 5).join(', ') });
   return findings;
