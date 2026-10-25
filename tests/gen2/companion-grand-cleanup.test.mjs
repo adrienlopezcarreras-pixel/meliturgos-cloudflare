@@ -55,7 +55,7 @@ test('GitHub cleanup fail closed unless dry-run confirms success and no errors',
   assert.match(src,/MEL_GITHUB_DRY_RUN_REPORTED_ERRORS/);
   assert.match(src,/MEL_GITHUB_DRY_RUN_COMPLETION_NOT_PROVEN/);
   assert.match(src,/TERMINE/);
-  assert.doesNotMatch(src,/\$githubScript\s+-Apply/);
+  assert.doesNotMatch(src,/-Apply/);
   assert.doesNotMatch(src,/Read-Host/);
 });
 

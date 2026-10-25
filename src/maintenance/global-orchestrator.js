@@ -31,6 +31,8 @@ export async function executeGlobalMaintenance({
       await stopProducers();
       if ((await verifyProducersStopped()) !== true)
         throw Error('MAINTENANCE_PRODUCERS_NOT_STOPPED');
+      // Drain WORK again after producer shutdown (#2609).
+      await assertNoActiveWorkLeases(db,{now:now()});
       await checkpointMaintenanceLease(db,{leaseId,phase:'PRODUCERS_STOPPED',now:now()});
       const results={};
       for (const scope of RESET_SCOPES) {
