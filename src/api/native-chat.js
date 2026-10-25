@@ -2025,7 +2025,7 @@ export async function handleNativeChat(request, env, options = {}) {
   const explanatoryAutonomyRead = autonomyRuntimeObservedRow?.capability === 'autonomy.status'
     && autonomyRuntimeObservedRow.status === 'SUCCEEDED'
     && classifyTask(activeTaskText) !== 'conversation';
-  if (!releaseSmoke && autonomyRuntimeObservedRow && !explanatoryAutonomyRead) {
+  const respondWithAutonomyEvidence = async ({ analysisUnavailable = false } = {}) => {
     const queued = autonomyRuntimeObservedRow.status === 'QUEUED';
     const capabilitySucceeded = autonomyRuntimeObservedRow.status === 'SUCCEEDED';
     const runtimeResult = capabilitySucceeded && autonomyRuntimeObservedRow.result && typeof autonomyRuntimeObservedRow.result === 'object'
@@ -2042,7 +2042,7 @@ export async function handleNativeChat(request, env, options = {}) {
             block_reason: String(autonomyRuntimeObservedRow.error || 'AUTONOMY_RUNTIME_FAILED').slice(0, 180),
           },
         };
-    const responseText = queued
+    let responseText = queued
       ? 'Le cycle d’autonomie est pris en charge par le moteur persistant. Cette conversation n’attend pas sa fin. Le résultat sera visible dans l’activité réelle, pas dans ce message.'
       : capabilitySucceeded
       ? formatVerifiedAutonomyRuntimeResponse(runtimeResult, {
@@ -2053,6 +2053,7 @@ export async function handleNativeChat(request, env, options = {}) {
         ? 'Je n’ai pas pu lire l’état d’autonomie : '
         : 'Le cycle d’autonomie n’a pas pu s’exécuter : ')
         + String(autonomyRuntimeObservedRow.error || 'AUTONOMY_RUNTIME_FAILED').slice(0, 180) + '.';
+    if (analysisUnavailable) responseText = 'Je n’ai pas pu produire l’explication avec le modèle pour ce tour. Voici uniquement l’état effectivement lu, sans lancer de cycle.\n\n' + responseText;
     let archiveSaved = false;
     if (service) {
       try {
@@ -2069,6 +2070,7 @@ export async function handleNativeChat(request, env, options = {}) {
             runtime_status: runtimeResult.status || null,
             advanced: runtimeResult.advanced === true,
             response_grounding: 'deterministic-autonomy-runtime',
+            ...(analysisUnavailable ? { analysis_available:false, analysis_error:'CHAT_INFERENCE_FAILED' } : {}),
           },
         });
         archiveSaved = true;
@@ -2080,6 +2082,7 @@ export async function handleNativeChat(request, env, options = {}) {
       model:'deterministic-autonomy-runtime',
       provider:'mel',
       response_mode: autonomyRuntimeObservedRow.capability === 'autonomy.status' ? 'autonomy-status' : 'autonomy-execution',
+      ...(analysisUnavailable ? { analysis_available:false, analysis_error:'CHAT_INFERENCE_FAILED' } : {}),
       operation_ok: runtimeResult.ok !== false,
       advanced: runtimeResult.advanced === true || runtimeResult.progress?.advanced === true,
       capability_used:[autonomyRuntimeObservedRow.capability],
@@ -2092,6 +2095,9 @@ export async function handleNativeChat(request, env, options = {}) {
         advanced:runtimeResult.advanced === true || runtimeResult.progress?.advanced === true,
       },
     }, { headers:{'cache-control':'no-store'} });
+  };
+  if (!releaseSmoke && autonomyRuntimeObservedRow && !explanatoryAutonomyRead) {
+    return respondWithAutonomyEvidence();
   }
 
   if (!releaseSmoke) capabilityManifest = applyCapabilityExecutionEvidence(capabilityManifest, toolResults);
@@ -2622,6 +2628,10 @@ export async function handleNativeChat(request, env, options = {}) {
       }
       if (recovered) {
         ai = recovered;
+      } else if (explanatoryAutonomyRead) {
+        // The read succeeded even when every inference provider failed. Keep
+        // that evidence, without presenting the absent analysis as successful.
+        return respondWithAutonomyEvidence({ analysisUnavailable:true });
       } else {
         console.error('[native-chat] inference and fallback failed', {
           primary: error?.code || error?.message || String(error),

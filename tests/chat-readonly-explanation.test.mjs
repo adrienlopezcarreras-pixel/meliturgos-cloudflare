@@ -47,3 +47,14 @@ test('a model-suggested autonomy command cannot turn an explanatory read into ex
  assert.equal((await DB.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?').bind('mel-autonomy-control').first()).metadata_json,metadata);
  assert.equal((await DB.prepare('SELECT COUNT(*) AS n FROM dev_jobs').first()).n,0);
 });
+
+test('inference failure preserves the verified read and labels the missing explanation explicitly',async t=>{
+ const {DB,metadata}=await fixture(t);
+ const response=await worker.fetch(request('Explique pourquoi MAX est bloqué et pourquoi les images ne sont pas affichées'),{DB,MELITURGOS_USER:'fixture',MELITURGOS_PASSWORD:'local-only',AI:{async run(){throw Object.assign(Error('UNTRUSTED_UPSTREAM_BODY'),{code:'AI_PROVIDER_UNAVAILABLE'});}}});
+ const result=await response.json();
+ assert.equal(response.status,200);assert.equal(result.analysis_available,false);assert.equal(result.analysis_error,'CHAT_INFERENCE_FAILED');
+ assert.match(result.text,/pas pu produire l’explication/);assert.match(result.text,/État d’autonomie vérifié/);assert.match(result.text,/MAX est activé/);
+ assert.doesNotMatch(result.text,/UNTRUSTED_UPSTREAM_BODY/);
+ assert.ok(result.tool_results.some(row=>row.capability==='autonomy.status'&&row.status==='SUCCEEDED'));
+ assert.equal((await DB.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?').bind('mel-autonomy-control').first()).metadata_json,metadata);
+});
