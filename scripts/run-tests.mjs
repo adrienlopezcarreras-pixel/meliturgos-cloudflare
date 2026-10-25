@@ -128,6 +128,9 @@ async function runFile(file) {
   return { file, rc, out, timed_out: deadlineExceeded || (!completeTapSummary && closed.code === null) };
 }
 
+// Callers that keep only the tail of a long log (the Bridge keeps 32 KB of
+// ~1 MB) must still see which file and which subtest failed.
+const failureRecap = [];
 for (const file of files) {
   const result = await runFile(file);
   const display = file.split(path.sep).join("/");
@@ -137,8 +140,11 @@ for (const file of files) {
   } else {
     console.log(`✗ ${display} (rc=${result.rc})`);
     failures++;
+    const notOk = String(result.out || "").split(/\r?\n/).filter(line => /^\s*not ok \d+/.test(line)).slice(0, 5);
+    failureRecap.push(`✗ ${display} (rc=${result.rc})`, ...notOk.map(line => `    ${line.trim()}`));
   }
 }
 
+if (failureRecap.length) console.log(`\nFailed test files:\n${failureRecap.join("\n")}`);
 console.log(`\n${passed} passed, ${failures} failed`);
 process.exit(failures === 0 ? 0 : 1);
