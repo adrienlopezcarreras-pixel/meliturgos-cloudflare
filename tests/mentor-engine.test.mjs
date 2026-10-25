@@ -891,3 +891,23 @@ test('a SEARCH block that copied our truncation notice still matches the visible
   const result = await engine.propose({ env: {}, goal: 'Saluer', inspectedFiles: [{ path: 'src/example.js', content: source }] });
   assert.equal(result.proposal.changes[0].content, 'export function greet() {\n  return "salut";\n}\n');
 });
+
+test('a long file is shown around the code the goal is about, so an edit there is accepted', async () => {
+  const filler = Array.from({ length: 400 }, (_, i) => `export const f${i} = ${i};`).join('\n');
+  const source = filler + '\nexport function greetOwner() {\n  return "hi";\n}\n';
+  const reply = ['SUMMARY Change le salut', 'TESTS test:smoke', 'EDIT src/example.js', '<<<<<<< SEARCH', '  return "hi";', '=======', '  return "salut";', '>>>>>>> REPLACE'].join('\n');
+  const engine = new MentorEngine({ providerFactory: async () => [{ ...provider('blocks', reply), maxInputChars: 7000 }] });
+  const result = await engine.propose({ env: {}, goal: 'Modifier greetOwner pour saluer en français', inspectedFiles: [{ path: 'src/example.js', content: source }] });
+  assert.ok(result.proposal.changes[0].content.endsWith('  return "salut";\n}\n'));
+});
+
+test('a new test importing the right module from the wrong folder is pointed at the inspected file', async () => {
+  const source = 'export function greetOwner() {\n  return "hi";\n}\n';
+  const reply = ['SUMMARY Change le salut', 'TESTS test:smoke', 'EDIT src/evolution/greet.js', '<<<<<<< SEARCH', '  return "hi";', '=======', '  return "salut";', '>>>>>>> REPLACE',
+    'EDIT tests/greet.test.mjs', '<<<<<<< SEARCH', '=======', "import test from 'node:test';", "import assert from 'node:assert/strict';", "import { greetOwner } from '../src/greet.js';", "test('salut', () => assert.equal(greetOwner(), 'salut'));", '>>>>>>> REPLACE'].join('\n');
+  const engine = new MentorEngine({ providerFactory: async () => [provider('blocks', reply)] });
+  const result = await engine.propose({ env: {}, goal: 'Saluer', requireTest: true, pathExists: async () => false,
+    inspectedFiles: [{ path: 'src/evolution/greet.js', content: source }] });
+  const created = result.proposal.changes.find(change => change.path === 'tests/greet.test.mjs');
+  assert.match(created.content, /from '\.\.\/src\/evolution\/greet\.js'/);
+});

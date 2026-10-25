@@ -127,8 +127,9 @@ test('partial LoRA payloads keep missing evidence unknown instead of inventing l
   assert.match(runtime,/const loraState=loraKnown\?String\(lora\.state\)\.toUpperCase\(\):'UNKNOWN'/);
   assert.match(runtime,/lessonCount==null\?'—\/50'/);
   assert.match(runtime,/const traceSuccess=traceStatus==='SUCCEEDED'&&Number\(dailyTrace\?\.trace_verified\)===1/);
-  assert.match(runtime,/freeBenchmarkState'\)\.textContent=benchKnown/);
-  assert.match(runtime,/traceSuccess\?'VALIDATION TECHNIQUE RÉUSSIE':'—'/);
+  assert.match(runtime,/freeBenchmarkState'\)\.textContent=benchmarkVerified/);
+  assert.match(runtime,/traceSuccess\?'TRACE D’ENTRAÎNEMENT VÉRIFIÉE · BENCHMARK NON PROUVÉ':'—'/);
+  assert.match(runtime,/const validationDone=benchmarkVerified\|\|loraState==='ACTIVE'/);
   assert.match(runtime,/freeImpactStage'\)\.textContent=impact\.next_stage\|\|'—'/);
   assert.match(runtime,/!agenticKnown\?'Indisponible'/);
   assert.match(runtime,/trainStatus==='UNKNOWN'\)setLoraTag\('#freeGpuState','Indisponible'/);

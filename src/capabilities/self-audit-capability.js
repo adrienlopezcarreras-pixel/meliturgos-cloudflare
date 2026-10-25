@@ -53,4 +53,35 @@ export function registerSelfAuditCapabilities(bus, env = {}) {
       waitUntil: typeof context?.waitUntil === 'function' ? context.waitUntil : null,
     });
   });
+  // Deep audit capability: runs capability.audit with deep=true and returns counts of called, refused, and failed capabilities
+  bus.discover({
+    id: 'self.audit.deep',
+    name: 'Lancer le Self-Audit Profond',
+    category: 'diagnostic',
+    version: '1.0.0',
+    provider: 'core',
+    description: 'Executes capability.audit with deep=true and returns counts of called, refused, and failed capabilities.',
+    input_schema: { type: 'object', additionalProperties: false },
+    output_schema: {
+      type: 'object',
+      properties: {
+        called: { type: 'integer' },
+        refused: { type: 'integer' },
+        failed: { type: 'integer' },
+      },
+      required: ['called', 'refused', 'failed'],
+      additionalProperties: false,
+    },
+    risk: 'LOW',
+    permissions: [],
+    health: env?.DB ? 'HEALTHY' : 'UNAVAILABLE',
+    enabled: true,
+  }, async (input, context = {}) => {
+    const auditResult = await bus.execute('capability.audit', { deep: true });
+    const rows = Array.isArray(auditResult?.rows) ? auditResult.rows : [];
+    const called = rows.filter(r => r.execution).length;
+    const refused = rows.filter(r => r.truth_status === 'REFUSEE').length;
+    const failed = rows.filter(r => r.execution && r.execution.ok === false).length;
+    return { called, refused, failed };
+  });
 }

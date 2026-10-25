@@ -106,6 +106,16 @@ async function assertImportsResolve(proposal, pathExists, inspectedFiles = []) {
       }
       const target = parts.join('/');
       if (known.has(target) || await pathExists(target)) continue;
+      // A new test often guesses the module's folder (../src/x.js for
+      // src/evolution/x.js: MENTOR_MISSING_IMPORT on MANIFEST-06, 25/10). When
+      // exactly one inspected or changed file has that name, point the test at it.
+      const name = target.split('/').pop();
+      const matches = [...known].filter(path => path.split('/').pop() === name);
+      if (change.created && /^tests\//.test(change.path) && matches.length === 1) {
+        const fixed = path => { const from = change.path.split('/').slice(0, -1); return '../'.repeat(from.length) + path; };
+        change.content = change.content.split(`'${spec}'`).join(`'${fixed(matches[0])}'`).split(`"${spec}"`).join(`"${fixed(matches[0])}"`);
+        continue;
+      }
       throw Object.assign(new Error(`MENTOR_MISSING_IMPORT:${target}`), { code: 'MENTOR_MISSING_IMPORT' });
     }
   }
@@ -423,13 +433,39 @@ function promptLimit(provider) {
   return provider?.providerId === 'local-companion-ai' ? COMPANION_PROMPT_CHARS : DEFAULT_PROMPT_CHARS;
 }
 
+// A long file used to be shown from its first line only, so the code a goal
+// is about was often off-screen and every SEARCH on it was refused as
+// MENTOR_UNINSPECTED_EDIT (8 of 14 refusals on 25/10). Show instead the window
+// that mentions the goal's words most; edits stay limited to what is shown.
+function focusTerms(goal) {
+  return [...new Set(String(goal || '').toLowerCase().match(/[a-z_][a-z0-9_]{4,}/g) || [])].slice(0, 40);
+}
+
+function focusedWindow(content, share, terms) {
+  if (content.length <= share || !terms.length) return content.slice(0, share);
+  const lines = content.split('\n');
+  const scores = lines.map(line => { const low = line.toLowerCase(); return terms.reduce((n, term) => n + (low.includes(term) ? 1 : 0), 0); });
+  let best = 0, bestScore = -1;
+  for (let start = 0; start < lines.length; start += 1) {
+    let size = 0, score = 0;
+    for (let i = start; i < lines.length && size + lines[i].length + 1 <= share; i += 1) { size += lines[i].length + 1; score += scores[i]; }
+    if (score > bestScore) { bestScore = score; best = start; }
+  }
+  if (bestScore <= 0) return content.slice(0, share);
+  let size = 0, end = best;
+  while (end < lines.length && size + lines[end].length + 1 <= share) { size += lines[end].length + 1; end += 1; }
+  return lines.slice(best, end).join('\n');
+}
+
 // Fit the prompt to one provider: the frame is kept, sources share the rest.
-function promptWithinLimit(build, files, limit, visibleScope = []) {
+function promptWithinLimit(build, files, limit, visibleScope = [], goal = '') {
+  const terms = focusTerms(goal);
   const frame = build([]).length;
   let budget = Math.max(0, Math.min(MAX_TOTAL_SOURCE_CHARS, limit - frame - 120 * files.length));
   const excerpts = files.map((file, index) => {
-    const share = Math.min(MAX_FILE_CHARS, Math.floor(budget / (files.length - index)));
-    const visible = file.content.slice(0, share);
+    // sourceBlock shows at most 4500 characters per file.
+    const share = Math.min(MAX_FILE_CHARS, 4500, Math.floor(budget / (files.length - index)));
+    const visible = focusedWindow(file.content, share, terms);
     budget -= visible.length;
     const excerpt = visible.length < file.content.length
       ? `${visible}\n[EXTRAIT TRONQUÉ: ${file.content.length} caractères au total. Modifie ce fichier par edits avec un find copié de cet extrait.]`
@@ -643,6 +679,7 @@ export class MentorEngine {
             files,
             promptLimit(provider),
             visibleScope,
+            objective,
           ),
           context: {
             purpose: 'mel-autonomous-development',
@@ -703,6 +740,7 @@ export class MentorEngine {
               files,
               promptLimit(provider),
               visibleScope,
+              objective,
             ),
             context: {
               purpose: 'mel-autonomous-development-structured-repair',
