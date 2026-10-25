@@ -40,3 +40,13 @@ test('copy endpoint requires the existing strong sidecar authentication',async()
  const response=await worker.fetch(new Request('https://sidecar.invalid/r2-copy',{method:'POST',body:'{}'}),{MEDIA_BUCKET:bucket,MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN:'a'.repeat(64)});
  assert.equal(response.status,401);
 });
+
+test('authenticated endpoint copies exactly one source through the real sidecar route',async()=>{
+ const {bucket,objects}=fixture();const token='a'.repeat(64);
+ const response=await worker.fetch(new Request('https://sidecar.invalid/r2-copy',{
+  method:'POST',headers:{'x-mel-predeploy-backup-refresh':token,'content-type':'application/json'},
+  body:JSON.stringify({snapshot_id:id,key:'media/original',size:5,etag:'original'}),
+ }),{MEDIA_BUCKET:bucket,MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN:token});
+ assert.equal(response.status,200);
+ const result=await response.json();assert.equal(result.manifest.objectCount,1);assert.equal(objects.size,2);
+});
