@@ -935,7 +935,11 @@ jobs:
           # later releases keep deploy and health gates (owner rule, 25/10).
           MONDAY="$(date -u -d "$(date -u +%Y-%m-%d) -$(( ($(date -u +%u) + 6) % 7 )) days" +%Y-%m-%dT00:00:00Z)"
           DONE="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/deploy-cloudflare-release.yml/runs?status=success&created=>=$MONDAY&per_page=1" --jq '.total_count' || echo 0)"
-          if [ "${DONE:-0}" = "0" ]; then echo "HEAVY_PROOFS=true" >> "$GITHUB_ENV"; else echo "HEAVY_PROOFS=false" >> "$GITHUB_ENV"; fi
+          if [ "${DONE:-0}" = "0" ]; then echo "HEAVY_PROOFS=true" >> "$GITHUB_ENV"; else
+            echo "HEAVY_PROOFS=false" >> "$GITHUB_ENV"
+            # Live Council/provider proofs also spend the daily AI budget.
+            echo "MEL_RELEASE_DEEP_AI_PROOFS_PAUSED=true" >> "$GITHUB_ENV"
+          fi
           echo "Heavy release proofs this week already done: ${DONE:-0}"
       - name: Prove MEL-MEDIA-02 12/12 live on exact deployed SHA
         if: env.HEAVY_PROOFS == 'true'
