@@ -1305,7 +1305,7 @@ async function loadFreeLoraStatus(){
     const lessonCount=lessonRaw==null||!Number.isFinite(Number(lessonRaw))?null:Math.max(0,Number(lessonRaw));
     qs('#freeLoraLessons').textContent=lessonCount==null?'—/50':lessonCount+'/50'+(lessonCount>=50?' · PRÊT':'');
     qs('#freeTrainingExamples').textContent=training?.examples!=null?Number(training.examples).toLocaleString('fr-FR'):(dataset?.examples!=null?Number(dataset.examples).toLocaleString('fr-FR'):'—');
-    qs('#freeCheckpointStage').textContent=checkpoint?.tag?String(checkpoint.tag):(traceSuccess?'SAUVEGARDÉ · TRACE VÉRIFIÉE':(training?.stage?String(training.stage).toUpperCase():(bundleKnown?'AUCUN CHECKPOINT':'—')));
+    qs('#freeCheckpointStage').textContent=checkpoint?.tag?String(checkpoint.tag):(d?.checkpoint_discovery?.status==='GITHUB_HTTP_ERROR'||d?.checkpoint_discovery?.status==='GITHUB_FETCH_ERROR'?'GITHUB INDISPONIBLE · CHECKPOINT NON VÉRIFIABLE':(traceSuccess?'SAUVEGARDÉ · TRACE VÉRIFIÉE':(training?.stage?String(training.stage).toUpperCase():(bundleKnown?'AUCUN CHECKPOINT':'—'))));
     qs('#freeCompatibleLoras').textContent=registry?.compatible_count!=null?Number(registry.compatible_count).toLocaleString('fr-FR'):'—';
     const benchKnown=Boolean(d?.learning?.benchmark_status&&typeof d.learning.benchmark_status==='object');
     const bench=benchKnown?d.learning.benchmark_status:{};
