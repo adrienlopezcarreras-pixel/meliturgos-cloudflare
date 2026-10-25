@@ -38,6 +38,6 @@ export async function readR2AccountUsage({accountId,apiToken,fetchImpl=fetch}={}
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const result=await readR2AccountUsage({accountId:process.env.CLOUDFLARE_ACCOUNT_ID,apiToken:process.env.CLOUDFLARE_API_TOKEN});
   console.log(JSON.stringify(result));
-  console.log('::notice title=MEL R2 account usage::'+JSON.stringify(result));
+  console.error('::notice title=MEL R2 account usage::'+JSON.stringify(result));
   if(!result.ok)process.exitCode=1;
 }
