@@ -1962,30 +1962,11 @@ if(learningChip){
 }
 
 loadLearningProgress();
-// Always fit the chat on first paint, independently of stale CSS height rules.
-// The inline height is a starting value only: native CSS resize stays available.
-function fitInitialChatHeight(){
-  const log=qs('#chatlog');
-  const composer=qs('#chatForm');
-  if(!log||!composer)return;
-  const viewport=window.visualViewport?.height||window.innerHeight;
-  const top=log.getBoundingClientRect().top;
-  const controlsHeight=Math.max(150,composer.getBoundingClientRect().height+115);
-  const available=Math.max(100,Math.floor(viewport-top-controlsHeight-20));
-  const desired=Math.min(360,Math.max(250,Math.floor(viewport*0.42)));
-  const fitted=Math.max(150,Math.min(desired,available));
-  log.style.height=fitted+'px';
-  log.style.minHeight='150px';
-  log.style.maxHeight='none';
-}
-fitInitialChatHeight();
-// Retain the user-adjusted height while composing; fit only on initial display.
+// Chat height has one source of truth: responsive CSS #chatlog.
+// No JavaScript inline sizing: it overrides CSS and breaks the user's resize.
 const initialView=new URLSearchParams(location.search).get('view');
 // MEL opens on the conversation; other panels stay one click away.
 show(initialView&&titles[initialView]?initialView:'chat');
-// Refit only once after the view becomes visible. Never force a small
-// !important inline height: it defeats responsive CSS and the user resize handle.
-requestAnimationFrame(()=>fitInitialChatHeight());
 boot();
 let canonicalRefreshTimer=setInterval(()=>{
   if(document.hidden)return;
