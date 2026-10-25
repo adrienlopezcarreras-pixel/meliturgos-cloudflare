@@ -42,3 +42,17 @@ test('bounded drill refuses download budget excess before accessing source',asyn
  const {snapshot}=await fixture();let reads=0;
  await assert.rejects(proveSystemSnapshotRestore(snapshot,{get:async()=>{reads++;}},{maxBytes:1}),/BUDGET_EXCEEDED/);assert.equal(reads,0);
 });
+
+test('restore diagnostics retain safe internal codes and stage but redact secrets and paths',async()=>{
+ const {isolatedRestoreFailure}=await import('../../release-tools/predeploy-backup-refresh/system-restore-proof.mjs');
+ const known=Object.assign(new Error('PRIVATE_DATA'),{code:'BACKUP_DECRYPTION_FAILED'});
+ assert.equal(isolatedRestoreFailure(known,'DECRYPT').code,'BACKUP_DECRYPTION_FAILED');
+ assert.equal(isolatedRestoreFailure(known,'DECRYPT').stage,'DECRYPT');
+ assert.equal(isolatedRestoreFailure(new RangeError('PRIVATE_DATA'),'RESTORE').error_kind,'RangeError');
+ for(const error of [new Error('https://private.invalid/token'),Object.assign(new Error('PRIVATE_DATA'),{code:'BACKUP_FAILED:private/path'}),new SyntaxError('PRIVATE_JSON')]){
+  const proof=isolatedRestoreFailure(error,'DECRYPT');
+  assert.equal(proof.code,'ISOLATED_RESTORE_FAILED');
+  assert.equal(proof.ok,false);assert.equal(proof.cleanup_authorized,false);
+  assert.doesNotMatch(JSON.stringify(proof),/PRIVATE|private|token/);
+ }
+});

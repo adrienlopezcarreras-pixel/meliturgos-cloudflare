@@ -45,3 +45,15 @@ export async function proveSystemSnapshotRestore(snapshot, source, {maxBytes=256
       cleanup_authorized:false};
   } finally {await rm(directory,{recursive:true,force:true});}
 }
+
+// Only internal identifiers, never provider messages, paths, object keys or data.
+export function isolatedRestoreFailure(error, stage) {
+  const stages=['CONFIGURATION','DOWNLOAD','DECRYPT','RESTORE'];
+  const candidate=String(error?.code || error?.message || '');
+  const code=/^(?:ISOLATED|BACKUP|SNAPSHOT|RESTORE)_[A-Z0-9_]{1,80}$/.test(candidate)
+    ? candidate : ['ERR_STRING_TOO_LONG','ERR_OUT_OF_RANGE'].includes(candidate)
+      ? candidate : 'ISOLATED_RESTORE_FAILED';
+  return {ok:false,status:'BLOCKED',code,stage:stages.includes(stage)?stage:'UNKNOWN',
+    error_kind:['Error','RangeError','SyntaxError','TypeError'].includes(error?.name)?error.name:'Error',
+    production_written:false,cleanup_authorized:false};
+}

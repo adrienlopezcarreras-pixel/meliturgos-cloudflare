@@ -43,6 +43,9 @@ jobs:
       - name: Normalize branch for candidate-only integration tests
         run: git checkout -B candidate/mel-res-05-encrypted-backup-ci "$(git rev-parse HEAD)"
       - name: Full regression suite
+        # A manual read-only drill runs targeted restore tests, syntax and the
+        # security gate. PR validation retains the complete regression suite.
+        if: github.event_name != 'workflow_dispatch' || inputs.snapshot_key == ''
         run: npm test
       - name: Runtime dependency security gate
         run: node scripts/runtime-security-gate.mjs
