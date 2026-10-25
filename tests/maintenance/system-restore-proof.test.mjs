@@ -8,13 +8,13 @@ async function fixture({bytes=true,missing=false}={}) {
  const descriptor={key:'../private/media',backup_key:'backups/system/r2-bytes/test/a',size:data.length,sha256:createHash('sha256').update(data).digest('hex')};
  const exports={
  database:{type:'MEL_D1_LOGICAL_EXPORT_V1',tableCount:3,tables:['evolution_ledger','conversations','dev_jobs'].map(name=>({name,schema:`CREATE TABLE ${name}(${name==='evolution_ledger'?'event_id':'id'} TEXT PRIMARY KEY)`,rowCount:1,rows:[{[name==='evolution_ledger'?'event_id':'id']:'preserve'}]}))},
- r2_inventory:{type:'MEL_R2_INVENTORY_V1',objectCount:1,objects:[{key:descriptor.key,size:data.length}]},
+ r2_inventory:{type:'MEL_R2_INVENTORY_V1',objectCount:1,objects:[{key:descriptor.key,size:data.length,etag:'fixture'}]},
  runtime:{type:'MEL_RUNTIME_DESCRIPTOR_V1',appVersion:'test',worker:'meliturgos',deployedGitSha:'a'.repeat(40)},
  };
  if(bytes)exports.r2_objects={type:'MEL_R2_BYTE_BACKUP_V1',objectCount:missing?0:1,totalBytes:missing?0:data.length,objects:missing?[]:[descriptor]};
  let snapshot;
  const service=createVerifiedBackupService({sources:Object.fromEntries(Object.entries(exports).map(([key,value])=>[key,async()=>value])),storage:{put:async value=>{snapshot=value;},get:async()=>snapshot}});
- await service.create({id:'isolated-fixture'});
+ await service.create({id:'system-20261025063233609'});
  return {snapshot,data};
 }
 test('combined proof actually restores SQL and filesystem bytes, exposes no content or keys',async()=>{
@@ -55,4 +55,18 @@ test('restore diagnostics retain safe internal codes and stage but redact secret
   assert.equal(proof.ok,false);assert.equal(proof.cleanup_authorized,false);
   assert.doesNotMatch(JSON.stringify(proof),/PRIVATE|private|token/);
  }
+});
+
+test('missing-byte proof reports only timestamped snapshot inventory counters, never current-state claims or object keys',async()=>{
+ const {snapshot,data}=await fixture({bytes:false});
+ const {isolatedRestoreFailure}=await import('../../release-tools/predeploy-backup-refresh/system-restore-proof.mjs');
+ let error;
+ try{await proveSystemSnapshotRestore(snapshot,{get:async()=>{throw Error('no reads expected');}});}catch(caught){error=caught;}
+ const proof=isolatedRestoreFailure(error,'RESTORE');
+ assert.equal(proof.code,'ISOLATED_R2_BYTES_MANIFEST_REQUIRED');
+ assert.equal(proof.diagnostic.source,'SNAPSHOT_INVENTORY');
+ assert.equal(proof.diagnostic.created_at,snapshot.createdAt);
+ assert.equal(proof.diagnostic.object_count,1);assert.equal(proof.diagnostic.total_bytes,data.length);
+ assert.doesNotMatch(JSON.stringify(proof),/private|current_state/);
+ assert.equal(proof.cleanup_authorized,false);
 });

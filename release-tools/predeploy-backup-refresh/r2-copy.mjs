@@ -1,5 +1,5 @@
 // Coordinator for the existing authenticated backup sidecar. No new engine/store.
-export async function copyR2Inventory({inventory,snapshotId,copyObject,maxBytes=256*1024*1024}={}) {
+export function validateR2CopyInventory({inventory,snapshotId,maxBytes=256*1024*1024}={}) {
  const objects=inventory?.objects;
  const fail=(code,diagnostic={})=>{throw Object.assign(new Error(code),{code,diagnostic:{stage:'r2-copy-preflight',...diagnostic}});};
  if(!/^system-[0-9]{17}$/.test(snapshotId||'')||!Array.isArray(objects)||inventory.objectCount!==objects.length)fail('BACKUP_R2_COPY_INVENTORY_INVALID');
@@ -13,6 +13,12 @@ export async function copyR2Inventory({inventory,snapshotId,copyObject,maxBytes=
  if(objects.length>5000)fail('BACKUP_R2_COPY_OBJECT_COUNT_LIMIT',counts);
  if(largest>32*1024*1024)fail('BACKUP_R2_COPY_OBJECT_BYTE_LIMIT',{...counts,limit_bytes:32*1024*1024});
  if(!Number.isSafeInteger(maxBytes)||maxBytes<0||maxBytes>256*1024*1024||total>maxBytes)fail('BACKUP_R2_COPY_BUDGET_EXCEEDED',{...counts,limit_bytes:Number.isSafeInteger(maxBytes)?maxBytes:null});
+ return {objects,total,largest};
+}
+
+export async function copyR2Inventory({inventory,snapshotId,copyObject,maxBytes=256*1024*1024}={}) {
+ const {objects,total}=validateR2CopyInventory({inventory,snapshotId,maxBytes});
+ const fail=code=>{throw Object.assign(new Error(code),{code});};
  const copied=[];
  for(const item of objects){
   const result=await copyObject({snapshot_id:snapshotId,key:item.key,size:item.size,etag:item.etag});

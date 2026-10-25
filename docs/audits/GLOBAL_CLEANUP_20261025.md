@@ -229,3 +229,10 @@ octet, reprise sans double exécution, schéma global absent fail-closed, budget
 diagnostics R2 non divulguants. Aucune mutation de DAG signé ni de paiements.
 Les fixtures sont explicitement initialisées avec le schéma de maintenance,
 sans affaiblir le contrôle runtime. Nettoyage réel toujours BLOCKED.
+
+Le diagnostic de restauration peut aussi décrire les seuls compteurs de
+l'inventaire contenu dans un snapshot chiffré vérifié : source explicitement
+SNAPSHOT_INVENTORY et date du snapshot. Ces valeurs historiques ne sont jamais
+présentées comme état courant de production ni comme preuve de restauration.
+Le prévalidateur R2 est partagé avec le créateur de sauvegarde, sans nouvelle
+copie ni nouveau client de stockage. 91 tests ciblés réussis après cet ajout.
