@@ -891,3 +891,13 @@ test('a SEARCH block that copied our truncation notice still matches the visible
   const result = await engine.propose({ env: {}, goal: 'Saluer', inspectedFiles: [{ path: 'src/example.js', content: source }] });
   assert.equal(result.proposal.changes[0].content, 'export function greet() {\n  return "salut";\n}\n');
 });
+
+test('a SEARCH block beyond the truncated excerpt is accepted when it matches the real file exactly once', async () => {
+  const filler = Array.from({ length: 400 }, (_, i) => `export const f${i} = ${i};`).join('\n');
+  const source = filler + '\nexport function greet() {\n  return "hi";\n}\n';
+  const reply = ['SUMMARY Change le salut', 'TESTS test:smoke', 'EDIT src/example.js', '<<<<<<< SEARCH', '  return "hi";', '=======', '  return "salut";', '>>>>>>> REPLACE'].join('\n');
+  const small = { ...provider('blocks', reply), maxInputChars: 7000 };
+  const engine = new MentorEngine({ providerFactory: async () => [small] });
+  const result = await engine.propose({ env: {}, goal: 'Saluer', inspectedFiles: [{ path: 'src/example.js', content: source }] });
+  assert.ok(result.proposal.changes[0].content.endsWith('  return "salut";\n}\n'));
+});

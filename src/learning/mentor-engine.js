@@ -278,9 +278,18 @@ function applyInspectedEdits(edits, inspectedFiles, repairReferences = [], visib
     }
     if (!byPath.has(path)) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path}`), { code: 'MENTOR_INVALID_CHANGE' });
     const visible = visibleFiles.find(file => file.path === path);
-    const find = resolveFind(visible?.content, String(edit?.find ?? ''));
+    let find = resolveFind(visible?.content, String(edit?.find ?? ''));
     if (!visibleFiles.some(file => file.path === path && file.content.includes(find))) {
-      throw Object.assign(new Error('MENTOR_UNINSPECTED_EDIT'), { code: 'MENTOR_UNINSPECTED_EDIT' });
+      // The model only saw a truncated excerpt. A SEARCH block that still
+      // matches the real inspected file exactly once edits real code, so it
+      // is accepted (8 of 14 rejections on 25/10 were this case or a miss).
+      const full = resolveFind(byPath.get(path), String(edit?.find ?? ''));
+      const source = byPath.get(path);
+      const at = full ? source.indexOf(full) : -1;
+      if (at < 0 || source.indexOf(full, at + full.length) >= 0) {
+        throw Object.assign(new Error('MENTOR_UNINSPECTED_EDIT'), { code: 'MENTOR_UNINSPECTED_EDIT' });
+      }
+      find = full;
     }
     const replace = String(edit?.replace ?? '');
     if (!find || find.length > 8000 || replace.length > MAX_CHANGE_CHARS) {
