@@ -783,14 +783,14 @@ jobs:
                 if tar -tzf "$RECOVERY_BUNDLE" >/dev/null 2>&1 &&
                    tar -xOzf "$RECOVERY_BUNDLE" kaggle-run.json > artifacts/kaggle-recovery-run.json 2>/dev/null &&
                    python - <<'PY'
-import json, os
-from pathlib import Path
-run=json.loads(Path('artifacts/kaggle-recovery-run.json').read_text())
-assert str(run.get('source_sha')) == os.environ['SOURCE_SHA'], 'RECOVERY_SOURCE_MISMATCH'
-assert int(run.get('cycle',-1)) == int(os.environ['CYCLE']), 'RECOVERY_CYCLE_MISMATCH'
-assert int(run.get('global_step') or 0) > 0, 'RECOVERY_NO_OPTIMIZER_STEP'
-assert run.get('offline_kernel') is True, 'RECOVERY_NOT_OFFLINE'
-PY
+          import json, os
+          from pathlib import Path
+          run=json.loads(Path('artifacts/kaggle-recovery-run.json').read_text())
+          assert str(run.get('source_sha')) == os.environ['SOURCE_SHA'], 'RECOVERY_SOURCE_MISMATCH'
+          assert int(run.get('cycle',-1)) == int(os.environ['CYCLE']), 'RECOVERY_CYCLE_MISMATCH'
+          assert int(run.get('global_step') or 0) > 0, 'RECOVERY_NO_OPTIMIZER_STEP'
+          assert run.get('offline_kernel') is True, 'RECOVERY_NOT_OFFLINE'
+          PY
                 then
                   echo "::warning title=Kaggle worker error recovered::Verified completed bundle from failed worker; continuing strict downstream provenance checks."
                   COMPLETE=1
