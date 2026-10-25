@@ -1,3 +1,4 @@
+import { discoverLoraDatasets } from './lora-dataset-discovery.js';
 import { observeLoraObjectives } from './lora-objective-observer.js';
 import { createLearningEngine } from './learning-engine.js';
 
@@ -211,6 +212,10 @@ export async function runLoraTrainingHeartbeat(env = {}, options = {}) {
   delete impact.rows;
   if (objective.decision === 'OBSERVE' || objective.decision === 'CODE_FIX') {
     return { status: objective.decision === 'CODE_FIX' ? 'CODE_FIX_REQUIRED' : 'AGENTIC_OBSERVING', dispatched: false, impact, objective };
+  }
+  // The gap names the skill; MEL looks up public training sets and benchmarks for it herself.
+  if (objective.decision === 'TRAIN_AGENTIC' || objective.reason === 'OVER_REFUSAL_REGRESSED') {
+    objective.datasets = await discoverLoraDatasets(objective.reason, { fetchImpl: options.fetchImpl || fetch }).catch(error => ({ status: 'DISCOVERY_FAILED', code: String(error?.code || error?.message || '').slice(0, 80) }));
   }
   if (objective.decision === 'TRAIN_AGENTIC' && String(env?.MEL_LORA_AGENTIC_TRAINING || 'false') !== 'true') {
     // The agentic dataset lane is not wired into the free Kaggle chain yet;
