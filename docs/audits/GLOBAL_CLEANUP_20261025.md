@@ -236,3 +236,18 @@ SNAPSHOT_INVENTORY et date du snapshot. Ces valeurs historiques ne sont jamais
 présentées comme état courant de production ni comme preuve de restauration.
 Le prévalidateur R2 est partagé avec le créateur de sauvegarde, sans nouvelle
 copie ni nouveau client de stockage. 91 tests ciblés réussis après cet ajout.
+
+## Réconciliation du volume R2 déjà corrigé sur main
+
+Main ea737e23 inclut #2634 (9ae82f39), qui accepte des inventaires bornés à
+10000 objets et teste 7378 objets. Cette correction parallèle est conservée,
+ainsi que les modifications Mentor, Taskmarket, UI et synchronisation candidate.
+Le restaurateur conservait un défaut à 5000 : il aurait refusé un snapshot accepté
+par le créateur. Les deux partagent désormais les constantes 10000 objets,
+256 Mio au total et 32 Mio par objet ; seul le plafond de nombre déjà approuvé
+sur main est repris, aucun budget d'octets augmenté. Le test de restauration
+admet 7378 références mais refuse encore réellement les octets absents.
+
+93 tests ciblés passent après résolution des conflits. Les valeurs du test ne
+sont pas présentées comme une mesure fraîche de production. Aucune restauration
+complète ni purge encore prouvée. XP MEL : NON.
