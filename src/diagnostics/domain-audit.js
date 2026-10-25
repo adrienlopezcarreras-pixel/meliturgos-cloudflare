@@ -1,3 +1,4 @@
+import { architectureFindings, readArchitectureReport } from './architecture-audit-store.js';
 import { hasLeakedToolProtocol, isToolProtocolExampleRequest } from '../api/agent-tools.js';
 // Weekly outcome audit of every MEL domain: does the chat answer, does the
 // watch still run, does WORK deliver. The capability stress proves that a
@@ -81,7 +82,7 @@ export async function runDomainAudit(db, { now = Date.now() } = {}) {
   // A missing table means "not measured", never a finding.
   const one = async (sql, ...binds) => { try { return await db.prepare(sql).bind(...binds).first(); } catch { return null; } };
   const weekAgo = now - WEEK_MS;
-  const [events, states, cycles, errors, memory, sessions, backup] = await Promise.all([
+  const [events, states, cycles, errors, memory, sessions, backup, architecture] = await Promise.all([
     rows('SELECT user_excerpt, issues_json, response_excerpt, created_at FROM mel_response_quality_events ORDER BY created_at DESC LIMIT 500'),
     rows('SELECT id, state_json, updated_at FROM capability_watch_state'),
     rows('SELECT state, updated_at FROM mel_work_cycles ORDER BY updated_at DESC LIMIT 500'),
@@ -90,8 +91,10 @@ export async function runDomainAudit(db, { now = Date.now() } = {}) {
     one("SELECT count(*) AS pending, sum(CASE WHEN created_at < ? THEN 1 ELSE 0 END) AS pending_old FROM memory_candidates WHERE status = 'PENDING'", weekAgo),
     one('SELECT count(*) AS expired FROM web_sessions WHERE expires_at < ?', now),
     one('SELECT max(created_at) AS last FROM backup_objects'),
+    readArchitectureReport(db),
   ]);
   const findings = [...auditChat(events, { now }), ...auditWatch(states, { now }), ...auditWork(cycles, { now }),
-    ...auditCore({ errors, memory: memory || {}, sessions: sessions || {}, lastBackupAt: backup ? backup.last : undefined }, { now })];
+    ...auditCore({ errors, memory: memory || {}, sessions: sessions || {}, lastBackupAt: backup ? backup.last : undefined }, { now }),
+    ...architectureFindings(architecture, { now })];
   return { ok: findings.length === 0, status: findings.length ? 'DOMAIN_AUDIT_FAILED' : 'DOMAIN_AUDIT_OK', findings };
 }
