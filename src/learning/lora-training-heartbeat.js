@@ -217,10 +217,15 @@ export async function runLoraTrainingHeartbeat(env = {}, options = {}) {
   if (objective.decision === 'TRAIN_AGENTIC' || objective.reason === 'OVER_REFUSAL_REGRESSED') {
     objective.datasets = await discoverLoraDatasets(objective.reason, { fetchImpl: options.fetchImpl || fetch }).catch(error => ({ status: 'DISCOVERY_FAILED', code: String(error?.code || error?.message || '').slice(0, 80) }));
   }
-  if (objective.decision === 'TRAIN_AGENTIC' && String(env?.MEL_LORA_AGENTIC_TRAINING || 'false') !== 'true') {
-    // The agentic dataset lane is not wired into the free Kaggle chain yet;
-    // never relaunch the uncensored chain to answer an agentic gap.
+  // The Kaggle chain trains the agentic lane on the pinned public sets MEL found.
+  // Without an enabled lane or a pinned train set, never relaunch the uncensored
+  // chain to answer an agentic gap.
+  const agenticSources = (objective.datasets?.train || []).filter(row => row?.id && /^[0-9a-f]{40}$/.test(String(row.revision || ''))).slice(0, 3).map(row => ({ id: row.id, revision: row.revision }));
+  if (objective.decision === 'TRAIN_AGENTIC' && String(env?.MEL_LORA_AGENTIC_TRAINING || 'true') !== 'true') {
     return { status: 'AGENTIC_TRAINING_REQUIRED', dispatched: false, impact, objective, reason: 'AGENTIC_LANE_NOT_ENABLED' };
+  }
+  if (objective.decision === 'TRAIN_AGENTIC' && !agenticSources.length) {
+    return { status: 'AGENTIC_TRAINING_REQUIRED', dispatched: false, impact, objective, reason: 'NO_PINNED_AGENTIC_DATASET' };
   }
 
   const fetchImpl = options.fetchImpl || fetch;
@@ -298,6 +303,7 @@ export async function runLoraTrainingHeartbeat(env = {}, options = {}) {
         shard_size: shardSize,
         max_cycles: maxCycles,
         benchmark_preview: 'false',
+        ...(objective.decision === 'TRAIN_AGENTIC' ? { objective: 'agentic', agentic_sources: JSON.stringify(agenticSources) } : {}),
       },
     });
 

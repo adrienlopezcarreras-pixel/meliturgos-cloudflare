@@ -41,6 +41,51 @@ def exact_digest(row) -> str:
     raw = json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     return sha256_bytes(raw)
 
+def agentic_messages(mod, row):
+    """Map common public tool-use schemas to messages without rewriting text."""
+    raw = row.get("messages", row.get("conversations"))
+    if isinstance(raw, list):
+        return mod.sharegpt_messages(raw)
+    query, answers = row.get("query"), row.get("answers")
+    if isinstance(query, str) and isinstance(answers, str):
+        tools = row.get("tools")
+        system = [{"role": "system", "content": "Outils disponibles : " + tools}] if isinstance(tools, str) else []
+        return [*system, {"role": "user", "content": query}, {"role": "assistant", "content": answers}]
+    return None
+
+def collect_agentic(sources, *, needed: int, cycle: int, mod):
+    """Fill the public part of the shard from MEL-discovered agentic datasets.
+
+    Each source is a pinned Hugging Face revision found by MEL itself
+    (lora-dataset-discovery); a source that cannot fill its share is reported
+    and the remaining sources take over, never a silent short shard."""
+    from datasets import load_dataset
+    rows, stats = [], {}
+    pending = list(sources)
+    while pending and len(rows) < needed:
+        share = (needed - len(rows) + len(pending) - 1) // len(pending)
+        source = pending.pop(0)
+        repo, revision = str(source.get("id", "")), str(source.get("revision", ""))
+        if not repo or len(revision) != 40:
+            stats[repo or "?"] = {"error": "SOURCE_NOT_PINNED"}
+            continue
+        def factory(repo=repo, revision=revision):
+            return iter(load_dataset(repo, revision=revision, split="train", streaming=True))
+        try:
+            got, info = collect_stream(factory, start=cycle * share, target=share,
+                convert=lambda row: agentic_messages(mod, row), risky=mod.is_high_risk_operational, source_name=repo)
+        except SystemExit as error:
+            stats[repo] = {"revision": revision, "error": str(error)[:160]}
+            continue
+        except Exception as error:  # dataset layout or network
+            stats[repo] = {"revision": revision, "error": type(error).__name__}
+            continue
+        rows.extend(got)
+        stats[repo] = {"revision": revision, "start": cycle * share, **info}
+    if len(rows) < needed:
+        raise SystemExit(f"LORA_AGENTIC_SHARD_INCOMPLETE:{len(rows)}:{needed}:{json.dumps(stats)[:600]}")
+    return rows[:needed], stats
+
 def collect_stream(ds, *, start: int, target: int, convert, risky, source_name: str):
     accepted = []
     quarantined = 0
@@ -80,6 +125,8 @@ def main() -> int:
     ap.add_argument("--mel-lessons", required=True)
     ap.add_argument("--normalizer", default="scripts/prepare-mel-max-lora.py")
     ap.add_argument("--output", required=True)
+    ap.add_argument("--objective", choices=["uncensored", "agentic"], default="uncensored")
+    ap.add_argument("--agentic-sources", default="[]")
     args = ap.parse_args()
 
     if args.cycle < 0:
@@ -118,6 +165,28 @@ def main() -> int:
         raise SystemExit(f"LORA_SHARD_TOO_SMALL_FOR_CANONICAL_LESSONS:{args.shard_size}:{len(mel_rows)}")
 
     public_needed = args.shard_size - len(mel_rows)
+    if args.objective == "agentic":
+        sources = json.loads(args.agentic_sources or "[]")
+        if not isinstance(sources, list) or not sources:
+            raise SystemExit("LORA_AGENTIC_SOURCES_REQUIRED")
+        public_rows, agentic_stats = collect_agentic(sources[:3], needed=public_needed, cycle=args.cycle, mod=mod)
+        output = Path(args.output).resolve()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with output.open("w", encoding="utf-8") as out:
+            for row in [*public_rows, *mel_rows]:
+                out.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+        metadata = {
+            "schema": "mel.kaggle-offline-shard.v1", "objective": "agentic",
+            "created_at": datetime.now(timezone.utc).isoformat(), "cycle": args.cycle,
+            "shard_size": args.shard_size, "canonical_mel_lessons": len(mel_rows),
+            "public_examples": public_needed, "sources": agentic_stats,
+            "policy": {"source_text_rewritten": False, "turn_order_changed": False,
+                "high_risk_operational_excluded": True, "pinned_revisions_only": True},
+            "output_sha256": sha256_file(output),
+        }
+        output.with_suffix(output.suffix + ".meta.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps(metadata, ensure_ascii=False, indent=2))
+        return 0
     ultra_target = (public_needed + 1) // 2
     opus_target = public_needed - ultra_target
 
