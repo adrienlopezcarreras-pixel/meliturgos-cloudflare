@@ -228,7 +228,7 @@ export async function prepareApprovedBridgePackage({
     jobId: current.id,
     goal: current.goal,
     inspectedFiles: code.files,
-    previousAttempts: repairFor ? current?.result_json?.dev_bridge?.tests || [] : [],
+    previousAttempts: repairFor ? current?.result_json?.dev_bridge?.tests || [] : current?.result_json?.mentor_attempt_history || [],
     mode,
     repairReferences,
     pathExists,
