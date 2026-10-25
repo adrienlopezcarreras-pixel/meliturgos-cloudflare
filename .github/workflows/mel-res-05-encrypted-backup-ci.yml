@@ -54,7 +54,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.snapshot_key != ''
     needs: encrypted-backup
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
     concurrency:
       group: mel-isolated-snapshot-restore
       cancel-in-progress: false

@@ -82,7 +82,7 @@ test('restore admission matches the approved 10000-object creator limit without 
  const service=createVerifiedBackupService({sources:Object.fromEntries(Object.entries(exports).map(([key,value])=>[key,async()=>value])),storage:{put:async value=>{large=value;},get:async()=>large}});
  await service.create({id:snapshot.id});let reads=0;
  await assert.rejects(proveSystemSnapshotRestore(large,{get:async()=>{reads++;return null;}}),/BACKUP_R2_COPY_MISSING/);
- assert.equal(reads,1);
+ assert.equal(reads,4);
 });
 
 test('real restore CLI publishes a safe failure annotation without reading R2 or leaking environment secrets',async()=>{
@@ -105,4 +105,15 @@ test('real restore CLI publishes a safe failure annotation without reading R2 or
   assert.deepEqual(JSON.parse(await readFile(join(directory,'isolated-restore-proof.json'),'utf8')),proof);
   assert.doesNotMatch(result.stdout+result.stderr,/PRIVATE_SENTINEL/);
  }finally{await rm(directory,{recursive:true,force:true});}
+});
+
+test('consumer enforces the shared per-object byte budget before downloading any data',async()=>{
+ const {snapshot}=await fixture();
+ const object={key:'large',size:33*1024*1024,sha256:'a'.repeat(64),backup_key:'backups/system/r2-bytes/test/large'};
+ const exports={...snapshot.exports,r2_inventory:{type:'MEL_R2_INVENTORY_V1',objectCount:1,objects:[{key:object.key,size:object.size}]},r2_objects:{type:'MEL_R2_BYTE_BACKUP_V1',objectCount:1,totalBytes:object.size,objects:[object]}};
+ let large;
+ const service=createVerifiedBackupService({sources:Object.fromEntries(Object.entries(exports).map(([key,value])=>[key,async()=>value])),storage:{put:async value=>{large=value;},get:async()=>large}});
+ await service.create({id:snapshot.id});let reads=0;
+ await assert.rejects(proveSystemSnapshotRestore(large,{get:async()=>{reads++;return null;}}),/ISOLATED_RESTORE_BUDGET_EXCEEDED/);
+ assert.equal(reads,0);
 });

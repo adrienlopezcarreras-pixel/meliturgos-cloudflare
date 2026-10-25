@@ -86,3 +86,52 @@ test('GEN2-47 restore refuses tampered backup bytes and cleans target writes',as
   );
   assert.equal([...target.objects.keys()].some(key=>key.startsWith('drill/')),false);
 });
+
+test('bounded parallel restore preserves input ordering and verified bytes',async()=>{
+ const source=new FakeBucket(Object.fromEntries(Array.from({length:8},(_,i)=>['key-'+i,'value-'+i])));
+ const manifest=await backupR2ObjectBytes(source,{snapshotId:'parallel-test'});
+ let active=0,maximum=0;const get=source.get.bind(source);
+ source.get=async key=>{active++;maximum=Math.max(maximum,active);await new Promise(resolve=>setImmediate(resolve));active--;return get(key);};
+ const target=new FakeBucket();
+ const result=await restoreR2ObjectBytes(source,target,manifest,{concurrency:4});
+ assert.equal(maximum,4);assert.equal(result.objectCount,8);
+ assert.deepEqual(result.objects.map(x=>x.key),manifest.objects.map(x=>x.key));
+ for(const descriptor of manifest.objects)assert.deepEqual(target.objects.get(descriptor.key).bytes,source.objects.get(descriptor.key).bytes);
+});
+
+test('parallel restore waits for in-flight writes before rollback and stops scheduling on failure',async()=>{
+ const source=new FakeBucket({first:'first',second:'second',third:'third'});
+ const manifest=await backupR2ObjectBytes(source,{snapshotId:'rollback-test'});
+ let releaseSecond,startSecond,writeSecond;
+ const secondStarted=new Promise(resolve=>{startSecond=resolve;});
+ const secondWritten=new Promise(resolve=>{writeSecond=resolve;});
+ const gate=new Promise(resolve=>{releaseSecond=resolve;});
+ const original=source.get.bind(source),calls=[];
+ source.get=async key=>{
+  calls.push(key);if(key===manifest.objects[0].backup_key)throw Error('SYNTHETIC_READ_FAILED');
+  startSecond();await gate;return original(key);
+ };
+ const target=new FakeBucket(),put=target.put.bind(target);
+ target.put=async(...args)=>{await put(...args);writeSecond();};
+ const rejection=assert.rejects(restoreR2ObjectBytes(source,target,manifest,{concurrency:2}),/SYNTHETIC_READ_FAILED/);
+ await secondStarted;releaseSecond();await secondWritten;await rejection;
+ assert.equal(calls.length,2);assert.equal(target.objects.size,0);
+});
+
+test('parallel restore never converts a falsy provider rejection into success',async()=>{
+ for(const rejected of [null,undefined,false,0,'']){
+  const source=new FakeBucket({a:'one'}),target=new FakeBucket();
+  const manifest=await backupR2ObjectBytes(source,{snapshotId:'reject-test'});
+  source.get=async()=>{throw rejected;};
+  await assert.rejects(restoreR2ObjectBytes(source,target,manifest,{concurrency:4}),error=>error===rejected);
+  assert.equal(target.objects.size,0);
+ }
+});
+
+test('restore refuses target collisions without overwriting or deleting pre-existing data',async()=>{
+ const source=new FakeBucket({a:'new',z:'another'}),target=new FakeBucket({a:'keep',unrelated:'keep-too'});
+ const manifest=await backupR2ObjectBytes(source,{snapshotId:'collision-test'});
+ await assert.rejects(restoreR2ObjectBytes(source,target,manifest,{concurrency:4}),error=>error?.code==='BACKUP_R2_RESTORE_TARGET_NOT_EMPTY');
+ assert.deepEqual([...target.objects.keys()].sort(),['a','unrelated']);
+ assert.equal(new TextDecoder().decode(target.objects.get('a').bytes),'keep');
+});

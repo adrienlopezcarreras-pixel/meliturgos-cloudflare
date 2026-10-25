@@ -277,3 +277,27 @@ Le test du vrai CLI confirme un refus explicite sans appel R2 et l'absence de
 fuite d'une sentinelle secrète dans stdout/stderr. Huit tests ciblés passent.
 Cette observabilité n'autorise toujours aucune purge et ne prouve pas une
 restauration réussie. XP MEL : NON (réemploi du canal d'annotation existant).
+
+## Volume constaté et lecture R2 sans processus par objet
+
+Annotation réelle du run 40192437466 / check 121166301784 : le snapshot daté
+2026-10-25T10:21:07.312Z contient 7394 objets, total 2983598322 octets,
+plus grand objet 42988386 octets. Source SNAPSHOT_INVENTORY, non état courant.
+Son absence de r2_objects reste bloquante ; les budgets 256 Mio/32 Mio sont aussi
+insuffisants pour ce contenu. Capacité gratuite du compte demandée au propriétaire
+avant toute hausse de budgets ou copie supplémentaire de ce volume.
+
+Le lecteur de restauration utilise maintenant le même endpoint GET authentifié
+que le Wrangler verrouillé, dans un seul processus. Origine fixe, clés limitées
+aux backups, redirections interdites, tailles contrôlées avant et pendant lecture,
+retries bornés et Retry-After partagé respecté. Aucun nouveau service, secret ou
+objet R2 écrit. Les limites de stockage restent inchangées, y compris côté
+restaurateur pour le plafond par objet partagé.
+
+La restauration canonique accepte une concurrence de 1 à 4 (défaut 1 conservé).
+Le drill isolé choisit 4 ; tous les travaux en vol terminent avant rollback, les
+cibles préexistantes sont refusées sans écrasement, les rejets falsy ne deviennent
+jamais un succès. Le job de lecture seule dispose de 60 minutes pour respecter les
+attentes de rate-limit au volume de 10000 objets. Les gardes de purge restent
+inchangés. 86 tests ciblés passent et syntaxe dépôt vérifiée ; pas de preuve live
+de ce nouveau transport ni de restauration complète revendiquée. XP MEL : NON.
