@@ -106,6 +106,16 @@ async function assertImportsResolve(proposal, pathExists, inspectedFiles = []) {
       }
       const target = parts.join('/');
       if (known.has(target) || await pathExists(target)) continue;
+      // A new test often guesses the module's folder (../src/x.js for
+      // src/evolution/x.js: MENTOR_MISSING_IMPORT on MANIFEST-06, 25/10). When
+      // exactly one inspected or changed file has that name, point the test at it.
+      const name = target.split('/').pop();
+      const matches = [...known].filter(path => path.split('/').pop() === name);
+      if (change.created && /^tests\//.test(change.path) && matches.length === 1) {
+        const fixed = path => { const from = change.path.split('/').slice(0, -1); return '../'.repeat(from.length) + path; };
+        change.content = change.content.split(`'${spec}'`).join(`'${fixed(matches[0])}'`).split(`"${spec}"`).join(`"${fixed(matches[0])}"`);
+        continue;
+      }
       throw Object.assign(new Error(`MENTOR_MISSING_IMPORT:${target}`), { code: 'MENTOR_MISSING_IMPORT' });
     }
   }
