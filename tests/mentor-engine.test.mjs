@@ -718,16 +718,16 @@ test('ordinary Mentor stops after a valid initial wave without deep CODE council
   assert.equal(calls.length,3);
 });
 
-test('mentor gives each model 50 s but keeps the whole proposal inside its time budget', async () => {
+test('mentor gives each model 80 s but keeps the whole proposal inside its time budget', async () => {
   let clock = 0;
   const timeouts = [];
-  const slow = id => ({ id, providerId: 'test', modelId: id, async invoke() { clock += 60_000; throw Object.assign(new Error('timeout'), { code: 'MENTOR_PROVIDER_TIMEOUT' }); } });
+  const slow = id => ({ id, providerId: 'test', modelId: id, async invoke() { clock += 90_000; throw Object.assign(new Error('timeout'), { code: 'MENTOR_PROVIDER_TIMEOUT' }); } });
   const engine = new MentorEngine({
     now: () => clock,
     providerFactory: async () => [slow('a'), slow('b'), slow('c'), slow('d'), slow('e'), slow('f')],
   });
-  assert.equal(engine.invokeTimeoutMs, 50_000, 'Workers AI code answers need more than 25 s');
-  assert.equal(engine.proposeBudgetMs, 75_000, 'a proposal stays inside the 90 s runtime lease');
+  assert.equal(engine.invokeTimeoutMs, 80_000, 'Workers AI code answers need 50-100 s');
+  assert.equal(engine.proposeBudgetMs, 150_000, 'a proposal stays inside the 240 s owner MAX request');
   await assert.rejects(engine.propose({ env: {}, goal: 'Changer la valeur lue', inspectedFiles: [{ path: 'src/example.js', content: 'export const a = 1;\n' }] }), (error) => {
     const codes = (error.failures || []).map(row => row.error);
     assert.ok(codes.includes('MENTOR_TIME_BUDGET_EXHAUSTED'), JSON.stringify(codes));
@@ -865,4 +865,29 @@ test('miscounted SEARCH/REPLACE markers are still read', async () => {
   const engine = new MentorEngine({ providerFactory: async () => [provider('six-markers', reply)] });
   const result = await engine.propose({ env: {}, goal: 'Répondre', inspectedFiles: [{ path: 'src/answer.js', content: source }] });
   assert.equal(result.proposal.changes[0].content, 'export const answer = 42;\n');
+});
+
+test('the per-call cap no longer cuts the configured model timeout to 30 s', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../src/learning/mentor-engine.js', import.meta.url), 'utf8');
+  const cap = Number(source.match(/function boundedMentorInvoke[\s\S]*?Math\.min\((\d+)_000/)[1]) * 1000;
+  assert.ok(cap >= new MentorEngine({}).invokeTimeoutMs, 'boundedMentorInvoke must honour invokeTimeoutMs');
+});
+
+test('a SEARCH block that copied our truncation notice still matches the visible code', async () => {
+  const source = 'export function greet() {\n  return "hi";\n}\n';
+  const reply = [
+    'SUMMARY Change le salut',
+    'TESTS test:smoke',
+    'EDIT src/example.js',
+    '<<<<<<< SEARCH',
+    '  return "hi";',
+    '[EXTRAIT TRONQUÉ: 400 caractères au total. Modifie ce fichier par edits avec un find copié de cet extrait.]',
+    '=======',
+    '  return "salut";',
+    '>>>>>>> REPLACE',
+  ].join('\n');
+  const engine = new MentorEngine({ providerFactory: async () => [provider('blocks', reply)] });
+  const result = await engine.propose({ env: {}, goal: 'Saluer', inspectedFiles: [{ path: 'src/example.js', content: source }] });
+  assert.equal(result.proposal.changes[0].content, 'export function greet() {\n  return "salut";\n}\n');
 });
