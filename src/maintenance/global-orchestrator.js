@@ -30,6 +30,9 @@ export async function executeGlobalMaintenance({
       await stopProducers();
       if ((await verifyProducersStopped()) !== true)
         throw Error('MAINTENANCE_PRODUCERS_NOT_STOPPED');
+      // Close the preflight-to-stop race: another WORK lease may have
+      // started before all producers acknowledged the maintenance fence.
+      await assertNoActiveWorkLeases(db,{now:now()});
       const results={};
       for (const scope of RESET_SCOPES) {
         results[scope]=await handlers[scope]();
