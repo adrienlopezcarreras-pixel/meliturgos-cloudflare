@@ -74,3 +74,16 @@ test('read only Companion report never claims to have paused producers', async (
  assert.match(source,/Aucun verrou active/);
  assert.doesNotMatch(source,/developpement en pause/);
 });
+
+test('one-click cleanup first proves a local D1 backup with an isolated restore, never an R2 copy', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const cleanup = await readFile(new URL('../../windows-companion/MEL-Grand-Nettoyage.ps1', import.meta.url), 'utf8');
+  const backup = await readFile(new URL('../../windows-companion/MEL-Sauvegarde-Locale-D1.ps1', import.meta.url), 'utf8');
+  const companion = await readFile(new URL('../../windows-companion/MEL-Companion.cs', import.meta.url), 'utf8');
+  assert.ok(cleanup.indexOf('ETAPE 0 - SAUVEGARDE LOCALE D1') < cleanup.indexOf('ETAPE 1 - PREFLIGHT'));
+  assert.match(companion, /"MEL-Sauvegarde-Locale-D1\.ps1"/);
+  assert.match(backup, /wrangler@4 d1 export \$Database --remote --output \$Sql/);
+  assert.match(backup, /PRAGMA integrity_check/);
+  assert.match(backup, /isolated_restore_tested = \$true/);
+  assert.doesNotMatch(backup, /r2 object (put|delete)|DELETE FROM|DROP TABLE|Write-Output[^\n]*CLOUDFLARE_API_TOKEN\)/i);
+});

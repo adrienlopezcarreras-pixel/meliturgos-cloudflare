@@ -32,7 +32,8 @@ static class MelApp
     };
     // Owner-run maintenance: never started by MEL or on startup, only by the button.
     public static readonly string[] CleanupFiles = new string[] {
-        "MEL-Grand-Nettoyage.ps1", "MEL-Nettoyage-GitHub.ps1", "MEL-Restaurer-Branches.ps1"
+        "MEL-Grand-Nettoyage.ps1", "MEL-Nettoyage-GitHub.ps1", "MEL-Restaurer-Branches.ps1",
+        "MEL-Sauvegarde-Locale-D1.ps1"
     };
     public static readonly string CleanupPath = Path.Combine(MelDir, "MEL-Grand-Nettoyage.ps1");
     public static bool MiniUsbPreflightInstalled()
