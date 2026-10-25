@@ -32,22 +32,25 @@ test('a mission retried four times in a week is a loop', () => {
 
 test('each code model is really tested on a small exercise', async () => {
   const env = { AI: { async run(model) {
-    if (model.includes('glm-5.3-flash')) return { response: 'pas de code' };
+    if (model.includes('gpt-oss-120b')) return { response: 'pas de code' };
     return { response: '```js\nfunction sumEven(list){return list.filter(n=>n%2===0).reduce((a,b)=>a+b,0)}\n```' };
   } } };
   const probes = await probeCodeModels(env);
   assert.equal(probes.length, 2);
-  assert.equal(probes.find(p => p.model.includes('glm-5.3-flash')).passed, false);
-  assert.ok(probes.filter(p => !p.model.includes('glm-5.3-flash')).every(p => p.passed));
+  assert.equal(probes.find(p => p.model.includes('gpt-oss-120b')).passed, false);
+  assert.ok(probes.filter(p => !p.model.includes('gpt-oss-120b')).every(p => p.passed));
   const report = auditDevelopment({ now: NOW, jobs: [], probes });
-  assert.ok(report.findings.some(f => f.code === 'CODE_MODEL_PROBE_FAILED' && f.detail.includes('glm-5.3-flash')));
+  assert.ok(report.findings.some(f => f.code === 'CODE_MODEL_PROBE_FAILED' && f.detail.includes('gpt-oss-120b')));
 });
 
 test('MAX codes only with code models: small ones first, large ones after three failures', () => {
   const pool = createDefaultAugmentioPool({ AI: { run: async () => null } });
   const specialists = pool.list({ capability: 'CODE_SPECIALIST' }).map(p => p.modelId);
-  assert.deepEqual(specialists, ['@cf/zai-org/glm-5.3-flash', '@cf/qwen/qwen2.5-coder-32b-instruct']);
+  assert.deepEqual(specialists, ['@cf/qwen/qwen2.5-coder-32b-instruct', '@cf/openai/gpt-oss-120b']);
   assert.ok(!specialists.includes('@cf/moonshotai/kimi-k2.7-code'));
-  assert.ok(!pool.list({ capability: 'GENERAL' }).some(p => specialists.includes(p.modelId)));
+  // The small code model never sits in the general Council; gpt-oss-120b is
+  // both a general reviewer and the large free code model (GLM-5.3 Flash is paid).
+  assert.ok(!pool.list({ capability: 'GENERAL' }).some(p => p.modelId === '@cf/qwen/qwen2.5-coder-32b-instruct'));
+  assert.ok(!specialists.includes('@cf/zai-org/glm-5.3-flash'));
   assert.ok(standardRegistry.list().filter(m => (m.capabilities || []).includes('CODE_LARGE')).length === 1);
 });
