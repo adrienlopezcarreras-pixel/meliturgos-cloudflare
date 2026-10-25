@@ -1,0 +1,55 @@
+name: claude-ops
+
+# Owner-dispatched maintenance: read production Worker errors, or delete
+# branches already contained in main (dry run unless apply=true).
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        options: [worker-errors, branch-cleanup]
+        default: worker-errors
+      minutes:
+        default: '120'
+      apply:
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+      - name: Worker errors
+        if: inputs.action == 'worker-errors'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MINUTES: ${{ inputs.minutes }}
+        run: node scripts/ops/worker-errors.mjs | tee worker-errors.json
+      - name: Branch cleanup
+        if: inputs.action == 'branch-cleanup'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          APPLY: ${{ inputs.apply }}
+        run: |
+          git fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*'
+          node scripts/ops/branch-cleanup.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: claude-ops-${{ inputs.action }}
+          path: |
+            worker-errors.json
+            branch-cleanup-backup.json
+          if-no-files-found: ignore
