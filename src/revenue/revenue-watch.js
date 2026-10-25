@@ -83,7 +83,7 @@ async function ensureTable(db) {
   await db.prepare('CREATE TABLE IF NOT EXISTS revenue_watch (url TEXT PRIMARY KEY, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, data TEXT NOT NULL, status TEXT NOT NULL DEFAULT \'NEW\')').run();
 }
 
-export async function runRevenueWatch(env, { now = new Date(), research = null, githubDiscovery = discoverGithubBounties } = {}) {
+export async function runRevenueWatch(env, { now = new Date(), research = null, githubDiscovery = discoverGithubBounties, install = defaultEnqueue } = {}) {
   if (!env?.DB?.prepare) return { status: 'RUNTIME_UNAVAILABLE' };
   await ensureTable(env.DB);
   const runResearch = research || (async query => {
@@ -127,7 +127,66 @@ export async function runRevenueWatch(env, { now = new Date(), research = null, 
     if (existing) await env.DB.prepare('UPDATE revenue_watch SET last_seen=?, data=?, status=CASE WHEN status=\'NEW\' THEN \'DISCOVERY_ONLY\' ELSE status END WHERE url=?').bind(today, JSON.stringify(o), o.url).run();
     else { await env.DB.prepare('INSERT INTO revenue_watch (url, first_seen, last_seen, data, status) VALUES (?,?,?,?,\'DISCOVERY_ONLY\')').bind(o.url, today, today, JSON.stringify(o)).run(); fresh += 1; }
   }
-  return { status: 'DONE', themes: themesFor(now), found: found.length, new: fresh, github: (github.opportunities || []).length, github_errors: github.errors || [] };
+  // New sources are installed as they are found (bounded per night).
+  const freshUrls = found.filter(o => !isUnsafeRevenueSource(o)).map(o => o.url);
+  const installs = [];
+  for (const url of freshUrls.slice(0, MAX_AUTO_INSTALLS_PER_RUN)) {
+    const row = await env.DB.prepare('SELECT status FROM revenue_watch WHERE url=?').bind(url).first();
+    if (row?.status !== 'DISCOVERY_ONLY') continue;
+    installs.push(await installRevenueSource(env, url, { enqueue: install }).catch(error => ({ ok: false, url, status: 'INSTALL_FAILED', error: String(error?.code || error?.message || '').slice(0, 120) })));
+  }
+  return { status: 'DONE', themes: themesFor(now), found: found.length, new: fresh, installs, github: (github.opportunities || []).length, github_errors: github.errors || [] };
+}
+
+// Owner rule (26/10): a source found by the watch is installed, not only
+// listed: MEL hands MAX a mission to build its connector. Installing is
+// development only; enrollment, payment and payout stay behind the existing
+// guards and owner requests. Obvious speculative offers are never installed.
+const UNSAFE_RE = /\b(token|tokens|coin|crypto|airdrop|nft|gift ?card|carte cadeau|\$w?[A-Z]{3,}\b|exchange [\d,.]+ )/i;
+export const MAX_AUTO_INSTALLS_PER_RUN = 3;
+
+export function isUnsafeRevenueSource(o = {}) {
+  return UNSAFE_RE.test(String(o.title || o.name || '') + ' ' + String(o.summary || ''));
+}
+
+async function defaultEnqueue(options) {
+  const { enqueueSupervisedDevelopmentRequest } = await import('../evolution/owner-development-queue.js');
+  return enqueueSupervisedDevelopmentRequest(options);
+}
+
+export async function installRevenueSource(env, url, { enqueue = defaultEnqueue } = {}) {
+  await ensureTable(env.DB);
+  const row = await env.DB.prepare('SELECT url, data, status FROM revenue_watch WHERE url=?').bind(String(url || '')).first();
+  if (!row) return { ok: false, status: 'NOT_FOUND', url };
+  if (['INSTALL_QUEUED', 'INSTALLED'].includes(row.status)) return { ok: true, status: row.status, url };
+  const o = JSON.parse(row.data || '{}');
+  if (isUnsafeRevenueSource(o)) {
+    await env.DB.prepare("UPDATE revenue_watch SET status='REJECTED_UNSAFE' WHERE url=?").bind(row.url).run();
+    return { ok: false, status: 'REJECTED_UNSAFE', url };
+  }
+  const title = String(o.title || o.name || row.url).slice(0, 200);
+  const queued = await enqueue({
+    env,
+    goal: `Intégrer à MEL WORK la source de revenus « ${title} » (${row.url}). Étudier ses conditions, puis écrire le connecteur qui permet à MEL de trouver, accepter, livrer et suivre ces tâches automatiquement, avec son test. Zéro dépense. Toute inscription, authentification, acceptation de conditions ou paiement passe par une demande au propriétaire (owner-requests) ; aucune exécution payée tant que le flux de bout en bout n’est pas vérifié.`,
+    requestKey: 'revenue-source:' + row.url.slice(0, 160),
+    requestedBy: 'mel-autonomy',
+    source: 'revenue-watch',
+    priority: 'P1',
+    extensionKind: 'plugin',
+    evidence: { url: row.url, title, summary: String(o.summary || '').slice(0, 500) },
+  });
+  const jobId = queued?.job_id || null;
+  await env.DB.prepare("UPDATE revenue_watch SET status='INSTALL_QUEUED', data=? WHERE url=?")
+    .bind(JSON.stringify({ ...o, install_job_id: jobId }), row.url).run();
+  return { ok: true, status: 'INSTALL_QUEUED', url: row.url, job_id: jobId };
+}
+
+export async function installAllRevenueSources(env, { limit = 20, enqueue } = {}) {
+  await ensureTable(env.DB);
+  const rows = (await env.DB.prepare("SELECT url FROM revenue_watch WHERE status IN ('NEW','DISCOVERY_ONLY') ORDER BY last_seen DESC LIMIT ?").bind(limit).all())?.results || [];
+  const results = [];
+  for (const row of rows) results.push(await installRevenueSource(env, row.url, { enqueue }).catch(error => ({ ok: false, status: 'INSTALL_FAILED', url: row.url, error: String(error?.code || error?.message || '').slice(0, 120) })));
+  return { ok: true, installed: results.filter(r => r.status === 'INSTALL_QUEUED').length, rejected: results.filter(r => r.status === 'REJECTED_UNSAFE').length, results };
 }
 
 export async function readRevenueWatch(db, { limit = 30 } = {}) {
