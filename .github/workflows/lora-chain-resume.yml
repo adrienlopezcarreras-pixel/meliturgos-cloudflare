@@ -1,0 +1,61 @@
+name: LoRA chain resume
+
+# A failed Kaggle cycle stops the self-chaining LoRA run; without this the
+# chain waited for the next daily self-improvement pass. Resume hourly from the
+# latest immutable checkpoint, free Kaggle GPU only, and give up after three
+# failures in a row so a broken notebook never burns the weekly quota.
+on:
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: lora-chain-resume
+  cancel-in-progress: false
+
+jobs:
+  resume:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Resume a stopped LoRA chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/lora-kaggle-free-gpu.yml/runs?per_page=20" > runs.json
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" > releases.json
+          node - <<'NODE' > resume.env
+          const fs=require('fs');
+          const runs=(require('./runs.json').workflow_runs||[]).filter(r=>r.event!=='push');
+          const out=(k,v)=>fs.writeSync(1,`${k}=${v}\n`);
+          if(runs.some(r=>['queued','in_progress','waiting','requested','pending'].includes(String(r.status)))){out('DECISION','ACTIVE');process.exit(0);}
+          const latest=runs[0];
+          if(!latest||!['failure','cancelled','timed_out'].includes(String(latest.conclusion))){out('DECISION','NOT_STOPPED');process.exit(0);}
+          if(Date.now()-Date.parse(latest.updated_at)<50*60_000){out('DECISION','BACKOFF');process.exit(0);}
+          let streak=0;
+          for(const r of runs){ if(['failure','cancelled','timed_out'].includes(String(r.conclusion))) streak++; else break; }
+          if(streak>=3){out('DECISION','FAILURE_STREAK');process.exit(0);}
+          const rows=require('./releases.json').map(r=>{const m=String(r?.tag_name||'').match(/^mel-lora-kaggle-([0-9a-f]{12})-c(\d{3})$/i);return m&&!r.draft?{r,cycle:Number(m[2])}:null;}).filter(Boolean)
+            .sort((a,b)=>new Date(b.r.published_at||0)-new Date(a.r.published_at||0));
+          const parent=rows[0];
+          const sha=String(parent?.r?.target_commitish||'').toLowerCase();
+          out('DECISION','RESUME');
+          out('PARENT_TAG',parent?parent.r.tag_name:'');
+          out('NEXT_CYCLE',parent?parent.cycle+1:0);
+          out('SOURCE_SHA',/^[0-9a-f]{40}$/.test(sha)?sha:'');
+          NODE
+          set -a; . ./resume.env; set +a
+          echo "LoRA chain resume decision: $DECISION"
+          [[ "$DECISION" == "RESUME" ]] || exit 0
+          SOURCE_SHA="${SOURCE_SHA:-$GITHUB_SHA}"
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ && "$NEXT_CYCLE" =~ ^[0-9]+$ ]]
+          gh workflow run lora-kaggle-free-gpu.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            -f source_sha="$SOURCE_SHA" -f cycle="$NEXT_CYCLE" -f parent_release_tag="$PARENT_TAG" \
+            -f shard_size=750 -f max_cycles=100 -f benchmark_preview=false -f smoke_only=false
+          echo "Resumed cycle $NEXT_CYCLE from ${PARENT_TAG:-scratch}"
