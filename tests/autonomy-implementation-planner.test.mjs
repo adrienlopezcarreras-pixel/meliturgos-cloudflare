@@ -505,3 +505,27 @@ test('reusable approved plan retains strict default and opts into verified immut
   assert.match(reuse,/await readApprovedHead\(reader, bridge\)/);
   assert.match(reuse,/existing\.candidate_sha\)\.toLowerCase\(\) !== approvedSha/);
 });
+
+test('a diagnostic written by another tick during the fan-out does not discard the proposal', async () => {
+  const db = sqliteD1();
+  try {
+    const f = fixture({ db });
+    const job = await approvedJob(f.repository);
+    let entered;
+    const started = new Promise(resolve => { entered = resolve; });
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    const run = f.env.AI.run;
+    f.env.AI.run = async (...args) => { entered(); await gate; return run(...args); };
+    const pending = prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl });
+    await started;
+    const latest = await f.repository.get(job.id);
+    await f.repository.update(job.id, { result_json: { ...latest.result_json, runtime_retry: { attempts: 1 } } }, { expected: latest });
+    release();
+    const proposal = await pending;
+    assert.equal(proposal.status, 'READY');
+    const persisted = await f.repository.get(job.id);
+    assert.equal(persisted.result_json.implementation_proposal.status, 'READY');
+    assert.deepEqual(persisted.result_json.runtime_retry, { attempts: 1 });
+  } finally { db.close(); }
+});

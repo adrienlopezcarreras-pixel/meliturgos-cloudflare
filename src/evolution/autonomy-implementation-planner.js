@@ -619,6 +619,20 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
 
   const result = current.result_json && typeof current.result_json === 'object' ? { ...current.result_json } : {};
   result.implementation_proposal = proposal;
-  const updated = await repository.update(current.id, { result_json: result }, { expected: current });
+  let updated;
+  try {
+    updated = await repository.update(current.id, { result_json: result }, { expected: current });
+  } catch (error) {
+    // The fan-out outlives the 90 s runtime lease, so another tick may have
+    // written the job meanwhile (diagnostics, retry counters). Losing the whole
+    // proposal for that made FOUNDER-02/03 loop on JOB_UPDATE_CONFLICT. Re-apply
+    // it on the latest row only if the same Teacher approval still stands.
+    if (error?.code !== 'JOB_UPDATE_CONFLICT') throw error;
+    const latest = await repository.get(current.id);
+    const requestId = (job) => job?.result_json?.teacher_bridge?.request?.request_id || null;
+    if (!latest || latest.status !== current.status || requestId(latest) !== requestId(current)) throw error;
+    const merged = { ...(latest.result_json || {}), implementation_proposal: proposal };
+    updated = await repository.update(current.id, { result_json: merged }, { expected: latest });
+  }
   return updated.result_json.implementation_proposal;
 }
