@@ -33,8 +33,11 @@ const CONTENT_SECURITY_POLICY = [
   "object-src 'none'",
   "frame-ancestors 'none'",
   "form-action 'self'",
-  "img-src 'self' data: blob:",
-  "media-src 'self' data: blob:",
+  // Public media results are validated by the shared renderer before insertion.
+  // Allow their HTTPS bodies without granting remote scripts or API access.
+  "img-src 'self' data: blob: https:",
+  "media-src 'self' data: blob: https:",
+  "frame-src 'self' https://www.youtube-nocookie.com https://player.vimeo.com",
   "connect-src 'self'",
   "font-src 'self' data:",
   "style-src 'self' 'unsafe-inline'",

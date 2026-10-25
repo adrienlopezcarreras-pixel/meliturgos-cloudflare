@@ -16,6 +16,7 @@ on:
       - 'tests/fixtures/media/**'
       - 'src/api/*media*.js'
       - 'src/pages/chat-rich-renderer.js'
+      - 'src/visual-final-entry.js'
       - '.github/workflows/workers-ai-zero-cost-proof-refresh.yml'
       - '.github/workflows/mel-media-02-ci.yml'
   push:
@@ -36,6 +37,7 @@ on:
       - 'tests/fixtures/media/**'
       - 'src/api/*media*.js'
       - 'src/pages/chat-rich-renderer.js'
+      - 'src/visual-final-entry.js'
       - '.github/workflows/workers-ai-zero-cost-proof-refresh.yml'
       - '.github/workflows/mel-media-02-ci.yml'
 
@@ -75,6 +77,7 @@ jobs:
           tests/chat-media-chain.test.mjs
           tests/chat-media-request-object.test.mjs
           tests/chat-media-understanding.test.mjs
+          tests/site-hardening-cleanup.test.mjs
       - name: Prove local browser decoding, playback and private media seeking
         shell: bash
         env:

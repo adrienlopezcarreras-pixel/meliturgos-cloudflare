@@ -126,3 +126,14 @@ test('a photo request with an explanation preserves prose and only retrieved med
  assert.match(data.text,/Les chats ronronnent/);assert.doesNotMatch(data.text,/invented\.jpg/);assert.equal(data.media.length,1);
  const {host}=browser(t,data.text,data);assert.equal(host.querySelectorAll('img').length,1);assert.equal(host.querySelector('img').src,'https://upload.wikimedia.org/real-cat.jpg');
 });
+
+for(const text of ['Tu peux me montrer une photo de Rome ?', 'Je voudrais une photo de Rome, s’il te plaît'])test('conversational request executes search with its subject: '+text,async t=>{
+ let calls=0;
+ const response=await worker.fetch(request(text),env(async url=>{
+  calls++;assert.equal(new URL(url).searchParams.get('gsrsearch'),'Rome filetype:bitmap');
+  return Response.json({query:{pages:{1:{title:'Rome',imageinfo:[{url:'https://upload.wikimedia.org/rome.jpg',descriptionurl:'https://commons.wikimedia.org/wiki/File:Rome',mime:'image/jpeg'}]}}}});
+ }));
+ const result=await response.json();assert.equal(response.status,200);assert.equal(calls,1);assert.equal(result.media.length,1);
+ const {host}=browser(t,result.text,result);assert.equal(host.querySelectorAll('img').length,1);
+ assert.doesNotMatch(result.text,/"capability"|"args"/);
+});

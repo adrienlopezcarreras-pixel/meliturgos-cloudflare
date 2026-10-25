@@ -66,3 +66,14 @@ test('professor visual ownership is canonical and legacy UI patch layers are ret
   assert.doesNotMatch(liveSource, /import app from ['\"]\.\/ui-release-fix-entry\.js['\"]/);
   assert.equal(fs.existsSync('src/ui-release-fix-entry.js'), false);
 });
+
+test('canonical CSP permits public HTTPS media while keeping execution and connections local',()=>{
+ const csp=hardenResponseHeaders(new Response('')).headers.get('content-security-policy');
+ const rules=Object.fromEntries(csp.split(';').map(rule=>{const [key,...values]=rule.trim().split(/\s+/);return [key,values];}));
+ assert.deepEqual(rules['img-src'],["'self'",'data:','blob:','https:']);
+ assert.deepEqual(rules['media-src'],["'self'",'data:','blob:','https:']);
+ assert.deepEqual(rules['frame-src'],["'self'",'https://www.youtube-nocookie.com','https://player.vimeo.com']);
+ assert.deepEqual(rules['connect-src'],["'self'"]);
+ assert.deepEqual(rules['script-src'],["'self'","'unsafe-inline'"]);
+ assert.deepEqual(rules['object-src'],["'none'"]);assert.deepEqual(rules['frame-ancestors'],["'none'"]);
+});
