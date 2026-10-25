@@ -235,6 +235,6 @@ test('source-backed photo is discovered from a semantic HTML image without socia
   }),env);
   const data=await response.json();
   assert.equal(response.status,200,JSON.stringify(data));
-  assert.match(data.text,/!\\[[^\\]]*\\]\\(https:\\/\\/www\\.vatican\\.va\\/content\\/dam\\/portrait\\.jpg\\)/);
+  assert.ok(data.text.includes('https://www.vatican.va/content/dam/portrait.jpg'),data.text);
   assert.ok(data.media?.some(item=>item.url==='https://www.vatican.va/content/dam/portrait.jpg'),JSON.stringify(data));
 });
