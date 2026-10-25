@@ -18,7 +18,7 @@ test('runs one autonomous cycle at scheduled hours and reports the hand-in', asy
 });
 
 test('stops at the daily draft limit, and can be switched off', async () => {
-  const db = sqliteD1();
+  const db = sqliteD1({ maintenanceFence: true });
   await db.prepare('CREATE TABLE mel_work_artifacts (id TEXT PRIMARY KEY, mission_id TEXT, content TEXT, status TEXT, created_at TEXT)').run();
   const recent = new Date(at(11).getTime() - 3600_000).toISOString();
   for (const id of ['a', 'b', 'c', 'd']) await db.prepare("INSERT INTO mel_work_artifacts VALUES (?, 'm', 'x', 'DRAFT_UNVERIFIED', ?)").bind(id, recent).run();
@@ -28,7 +28,7 @@ test('stops at the daily draft limit, and can be switched off', async () => {
 });
 
 test('a deliverable finished while the PC was off is handed in later, once', async () => {
-  const db = sqliteD1();
+  const db = sqliteD1({ maintenanceFence: true });
   await db.prepare('CREATE TABLE mel_work_cycles (id TEXT PRIMARY KEY, state TEXT NOT NULL, result TEXT, updated_at TEXT NOT NULL)').run();
   const result = { status: 'DRAFT_UNVERIFIED', artifactId: 'work-' + 'b'.repeat(64), missionId: '0x' + '1'.repeat(64), mode: 'bounty', submission: 'COMPANION_OFFLINE' };
   await db.prepare("INSERT INTO mel_work_cycles VALUES ('c1','COMPLETE',?,?)").bind(JSON.stringify(result), at(5).toISOString()).run();

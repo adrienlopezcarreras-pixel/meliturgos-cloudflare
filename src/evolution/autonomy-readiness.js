@@ -244,7 +244,7 @@ export async function getAutonomyReadiness({ repository } = {}) {
     throw Object.assign(new Error('AUTONOMY_JOB_REPOSITORY_REQUIRED'), { code: 'AUTONOMY_JOB_REPOSITORY_REQUIRED' });
   }
 
-  const jobs = (await repository.list()).filter(isSupervisedAutonomyJob);
+  const jobs = (await repository.list({ full: true })).filter(isSupervisedAutonomyJob);
   const council = firstProof(jobs, councilProof);
   const workDag = firstProof(jobs, workDagProof);
   const teacherRoundTrip = firstProof(jobs, teacherRoundTripProof);
