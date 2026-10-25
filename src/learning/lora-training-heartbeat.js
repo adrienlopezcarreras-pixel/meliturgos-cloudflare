@@ -1,3 +1,4 @@
+import { enqueueSupervisedDevelopmentRequest } from '../evolution/owner-development-queue.js';
 import { discoverLoraDatasets } from './lora-dataset-discovery.js';
 import { observeLoraObjectives } from './lora-objective-observer.js';
 import { createLearningEngine } from './learning-engine.js';
@@ -207,11 +208,28 @@ export async function runLoraTrainingHeartbeat(env = {}, options = {}) {
   // cycle is needed (uncensored regression, agentic gap) or whether the gap is
   // a code problem that a LoRA cannot fix.
   const objective = impact.next_stage === 'AGENTIC_READY'
-    ? observeLoraObjectives({ impactRows: impact.rows || [], jobs: await recentJobs(env).catch(() => []) })
+    ? observeLoraObjectives({ impactRows: impact.rows || [], jobs: options.jobs || await recentJobs(env).catch(() => []) })
     : { decision: 'TRAIN_UNCENSORED', reason: 'UNCENSORED_GATE_NOT_REACHED' };
   delete impact.rows;
-  if (objective.decision === 'OBSERVE' || objective.decision === 'CODE_FIX') {
-    return { status: objective.decision === 'CODE_FIX' ? 'CODE_FIX_REQUIRED' : 'AGENTIC_OBSERVING', dispatched: false, impact, objective };
+  if (objective.decision === 'OBSERVE') {
+    return { status: 'AGENTIC_OBSERVING', dispatched: false, impact, objective };
+  }
+  if (objective.decision === 'CODE_FIX') {
+    // The gap is the pipeline, not the model: hand it to MAX as a code mission
+    // (one per distinct finding set) instead of training on it.
+    const findings = (objective.findings || []).map(f => `${f.code}: ${f.detail}`);
+    const mission = await (options.enqueueDevelopment || enqueueSupervisedDevelopmentRequest)({
+      env,
+      goal: ['[MEL-LORA-CODE-FIX] Le manque mesuré vient du pipeline, pas du modèle : le corriger dans le code.', ...findings,
+        'Inspecter les rejets dominants, corriger sur la branche candidate, tester, sans entraînement LoRA.'].join(' '),
+      requestKey: 'lora-code-fix:' + findings.join('|').slice(0, 200),
+      requestedBy: 'mel-autonomy',
+      source: 'lora-objective-observer',
+      priority: 'P1',
+      capabilities: [],
+    }).then(result => ({ queued: true, id: result?.job?.id || result?.id || null }))
+      .catch(error => ({ queued: false, error: String(error?.code || error?.message || error).slice(0, 120) }));
+    return { status: 'CODE_FIX_REQUIRED', dispatched: false, impact, objective, mission };
   }
   // The gap names the skill; MEL looks up public training sets and benchmarks for it herself.
   if (objective.decision === 'TRAIN_AGENTIC' || objective.reason === 'OVER_REFUSAL_REGRESSED') {

@@ -375,3 +375,20 @@ test('Kaggle chain carries the agentic objective and never stops it at AGENTIC_R
   assert.match(shard, /revision=revision/);
   assert.match(shard, /risky=mod\.is_high_risk_operational/);
 });
+
+test('a pipeline-caused gap becomes a MAX code mission instead of a training run', async () => {
+  const ok = { kind: 'lora-impact-candidate', metadata: { next_stage: 'AGENTIC_READY', candidate: { agentic_execution: 0.9, over_refusal_rate: 0.1, technical_depth: 0.9 } } };
+  const failed = Array.from({ length: 5 }, (_, i) => ({ id: 'j' + i, status: 'FAILED', result_json: { bridge_preparation_diagnostic: { mentor_failure_codes: [{ code: 'MENTOR_PROVIDER_TIMEOUT' }] } } }));
+  let enqueued = null, fetched = false;
+  const result = await runLoraTrainingHeartbeat({ ...baseEnv, DB: {} }, {
+    force: true, engine: engineWith([ok, ok]),
+    jobs: failed,
+    enqueueDevelopment: async (request) => { enqueued = request; return { job: { id: 'lora-fix-1' } }; },
+    fetchImpl: async () => { fetched = true; return Response.json([]); },
+  });
+  assert.equal(result.status, 'CODE_FIX_REQUIRED');
+  assert.equal(result.mission.queued, true);
+  assert.equal(enqueued.source, 'lora-objective-observer');
+  assert.match(enqueued.goal, /MEL-LORA-CODE-FIX/);
+  assert.equal(fetched, false);
+});
