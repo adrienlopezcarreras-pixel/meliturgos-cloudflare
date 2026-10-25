@@ -50,10 +50,11 @@ export const standardRegistry = new ModelRegistry([
   // MAX codes only with code-specialised models. Small ones first; the large
   // ones (CODE_LARGE) spend far more of the free daily quota and are used only
   // after three failed attempts (see MentorEngine._providers). Kimi K2.7 Code,
-  // GLM-5.3 and DeepSeek V4 need a paid plan and stay out.
-  { id: '@cf/zai-org/glm-5.3-flash', capabilities: ['CODE_SPECIALIST', 'CODE_LARGE'], priority: 62, cost: 0 },
+  // GLM-5.3, GLM-5.3 Flash and DeepSeek V4 need the Workers Paid plan: on this
+  // free account GLM-5.3 Flash only returned empty answers or timeouts (25/10).
+  // gpt-oss-120b is the largest free model that writes code; it takes over.
   { id: '@cf/qwen/qwen2.5-coder-32b-instruct', capabilities: ['CODE_SPECIALIST'], priority: 60, cost: 0 },
-  { id: '@cf/openai/gpt-oss-120b', capabilities: ['GENERAL', 'REASONING', 'CODE', 'FALLBACK'], priority: 50, cost: 0 },
+  { id: '@cf/openai/gpt-oss-120b', capabilities: ['GENERAL', 'REASONING', 'CODE', 'CODE_SPECIALIST', 'CODE_LARGE', 'FALLBACK'], priority: 50, cost: 0 },
   { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', capabilities: ['GENERAL', 'REASONING', 'CODE', 'FALLBACK'], priority: 40, cost: 0 },
   { id: '@cf/google/gemma-4-26b-a4b-it', capabilities: ['GENERAL', 'REASONING', 'VISION', 'CODE', 'FALLBACK'], priority: 35, cost: 0 },
   { id: '@cf/nvidia/nemotron-3-120b-a12b', capabilities: ['GENERAL', 'REASONING', 'CODE', 'FALLBACK'], priority: 32, cost: 0 },
