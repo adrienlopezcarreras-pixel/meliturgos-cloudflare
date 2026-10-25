@@ -223,3 +223,18 @@ for (const [label, modelText] of [
   } finally { dom.window.close(); }
 
 });
+
+test('source-backed photo is discovered from a semantic HTML image without social metadata', async () => {
+  const env = {
+    MELITURGOS_USER:'test', MELITURGOS_PASSWORD:'test-only', MEL_WEB_MIN_INTERVAL_MS:0,
+    MEL_WEB_FETCH: async () => new Response('<html><head><title>Official portrait</title></head><body><img class="photo" alt="Portrait officiel" src="/content/dam/portrait.jpg"><img alt="logo" src="/logo.png"></body></html>',{headers:{'content-type':'text/html'}}),
+    AI:{async run(){return {response:'Voici la photographie officielle.'};}},
+  };
+  const response=await worker.fetch(new Request('https://mel.example/api/chat', {
+    method:'POST',headers:authHeaders(),body:JSON.stringify({text:'montre moi une photo du pape',conversation_id:'portrait-semantic'}),
+  }),env);
+  const data=await response.json();
+  assert.equal(response.status,200,JSON.stringify(data));
+  assert.match(data.text,/!\\[[^\\]]*\\]\\(https:\\/\\/www\\.vatican\\.va\\/content\\/dam\\/portrait\\.jpg\\)/);
+  assert.ok(data.media?.some(item=>item.url==='https://www.vatican.va/content/dam/portrait.jpg'),JSON.stringify(data));
+});
