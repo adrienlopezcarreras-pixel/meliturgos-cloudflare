@@ -250,13 +250,16 @@ export function streamChatResponse({ env, messages, archive = async () => false,
       send({ type: 'start', model: usedModel });
       let finishReason = null;
       let lastError = null;
+      // Why each skipped model failed, kept with the reply so a slow answer
+      // can be explained afterwards (three silent models on "bonjour", 25/10).
+      const fallbacks = [];
       try {
         // Un modèle qui échoue AVANT d'avoir écrit quoi que ce soit est remplacé par le
         // suivant, sans que l'utilisateur ne voie d'erreur. Une fois du texte envoyé,
         // on ne change plus de modèle.
         for (const candidate of candidates) {
           if (fullText) break;
-          if (candidate !== usedModel) send({ type: 'model', model: candidate, fallback_from: usedModel, reason: lastError });
+          if (candidate !== usedModel) { fallbacks.push({ model: usedModel, reason: lastError }); send({ type: 'model', model: candidate, fallback_from: usedModel, reason: lastError }); }
           usedModel = candidate;
           try {
             const filter = createToolLeakFilter({preserveToolExamples});
@@ -299,8 +302,8 @@ export function streamChatResponse({ env, messages, archive = async () => false,
         }
         const truncated = finishReason === 'length';
         let archived = false;
-        try { archived = await archive(fullText, { model: usedModel, truncated }); } catch {}
-        send({ type: 'done', model: usedModel, chars: fullText.length, archived: archived === true, truncated });
+        try { archived = await archive(fullText, { model: usedModel, truncated, fallbacks }); } catch {}
+        send({ type: 'done', model: usedModel, chars: fullText.length, archived: archived === true, truncated, fallbacks });
       } catch (error) {
         const code = String(error?.code || error?.message || 'STREAM_FAILED').slice(0, 120);
         if (fullText.trim() && !gated) {

@@ -2420,7 +2420,7 @@ export async function handleNativeChat(request, env, options = {}) {
       archive: async (fullText, meta = {}) => {
         if (!service) return false;
         await service.archiveMessage({ conversationId, deviceId, role: 'user', content: text, timestamp: Date.now(), provenance: userProvenance, metadata: userMetadata });
-        await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: fullText, model: meta.model || null, timestamp: Date.now() + 1, provenance: 'native-chat:stream', metadata: { streamed: true, truncated: meta.truncated === true, ...(meta.error ? { stream_error: meta.error } : {}) } });
+        await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: fullText, model: meta.model || null, timestamp: Date.now() + 1, provenance: 'native-chat:stream', metadata: { streamed: true, truncated: meta.truncated === true, ...(meta.error ? { stream_error: meta.error } : {}), ...(Array.isArray(meta.fallbacks) && meta.fallbacks.length ? { model_fallbacks: meta.fallbacks.slice(0, 6) } : {}) } });
         return true;
       },
     });

@@ -397,4 +397,5 @@ test('a model that never starts streaming is skipped after the start timeout', a
   assert.equal(tried.length, 2);
   assert.match(text, /STREAM_START_TIMEOUT/);
   assert.match(text, /Bonjour Adrien/);
+  assert.match(text, /"fallbacks":\[\{"model":"[^"]+","reason":"STREAM_START_TIMEOUT"\}\]/);
 });
