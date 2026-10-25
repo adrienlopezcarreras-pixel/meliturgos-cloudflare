@@ -335,7 +335,11 @@ export async function persistBridgePreparationDiagnostic(repository, jobId, diag
   let historyChanged = false;
   if (next.code === 'MENTOR_NO_VALID_CODE_PROPOSAL') {
     const history = Array.isArray(result.mentor_attempt_history) ? result.mentor_attempt_history : [];
-    const round = (failures.length ? failures : [{ stage: 'initial', code: next.code }])
+    // Only code the model actually wrote counts toward the large model: a
+    // timeout, quota or write conflict is our pipeline's failure, not the
+    // small model's, and must not spend the large model's free allocation.
+    const round = failures
+      .filter(row => !/TIMEOUT|UNAVAILABLE|CONFLICT|QUOTA|RATE_LIMIT|PROVIDER/.test(row.code))
       .map(row => ({ name: row.stage, error: row.code, ...(row.detail ? { stderr: row.detail } : {}) }));
     result.mentor_attempt_history = [...history, ...round].slice(-9);
     historyChanged = true;

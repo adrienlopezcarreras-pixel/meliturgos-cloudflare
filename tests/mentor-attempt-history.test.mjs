@@ -14,6 +14,9 @@ test('rejected Mentor rounds accumulate across ticks and clear once a package is
   const history = (await repository.get(job.id)).result_json.mentor_attempt_history;
   assert.equal(history.length, 3);
   assert.deepEqual(history[0], { name: 'initial', error: 'MENTOR_TEST_REQUIRED', stderr: 'no test' });
+  await persistBridgePreparationDiagnostic(repository, job.id, { status: 'NOT_READY', code: 'MENTOR_NO_VALID_CODE_PROPOSAL',
+    failures: [{ stage: 'initial', code: 'MENTOR_PROVIDER_TIMEOUT' }] });
+  assert.equal((await repository.get(job.id)).result_json.mentor_attempt_history.length, 3, 'a timeout is not a model failure');
   await persistBridgePreparationDiagnostic(repository, job.id, { status: 'READY' });
   assert.equal((await repository.get(job.id)).result_json.mentor_attempt_history, undefined);
 });
