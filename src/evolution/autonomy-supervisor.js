@@ -63,6 +63,14 @@ function isWaitingTeacher(job) {
 // Mentor rounds a bridge-phase job gets: 3 small-model rounds, then the large one.
 export const BRIDGE_MENTOR_ROUNDS = 4;
 
+// Set at the start of each tick from the monthly re-verification.
+let runtimeRegressions = new Set();
+export function setRuntimeRoadmapRegressions(ids = []) { runtimeRegressions = new Set(ids); }
+function currentRoadmap() {
+  const items = flattenRoadmap();
+  return runtimeRegressions.size ? items.map(item => runtimeRegressions.has(item.id) ? { ...item, status: 'REGRESSED' } : item) : items;
+}
+
 // CODEX: a durable, bounded provider delay is passive, not a global MAX lock.
 export function providerRetryContext(job) {
   const result = job?.result_json || {};
@@ -219,7 +227,7 @@ export function isSupervisedAutonomyJob(job) {
 }
 
 export class AutonomySupervisor {
-  constructor({ repository, roadmap = flattenRoadmap(), evolutionLoader = null, epochMs = 0 } = {}) {
+  constructor({ repository, roadmap = currentRoadmap(), evolutionLoader = null, epochMs = 0 } = {}) {
     if (!repository || typeof repository.list !== 'function' || typeof repository.create !== 'function') {
       throw Object.assign(new Error('AUTONOMY_JOB_REPOSITORY_REQUIRED'), { code: 'AUTONOMY_JOB_REPOSITORY_REQUIRED' });
     }
