@@ -51,6 +51,11 @@ export function selectStreamModel(messages, env = {}) {
   return streamModelCandidates(messages, env)[0];
 }
 
+export function streamStartTimeoutMs(env = {}) {
+  const configured = Number(env?.MEL_STREAM_START_TIMEOUT_MS);
+  return Math.max(5_000, Math.min(60_000, Number.isFinite(configured) && configured > 0 ? configured : 20_000));
+}
+
 export function streamOutputTokens(env = {}) {
   const configured = Number(env?.MEL_STREAM_MAX_OUTPUT_TOKENS);
   return Math.max(512, Math.min(16_000, Number.isFinite(configured) && configured > 0 ? configured : 8_192));
@@ -256,7 +261,12 @@ export function streamChatResponse({ env, messages, archive = async () => false,
           try {
             const filter = createToolLeakFilter({preserveToolExamples});
             const emit = text => { if (text) { fullText += text; if (!gated) send({ type: 'delta', text }); } };
-            const source = await env.AI.run(candidate, { messages: withNoToolsNote(messages,{preserveToolExamples}), stream: true, max_tokens: maxTokens });
+            // A model that has not started streaming within the bound is skipped:
+            // three silent models made "bonjour" take 76 s (25/10).
+            const started = env.AI.run(candidate, { messages: withNoToolsNote(messages,{preserveToolExamples}), stream: true, max_tokens: maxTokens });
+            let timer;
+            const source = await Promise.race([started, new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error('STREAM_START_TIMEOUT'), { code: 'STREAM_START_TIMEOUT' })), streamStartTimeoutMs(env)); })])
+              .finally(() => clearTimeout(timer));
             if (!source || typeof source.getReader !== 'function') {
               emit(filter.push(sseEventText(source) || String(source?.result?.response || '')));
             } else {
