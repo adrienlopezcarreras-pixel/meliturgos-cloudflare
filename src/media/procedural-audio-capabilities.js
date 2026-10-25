@@ -137,14 +137,6 @@ async function audioGenerate(env,input={}){
   const artifact=await storePrivateArtifact(env,wav,{capability:'media.audio.generate',model:'mel-dsp-sound-v1',mime:'audio/wav',extension:'wav'});
   return Object.freeze({ok:true,schema:'mel.dsp-audio/v1',capability:'media.audio.generate',provider:'mel-dsp',zero_added_cost:true,duration_seconds:duration,artifact});
 }
-
-async function gifGenerate(env,input={}){
-  if(!mediaStorageReady(env))throw err('MEDIA_VAULT_UNAVAILABLE',503);
-  const prompt=clean(input.prompt||input.description,2000);if(!prompt)throw err('MEDIA_PROMPT_REQUIRED');
-  const duration=Math.min(10,Math.max(0.25,Number(input.duration_seconds)||2)),wav=encodeWav(generatedSound(prompt,duration));
-  const artifact=await storePrivateArtifact(env,wav,{capability:'media.gif.generate',model:'mel-dsp-sound-v1',mime:'image/gif',extension:'gif'});
-  return Object.freeze({ok:true,schema:'mel.dsp-gif/v1',capability:'media.gif.generate',provider:'mel-dsp',zero_added_cost:true,duration_seconds:duration,artifact});
-}
 async function musicGenerate(env,input={}){
   if(!mediaStorageReady(env))throw err('MEDIA_VAULT_UNAVAILABLE',503);
   const prompt=clean(input.prompt||input.description,2000);if(!prompt)throw err('MEDIA_PROMPT_REQUIRED');
