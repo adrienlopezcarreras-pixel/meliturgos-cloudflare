@@ -39,3 +39,11 @@ test('a structural Mentor rejection does not park the job before the large model
   assert.equal(deferral.max_attempts, 4);
   assert.equal(deferral.exhausted, false);
 });
+
+test('a bridge job parked under the old one-round limit is worked again until its rounds are spent', async () => {
+  const { selectActionableAutonomyJob, providerRetryContext } = await import('../src/evolution/autonomy-supervisor.js');
+  const job = { id: 'mel-autonomy-x-1', requested_by: 'mel-autonomy', status: 'TEACHER_APPROVED', created_at: 1, optional_context: { roadmap_id: 'MEL-X' }, result_json: {} };
+  const parked = (attempts) => ({ ...job, result_json: { autonomy_deferral: { phase: 'bridge', exhausted: true, attempts, max_attempts: 1, retry_after: 0, context: providerRetryContext(job) } } });
+  assert.equal(selectActionableAutonomyJob([parked(1)], { roadmap: [] })?.id, job.id);
+  assert.equal(selectActionableAutonomyJob([parked(4)], { roadmap: [] }), null);
+});
