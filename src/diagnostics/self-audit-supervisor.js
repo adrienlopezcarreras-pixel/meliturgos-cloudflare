@@ -1,3 +1,4 @@
+import { raiseOwnerRequestsForFailedJobs } from '../evolution/owner-requests.js';
 import { runD1Retention } from '../maintenance/d1-retention.js';
 import { runShardVaultCycle } from '../continuity/shardvault-runtime.js';
 import { runLoraTrainingHeartbeat } from '../learning/lora-training-heartbeat.js';
@@ -617,6 +618,8 @@ export async function runMelSelfAuditSupervisor(env = {}, {
       const unavailable = ['DISABLED','SKIPPED_NO_GITHUB_TOKEN','HEARTBEAT_ERROR'].includes(status);
       return { ...value, ok: !unavailable };
     }));
+    // A mission blocked on a connection becomes one request to the owner.
+    results.push(await capture('owner-requests', async () => (deps.raiseOwnerRequestsForFailedJobs || raiseOwnerRequestsForFailedJobs)(env.DB, { now: current })));
     results.push(await capture('ecosystem-watch', async () => (deps.runEcosystemCapabilityWatch || runEcosystemCapabilityWatch)(env, { force: true, sourceSha: clean(env.MEL_DEPLOYED_GIT_SHA, 80) || null })));
     results.push(await capture('dependency-longevity', async () => (deps.runDependencyLongevityWatchRuntime || runDependencyLongevityWatchRuntime)(env, { force: true, now: current })));
     results.push(await capture('sovereignty-watch', async () => (deps.runSovereigntyReplacementWatchRuntime || runSovereigntyReplacementWatchRuntime)(env, { force: true, now: current })));

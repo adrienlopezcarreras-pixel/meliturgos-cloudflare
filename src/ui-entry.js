@@ -3,6 +3,7 @@ import { requireAuth } from './core/security.js';
 import { migrate } from './persistence/migrations.js';
 import { createConversationService } from './conversations/conversation-service.js';
 import { buildActivitySnapshot } from './activity/activity-snapshot.js';
+import { answerOwnerRequest, listOwnerRequests } from './evolution/owner-requests.js';
 import { getEcosystemCapabilityWatchStatus, runEcosystemCapabilityWatch, applyEcosystemProposalDecision } from './evaluation/capability-watch-runtime.js';
 
 function json(value, status = 200) {
@@ -146,6 +147,19 @@ async function capabilityWatchProposalActionResponse(request, env) {
   }
 }
 
+async function ownerRequestsResponse(request, env) {
+  const auth = requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+  try {
+    if (request.method === 'GET') return json({ ok: true, requests: await listOwnerRequests(env.DB) });
+    let body = {};
+    try { body = await request.clone().json(); } catch {}
+    return json(await answerOwnerRequest(env, { id: body?.id, answer: body?.answer }));
+  } catch (error) {
+    return json({ ok: false, error: String(error?.code || 'OWNER_REQUEST_FAILED').slice(0, 120) }, Number(error?.status) || 503);
+  }
+}
+
 async function latestConversationResponse(request, env) {
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
@@ -187,6 +201,7 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/mel/capability-watch/run') return capabilityWatchRunResponse(request, env, ctx);
     if (request.method === 'POST' && url.pathname === '/api/mel/capability-watch/test-all') return capabilityWatchTestAllResponse(request, env, ctx);
     if (request.method === 'POST' && url.pathname === '/api/mel/capability-watch/proposal') return capabilityWatchProposalActionResponse(request, env);
+    if (url.pathname === '/api/mel/owner-requests' && (request.method === 'GET' || request.method === 'POST')) return ownerRequestsResponse(request, env);
     if (request.method === 'GET' && url.pathname === '/api/mel/conversations/latest') return latestConversationResponse(request, env);
     const response = await app.fetch(request, env, ctx);
     if (request.method !== 'GET') return response;
