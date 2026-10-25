@@ -8,7 +8,7 @@ import { sqliteD1 } from '../helpers/sqlite-d1.mjs';
 const context = { owner: 'adrien', requestId: 'context-03-work-link', permissions: [] };
 
 test('MEL-CONTEXT-03 Work keeps a durable conversation-linked open-loop checkpoint', async () => {
-  const DB = sqliteD1();
+  const DB = sqliteD1({ maintenanceFence: true });
   const bus = createDefaultCapabilityBus({ env: { DB, MELITURGOS_USER: 'adrien' } });
   const loops = createOpenLoopService({ DB });
   try {
@@ -37,7 +37,7 @@ test('MEL-CONTEXT-03 Work keeps a durable conversation-linked open-loop checkpoi
 });
 
 test('MEL-CONTEXT-03 blocked Work becomes passive instead of retry-looping', async () => {
-  const DB = sqliteD1();
+  const DB = sqliteD1({ maintenanceFence: true });
   const bus = createDefaultCapabilityBus({ env: { DB, MELITURGOS_USER: 'adrien' } });
   const loops = createOpenLoopService({ DB });
   try {
@@ -62,7 +62,7 @@ test('MEL-CONTEXT-03 blocked Work becomes passive instead of retry-looping', asy
 });
 
 test('MEL-CONTEXT-03 plan handoff closes the plan loop and opens the Work checkpoint', async () => {
-  const DB = sqliteD1();
+  const DB = sqliteD1({ maintenanceFence: true });
   const bus = createDefaultCapabilityBus({ env: { DB, MELITURGOS_USER: 'adrien' } });
   const loops = createOpenLoopService({ DB });
   try {
@@ -92,7 +92,7 @@ test('MEL-CONTEXT-03 plan handoff closes the plan loop and opens the Work checkp
 
 
 test('openloop.resume owns the single checkpoint commit when Work run advances a node', async () => {
-  const DB = sqliteD1();
+  const DB = sqliteD1({ maintenanceFence: true });
   const bus = createDefaultCapabilityBus({ env: { DB, MELITURGOS_USER: 'adrien' } });
   const loops = createOpenLoopService({ DB });
   const conversationId = 'claimed-conversation';

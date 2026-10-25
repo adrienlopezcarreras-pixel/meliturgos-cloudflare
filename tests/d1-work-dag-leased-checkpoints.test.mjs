@@ -6,7 +6,7 @@ import { D1WorkDagStore } from '../src/work/d1-work-dag-store.js';
 import { acquireD1WorkRunLease, releaseD1WorkRunLease } from '../src/work/d1-work-run-lease.js';
 
 test('old Work DAG writer cannot replace successor checkpoint after lease takeover', async () => {
-  const db = sqliteD1();
+  const db = sqliteD1({ maintenanceFence: true });
   const id = 'leased-work-dag-proof';
   try {
     const created = createWorkDag({
@@ -41,7 +41,7 @@ test('old Work DAG writer cannot replace successor checkpoint after lease takeov
 });
 
 test('leased Work DAG persistence fails closed on expired lease or missing ownership', async () => {
-  const db=sqliteD1();
+  const db=sqliteD1({ maintenanceFence: true });
   const id='expired-dag-write-proof';
   try {
     const dag=createWorkDag({

@@ -11,7 +11,7 @@ function fakeD1() {
       const run = async (params = []) => {
         if (statement.startsWith('CREATE TABLE')) return { meta: { changes: 0 } };
         if (statement.startsWith('INSERT INTO WORK_DAG_RUN_LEASES')) {
-          const [id, token, until, now] = params;
+          const [id, token, until, _maintenanceFenceId, now] = params;
           const old = leases.get(id);
           if (old && old.until > now) return { meta: { changes: 0 } };
           leases.set(id, { token, until });

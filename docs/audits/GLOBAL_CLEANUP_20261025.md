@@ -201,3 +201,67 @@ preuve locale n'est pas une sauvegarde complète production. Il faut valider la
 PR, attendre la fin de toute release active, déclencher une seule release avec
 full_r2_backup=true, puis restaurer le nouveau snapshot réel indépendamment.
 Les sept adaptateurs, le drain et le nettoyage réel restent à prouver.
+
+## Exécution de la sauvegarde complète et protection WORK
+
+#2630 fusionnée 1dbd8b96 après 11 contrôles réussis. Release précédente
+40172136929 terminée SUCCESS sur e9d6d7da. Demande canonique full_r2_backup=true
+acceptée (40174187587), release 40174216660 : arrêt avant déploiement au backup,
+code BACKUP_R2_COPY_INVENTORY_INVALID. La prévalidation précède toute copie :
+aucun original effacé et pas de sauvegarde complète revendiquée.
+Lecture D1 après cet échec : run 40175137154, contrôle 121114087551, VERIFIED,
+RUNNING, paused=false, max_autonomy=true. Aucun arrêt résiduel MAX observé.
+
+Le précontrôle R2 distingue maintenant nombre/taille/budget et métadonnées invalides,
+avec compteurs et raisons strictement bornés, sans clés ni ETag privés. Les limites
+restent inchangées. Le motif réel de l'inventaire production devra être mesuré,
+pas déduit d'une fixture ou de valeurs historiques.
+
+Le bail WORK D1 est fermé atomiquement sous le verrou PAUSED, y compris reprise
+manuelle/cron et bail global expiré. Les cycles streamDirectWork refusent avant
+réseau/modèle/remise, et leur INSERT RUNNING porte également le prédicat atomique
+contre une pause arrivée après le premier SELECT. Un refus ne crée pas un faux
+cycle FAILED. Les cycles déjà admis peuvent terminer pour être drainés ; cette
+admission seule ne prouve donc pas le drain des travaux en cours.
+
+90 tests ciblés passent, dont course réelle SQL, DAG signé conservé octet pour
+octet, reprise sans double exécution, schéma global absent fail-closed, budgets et
+diagnostics R2 non divulguants. Aucune mutation de DAG signé ni de paiements.
+Les fixtures sont explicitement initialisées avec le schéma de maintenance,
+sans affaiblir le contrôle runtime. Nettoyage réel toujours BLOCKED.
+
+Le diagnostic de restauration peut aussi décrire les seuls compteurs de
+l'inventaire contenu dans un snapshot chiffré vérifié : source explicitement
+SNAPSHOT_INVENTORY et date du snapshot. Ces valeurs historiques ne sont jamais
+présentées comme état courant de production ni comme preuve de restauration.
+Le prévalidateur R2 est partagé avec le créateur de sauvegarde, sans nouvelle
+copie ni nouveau client de stockage. 91 tests ciblés réussis après cet ajout.
+
+## Réconciliation du volume R2 déjà corrigé sur main
+
+Main ea737e23 inclut #2634 (9ae82f39), qui accepte des inventaires bornés à
+10000 objets et teste 7378 objets. Cette correction parallèle est conservée,
+ainsi que les modifications Mentor, Taskmarket, UI et synchronisation candidate.
+Le restaurateur conservait un défaut à 5000 : il aurait refusé un snapshot accepté
+par le créateur. Les deux partagent désormais les constantes 10000 objets,
+256 Mio au total et 32 Mio par objet ; seul le plafond de nombre déjà approuvé
+sur main est repris, aucun budget d'octets augmenté. Le test de restauration
+admet 7378 références mais refuse encore réellement les octets absents.
+
+93 tests ciblés passent après résolution des conflits. Les valeurs du test ne
+sont pas présentées comme une mesure fraîche de production. Aucune restauration
+complète ni purge encore prouvée. XP MEL : NON.
+
+## Reprise CI de #2636
+
+Main edd09b23 réconcilié sans perdre les modifications Mentor, modèles, UI et
+capabilities. La CI durable-work échouait sur les fixtures SQLite des reprises
+open-loop, sans table dev_bridge_state. Ces fixtures utilisent maintenant l'option
+maintenanceFence du helper partagé, comme les autres intégrations WORK. Aucun
+assouplissement du runtime : schéma absent reste refusé. Les 26 tests ciblés de
+reprise/durable/contexte passent localement.
+
+La suite locale complète a rencontré une erreur d'environnement : RUNNER_TEMP
+pointait vers un répertoire absent. Le test cloud-bridge-execution a été relancé
+avec un répertoire existant et réussit ; ce n'est pas une correction du runtime.
+La validation CI du nouveau HEAD reste nécessaire, pas de succès rétroactif.

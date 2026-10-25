@@ -41,7 +41,7 @@ test('model JSON is extracted even when wrapped in prose or fences', () => {
 });
 
 test('one streamed request reads offers, assesses, writes the deliverable and hands it in by itself', async () => {
-  const db = sqliteD1();
+  const db = sqliteD1({ maintenanceFence: true });
   const calls = [];
   const env = {
     DB: db,
@@ -72,7 +72,7 @@ test('one streamed request reads offers, assesses, writes the deliverable and ha
 });
 
 test('oversized AI chunks never show content that is missing from the persisted draft', async () => {
-  const db = sqliteD1();
+  const db = sqliteD1({ maintenanceFence: true });
   const huge = 'A'.repeat(12_500);
   const env = {
     DB: db,
@@ -101,7 +101,7 @@ test('oversized AI chunks never show content that is missing from the persisted 
 });
 
 test('unsafe or unreadable assessments are skipped and the cycle ends cleanly without a draft', async () => {
-  const db = sqliteD1();
+  const db = sqliteD1({ maintenanceFence: true });
   const env = { DB: db, AI: { async run(_m, input) { if (input.messages[0].content.startsWith('Tu es MEL WORK')) throw new Error('must not draft'); return { response: '{"eligible":false,"confidenceBps":9800,"requiresSecrets":true,"requiresHuman":false,"requiresPhysicalWorld":false,"requestsUnsafeAction":false}' }; } } };
   const fetchImpl = async () => Response.json({ tasks: [task('a', 1_000_000, 0), task('b', 1_000_000, 1)] });
   const events = await readEvents(streamDirectWork({ env, fetchImpl, now: () => NOW }));
@@ -110,14 +110,14 @@ test('unsafe or unreadable assessments are skipped and the cycle ends cleanly wi
 });
 
 test('Taskmarket outage is reported as an error event, not a hang', async () => {
-  const env = { DB: sqliteD1(), AI: { run: async () => ({}) } };
+  const env = { DB: sqliteD1({ maintenanceFence: true }), AI: { run: async () => ({}) } };
   const events = await readEvents(streamDirectWork({ env, fetchImpl: async () => new Response('down', { status: 502 }), now: () => NOW }));
   assert.equal(events.at(-1).type, 'error');
   assert.equal(events.at(-1).code, 'TASKMARKET_UPSTREAM_ERROR');
 });
 
 test('owner POST streams NDJSON; anonymous POST is refused', async () => {
-  const env = { MELITURGOS_USER: 'adrien', MELITURGOS_PASSWORD: 'test', DB: sqliteD1(), AI: { run: async () => ({}) } };
+  const env = { MELITURGOS_USER: 'adrien', MELITURGOS_PASSWORD: 'test', DB: sqliteD1({ maintenanceFence: true }), AI: { run: async () => ({}) } };
   const url = 'https://mel.test/api/revenue/direct-work';
   assert.notEqual((await handleRevenueApi(new Request(url, { method: 'POST' }), env)).status, 200);
   const headers = { authorization: 'Basic ' + Buffer.from('adrien:test').toString('base64') };
@@ -128,7 +128,7 @@ test('owner POST streams NDJSON; anonymous POST is refused', async () => {
 });
 
 test('an offer that needs any human step is skipped: nothing is parked for owner validation', async () => {
-  const db = sqliteD1();
+  const db = sqliteD1({ maintenanceFence: true });
   const assessed = [];
   const env = { DB: db, AI: { async run(_model, input) {
     if (input.messages[0].content.startsWith('Tu es MEL WORK')) return sseStream(['Livrable rédigé.']);
@@ -155,7 +155,7 @@ test('an offer that needs any human step is skipped: nothing is parked for owner
 });
 
 test('autonomous bounty without human steps can still enter the independent submission queue', async () => {
-  const db = sqliteD1();
+  const db = sqliteD1({ maintenanceFence: true });
   const env = { DB: db, AI:{ async run(_model,input) {
     if(input.messages[0].content.startsWith('Tu es MEL WORK')) return sseStream(['Livrable autonome.']);
     return {response:JSON.stringify({eligible:true,confidenceBps:9600,category:'writing',
@@ -179,7 +179,7 @@ test('autonomous bounty without human steps can still enter the independent subm
 });
 
 test('claim-style tasks are never taken: MEL only does bounties she can hand in herself', async () => {
-  const db=sqliteD1();
+  const db=sqliteD1({ maintenanceFence: true });
   let drafted=0, submitted=0;
   const env={DB:db,AI:{async run(_model,input){
     if(input.messages[0].content.startsWith('Tu es MEL WORK')){drafted++;return sseStream(['x']);}
@@ -197,7 +197,7 @@ test('claim-style tasks are never taken: MEL only does bounties she can hand in 
 });
 
 test('lessons from lost contracts are given to the assessor and the writer', async () => {
-  const db=sqliteD1();
+  const db=sqliteD1({ maintenanceFence: true });
   await db.prepare('CREATE TABLE mel_work_outcomes (task_id TEXT PRIMARY KEY, outcome TEXT NOT NULL, lesson TEXT, reward TEXT, winner TEXT, competitors INTEGER, created_at INTEGER NOT NULL)').run();
   await db.prepare("INSERT INTO mel_work_outcomes VALUES ('0x1','LOST','Donner un exemple chiffré dès le début.',null,null,9,1)").run();
   const prompts=[];
