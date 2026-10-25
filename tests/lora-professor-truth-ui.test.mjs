@@ -26,7 +26,7 @@ test('Kaggle training success cannot impersonate a passed canonical benchmark', 
   assert.match(panel, /const benchmarkVerified=impact\?\.canonical_gate_passed===true&&impact\?\.impact_gate_passed===true/);
   assert.match(panel, /const validationDone=benchmarkVerified;/);
   assert.doesNotMatch(panel, /const validationDone=traceSuccess/);
-  assert.match(panel, /BENCHMARK NON PROUVÉ/);
+  assert.match(panel, /BENCHMARK CANONIQUE NON PROUVÉ/);
   assert.match(panel, /CHECKPOINT VÉRIFIÉ/, 'preserve the independent successful training checkpoint state');
 });
 
