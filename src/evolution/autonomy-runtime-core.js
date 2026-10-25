@@ -329,12 +329,26 @@ export async function persistBridgePreparationDiagnostic(repository, jobId, diag
     observed_at: new Date().toISOString(),
   };
   const previous = result.bridge_preparation_diagnostic;
+  // Rejected Mentor rounds are remembered across ticks: they are shown to the
+  // next round and, after three, unlock the large code models. Without this the
+  // small model was retried forever with an empty error history.
+  let historyChanged = false;
+  if (next.code === 'MENTOR_NO_VALID_CODE_PROPOSAL') {
+    const history = Array.isArray(result.mentor_attempt_history) ? result.mentor_attempt_history : [];
+    const round = (failures.length ? failures : [{ stage: 'initial', code: next.code }])
+      .map(row => ({ name: row.stage, error: row.code, ...(row.detail ? { stderr: row.detail } : {}) }));
+    result.mentor_attempt_history = [...history, ...round].slice(-9);
+    historyChanged = true;
+  } else if (next.status === 'READY' && result.mentor_attempt_history) {
+    delete result.mentor_attempt_history;
+    historyChanged = true;
+  }
   const deferred = providerDeferral(next.code);
   const owned = result.autonomy_deferral?.phase === 'bridge'
     || (!result.autonomy_deferral?.phase && previous?.code != null
       && result.autonomy_deferral?.code === previous.code);
   // A finished attempt always clears its marker, even with an unchanged diagnostic.
-  if (!result.bridge_preparation_attempt && sameDiagnostic(previous, next)
+  if (!historyChanged && !result.bridge_preparation_attempt && sameDiagnostic(previous, next)
       && (deferred ? owned && result.autonomy_deferral?.context === providerRetryContext(latest)
         && Number(result.autonomy_deferral?.retry_after) > Date.now() : !owned)) return latest;
   result.bridge_preparation_diagnostic = next;
