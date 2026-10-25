@@ -15,6 +15,7 @@ import { readPersistentCapabilityStress } from './persistent-capability-stress.j
 import { getAutonomyControl } from '../evolution/autonomy-control.js';
 import { auditDevelopment, probeCodeModels } from './development-audit.js';
 import { runDomainAudit } from './domain-audit.js';
+import { appendResolved, findingsForRepair, measureOutcomeRepairs, recordRepairs } from './outcome-loop.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { enqueueSupervisedDevelopmentRequest } from '../evolution/owner-development-queue.js';
 import { evaluateCouncilReleaseProof } from '../models/model-council-evidence.js';
@@ -682,12 +683,22 @@ export async function runMelSelfAuditSupervisor(env = {}, {
   // A development finding is repaired the same week; its codes make the
   // fingerprint, so a new problem queues a new repair.
   const outcomeAudits = new Set(['development-audit', 'domain-audit']);
-  const developmentFindings = results
+  const currentFindings = results
     .filter(row => outcomeAudits.has(row.name) && row.ok !== true)
     .flatMap(row => (Array.isArray(row.value?.findings) ? row.value.findings : []));
+  // MEL-AUDIT-07: a repaired finding must be gone from a later audit; one
+  // still present after its grace week reopens the repair with that proof.
+  const outcomeLoop = measureOutcomeRepairs(state.outcome_repairs || {}, currentFindings, {
+    measured: results.some(row => outcomeAudits.has(row.name) && row.value),
+    now: current,
+  });
+  const developmentFindings = findingsForRepair(currentFindings, outcomeLoop);
+  const reopenTag = outcomeLoop.persisting.length
+    ? ':reopen-' + outcomeLoop.persisting.map(row => row.code + '#' + row.attempts).sort().join(',')
+    : '';
   const recurring = [
     ...recurringTaskFailures(failureStreaks, 2).filter(row => !outcomeAudits.has(row.name)),
-    ...(developmentFindings.length ? [{ name: 'outcome-audit:' + developmentFindings.map(row => row.code).sort().join(','), streak: 1, findings: developmentFindings }] : []),
+    ...(developmentFindings.length ? [{ name: 'outcome-audit:' + developmentFindings.map(row => row.code).sort().join(',') + reopenTag, streak: 1, findings: developmentFindings }] : []),
   ];
   const fingerprint = failureFingerprint({
     stressJobId: previousStress?.job_id || previousStress?.id || '',
@@ -699,6 +710,7 @@ export async function runMelSelfAuditSupervisor(env = {}, {
   let council = null;
   let repair = null;
   let repairFingerprints = Array.isArray(state.repair_fingerprints) ? [...state.repair_fingerprints] : [];
+  let outcomeRepairs = outcomeLoop.ledger;
   if (repairEnabled !== false && repairNeeded && fingerprint && !repairFingerprints.includes(fingerprint)) {
     council = await runCouncilRepairAnalysis(bus, context, {
       stress_job_id: previousStress?.job_id || previousStress?.id || null,
@@ -720,6 +732,7 @@ export async function runMelSelfAuditSupervisor(env = {}, {
     // A paused or unapproved handoff is not repaired. Preserve the fingerprint
     // for a future audit after release unpauses, rather than losing the retry.
     if (repair?.queued === true) {
+      outcomeRepairs = recordRepairs(outcomeRepairs, developmentFindings, { now: current });
       repairFingerprints.push(fingerprint);
       repairFingerprints = repairFingerprints.slice(-MAX_REPAIR_HISTORY);
     }
@@ -783,6 +796,11 @@ export async function runMelSelfAuditSupervisor(env = {}, {
       status: startedStress.status || null,
     } : null,
     recurring_failures: recurring,
+    outcome_loop: {
+      resolved: outcomeLoop.resolved,
+      reopened: outcomeLoop.persisting,
+      escalated: outcomeLoop.escalated,
+    },
     council,
     repair,
     sovereignty,
@@ -806,6 +824,8 @@ export async function runMelSelfAuditSupervisor(env = {}, {
     last_runs: lastRuns,
     failure_streaks: failureStreaks,
     repair_fingerprints: repairFingerprints,
+    outcome_repairs: outcomeRepairs,
+    resolved_findings: appendResolved(state.resolved_findings, outcomeLoop.resolved),
     capability_ledger: capabilityLedger,
     survival_ledger: survivalLedger,
     last_report: report,
