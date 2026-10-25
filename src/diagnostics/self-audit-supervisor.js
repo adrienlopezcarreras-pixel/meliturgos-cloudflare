@@ -1,3 +1,4 @@
+import { runShardVaultCycle } from '../continuity/shardvault-runtime.js';
 import { runLoraTrainingHeartbeat } from '../learning/lora-training-heartbeat.js';
 import { runEcosystemCapabilityWatch } from '../evaluation/capability-watch-runtime.js';
 import { runDependencyLongevityWatchRuntime } from '../evaluation/dependency-longevity-watch-runtime.js';
@@ -640,6 +641,12 @@ export async function runMelSelfAuditSupervisor(env = {}, {
   }
 
   if (due.includes('MONTHLY')) {
+    // Owner rule: once a month MEL re-activates its online backup shards,
+    // re-checks every shard and repairs missing ones (forced full cycle).
+    results.push(await capture('monthly-shardvault-reactivation', async () => {
+      const value = await (deps.runShardVaultCycle || runShardVaultCycle)(env, { force: true });
+      return { ...value, status: value?.enabled === false ? 'SHARDVAULT_DISABLED' : value?.ok === true ? 'SHARDVAULT_REACTIVATED' : 'SHARDVAULT_REPAIR_FAILED' };
+    }));
     results.push(await capture('monthly-system-backup-drill', async () => (deps.runScheduledSystemBackup || runScheduledSystemBackup)(env, {
       force: true,
       compactPostPersistVerify: true,
