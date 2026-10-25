@@ -61,3 +61,59 @@ test('expiry between handlers stops subsequent reset mutations and requires inde
   assert.equal((await readMaintenanceFence(db,{now:clock})).reason,'EXPIRED_MAINTENANCE_REQUIRES_RECOVERY');
  } finally {db.close();}
 });
+
+test('cold maintenance obtains stop evidence after acquiring its fence, not before stopping producers',async()=>{
+ const db=await fixture();let stopped=false,reads=0;const order=[];
+ try {
+  const result=await executeGlobalMaintenance({db,leaseId:'cold-start',now:()=>100,ownerApproved:true,
+   proofProvider:async()=>{reads++;order.push(stopped?'proof-stopped':'proof-running');return {...proofs,producerFenceProof:stopped?proofs.producerFenceProof:null};},
+   stopProducers:async()=>{assert.equal((await readMaintenanceFence(db,{now:100})).paused,true);stopped=true;order.push('stop');},
+   verifyProducersStopped:async()=>{order.push('verify-stop');return stopped;},
+   handlers:Object.fromEntries(RESET_SCOPES.map(scope=>[scope,async()=>{order.push(scope);}])),
+   recover:async()=>{throw Error('UNEXPECTED_RECOVERY');},
+   verifyFinalState:async()=>({independently_verified:true,reconciled:true})
+  });
+  assert.equal(result.status,'COMPLETED');assert.equal(reads,2);
+  assert.deepEqual(order,['proof-running','stop','verify-stop','proof-stopped',...RESET_SCOPES]);
+  assert.equal((await readMaintenanceFence(db,{now:101})).paused,false);
+ }finally{db.close();}
+});
+
+test('fresh post-stop proof failures prevent every reset and retain the fence until verified recovery',async()=>{
+ for(const failure of ['producer','restore','domain','unavailable']){
+  const db=await fixture();let stopped=false,reads=0,resets=0,recoveryError;
+  try {
+   await assert.rejects(executeGlobalMaintenance({db,leaseId:'fresh-'+failure,now:()=>100,ownerApproved:true,
+    proofProvider:async()=>{
+     reads++;
+     if(!stopped)return {...proofs,producerFenceProof:null};
+     if(failure==='unavailable')throw Error('PROOF_STORE_UNAVAILABLE');
+     return {...proofs,...(failure==='producer'?{producerFenceProof:null}:failure==='restore'?{restoreTestProof:null}:{domainProofs:{}})};
+    },
+    stopProducers:async()=>{stopped=true;},verifyProducersStopped:async()=>true,
+    handlers:Object.fromEntries(RESET_SCOPES.map(scope=>[scope,async()=>{resets++;}])),
+    recover:async error=>{recoveryError=error;return {reconciled:false};},
+    verifyFinalState:async()=>({independently_verified:false,reconciled:false})
+   }),/INDEPENDENT_RECONCILIATION_REQUIRED/);
+   assert.equal(reads,2);assert.equal(resets,0);assert.ok(recoveryError);
+   assert.equal((await readMaintenanceFence(db,{now:101})).paused,true);
+   assert.equal((await metadata(db)).phase,'STOPPING_PRODUCERS');
+  }finally{db.close();}
+ }
+});
+
+test('missing restore or domain evidence still blocks before any maintenance fence or shutdown',async()=>{
+ for(const missing of ['restoreTestProof','domainProofs']){
+  const db=await fixture();let stopped=false;
+  try{
+   const result=await executeGlobalMaintenance({db,leaseId:'static-missing',now:()=>100,ownerApproved:true,
+    proofProvider:async()=>({...proofs,producerFenceProof:null,[missing]:null}),
+    stopProducers:async()=>{stopped=true;},verifyProducersStopped:async()=>true,
+    handlers:Object.fromEntries(RESET_SCOPES.map(scope=>[scope,async()=>{throw Error('RESET_FORBIDDEN');}])),
+    recover:async()=>({}),verifyFinalState:async()=>({independently_verified:false,reconciled:false})
+   });
+   assert.equal(result.status,'BLOCKED');assert.equal(result.mutated,false);assert.equal(stopped,false);
+   assert.equal(await db.prepare('SELECT * FROM dev_bridge_state').first(),null);
+  }finally{db.close();}
+ }
+});
