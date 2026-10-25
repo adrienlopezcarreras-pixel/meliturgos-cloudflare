@@ -499,7 +499,7 @@ function buildTestFollowUpPrompt({ goal, change }) {
 // ChatGPT-GPT6 / MEL-MENTOR-TIMEOUT: each provider call is bounded even
 // if its backend ignores AbortSignal; late results never block MAX.
 async function boundedMentorInvoke(provider, request, limitMs) {
-  const limit = Math.max(10, Math.min(30_000, Number(limitMs) || 25_000));
+  const limit = Math.max(10, Math.min(90_000, Number(limitMs) || 25_000));
   const abort = new AbortController();
   let timer;
   try {
@@ -518,16 +518,18 @@ async function boundedMentorInvoke(provider, request, limitMs) {
 }
 
 export class MentorEngine {
-  // Workers AI models need 50-100 s for a chat answer in production: a 25 s
-  // cut stopped most code proposals (MENTOR_PROVIDER_TIMEOUT on every job).
-  // A whole proposal still fits the 90 s runtime lease through proposeBudgetMs.
-  constructor({ memory, providerFactory, invokeTimeoutMs = 50_000, repairTimeoutMs = 20_000, proposeBudgetMs = 75_000, now = () => Date.now() } = {}) {
+  // Workers AI code models need 50-100 s per answer in production. The per-call
+  // cap used to be clamped to 30 s inside boundedMentorInvoke whatever the
+  // setting, so most proposals ended in MENTOR_PROVIDER_TIMEOUT (25/10). The
+  // runtime lease is now renewed while the tick lives, so a proposal may take
+  // up to 150 s, still inside the 240 s owner MAX request.
+  constructor({ memory, providerFactory, invokeTimeoutMs = 80_000, repairTimeoutMs = 45_000, proposeBudgetMs = 150_000, now = () => Date.now() } = {}) {
     this.memory = memory || new MentorMemoryRepository(null);
     this.providerFactory = providerFactory;
     // ChatGPT-GPT6 / MEL-MENTOR-TIMEOUT: deadlines below the 180-second MAX request.
-    this.invokeTimeoutMs = Math.max(10, Math.min(60_000, Number(invokeTimeoutMs) || 50_000));
-    this.repairTimeoutMs = Math.max(10, Math.min(30_000, Number(repairTimeoutMs) || 20_000));
-    this.proposeBudgetMs = Math.max(20, Math.min(80_000, Number(proposeBudgetMs) || 75_000));
+    this.invokeTimeoutMs = Math.max(10, Math.min(90_000, Number(invokeTimeoutMs) || 80_000));
+    this.repairTimeoutMs = Math.max(10, Math.min(60_000, Number(repairTimeoutMs) || 45_000));
+    this.proposeBudgetMs = Math.max(20, Math.min(180_000, Number(proposeBudgetMs) || 150_000));
     this.now = typeof now === 'function' ? now : () => Date.now();
   }
 
