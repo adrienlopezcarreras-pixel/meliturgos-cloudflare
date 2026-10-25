@@ -113,6 +113,14 @@ jobs:
               break
             fi
             if printf '%s' "$LOWER" | grep -Eq 'error|failed|failure|cancelled|canceled|cancel_acknowledged|cancel acknowledged'; then
+              # A historical Kaggle worker ERROR must not make every new
+              # code-only push fail. The immutable checkpoint is handled by
+              # the dedicated training workflow; do not claim collection.
+              if [[ "$WAIT_FOR_COMPLETION" != "true" ]]; then
+                echo "::notice title=LoRA Kaggle historical error::No new completed kernel to collect; preserved published checkpoints remain independent."
+                echo "complete=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
               echo "KAGGLE_RUN_FAILED"
               exit 1
             fi
