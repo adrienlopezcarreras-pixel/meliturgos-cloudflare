@@ -1,5 +1,8 @@
+export const MAX_R2_SNAPSHOT_OBJECTS=10000;
+export const MAX_R2_SNAPSHOT_BYTES=256*1024*1024;
+export const MAX_R2_SNAPSHOT_OBJECT_BYTES=32*1024*1024;
 // Coordinator for the existing authenticated backup sidecar. No new engine/store.
-export function validateR2CopyInventory({inventory,snapshotId,maxBytes=256*1024*1024}={}) {
+export function validateR2CopyInventory({inventory,snapshotId,maxBytes=MAX_R2_SNAPSHOT_BYTES}={}) {
  const objects=inventory?.objects;
  const fail=(code,diagnostic={})=>{throw Object.assign(new Error(code),{code,diagnostic:{stage:'r2-copy-preflight',...diagnostic}});};
  if(!/^system-[0-9]{17}$/.test(snapshotId||'')||!Array.isArray(objects)||inventory.objectCount!==objects.length)fail('BACKUP_R2_COPY_INVENTORY_INVALID');
@@ -10,13 +13,13 @@ export function validateR2CopyInventory({inventory,snapshotId,maxBytes=256*1024*
   seen.add(item.key);total+=item.size;largest=Math.max(largest,item.size);
  }
  const counts={object_count:objects.length,total_bytes:total,largest_object_bytes:largest};
- if(objects.length>5000)fail('BACKUP_R2_COPY_OBJECT_COUNT_LIMIT',counts);
- if(largest>32*1024*1024)fail('BACKUP_R2_COPY_OBJECT_BYTE_LIMIT',{...counts,limit_bytes:32*1024*1024});
- if(!Number.isSafeInteger(maxBytes)||maxBytes<0||maxBytes>256*1024*1024||total>maxBytes)fail('BACKUP_R2_COPY_BUDGET_EXCEEDED',{...counts,limit_bytes:Number.isSafeInteger(maxBytes)?maxBytes:null});
+ if(objects.length>MAX_R2_SNAPSHOT_OBJECTS)fail('BACKUP_R2_COPY_OBJECT_COUNT_LIMIT',counts);
+ if(largest>MAX_R2_SNAPSHOT_OBJECT_BYTES)fail('BACKUP_R2_COPY_OBJECT_BYTE_LIMIT',{...counts,limit_bytes:MAX_R2_SNAPSHOT_OBJECT_BYTES});
+ if(!Number.isSafeInteger(maxBytes)||maxBytes<0||maxBytes>MAX_R2_SNAPSHOT_BYTES||total>maxBytes)fail('BACKUP_R2_COPY_BUDGET_EXCEEDED',{...counts,limit_bytes:Number.isSafeInteger(maxBytes)?maxBytes:null});
  return {objects,total,largest};
 }
 
-export async function copyR2Inventory({inventory,snapshotId,copyObject,maxBytes=256*1024*1024}={}) {
+export async function copyR2Inventory({inventory,snapshotId,copyObject,maxBytes=MAX_R2_SNAPSHOT_BYTES}={}) {
  const {objects,total}=validateR2CopyInventory({inventory,snapshotId,maxBytes});
  const fail=code=>{throw Object.assign(new Error(code),{code});};
  const copied=[];

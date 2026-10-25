@@ -1,4 +1,4 @@
-import { validateR2CopyInventory } from './r2-copy.mjs';
+import { validateR2CopyInventory, MAX_R2_SNAPSHOT_OBJECTS, MAX_R2_SNAPSHOT_BYTES } from './r2-copy.mjs';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,7 +11,7 @@ import { proveD1SnapshotRestore } from './d1-restore-proof.mjs';
 const fail=(code,diagnostic)=>{throw Object.assign(new Error(code),{code,...(diagnostic?{diagnostic}:{})});};
 // Source exposes GET only. Target paths are generated locally, never supplied by
 // a snapshot. No Cloudflare target, activation, SQL remote execution or deletion.
-export async function proveSystemSnapshotRestore(snapshot, source, {maxBytes=256*1024*1024,maxObjects=5000}={}) {
+export async function proveSystemSnapshotRestore(snapshot, source, {maxBytes=MAX_R2_SNAPSHOT_BYTES,maxObjects=MAX_R2_SNAPSHOT_OBJECTS}={}) {
   const integrity=await verifySnapshot(snapshot);
   if (integrity.ok!==true) fail('ISOLATED_SNAPSHOT_INTEGRITY_FAILED');
   if (inspectRestoreCandidate(snapshot,{integrity}).ok!==true) fail('ISOLATED_SNAPSHOT_INVALID');
@@ -36,7 +36,7 @@ export async function proveSystemSnapshotRestore(snapshot, source, {maxBytes=256
   // No excluded prefix can silently become "full R2 restored".
   if(inventory.length!==descriptors.size||new Set(inventory.map(x=>x.key)).size!==inventory.length||
      inventory.some(x=>!descriptors.has(x.key)||descriptors.get(x.key).size!==x.size)) fail('ISOLATED_R2_COVERAGE_INCOMPLETE');
-  if(bytes>maxBytes||descriptors.size>maxObjects) fail('ISOLATED_RESTORE_BUDGET_EXCEEDED');
+  if(!Number.isSafeInteger(maxBytes)||maxBytes<0||maxBytes>MAX_R2_SNAPSHOT_BYTES||!Number.isSafeInteger(maxObjects)||maxObjects<0||maxObjects>MAX_R2_SNAPSHOT_OBJECTS||bytes>maxBytes||descriptors.size>maxObjects) fail('ISOLATED_RESTORE_BUDGET_EXCEEDED');
   if(typeof source?.get!=='function') fail('ISOLATED_R2_SOURCE_REQUIRED');
   const database=await proveD1SnapshotRestore(snapshot.exports.database);
   const directory=await mkdtemp(join(tmpdir(),'mel-isolated-restore-'));

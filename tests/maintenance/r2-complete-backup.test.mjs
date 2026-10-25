@@ -66,3 +66,18 @@ test('preflight exposes only bounded counters and reason codes for oversized or 
  });
  assert.equal(calls,0);
 });
+
+test('realistic 7378 object R2 inventory stays bounded by bytes and rejects malformed inventories',async()=>{
+ const objects=Array.from({length:7378},(_,i)=>({key:'media/object-'+i,size:1,etag:'etag-'+i}));
+ let copied=0;
+ const manifest=await copyR2Inventory({inventory:{objectCount:objects.length,objects},snapshotId:id,copyObject:async input=>{
+  copied++;
+  return {ok:true,manifest:{snapshot_id:id,objectCount:1,totalBytes:input.size,objects:[{key:input.key,size:input.size,etag:input.etag,sha256:'a'.repeat(64),backup_key:'backups/system/r2-bytes/'+id+'/'+input.key}]}};
+ }});
+ assert.equal(manifest.objectCount,7378);
+ assert.equal(copied,7378);
+ let rejectedCopies=0;
+ await assert.rejects(copyR2Inventory({inventory:{objectCount:objects.length,objects},snapshotId:id,maxBytes:7377,copyObject:async()=>{rejectedCopies++;}}),/BUDGET_EXCEEDED/);
+ await assert.rejects(copyR2Inventory({inventory:{objectCount:10001,objects:[...objects,...Array.from({length:2623},(_,i)=>({key:'extra/'+i,size:0,etag:'etag'}))]},snapshotId:id,copyObject:async()=>{rejectedCopies++;}}),/OBJECT_COUNT_LIMIT/);
+ assert.equal(rejectedCopies,0);
+});

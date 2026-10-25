@@ -70,3 +70,17 @@ test('missing-byte proof reports only timestamped snapshot inventory counters, n
  assert.doesNotMatch(JSON.stringify(proof),/private|current_state/);
  assert.equal(proof.cleanup_authorized,false);
 });
+
+test('restore admission matches the approved 10000-object creator limit without accepting missing bytes',async()=>{
+ const {snapshot}=await fixture();
+ const objects=Array.from({length:7378},(_,i)=>({key:'media/'+i,size:0,sha256:'a'.repeat(64),backup_key:'backups/system/r2-bytes/test/'+i}));
+ const exports={...snapshot.exports,
+  r2_inventory:{type:'MEL_R2_INVENTORY_V1',objectCount:objects.length,objects:objects.map(x=>({key:x.key,size:x.size,etag:'fixture'}))},
+  r2_objects:{type:'MEL_R2_BYTE_BACKUP_V1',objectCount:objects.length,totalBytes:0,objects},
+ };
+ let large;
+ const service=createVerifiedBackupService({sources:Object.fromEntries(Object.entries(exports).map(([key,value])=>[key,async()=>value])),storage:{put:async value=>{large=value;},get:async()=>large}});
+ await service.create({id:snapshot.id});let reads=0;
+ await assert.rejects(proveSystemSnapshotRestore(large,{get:async()=>{reads++;return null;}}),/BACKUP_R2_COPY_MISSING/);
+ assert.equal(reads,1);
+});
