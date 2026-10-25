@@ -1288,13 +1288,17 @@ async function loadFreeLoraStatus(){
     const dailyTrace=d?.daily_trace&&typeof d.daily_trace==='object'?d.daily_trace:null;
     const traceStatus=String(dailyTrace?.status||'').toUpperCase();
     const traceSuccess=traceStatus==='SUCCEEDED'&&Number(dailyTrace?.trace_verified)===1;
+    const traceRunning=traceStatus==='RUNNING'||traceStatus==='QUEUED';
+    const verifiedTrace=d?.verified_training_trace&&d.verified_training_trace.trace_verified===true?d.verified_training_trace:null;
+    const verifiedTraining=Boolean(verifiedTrace);
     const dailyStatus=d?.daily_status&&typeof d.daily_status==='object'?d.daily_status:null;
     const trainStatus=trainWfKnown&&trainWf.status!=null?String(trainWf.status).toUpperCase():'UNKNOWN';
     const trainConclusion=String(trainWf.conclusion||'').toUpperCase();
-    const trainActive=trainStatus==='IN_PROGRESS'||trainStatus==='QUEUED'||trainStatus==='PENDING';
+    const trainActive=trainStatus==='IN_PROGRESS'||trainStatus==='QUEUED'||trainStatus==='PENDING'||traceRunning;
     const checkpointCycle=checkpoint?.cycle!=null?Number(checkpoint.cycle):null;
-    const visibleCycle=trainActive?(checkpointCycle==null?0:checkpointCycle+1):checkpointCycle;
-    qs('#freeKaggleState').textContent=trainStatus==='UNKNOWN'?'—':(trainActive?'RUNNING':(trainStatus==='COMPLETED'?(trainConclusion||'COMPLETED'):trainStatus));
+    const tracedCycle=traceRunning&&dailyTrace?.cycle!=null?Number(dailyTrace.cycle):null;
+    const visibleCycle=tracedCycle!=null?tracedCycle:(trainActive?(checkpointCycle==null?null:checkpointCycle+1):checkpointCycle);
+    qs('#freeKaggleState').textContent=trainActive?'RUNNING':(verifiedTraining?'SUCCESS · TRACE VÉRIFIÉE':(trainStatus==='COMPLETED'?(trainConclusion||'COMPLETED'):(trainStatus==='UNKNOWN'?'—':trainStatus)));
     qs('#freeKaggleCycle').textContent=visibleCycle==null?'—':'C'+String(visibleCycle).padStart(3,'0');
     const wfStatus=wfKnown&&wf.status!=null?String(wf.status).toUpperCase():'UNKNOWN';
     const wfConclusion=wfKnown?String(wf.conclusion||'').toUpperCase():'';
@@ -1304,28 +1308,28 @@ async function loadFreeLoraStatus(){
     const lessonRaw=d?.learning?.corrections_available_for_training;
     const lessonCount=lessonRaw==null||!Number.isFinite(Number(lessonRaw))?null:Math.max(0,Number(lessonRaw));
     qs('#freeLoraLessons').textContent=lessonCount==null?'—/50':lessonCount+'/50'+(lessonCount>=50?' · PRÊT':'');
-    qs('#freeTrainingExamples').textContent=training?.examples!=null?Number(training.examples).toLocaleString('fr-FR'):(dataset?.examples!=null?Number(dataset.examples).toLocaleString('fr-FR'):'—');
-    qs('#freeCheckpointStage').textContent=checkpoint?.tag?String(checkpoint.tag):(d?.checkpoint_discovery?.status==='GITHUB_HTTP_ERROR'||d?.checkpoint_discovery?.status==='GITHUB_FETCH_ERROR'?'GITHUB INDISPONIBLE · CHECKPOINT NON VÉRIFIABLE':(traceSuccess?'SAUVEGARDÉ · TRACE VÉRIFIÉE':(training?.stage?String(training.stage).toUpperCase():(bundleKnown?'AUCUN CHECKPOINT':'—'))));
+    qs('#freeTrainingExamples').textContent=training?.examples!=null?Number(training.examples).toLocaleString('fr-FR'):(dataset?.examples!=null?Number(dataset.examples).toLocaleString('fr-FR'):(verifiedTrace?.dataset?.examples!=null?Number(verifiedTrace.dataset.examples).toLocaleString('fr-FR'):'—'));
+    qs('#freeCheckpointStage').textContent=checkpoint?.tag?(String(checkpoint.tag)+(checkpoint.publication_verified===false?' · TRACE D1 VÉRIFIÉE, RELEASE NON RECONTRÔLÉE':'')):(verifiedTraining||traceSuccess?'SAUVEGARDÉ · TRACE D1 VÉRIFIÉE':(d?.checkpoint_discovery?.status==='GITHUB_HTTP_ERROR'||d?.checkpoint_discovery?.status==='GITHUB_FETCH_ERROR'?'GITHUB INDISPONIBLE · AUCUNE PREUVE DE CHECKPOINT DISPONIBLE':(training?.stage?String(training.stage).toUpperCase():(bundleKnown?'AUCUN CHECKPOINT':'—'))));
     qs('#freeCompatibleLoras').textContent=registry?.compatible_count!=null?Number(registry.compatible_count).toLocaleString('fr-FR'):'—';
     const impactKnown=Boolean(d?.learning?.impact&&typeof d.learning.impact==='object');
     const impact=impactKnown?d.learning.impact:{};
     // A completed training trace proves the immutable training output, never the
     // canonical + impact benchmark of the candidate adapter.
     const benchmarkVerified=impact?.canonical_gate_passed===true&&impact?.impact_gate_passed===true
-      &&Boolean(impact?.adapter_id)&&Boolean(impact?.measured_at);
+      &&Boolean(impact?.adapter_id)&&Boolean(impact?.measured_at)
+      // A historical benchmark cannot approve a new Kaggle checkpoint.
+      &&Boolean(checkpoint?.source_sha)&&Boolean(verifiedTrace?.adapter_digest)
+      &&String(impact?.source_sha||'').toLowerCase()===String(checkpoint.source_sha).toLowerCase()
+      &&String(verifiedTrace.source_sha||'').toLowerCase()===String(checkpoint.source_sha).toLowerCase()
+      &&String(impact?.artifact_digest||'').replace(/^sha256:/i,'').toLowerCase()
+        ===String(verifiedTrace.adapter_digest).replace(/^sha256:/i,'').toLowerCase();
     const benchKnown=Boolean(d?.learning?.benchmark_status&&typeof d.learning.benchmark_status==='object');
     const bench=benchKnown?d.learning.benchmark_status:{};
-    qs('#freeBenchmarkState').textContent=benchmarkVerified
-      ?'GATES CANONIQUE ET IMPACT VALIDÉS'
-      :(benchKnown
-        ?(bench.status!=null?String(bench.status):'—')+(bench.latest_score!=null?' · '+Math.round(Number(bench.latest_score)*1000)/10+'%':'')+' · GATES NON PROUVÉS'
-        :(traceSuccess?'TRACE D’ENTRAÎNEMENT VÉRIFIÉE · BENCHMARK NON PROUVÉ':'—'));
+    qs('#freeBenchmarkState').textContent=benchmarkVerified?'GATES CANONIQUE ET IMPACT VALIDÉS':((verifiedTraining||traceSuccess||checkpoint?.tag)?'CHECKPOINT ENTRAÎNÉ · BENCHMARK CANONIQUE NON PROUVÉ':(benchKnown?'BENCHMARK HISTORIQUE NON RELIÉ AU CHECKPOINT · GATES NON PROUVÉS':'—'));
     qs('#freeLoraTraceState').textContent=dailyTrace?.run_id
       ?String(dailyTrace.run_id)+' · '+(traceStatus||'ÉTAT INCONNU')
       :'AUCUNE TRACE';
-    qs('#freeLoraTraceVerified').textContent=dailyTrace
-      ?(Number(dailyTrace.trace_verified)===1?'OUI':'NON')
-      :'—';
+    qs('#freeLoraTraceVerified').textContent=dailyTrace?(traceRunning?'EN COURS':(Number(dailyTrace.trace_verified)===1?'OUI':'NON')):'—';
     const todayRuns=Number(dailyStatus?.run_count||0);
     qs('#freeLoraDailyState').textContent=dailyStatus
       ?(todayRuns>0
@@ -1335,9 +1339,9 @@ async function loadFreeLoraStatus(){
     qs('#freeLoraTraceReport').textContent=dailyTrace?.summary_fr
       ?String(dailyTrace.summary_fr)
       :(dailyStatus?.report_fr?String(dailyStatus.report_fr):'Aucune trace LoRA durable disponible.');
-    qs('#freeImpactStage').textContent=impact.next_stage||'—';(()=>{const t=id=>String(qs(id)?.textContent||'').trim();const plain=qs('#freeLoraPlain');if(!plain)return;const cycle=t('#freeKaggleCycle'),gpu=t('#freeKaggleState'),bench=t('#freeBenchmarkState'),stage=String(impact.next_stage||'');const ready=/AGENTIC|READY|PASSED/.test(stage)&&!/WAITING/.test(stage);const lines=[(cycle&&cycle!=='—'?'MEL en est au cycle d’entraînement '+cycle+'. ':'Aucun cycle d’entraînement encore terminé. ')+(/FAIL/i.test(gpu)?'Le dernier passage sur Kaggle a échoué ; il est relancé automatiquement dans l’heure.':/RUN|PROGRESS|QUEUED/i.test(gpu)?'Un entraînement tourne en ce moment sur Kaggle (gratuit).':'Le dernier passage sur Kaggle s’est bien terminé.'),ready?'Le modèle a passé son examen : il peut être activé.':'Le modèle n’a pas encore réussi son examen'+(bench&&bench!=='—'?' (dernier score : '+bench.replace(/\s*·\s*GATES.*$/i,'')+')':'')+' : il reste désactivé, MEL continue de l’entraîner.','Rien à faire de votre côté : tout est gratuit et automatique.'];plain.innerHTML='<strong>En clair</strong><br>'+lines.map(x=>x.replace(/[<>&]/g,'')).join('<br>')})();
+    qs('#freeImpactStage').textContent=!benchmarkVerified&&verifiedTrace?.results?.progression?.local_next_stage?String(verifiedTrace.results.progression.local_next_stage):(impact.next_stage||'—');(()=>{const t=id=>String(qs(id)?.textContent||'').trim();const plain=qs('#freeLoraPlain');if(!plain)return;const cycle=t('#freeKaggleCycle'),gpu=t('#freeKaggleState'),bench=t('#freeBenchmarkState'),stage=String(impact.next_stage||'');const ready=/AGENTIC|READY|PASSED/.test(stage)&&!/WAITING/.test(stage);const lines=[(cycle&&cycle!=='—'?'MEL en est au cycle d’entraînement '+cycle+'. ':'Aucun cycle d’entraînement encore terminé. ')+(/FAIL/i.test(gpu)?'Le dernier passage sur Kaggle a échoué ; il est relancé automatiquement dans l’heure.':/RUN|PROGRESS|QUEUED/i.test(gpu)?'Un entraînement tourne en ce moment sur Kaggle (gratuit).':'Le dernier passage sur Kaggle s’est bien terminé.'),ready?'Le modèle a passé son examen : il peut être activé.':'Le modèle n’a pas encore réussi son examen'+(bench&&bench!=='—'?' (dernier score : '+bench.replace(/\s*·\s*GATES.*$/i,'')+')':'')+' : il reste désactivé, MEL continue de l’entraîner.','Rien à faire de votre côté : tout est gratuit et automatique.'];plain.innerHTML='<strong>En clair</strong><br>'+lines.map(x=>x.replace(/[<>&]/g,'')).join('<br>')})();
     const agenticKnown=impact.next_stage!=null&&String(impact.next_stage).trim()!=='';
-    const agenticReady=agenticKnown&&String(impact.next_stage)==='AGENTIC_READY';
+    const agenticReady=benchmarkVerified&&agenticKnown&&String(impact.next_stage)==='AGENTIC_READY';
     setLoraTag('#freeAgenticState',!agenticKnown?'Indisponible':(agenticReady?'AGENTIC_READY':'VERROUILLÉ'),agenticReady?'good':'warn');
     const agenticLink=qs('#freeAgenticColab');
     if(agenticLink){
@@ -1347,18 +1351,19 @@ async function loadFreeLoraStatus(){
       agenticLink.style.opacity=agenticReady?'1':'.45';
     }
 
-    if(trainStatus==='UNKNOWN')setLoraTag('#freeGpuState','Indisponible','warn');
+    if(trainStatus==='UNKNOWN'&&!verifiedTraining&&!trainActive)setLoraTag('#freeGpuState','Indisponible','warn');
     else if(trainActive)setLoraTag('#freeGpuState','RUNNING','good');
+    else if(verifiedTraining)setLoraTag('#freeGpuState','CYCLE VÉRIFIÉ','good');
     else if(trainStatus==='COMPLETED'&&trainConclusion==='SUCCESS')setLoraTag('#freeGpuState','CYCLE TERMINÉ','good');
     else if(trainStatus==='COMPLETED')setLoraTag('#freeGpuState','À RELANCER','warn');
     else if(trainStatus==='NEVER_RUN')setLoraTag('#freeGpuState','À lancer','warn');
     else setLoraTag('#freeGpuState',trainStatus,'warn');
     setLoraTag('#freeHfState',
-      checkpoint?.tag?'CHECKPOINT '+('C'+String(checkpointCycle).padStart(3,'0')):(traceSuccess?'CHECKPOINT VÉRIFIÉ':(bundleKnown?(bundleReady?'BUNDLE PRÊT':'EN ATTENTE'):'INDISPONIBLE')),
+      checkpoint?.tag?(checkpoint.publication_verified===false?'TRACE VÉRIFIÉE C':'CHECKPOINT C')+String(checkpointCycle).padStart(3,'0'):(traceSuccess||verifiedTraining?'CHECKPOINT VÉRIFIÉ':(bundleKnown?(bundleReady?'BUNDLE PRÊT':'EN ATTENTE'):'INDISPONIBLE')),
       checkpoint?.tag||traceSuccess||bundleReady===true?'good':'warn');
 
-    const validationDone=benchmarkVerified||loraState==='ACTIVE';
-    const validationKnown=traceSuccess||Boolean(checkpoint)||benchKnown||loraKnown||impactKnown;
+    const validationDone=benchmarkVerified;
+    const validationKnown=verifiedTraining||traceSuccess||Boolean(checkpoint)||benchKnown||loraKnown||impactKnown;
     setLoraTag('#freeValidationState',!validationKnown?'INDISPONIBLE':(validationDone?'VALIDÉ':'À VALIDER'),validationDone?'good':'warn');
 
     let wfKind='warn',wfLabel=wfStatus==='NEVER_RUN'?'NON LANCÉE · OPTIONNELLE':'Indisponible';
@@ -1381,6 +1386,8 @@ async function loadFreeLoraStatus(){
       training:trainWf.id?{id:trainWf.id,status:trainWf.status,conclusion:trainWf.conclusion,head_sha:trainWf.head_sha,updated_at:trainWf.updated_at}:null,
       checkpoint:checkpoint,
       daily_trace:dailyTrace?{run_id:dailyTrace.run_id,status:dailyTrace.status,trace_verified:Number(dailyTrace.trace_verified)===1,source_sha:dailyTrace.source_sha,started_at:dailyTrace.started_at,finished_at:dailyTrace.finished_at,trace_sha256:dailyTrace.trace_sha256}:null,
+      last_verified_training:verifiedTrace?{run_id:verifiedTrace.run_id,workflow_run_id:verifiedTrace.workflow_run_id,cycle:verifiedTrace.cycle,source_sha:verifiedTrace.source_sha,steps:verifiedTrace.training?.steps,train_loss:verifiedTrace.results?.train_loss}:null,
+      checkpoint_observation:d?.checkpoint_discovery||null,
       daily_status:dailyStatus?{day:dailyStatus.day,run_count:dailyStatus.run_count,successful_count:dailyStatus.successful_count,failed_count:dailyStatus.failed_count,absence_reported_at:dailyStatus.absence_reported_at}:null,
       promotion:wf.id?{id:wf.id,status:wf.status,conclusion:wf.conclusion,head_sha:wf.head_sha,updated_at:wf.updated_at}:null
     },null,2);
@@ -1389,18 +1396,17 @@ async function loadFreeLoraStatus(){
     // The workflow link was removed from the page; a missing link must never stop the refresh.
     if(d.workflow_url)setLoraLink('#freeLoraWorkflow',d.workflow_url);
 
-    const trainingDone=traceSuccess||(trainStatus==='COMPLETED'&&trainConclusion==='SUCCESS');
-    const checkpointDone=Boolean(checkpoint?.tag)||traceSuccess||bundleReady===true;
+    const trainingDone=verifiedTraining||traceSuccess;
+    const checkpointDone=Boolean(checkpoint?.tag)||verifiedTraining||traceSuccess;
     const promotionRunning=wfStatus==='IN_PROGRESS'||wfStatus==='QUEUED';
     const promotionDone=wfStatus==='COMPLETED'&&wfConclusion==='SUCCESS';
     const promotionApplicable=wfStatus!=='NEVER_RUN'&&wfStatus!=='UNKNOWN';
     const runtimeDone=loraState==='ACTIVE';
+    // Only the three visible training stages count in this progress bar.
     const knownStages=[
-      {known:trainWfKnown||Boolean(dailyTrace),done:trainingDone},
-      {known:Boolean(checkpoint)||bundleKnown||Boolean(dailyTrace),done:checkpointDone},
-      {known:validationKnown,done:validationDone},
-      {known:promotionApplicable,done:promotionDone},
-      {known:loraKnown,done:runtimeDone}
+      {known:trainWfKnown||Boolean(dailyTrace)||verifiedTraining,done:trainingDone},
+      {known:Boolean(checkpoint)||bundleKnown||Boolean(dailyTrace)||verifiedTraining,done:checkpointDone},
+      {known:validationKnown,done:benchmarkVerified}
     ];
     const applicable=knownStages.filter(x=>x.known);
     const completed=applicable.filter(x=>x.done).length;
@@ -1409,7 +1415,7 @@ async function loadFreeLoraStatus(){
     qs('#freeLoraProgressPercent').textContent=percent==null?'—':percent+'%';
     qs('#freeLoraProgressText').textContent=percent==null
       ?'Statut indisponible'
-      :runtimeDone
+      :runtimeDone&&benchmarkVerified
         ?'LoRA validé et actif dans MEL'
         :promotionRunning
           ?'Promotion en cours'
@@ -1417,6 +1423,7 @@ async function loadFreeLoraStatus(){
             ?'Entraînement, checkpoint et validation confirmés · activation MEL à vérifier'
             :trainActive
               ?'Entraînement Kaggle en cours · cycle '+(visibleCycle==null?'?':visibleCycle)
+              :trainingDone&&checkpointDone?'Entraînement et checkpoint vérifiés · benchmark canonique non prouvé'
               :'Pipeline en attente de la prochaine preuve réelle'+(lora.reason?' · '+String(lora.reason):'');
   }catch(e){
     // Treat a failed refresh as a failure, not a new successful 30-second
