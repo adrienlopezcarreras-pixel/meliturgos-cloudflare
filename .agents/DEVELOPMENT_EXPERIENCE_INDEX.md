@@ -200,3 +200,6 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 - `claude-origin-is-not-target-roadmap-20261025` — l'item d'origine d'une mission n'est pas l'item qu'elle réalise.
 - `claude-zero-cost-proof-checked-against-invoice-20261025` — une preuve de gratuité se confronte à la facture ; seule une limite mesurée garantit zéro dépense.
 - `claude-new-test-where-imports-resolve-20261025` — un test généré doit être placé là où ses imports relatifs résolvent.
+- `claude-reasoning-model-token-budget-20261025` — un modèle à raisonnement a besoin d'un budget de tokens qui couvre le raisonnement, sinon la réponse est vide.
+- `claude-limited-budget-proof-runs-weekly-20261025` — une preuve de release qui consomme un quota limité tourne une fois par semaine.
+- `claude-clone-test-sees-committed-files-20261025` — un test fondé sur un clone ne voit que les fichiers commités.
