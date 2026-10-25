@@ -1,7 +1,8 @@
 import { runAutonomyRuntimeTick as runCoreAutonomyRuntimeTick, autonomyTickAdvanced, currentAutonomyRepository } from './autonomy-runtime-core.js';
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
 import { getAutonomyControl } from './autonomy-control.js';
-import { AutonomySupervisor, selectActionableAutonomyJob } from './autonomy-supervisor.js';
+import { AutonomySupervisor, selectActionableAutonomyJob, setRuntimeRoadmapRegressions } from './autonomy-supervisor.js';
+import { activeRoadmapRegressions } from '../roadmap/roadmap-regressions.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { applyOwnerMaxApproval } from '../teachers/owner-max-approval.js';
 import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-mirror.js';
@@ -644,6 +645,7 @@ function augmentTickProgress(tick = {}) {
 }
 
 export async function runAutonomyRuntimeTick(env, options = {}) {
+  setRuntimeRoadmapRegressions(await activeRoadmapRegressions(env?.DB).catch(() => []));
   const control = await getAutonomyControl(env?.DB, { memoryState: options.autonomyControlState || null });
   const repository = options.repository || (env?.DB ? new D1DevJobRepository(env.DB) : null);
 
