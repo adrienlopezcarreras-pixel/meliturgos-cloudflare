@@ -664,6 +664,7 @@ def main():
         "global_step": training.get("training_metrics", {}).get("global_step"),
         "local_impact": impact.get("candidate", {}).get("metrics", {}),
         "local_impact_delta": impact.get("delta", {}),
+        "public_benchmarks": impact.get("public_benchmarks", {}),
         "local_uncensored_gate": impact.get("local_uncensored_gate") is True,
         "local_next_stage": impact.get("next_stage") or "UNCENSORED_CONTINUE",
         "offline_kernel": True,

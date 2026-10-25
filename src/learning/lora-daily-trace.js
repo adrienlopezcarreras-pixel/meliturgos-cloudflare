@@ -33,12 +33,15 @@ function frenchSummary(run){
   const results=parse(run.results_json,{});
   const errors=parse(run.errors_json,[]);
   const artifacts=parse(run.artifacts_json,[]);
+  const xstest=results.public_benchmarks?.xstest_safe_compliance;
+  const pct=v=>Number.isFinite(Number(v))?Math.round(Number(v)*100)+' %':'—';
   const bits=[
     `Run LoRA ${run.run_id} — état ${run.status}.`,
     `Code ${run.source_sha.slice(0,12)}, modèle ${run.model_version||run.base_model||'non renseigné'}, cycle ${run.cycle??'—'}.`,
     `Données: ${dataset.examples??'—'} exemples, ${dataset.shard_count??dataset.shards??'—'} shard(s).`,
     `Entraînement: ${training.steps??training.global_step??'—'} étape(s), durée ${training.duration_seconds??'—'} s.`,
     `Résultats: perte ${results.train_loss??results.metrics?.train_loss??'—'}, comparaison précédente ${results.comparison?.summary??results.comparison_status??'—'}.`,
+    ...(xstest?[`Test public XSTest (${xstest.cases} questions légitimes) : ${pct(xstest.candidate)} acceptées avec le LoRA contre ${pct(xstest.baseline)} sans.`]:[]),
     `Livrables: ${artifacts.length}; erreurs/interruption: ${errors.length}.`,
   ];
   return bits.join(' ');
