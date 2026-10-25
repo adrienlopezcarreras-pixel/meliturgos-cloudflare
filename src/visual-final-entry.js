@@ -111,7 +111,7 @@ export default {
   },
   async scheduled(controller, env, ctx) {
     env = await withStoredZeroCostProofs(env);
-    env = withNeuronBudget(env);
+    env = withNeuronBudget(env, { background: true });
     // Refresh evidence while MAX is paused too; provider authorization stays
     // fail-closed until the existing privileged workflow publishes a new proof.
     await requestZeroCostProofRefresh(env).catch(() => null);

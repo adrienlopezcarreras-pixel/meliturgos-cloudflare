@@ -5,6 +5,10 @@
 // when Cloudflare resets the free allocation. Unreadable budget = refused.
 
 export const DEFAULT_DAILY_NEURON_CAP = 9000;
+// Background work (crons: MAX, mentor, watches) may only use this share of the
+// day, so the owner's chat still answers once autonomy has spent its part
+// (55 chat calls refused on 25/10).
+export const BACKGROUND_NEURON_SHARE = 0.6;
 
 // Neurons per million tokens [input, output], from Cloudflare Workers AI
 // pricing. Unknown text models use the most expensive known rates.
@@ -42,11 +46,13 @@ export function estimateNeurons(model, inputs = {}, output) {
   return (promptTokens * rateIn + completionTokens * rateOut) / 1e6;
 }
 
-let schemaReady = null;
+const schemaReady = new WeakMap();
 async function ensureSchema(db) {
-  schemaReady ||= db.prepare('CREATE TABLE IF NOT EXISTS mel_ai_neuron_budget (day TEXT PRIMARY KEY, neurons REAL NOT NULL DEFAULT 0, calls INTEGER NOT NULL DEFAULT 0, refused INTEGER NOT NULL DEFAULT 0)').run()
-    .catch(error => { schemaReady = null; throw error; });
-  return schemaReady;
+  if (!schemaReady.has(db)) {
+    schemaReady.set(db, db.prepare('CREATE TABLE IF NOT EXISTS mel_ai_neuron_budget (day TEXT PRIMARY KEY, neurons REAL NOT NULL DEFAULT 0, calls INTEGER NOT NULL DEFAULT 0, refused INTEGER NOT NULL DEFAULT 0)').run()
+      .catch(error => { schemaReady.delete(db); throw error; }));
+  }
+  return schemaReady.get(db);
 }
 
 function budgetError(code, detail) {
@@ -60,11 +66,12 @@ export async function readNeuronBudget(db, { now = Date.now(), cap = DEFAULT_DAI
   return { day, cap, neurons: Number(row?.neurons || 0), calls: Number(row?.calls || 0), refused: Number(row?.refused || 0) };
 }
 
-export function withNeuronBudget(env, { now = () => Date.now() } = {}) {
+export function withNeuronBudget(env, { now = () => Date.now(), background = false } = {}) {
   const ai = env?.AI;
   if (!ai || ai.__melNeuronBudget || !env?.DB) return env;
   const db = env.DB;
-  const cap = Number(env.MEL_AI_DAILY_NEURON_CAP) > 0 ? Number(env.MEL_AI_DAILY_NEURON_CAP) : DEFAULT_DAILY_NEURON_CAP;
+  const dayCap = Number(env.MEL_AI_DAILY_NEURON_CAP) > 0 ? Number(env.MEL_AI_DAILY_NEURON_CAP) : DEFAULT_DAILY_NEURON_CAP;
+  const cap = background ? Math.floor(dayCap * BACKGROUND_NEURON_SHARE) : dayCap;
   const run = async (model, inputs, options) => {
     let budget;
     try { budget = await readNeuronBudget(db, { now: now(), cap }); }
