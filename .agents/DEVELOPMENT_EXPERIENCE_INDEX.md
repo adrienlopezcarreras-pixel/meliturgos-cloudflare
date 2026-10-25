@@ -198,3 +198,5 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 - `claude-hidden-cap-must-not-override-setting-20261025` — aucun plafond interne ne contredit un réglage affiché.
 - `claude-shared-candidate-follows-main-20261025` — la candidate partagée suit main en fast-forward.
 - `claude-origin-is-not-target-roadmap-20261025` — l'item d'origine d'une mission n'est pas l'item qu'elle réalise.
+- `claude-zero-cost-proof-checked-against-invoice-20261025` — une preuve de gratuité se confronte à la facture ; seule une limite mesurée garantit zéro dépense.
+- `claude-new-test-where-imports-resolve-20261025` — un test généré doit être placé là où ses imports relatifs résolvent.
