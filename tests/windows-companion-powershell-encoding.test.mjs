@@ -36,3 +36,9 @@ test('the local backup never waits on a hidden prompt and streams its log', () =
   const cleanup = readFileSync('windows-companion/MEL-Grand-Nettoyage.ps1', 'utf8');
   assert.match(cleanup, /& \$backupScript 2>&1 \| ForEach-Object \{ Report "\$_" \}/);
 });
+
+test('production row counts are queried in batches that fit the Windows command line', () => {
+  const backup = readFileSync('windows-companion/MEL-Sauvegarde-Locale-D1.ps1', 'utf8');
+  assert.match(backup, /\$i \+= 20/);
+  assert.match(backup, /\$batch = \$names\[/);
+});
