@@ -1,3 +1,4 @@
+import { copyR2Inventory } from './r2-copy.mjs';
 import { mkdtemp, open, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -272,6 +273,8 @@ async function createBackup() {
   const id = `system-${now.replace(/[^0-9]/g, '').slice(0, 17)}`;
   const workdir = await mkdtemp(join(tmpdir(), 'mel-predeploy-backup-'));
 
+  let inventoryPromise;
+  const inventory = () => inventoryPromise ||= fetchInventory(sidecar);
   const sources = {
     database: async () => {
       reportProgress('d1-export:start');
@@ -281,7 +284,7 @@ async function createBackup() {
     },
     r2_inventory: async () => {
       reportProgress('r2-inventory:start');
-      const data = await fetchInventory(sidecar);
+      const data = await inventory();
       reportProgress('r2-inventory:complete', `objects=${data.objectCount}`);
       return data;
     },
@@ -296,6 +299,15 @@ async function createBackup() {
       runtimeEnvironment: 'production',
     }),
   };
+
+  if (process.env.MEL_SYSTEM_BACKUP_COPY_R2_BYTES === 'true') {
+    sources.r2_objects = async () => copyR2Inventory({
+      inventory:await inventory(),snapshotId:id,
+      copyObject:input=>sidecarJson(sidecar,'/r2-copy',{
+        method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(input),
+      },{attempts:1}),
+    });
+  }
 
   let persisted = null;
   const storage = {

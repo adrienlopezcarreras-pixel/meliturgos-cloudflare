@@ -7,6 +7,7 @@ const MAIN_SHA = 'a'.repeat(40);
 const OLD_SHA = 'b'.repeat(40);
 
 test('MEL automation fast-forwards the release pointer then requests MAX restoration after production proofs', async () => {
+  for (const fullR2Backup of [false,true]) {
   const operations = [];
   let releaseSha = OLD_SHA;
   const fakeFetch = async (url, request) => {
@@ -22,7 +23,7 @@ test('MEL automation fast-forwards the release pointer then requests MAX restora
     if (path.endsWith('/dispatches')) return { ok: true, status: 204, json: async () => null };
     throw new Error('Unexpected endpoint: ' + path);
   };
-  const result = await requestAutonomousRelease({ token: 'TEST_ONLY', fetchImpl: fakeFetch });
+  const result = await requestAutonomousRelease({ token: 'TEST_ONLY', fetchImpl: fakeFetch, fullR2Backup });
   assert.equal(result.main_sha, MAIN_SHA);
   const patch = operations.find(x => x.method === 'PATCH');
   assert.deepEqual(patch.body, { sha: MAIN_SHA, force: false });
@@ -33,6 +34,8 @@ test('MEL automation fast-forwards the release pointer then requests MAX restora
   assert.equal(dispatch.body.inputs.owner_max_autorelease, 'true');
   assert.ok(operations.filter(x => x.path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs')).length === 2);
   assert.ok(!operations.some(x => x.path.includes('branches/release%2F')), 'run preflight must not filter away main-ref dispatches');
+  assert.equal(dispatch.body.inputs.full_r2_backup, fullR2Backup ? 'true' : undefined);
+  }
 });
 
 test('MEL automation refuses to overlap active deployment', () => {

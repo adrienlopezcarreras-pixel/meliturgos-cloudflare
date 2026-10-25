@@ -13,7 +13,7 @@ export function assertNoActiveDeploy(runs) {
   }
 }
 
-export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo = REPO, requireProtectedRefs = false, completedReleaseSha = '', skipPreviouslyCompletedSha = false, batchWindowMs = 0, now = Date.now(), sleepImpl = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo = REPO, requireProtectedRefs = false, completedReleaseSha = '', skipPreviouslyCompletedSha = false, batchWindowMs = 0, fullR2Backup = false, now = Date.now(), sleepImpl = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
   if (repo !== REPO) throw new Error('UNEXPECTED_RELEASE_REPOSITORY');
   if (typeof token !== 'string' || !token) throw new Error('GH_TOKEN_REQUIRED');
   const base = 'https://api.github.com/repos/' + repo;
@@ -138,6 +138,7 @@ export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo 
         approval: 'AUTONOMOUS_POLICY',
         autonomous_release: 'true',
         owner_max_autorelease: 'true',
+        ...(fullR2Backup === true ? { full_r2_backup: 'true' } : {}),
       },
     },
   });
@@ -151,6 +152,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     completedReleaseSha: process.env.MEL_CATCHUP_COMPLETED_SHA || '',
     skipPreviouslyCompletedSha: process.env.MEL_SKIP_ALREADY_ATTEMPTED_SHA === 'true',
     batchWindowMs: Number(process.env.MEL_RELEASE_BATCH_WINDOW_MS || 0),
+    fullR2Backup: process.env.MEL_FULL_R2_BACKUP === 'true',
   })
     .then(result => {
       console.log(JSON.stringify(result));
