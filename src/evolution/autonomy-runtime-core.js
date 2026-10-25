@@ -364,7 +364,11 @@ export async function persistBridgePreparationDiagnostic(repository, jobId, diag
       ? Number(previousDelay.attempts || 0) + 1 : 1;
     const structural = (next.mentor_failure_codes || []).some(row =>
       ['MENTOR_INVALID_CHANGE','MENTOR_UNINSPECTED_EDIT','MENTOR_UNINSPECTED_PATH'].includes(row.code));
-    const maxAttempts = structural ? 1 : 3;
+    // A structural rejection used to park the job after one round, so the
+    // large code model (after 3 rejected rounds) never got its turn and
+    // FOUNDER-02..07 sat idle on 25/10. Each new round now sees its previous
+    // errors (mentor_attempt_history), so retrying is no longer identical.
+    const maxAttempts = structural ? 4 : 3;
     result.autonomy_deferral = { ...deferred, phase: 'bridge', context, attempts,
       max_attempts: maxAttempts, exhausted: attempts >= maxAttempts };
   }

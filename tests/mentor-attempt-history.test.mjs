@@ -27,3 +27,15 @@ test('the bridge preparer hands that history to the Mentor so the third failure 
   const mentor = await readFile(new URL('../src/learning/mentor-engine.js', import.meta.url), 'utf8');
   assert.match(mentor, /escalate: previousAttempts\.length >= 3/);
 });
+
+test('a structural Mentor rejection does not park the job before the large model had its turn', async () => {
+  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+  const job = await repository.create({ id: 'k', goal: 'g', requested_by: 'mel-autonomy' });
+  await repository.update(job.id, { status: 'TEACHER_APPROVED' });
+  const rejected = { status: 'NOT_READY', code: 'MENTOR_NO_VALID_CODE_PROPOSAL',
+    failures: [{ stage: 'initial', code: 'MENTOR_UNINSPECTED_EDIT' }] };
+  await persistBridgePreparationDiagnostic(repository, job.id, rejected);
+  const deferral = (await repository.get(job.id)).result_json.autonomy_deferral;
+  assert.equal(deferral.max_attempts, 4);
+  assert.equal(deferral.exhausted, false);
+});
