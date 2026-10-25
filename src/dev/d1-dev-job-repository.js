@@ -1,3 +1,4 @@
+import { MAINTENANCE_FENCE_ID } from '../maintenance/maintenance-gate.js';
 import { migrate } from '../persistence/migrations.js';
 import { createDevJobCheckpoint, verifyDevJobCheckpoint } from './dev-job-checkpoint.js';
 import { D1EvolutionLedger } from '../evolution/evolution-ledger.js';
@@ -145,9 +146,13 @@ export class D1DevJobRepository {
     });
     return j;
     }
-    await this.db.prepare('INSERT INTO dev_jobs(id,created_at,updated_at,status,requested_by,goal,optional_context,plan_json,files_json,patch_json,tests_json,result_json,candidate_branch,approval_status,error) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .bind(j.id, j.created_at, j.updated_at, j.status, j.requested_by, j.goal, JSON.stringify(j.optional_context), null, '[]', null, '[]', null, null, j.approval_status, null)
+    // Same SQL statement as the insertion: a preflight read cannot close this race.
+    const admission = await this.db.prepare("INSERT INTO dev_jobs(id,created_at,updated_at,status,requested_by,goal,optional_context,plan_json,files_json,patch_json,tests_json,result_json,candidate_branch,approval_status,error) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED')")
+      .bind(j.id, j.created_at, j.updated_at, j.status, j.requested_by, j.goal, JSON.stringify(j.optional_context), null, '[]', null, '[]', null, null, j.approval_status, null, MAINTENANCE_FENCE_ID)
       .run();
+    if (Number(admission?.meta?.changes) !== 1) {
+      throw Object.assign(new Error('MAINTENANCE_JOB_ADMISSION_BLOCKED'), {code:'MAINTENANCE_JOB_ADMISSION_BLOCKED',status:423});
+    }
     await this.recordEvolution(j, 'JOB_CREATED', {
       goal: String(j.goal || '').slice(0, 4000),
       approval_status: j.approval_status,

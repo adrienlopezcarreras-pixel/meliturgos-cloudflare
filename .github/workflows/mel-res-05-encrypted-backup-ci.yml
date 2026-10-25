@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - "src/backup/**"
+      - "src/dev/d1-dev-job-repository.js"
+      - "tests/maintenance/**"
       - "release-tools/predeploy-backup-refresh/**"
       - "tests/maintenance/system-restore-proof.test.mjs"
       - "src/resilience/**"

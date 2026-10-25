@@ -95,3 +95,23 @@ Validation locale : 61 tests réussis (maintenance, Companion, WORK scheduler,
 restauration SQL existante, R2 bytes et chiffrement). Les données de tests sont
 synthétiques ; aucune preuve locale n'est une preuve sur les données production.
 `cleanup_authorized:false` est conservé même après restauration réussie.
+
+## Admission atomique des nouvelles missions
+
+La création canonique `D1DevJobRepository.create` insère maintenant via
+`INSERT ... SELECT ... WHERE NOT EXISTS` sur le verrou global PAUSED. Le contrôle
+et l'insertion sont une seule instruction D1 : une pause acquise juste avant
+l'insertion interdit la mission, sans fenêtre lecture/écriture. Un bail expiré
+reste fermé jusqu'à récupération. Les producteurs qui passent par ce dépôt
+partagent ce même garde, sans nouveau moteur. Aucun événement JOB_CREATED n'est
+émis si l'insertion est refusée ; aucune mission préexistante n'est supprimée.
+Le mode purement mémoire des tests/laboratoires reste distinct de D1 production.
+
+65 tests locaux réussis, dont course réelle SQL, pause expirée, reprise après
+libération vérifiée et suites voisines création, queue propriétaire et jobs.
+Cela ne prouve PAS que les sept producteurs sont arrêtés : leurs autres écritures,
+leurs exécutions en cours et les DAG WORK restent à drainer et vérifier.
+
+CI complète sauvegarde/restauration réussie sur `a7a4cfed` (run 40170108826).
+Le nouveau contrôle d'admission impose une nouvelle validation sur son propre
+SHA ; ne pas lui attribuer rétroactivement le résultat du SHA précédent.
