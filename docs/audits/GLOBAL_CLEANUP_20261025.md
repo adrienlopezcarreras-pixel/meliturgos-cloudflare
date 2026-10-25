@@ -115,3 +115,9 @@ leurs exécutions en cours et les DAG WORK restent à drainer et vérifier.
 CI complète sauvegarde/restauration réussie sur `a7a4cfed` (run 40170108826).
 Le nouveau contrôle d'admission impose une nouvelle validation sur son propre
 SHA ; ne pas lui attribuer rétroactivement le résultat du SHA précédent.
+
+Les deux prises en charge D1 `claim` et `claimPrepared` portent aussi le prédicat
+de verrou dans leur CAS : ni le Bridge Windows ni le relais cloud ne peuvent
+prendre une mission existante sous maintenance. Test SQL réel sur une mission
+legacy et un paquet Teacher corrélé : états inchangés sous verrou, reprise après
+libération vérifiée et seconde prise refusée. 66 tests locaux réussis.

@@ -311,8 +311,8 @@ export class D1DevJobRepository {
     }
 
     const r = await this.db.prepare(
-      'UPDATE dev_jobs SET status=?,updated_at=? WHERE id=? AND status=?'
-    ).bind('CLAIMED', Date.now(), id, expected).run();
+      'UPDATE dev_jobs SET status=?,updated_at=? WHERE id=? AND status=? AND NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status=\'PAUSED\')'
+    ).bind('CLAIMED', Date.now(), id, expected, MAINTENANCE_FENCE_ID).run();
     return r.meta?.changes === 1 ? this.get(id) : null;
   }
 
@@ -347,8 +347,8 @@ export class D1DevJobRepository {
     const candidate = rows.find((job) => isPreparedDevBridgeJob(job)) || rows.find((job) => isLegacyQueuedDevBridgeJob(job));
     if (!candidate) return null;
     const expectedStatus = String(candidate.status || '').toUpperCase();
-    const r = await this.db.prepare('UPDATE dev_jobs SET status=?,updated_at=? WHERE id=? AND status=?')
-      .bind('CLAIMED', Date.now(), candidate.id, expectedStatus)
+    const r = await this.db.prepare('UPDATE dev_jobs SET status=?,updated_at=? WHERE id=? AND status=? AND NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status=\'PAUSED\')')
+      .bind('CLAIMED', Date.now(), candidate.id, expectedStatus, MAINTENANCE_FENCE_ID)
       .run();
     return r.meta?.changes === 1 ? this.get(candidate.id) : null;
   }

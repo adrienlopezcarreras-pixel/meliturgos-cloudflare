@@ -50,3 +50,23 @@ test('pause acquired immediately before INSERT prevents creation, without a read
   assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM dev_jobs').first()).n,0);
  }finally{db.close();}
 });
+
+test('both legacy and prepared Bridge claims stay fenced; verified release permits one claim',async()=>{
+ const {db,repo}=await fixture();
+ try {
+  await repo.create({id:'legacy',goal:'legacy',requested_by:'professor'});
+  await repo.create({id:'prepared',goal:'approved',requested_by:'mel-autonomy'});
+  const result={teacher_bridge:{status:'ANSWERED',request:{request_id:'req'},review:{request_id:'req',verdict:'APPROVE_PLAN',development_allowed:true}},
+   bridge_preparation:{status:'READY',teacher_request_id:'req',candidate_branch:'candidate/mel-clean-autonomy',candidate_sha:'a'.repeat(40)}};
+  await db.prepare('UPDATE dev_jobs SET status=?,files_json=?,tests_json=?,result_json=? WHERE id=?').bind('TEACHER_APPROVED',JSON.stringify([{path:'src/example.js',content:'export const test=1;'}]),JSON.stringify([{command:'test:smoke'}]),JSON.stringify(result),'prepared').run();
+  await startMaintenanceLease(db,{leaseId:'claims',now:1,ttlMs:1000});
+  assert.equal(await repo.claim(),null);
+  assert.equal(await repo.claimPrepared('prepared'),null);
+  assert.equal((await repo.get('legacy')).status,'QUEUED');
+  assert.equal((await repo.get('prepared')).status,'TEACHER_APPROVED');
+  await finishMaintenanceLease(db,{leaseId:'claims',reconciled:true,now:1002});
+  assert.equal((await repo.claimPrepared('prepared')).status,'CLAIMED');
+  assert.equal(await repo.claimPrepared('prepared'),null);
+  assert.equal((await repo.claim()).id,'legacy');
+ } finally{db.close();}
+});
