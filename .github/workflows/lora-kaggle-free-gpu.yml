@@ -954,6 +954,7 @@ jobs:
             results:{
               train_loss:run.train_loss??training.training_metrics?.train_loss??null,
               metrics:run.local_impact||{},
+              public_benchmarks:run.public_benchmarks||{},
               progression:{
                 global_step:Number(run.global_step||0),
                 local_next_stage:run.local_next_stage||null,
@@ -1040,6 +1041,7 @@ jobs:
             "local_uncensored_gate":run.get("local_uncensored_gate") is True,
             "local_impact":run.get("local_impact") or {},
             "local_impact_delta":run.get("local_impact_delta") or {},
+            "public_benchmarks":run.get("public_benchmarks") or {},
             "activation_blocker":"CANONICAL_PREVIEW_BENCHMARK_NOT_RUN" if run.get("local_uncensored_gate") else "LOCAL_IMPACT_GATE_NOT_PASSED",
             "zero_cost_only":True,
           }
