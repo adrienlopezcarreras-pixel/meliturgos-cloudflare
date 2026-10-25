@@ -1345,4 +1345,48 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1792915200000
   },
+  {
+    "id": "claude-zero-cost-proof-checked-against-invoice-20261025",
+    "source": "claude",
+    "domain": "cost-governance",
+    "task": "Garantir la politique zéro dépense Workers AI.",
+    "input": "Le gouverneur zéro-coût acceptait une preuve « offre Workers Free, dépassement refusé » fondée sur un droit d'API, sans lecture de la facture.",
+    "before": "Le compte était en Workers Paid : 6,38 M neurones facturés, 70,15 $ en octobre, sans qu'aucun garde-fou ne réagisse.",
+    "after": "Plafond dur mesuré côté MEL (compteur D1 journalier, refus au-delà de 9 000 neurones, refus si le compteur est illisible) ; la preuve d'offre n'est plus la seule barrière.",
+    "rationale": "Une preuve indirecte de gratuité doit être confrontée à la consommation réellement facturée ; seule une limite mesurée par le consommateur garantit zéro dépense.",
+    "tests": [
+      "tests/workers-ai-neuron-budget.test.mjs (PR #2664)",
+      "Facture Cloudflare 25/10 : Regular Twitch Neurons 70,15 $"
+    ],
+    "tags": [
+      "zero-cost",
+      "workers-ai",
+      "billing"
+    ],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1792944000000
+  },
+  {
+    "id": "claude-new-test-where-imports-resolve-20261025",
+    "source": "claude",
+    "domain": "mentor",
+    "task": "Accepter les nouveaux tests proposés par le mentor.",
+    "input": "Le mentor pouvait créer tests/src/roadmap/master-roadmap.test.mjs, avec des imports ../src/... écrits pour la racine de tests/.",
+    "before": "FOUNDER-02 a épuisé toutes ses réparations sur un test qui ne pouvait pas charger son module.",
+    "after": "Un nouveau test n'est accepté que directement dans tests/, et le refus explique pourquoi au modèle.",
+    "rationale": "Un fichier généré doit être placé là où ses chemins relatifs résolvent ; sinon chaque réparation échoue pour une raison invisible au modèle.",
+    "tests": [
+      "tests/mentor-candidate-safety.test.mjs (PR #2663)",
+      "Prod 25/10 : FOUNDER-02 MAX_REPAIR_ATTEMPTS_EXHAUSTED sur tests/src/roadmap/master-roadmap.test.mjs"
+    ],
+    "tags": [
+      "mentor",
+      "tests",
+      "imports"
+    ],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1792944000000
+  },
 ]);
