@@ -26,7 +26,10 @@ function bytesToBase64(bytes) {
 function base64ToBytes(value, code = 'BACKUP_ENCRYPTION_BASE64_INVALID') {
   try {
     const binary = atob(String(value || ''));
-    return Uint8Array.from(binary, char => char.charCodeAt(0));
+    // Avoid materializing one JS iterator element per byte for large backups.
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    return bytes;
   } catch {
     throw encryptionError(code);
   }
