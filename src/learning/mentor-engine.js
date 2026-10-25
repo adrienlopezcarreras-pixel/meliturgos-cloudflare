@@ -190,7 +190,9 @@ function proposalFromMarkedFiles(raw) {
 
 // Code inside JSON strings is where small models break quotes and newlines
 // (MENTOR_JSON_INVALID). Plain SEARCH/REPLACE blocks carry code verbatim.
-const NEW_TEST_PATH = /^tests\/[A-Za-z0-9_./-]+\.test\.mjs$/;
+// New tests live directly in tests/: their `../src/...` imports only resolve
+// there (FOUNDER-02 failed 4 repairs on tests/src/roadmap/…, 25/10).
+const NEW_TEST_PATH = /^tests\/[A-Za-z0-9_.-]+\.test\.mjs$/;
 
 // The Council rejects code without a test that exercises it; reject earlier,
 // while other providers can still answer, an implementation without one.
@@ -289,7 +291,7 @@ function applyInspectedEdits(edits, inspectedFiles, repairReferences = [], visib
       if (!touched.includes(path)) touched.push(path);
       continue;
     }
-    if (!byPath.has(path)) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path} — fichier non inspecté : seuls les fichiers de SOURCES_INSPECTÉES ou un nouveau tests/*.test.mjs`), { code: 'MENTOR_INVALID_CHANGE' });
+    if (!byPath.has(path)) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path} — fichier non inspecté : seuls les fichiers de SOURCES_INSPECTÉES ou un nouveau tests/<nom>.test.mjs directement dans tests/ (imports en ../src/...)`), { code: 'MENTOR_INVALID_CHANGE' });
     const visible = visibleFiles.find(file => file.path === path);
     const find = resolveFind(visible?.content, String(edit?.find ?? ''));
     if (!visibleFiles.some(file => file.path === path && file.content.includes(find))) {
