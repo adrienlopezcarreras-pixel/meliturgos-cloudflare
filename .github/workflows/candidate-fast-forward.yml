@@ -1,0 +1,39 @@
+name: candidate-fast-forward
+
+# Owner-merged PRs land on main only; the shared candidate fell 165 commits
+# behind and the Bridge kept testing stale code (25/10). When the candidate has
+# nothing main lacks, move it to main. Never a force push: a candidate with its
+# own commits is left alone for the reconciliation lane.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: candidate-fast-forward
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  fast-forward:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.MEL_WORKFLOW_TOKEN }}
+      - name: Fast-forward candidate/mel-clean-autonomy to main
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin main candidate/mel-clean-autonomy
+          if git merge-base --is-ancestor origin/main origin/candidate/mel-clean-autonomy; then
+            echo "Candidate already contains main."
+          elif git merge-base --is-ancestor origin/candidate/mel-clean-autonomy origin/main; then
+            git push origin origin/main:refs/heads/candidate/mel-clean-autonomy
+            echo "Candidate fast-forwarded to $(git rev-parse origin/main)."
+          else
+            echo "::notice::Candidate has its own commits; left for reconciliation."
+          fi
