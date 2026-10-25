@@ -60,3 +60,13 @@ La PR #2691 est déjà fusionnée. Le main courant contient également le repli 
 Preuves : six régressions modes Conversation/Code × image/audio/vidéo échouent sur le parent initial puis passent avec le correctif ; 263 tests chat/intention réussis sur main réconcilié. Le test Chromium utilise le véritable entrypoint et sa CSP, avec médias publics simulés explicitement identifiés et audio DSP réel ; décodage et lecture après panne de synthèse vérifiés. Ce test local ne prouve pas la disponibilité des modèles ou du navigateur propriétaire en production.
 
 Le self-test existant sait désormais lire les deux enveloppes de fin NDJSON et vérifier une photo par ses métadonnées typées, sans se satisfaire d’un texte annonçant une image. Aucun secret ni budget modifié. XP MEL : NON (conservation des artefacts déjà couverte par le corpus). Statut global IN_PROGRESS jusqu’aux vérifications production.
+
+## Pertinence du sujet — résultat réel après publication
+
+Release 40239596397 réussie sur bbc2d99d, avec gates post-release applicables verts. Self-test photo 40240610609 : média réel récupéré et archivé en 9379 ms malgré le quota épuisé, mais mauvaise pertinence : « photo de chat » retourne un oiseau nommé rock chat. Le OK technique de ce test ne constitue donc pas une acceptation sémantique.
+
+Correction supplémentaire dans la recherche canonique : résoudre les titres exacts de Wikipédia francophone vers leur identité Wikidata, puis contraindre Commons par le sujet P180. Pas de premier résultat de recherche floue : wbsearchentities(chat) retourne aussi un gène CHAT. Les articles absents/ambigus et les erreurs ne fabriquent pas d’identité ; les recherches audio/vidéo et les sources officielles strictes sont préservées. La recherche publique générique conserve sa langue existante ; la recherche photo du chat francophone accepte un paramètre language explicite.
+
+Vérification HTTPS réelle : Wikipédia Chat → Q146, label anglais cat ; Commons cat haswbstatement:P180=Q146 retourne File:Felis catus-cat on snow.jpg (JPEG). Le self-test photo exige désormais cette identité en plus du média typé ; une image d’un autre sujet échoue même si elle se charge. Ces preuves réseau locales ne valent pas déploiement de ce second lot.
+
+XP MEL : NON. Pertinence et limites de preuve déjà couvertes par le corpus. Chat global IN_PROGRESS ; inférence réelle bloquée par le compteur estimé quotidien, sans modification de plafond.
