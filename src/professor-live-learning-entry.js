@@ -139,16 +139,26 @@ async function freeLoraStatusResponse(request, env) {
   ]);
 
   let checkpoint = null;
+  let checkpointDiscovery = { status: 'UNAVAILABLE', http_status: null, auth_fallback_used: false };
   try {
-    const response = await fetch(
-      `https://api.github.com/repos/${FREE_LORA_GITHUB_REPO}/releases?per_page=30`,
-      { headers: githubHeaders },
-    );
+    const url = `https://api.github.com/repos/${FREE_LORA_GITHUB_REPO}/releases?per_page=100`;
+    let response = await fetch(url, { headers: githubHeaders });
+    // Public GitHub releases do not require a token. An expired or
+    // rate-limited MEL token must not conceal a published checkpoint.
+    // Retry unauthenticated only for auth/rate-limit failures, never
+    // bypass provenance checks on returned releases.
+    if ((response.status === 401 || response.status === 403) && githubHeaders.authorization) {
+      checkpointDiscovery.auth_fallback_used = true;
+      const { authorization, ...publicHeaders } = githubHeaders;
+      response = await fetch(url, { headers: publicHeaders });
+    }
+    checkpointDiscovery.http_status = response.status;
     if (response.ok) {
       const releases = await response.json();
       // A real checkpoint requires a published, source-matched release with
       // both nonempty immutable assets, not merely a plausible tag.
       const latest = selectLatestCheckpointRelease(releases);
+      checkpointDiscovery.status = latest ? 'FOUND' : 'NO_VERIFIED_RELEASE';
       if (latest) {
         checkpoint = {
           tag: latest.tag,
@@ -161,8 +171,12 @@ async function freeLoraStatusResponse(request, env) {
           validation_status: latest.local_gate_ready ? 'LOCAL_GATE_READY_FOR_CANONICAL_BENCHMARK' : 'TRAINED_UNBENCHMARKED',
         };
       }
+    } else {
+      checkpointDiscovery.status = 'GITHUB_HTTP_ERROR';
     }
-  } catch {}
+  } catch {
+    checkpointDiscovery.status = 'GITHUB_FETCH_ERROR';
+  }
 
   let learning = null;
   try {
@@ -235,6 +249,7 @@ async function freeLoraStatusResponse(request, env) {
     training_workflow_url: `https://github.com/${FREE_LORA_GITHUB_REPO}/actions/workflows/${FREE_LORA_TRAINING_WORKFLOW}`,
     kaggle_url: 'https://www.kaggle.com/code/adrienlopezcarreras/mel-lora-uncensored-notebook-t4',
     checkpoint,
+    checkpoint_discovery: checkpointDiscovery,
     learning,
     daily_trace: dailyTrace,
     daily_status: dailyStatus,
