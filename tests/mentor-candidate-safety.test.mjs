@@ -185,3 +185,10 @@ test('the subsequent four-line runtime stub cannot replace the inspected autonom
     .propose({ env: {}, goal: 'Preserve existing autonomy controls', inspectedFiles: [{ path: runtimePath, content: source }] }),
   error => error.failures.every(row => row.error === 'MENTOR_LONG_FILE_REQUIRES_EDIT'));
 });
+
+test('an uninspected edit names the SEARCH line the model did not copy', async () => {
+  const source = 'export const visible = 1;\nexport const other = 2;\n';
+  await assert.rejects(engineFor({ edits: [{ path, find: 'export const visible = 1;\nexport const guessed = 3;', replace: 'x' }] })
+    .propose({ env: {}, goal: 'Explain refusals', inspectedFiles: [{ path, content: source }] }),
+  error => error.failures.every(row => row.error === 'MENTOR_UNINSPECTED_EDIT' && /guessed = 3/.test(row.detail)));
+});
