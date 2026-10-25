@@ -37,6 +37,35 @@ async function readObjectBytes(object, expectedSize, key) {
   return bytes;
 }
 
+// Workerd can hash a stream without materialising the object in the Worker heap.
+// Keep the bounded byte path for providers without native DigestStream support.
+async function hashObjectStream(object, expectedSize) {
+  requireValue(object?.body?.getReader, 'BACKUP_R2_OBJECT_BODY_UNAVAILABLE', 503);
+  const digest = new crypto.DigestStream('SHA-256');
+  const digestResult = digest.digest;
+  digestResult.catch(() => {});
+  const reader = object.body.getReader(), writer = digest.getWriter();
+  let size = 0;
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      size += chunk.value.byteLength;
+      requireValue(size <= expectedSize, 'BACKUP_R2_OBJECT_SIZE_MISMATCH', 409);
+      await writer.write(chunk.value);
+    }
+    requireValue(size === expectedSize, 'BACKUP_R2_OBJECT_SIZE_MISMATCH', 409);
+    await writer.close();
+    return [...new Uint8Array(await digestResult)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+  } catch (error) {
+    await Promise.allSettled([reader.cancel(error), writer.abort(error)]);
+    throw error;
+  } finally {
+    reader.releaseLock();
+    writer.releaseLock();
+  }
+}
+
 async function cleanup(bucket, keys) {
   for (const key of keys) {
     try { await bucket.delete(key); } catch {}
@@ -82,6 +111,7 @@ export async function backupR2ObjectBytes(bucket, {
 
   descriptors.sort((a,b)=>a.key.localeCompare(b.key));
   const copied = [];
+  const attempted = [];
   let totalBytes = 0;
 
   try {
@@ -93,10 +123,28 @@ export async function backupR2ObjectBytes(bucket, {
       );
       const source = await bucket.get(descriptor.key);
       requireValue(source, 'BACKUP_R2_OBJECT_MISSING', 409);
-      const bytes = await readObjectBytes(source, descriptor.size, descriptor.key);
-      const digest = await sha256Hex(bytes);
+      const streaming = typeof crypto.DigestStream === 'function' && !!source.body?.getReader;
+      let bytes;
+      if (streaming) {
+        requireValue(source.size === descriptor.size && typeof source.etag === 'string' && source.etag === descriptor.etag,
+          'BACKUP_R2_SOURCE_CHANGED', 409);
+      } else {
+        bytes = await readObjectBytes(source, descriptor.size, descriptor.key);
+      }
+      const digest = streaming ? await hashObjectStream(source, descriptor.size) : await sha256Hex(bytes);
       const destination = backupObjectKey(id, descriptor.key, digest);
-      await bucket.put(destination, bytes, {
+      requireValue(!(await bucket.get(destination)), 'BACKUP_R2_COPY_TARGET_NOT_EMPTY', 409);
+      let body = bytes;
+      if (streaming) {
+        // A second R2 read retains the native known-length body for R2.put.
+        // Never copy a replacement version after hashing the first version.
+        const copy = await bucket.get(descriptor.key);
+        requireValue(copy?.body && copy.size === descriptor.size && copy.etag === source.etag,
+          'BACKUP_R2_SOURCE_CHANGED', 409);
+        body = copy.body;
+      }
+      attempted.push(destination);
+      await bucket.put(destination, body, {
         ...(source?.httpMetadata ? { httpMetadata: source.httpMetadata } : {}),
         customMetadata: {
           mel_backup_schema: R2_BYTE_BACKUP_SCHEMA,
@@ -106,20 +154,21 @@ export async function backupR2ObjectBytes(bucket, {
       });
       const stored = await bucket.get(destination);
       requireValue(stored, 'BACKUP_R2_COPY_MISSING', 503);
-      const storedBytes = await readObjectBytes(stored, bytes.byteLength, destination);
-      requireValue(await sha256Hex(storedBytes) === digest, 'BACKUP_R2_COPY_INTEGRITY_MISMATCH', 409);
-      totalBytes += bytes.byteLength;
+      const storedDigest = streaming ? await hashObjectStream(stored, descriptor.size)
+        : await sha256Hex(await readObjectBytes(stored, descriptor.size, destination));
+      requireValue(storedDigest === digest, 'BACKUP_R2_COPY_INTEGRITY_MISMATCH', 409);
+      totalBytes += descriptor.size;
       copied.push({
         key: descriptor.key,
         backup_key: destination,
-        size: bytes.byteLength,
+        size: descriptor.size,
         sha256: digest,
         etag: descriptor.etag,
         uploaded: descriptor.uploaded,
       });
     }
   } catch (error) {
-    await cleanup(bucket, copied.map(row => row.backup_key));
+    await cleanup(bucket, attempted);
     throw error;
   }
 

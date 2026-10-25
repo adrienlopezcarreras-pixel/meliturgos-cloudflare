@@ -301,3 +301,14 @@ jamais un succès. Le job de lecture seule dispose de 60 minutes pour respecter 
 attentes de rate-limit au volume de 10000 objets. Les gardes de purge restent
 inchangés. 86 tests ciblés passent et syntaxe dépôt vérifiée ; pas de preuve live
 de ce nouveau transport ni de restauration complète revendiquée. XP MEL : NON.
+
+## Lecture Cloudflare réelle et copie en flux — 25 octobre 2026
+
+- PR #2656 fusionnée : `59780c9c500ef7e523873e0dec17d2f0d9eb8842`, contrôles `encrypted-backup`, `validate` et `gen2-17-targeted` réussis.
+- Drill isolé `40198302375`, job `121184047676` : lecture native HTTPS et vérification du snapshot réussies jusqu'au refus explicite `ISOLATED_R2_BYTES_MANIFEST_REQUIRED`. Le snapshot daté du 25/10 à 10:21:07 UTC référence 7 394 objets, 2 983 598 322 octets et un objet maximal de 42 988 386 octets ; il ne contient pas de manifeste de copies R2. Aucune preuve de restauration complète, aucune autorisation de purge.
+- Le helper canonique de sauvegarde utilise `crypto.DigestStream` lorsque le runtime le fournit : première lecture hachée en flux, seconde lecture du même ETag/taille pour copier le corps R2 natif, puis vérification de la copie en flux. Le chemin borné existant reste utilisé sur les fournisseurs sans DigestStream. Format du manifeste et SHA-256 inchangés.
+- Une destination existante est refusée sans écrasement ni suppression. Les destinations tentées sont suivies avant `put` : une écriture réussie suivie d'un échec de réponse ou de vérification ne laisse plus de copie orpheline.
+- Régression exécutée dans un vrai workerd local avec R2 isolé : copie intègre de 40 Mio sans appel à `arrayBuffer`, source modifiée entre les lectures refusée avant copie, copie corrompue et écriture partielle retirées. Aucun accès cloud dans ce test.
+- Validation locale : 104 tests ciblés réussis, syntaxe du dépôt réussie. Le test natif est raccordé à la CI GEN2-47 et à la découverte complète des tests.
+- Plafonds opérationnels inchangés : 32 Mio par objet et 256 Mio au total. Aucun lancement de sauvegarde multi-Go tant que la marge gratuite du compte R2 n'est pas établie. Les adaptateurs réels des sept domaines et leur reprise restent à compléter ; mission globale IN_PROGRESS/BLOCKED, aucune purge exécutée.
+- XP MEL : NON (pas de nouvelle règle persistée).
