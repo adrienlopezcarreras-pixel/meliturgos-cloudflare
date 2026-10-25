@@ -192,7 +192,12 @@ export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedId
     .sort((a, b) => score(a) - score(b) || String(a.id).localeCompare(String(b.id)))[0] || null;
 }
 
+// A capability-watch discovery cites GEN2-42 as its origin, not as the item it
+// implements. GEN2-42 is closed, so every discovery was skipped as "already
+// done" and the watch -> Mentor -> production chain never ran (JOB_STALLED
+// for hours on 25/10). Discoveries are worked as their own goal.
 function roadmapIdFromJob(job) {
+  if (String(job?.optional_context?.source || '') === 'ecosystem-watch') return null;
   return job?.optional_context?.roadmap_id || null;
 }
 
