@@ -381,3 +381,21 @@ test('Professor Code verification failure does not emit or archive unverified co
   assert.equal(events.at(-1).type,'error');
   assert.equal(events.at(-1).code,'PROOF_UNAVAILABLE');
 });
+
+test('a model that never starts streaming is skipped after the start timeout', async () => {
+  const { streamChatResponse } = await import('../src/api/chat-stream.js');
+  const tried = [];
+  const env = { MEL_STREAM_START_TIMEOUT_MS: '5000', AI: { run: async (model) => {
+    tried.push(model);
+    if (tried.length === 1) return new Promise(() => {});
+    return { response: 'Bonjour Adrien' };
+  } } };
+  const started = Date.now();
+  const response = streamChatResponse({ env, messages: [{ role: 'user', content: 'bonjour' }] });
+  const text = await response.text();
+  assert.ok(Date.now() - started < 9000);
+  assert.equal(tried.length, 2);
+  assert.match(text, /STREAM_START_TIMEOUT/);
+  assert.match(text, /Bonjour Adrien/);
+  assert.match(text, /"fallbacks":\[\{"model":"[^"]+","reason":"STREAM_START_TIMEOUT"\}\]/);
+});
