@@ -29,5 +29,7 @@ test('LoRA status uses verified published checkpoints, not an arbitrary release 
   assert.match(source, /selectLatestCheckpointRelease\(releases\)/);
   assert.match(source, /artifact_available: true/);
   assert.match(source, /TRAINED_UNBENCHMARKED/);
+  assert.match(source, /canonical_gate_passed: impactCandidate\?\.metadata\?\.canonical_gate_passed === true/);
+  assert.match(source, /impact_gate_passed: impactCandidate\?\.metadata\?\.uncensored_gate === true/);
   assert.doesNotMatch(source, /releases\.find\(\(release\)/);
 });
