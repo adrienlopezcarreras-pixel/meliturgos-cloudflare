@@ -7,6 +7,8 @@ on:
       - 'tests/autonomy-runtime.test.mjs'
       - 'src/evolution/**'
       - 'src/maintenance/**'
+      - 'release-tools/predeploy-backup-refresh/system-restore-proof.mjs'
+      - 'release-tools/predeploy-backup-refresh/isolated-restore-runner.mjs'
       - 'tests/maintenance/**'
       - 'tests/mel-work-schedule.test.mjs'
       - 'tests/gen2/companion-grand-cleanup.test.mjs'

@@ -65,3 +65,33 @@ WORK oubliées par #2610 ont été complétées avec sa même option maintenance
 sans changer le fail-closed runtime. La CI maintenance couvre désormais aussi
 ces tests. Le test élargi work-improvement-watch a été interrompu : ses recherches
 Internet réelles échouaient et prolongeaient la suite ; il n'est pas déclaré PASS.
+
+## Restauration indépendante — préparation exécutable
+
+#2609 fusionnée, main `42d2a2c5` réconcilié, améliorations MAX concurrentes
+conservées. Le runner D1 existant restaure déjà les tables dans SQLite et compare
+l'export complet et le patrimoine. Le nouveau coordinateur réutilise ce runner,
+le codec AES-GCM et `restoreR2ObjectBytes` ; il restaure les octets dans des fichiers
+temporaires isolés, relus et vérifiés. Les clés d'objet ne deviennent jamais des
+chemins locaux. Les fichiers sont supprimés à la fin, seuls les compteurs,
+empreintes et identifiant du snapshot figurent dans le reçu.
+
+Le workflow existant `mel-res-05-encrypted-backup-ci.yml` accepte maintenant
+`snapshot_key`, après fusion sur main uniquement. Il réutilise les quatre secrets
+Cloudflare/chiffrement déjà présents. Aucun nouveau secret, bucket ou D1 requis.
+Le runner distant n'invoque que `wrangler r2 object get --remote`, aucune mutation
+Cloudflare. Le job attend la CI complète et n'est jamais lancé sur une PR.
+
+Procédure après revue/fusion et CI : lancer ce workflow sur main avec la clé
+exacte `backups/system/<snapshot>.enc.json` d'un snapshot existant. Examiner le
+reçu `isolated-restore-proof`. Un inventaire sans `r2_objects`, une couverture
+incomplète (y compris tout préfixe exclu de l'inventaire sauvegardé), une corruption,
+un objet absent ou le budget 256 Mio / 5000 objets dépassé produit BLOCKED. Ne
+pas créer une preuve complète à partir d'une sauvegarde D1/R2 seulement partielle.
+Aucun dispatch de restauration production n'a été exécuté à ce stade : la clé
+exacte d'un snapshot adéquat et sa couverture réelle restent à établir.
+
+Validation locale : 61 tests réussis (maintenance, Companion, WORK scheduler,
+restauration SQL existante, R2 bytes et chiffrement). Les données de tests sont
+synthétiques ; aucune preuve locale n'est une preuve sur les données production.
+`cleanup_authorized:false` est conservé même après restauration réussie.
