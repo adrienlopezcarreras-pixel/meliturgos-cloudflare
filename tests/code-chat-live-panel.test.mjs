@@ -81,12 +81,12 @@ test('Code activity has one scroll viewport and collapse overrides resized minim
 });
 
 
-test('Code activity starts reduced and shows only latest two events when expanded', () => {
-  assert.match(page, /\.mel-code-live-panel\{[^}]*height:240px/);
+test('Code activity keeps the history, scrollable, in a window sized for the latest two events', () => {
+  assert.match(page, /\.mel-code-live-panel\{[^}]*height:170px/);
   assert.match(page, /applyCollapsed\(true\)/);
   assert.doesNotMatch(page, /localStorage\.getItem\('mel\.code\.activity\.collapsed\.v1'\)/);
   assert.match(page, /qs\('#melCodeLiveCollapse'\)\.onclick=\(\)=>\{/);
   assert.match(page, /applyCollapsed\(collapsed\)/);
-  assert.match(page, /while\(host\.children\.length>2\)host\.firstElementChild\.remove\(\)/);
+  assert.match(page, /while\(host\.children\.length>200\)host\.firstElementChild\.remove\(\)/);
   assert.match(page, /\.mel-code-live-panel:not\(\.is-collapsed\) #melCodePlan/);
 });
