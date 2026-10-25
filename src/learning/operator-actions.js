@@ -114,7 +114,9 @@ function benchmarkResponder(ai, modelId, extractText, { lora = null, timeout_ms 
         { role: 'user', content: String(prompt || '') },
       ],
       temperature: 0,
-      max_tokens: 512,
+      // glm-4.7-flash reasons before answering: 512 tokens were spent on
+      // reasoning and every benchmark failed EMPTY_BENCHMARK_RESPONSE (25/10).
+      max_tokens: 2048,
     };
     if (lora) input.lora = String(lora);
     let timer = null;
