@@ -236,7 +236,9 @@ test('hourly heartbeat is lightweight and persistent', async () => {
 
   assert.equal(result.status, 'SELF_AUDIT_OK');
   assert.deepEqual(result.report.levels, ['HEARTBEAT']);
-  assert.equal(result.report.task_count, 1);
+  // Heartbeat + golden-rule error ledger (no DB here: skipped, no bus call).
+  assert.equal(result.report.task_count, 2);
+  assert.ok(result.report.tasks['error-ledger']);
   assert.equal(result.report.policy.hourly_lightweight_heartbeat, true);
   assert.equal(store.state.last_runs.HEARTBEAT, now);
   assert.equal(bus.calls.length, 0);
