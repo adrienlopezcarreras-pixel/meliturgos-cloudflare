@@ -1,4 +1,7 @@
-export const MEL_WAKE_PHRASES = Object.freeze(['bonjour mel','allo mel']);
+export const MEL_WAKE_PHRASES = Object.freeze(['ok mel','bonjour mel','allo mel']);
+// "mel" only wakes when the recognizer closed on that word alone.
+// A following word means the person was still speaking, so it is not the wake.
+export const MEL_SILENCE_WAKE_PHRASES = Object.freeze(['mel']);
 
 export function normalizeWakeText(value = '') {
   return String(value ?? '')
@@ -22,11 +25,15 @@ export function detectWakePhrase(value = '') {
       });
     }
   }
+  if (MEL_SILENCE_WAKE_PHRASES.includes(normalized)) {
+    return Object.freeze({ matched:true, phrase:normalized, command:'' });
+  }
   return Object.freeze({ matched:false, phrase:null, command:'' });
 }
 
 export const WAKE_WORD_RUNTIME_SOURCE = `
-const MEL_WAKE_WORDS=['bonjour mel','allo mel'];
+const MEL_WAKE_WORDS=['ok mel','bonjour mel','allo mel'];
+const MEL_SILENCE_WAKE_WORDS=['mel'];
 function melWakeNormalize(value){
   return String(value||'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().replace(/[^a-z0-9\\s'-]+/g,' ').replace(/\\s+/g,' ').trim();
 }
@@ -36,6 +43,7 @@ function melWakeDetect(value){
     if(normalized===phrase)return {matched:true,phrase,command:''};
     if(normalized.startsWith(phrase+' '))return {matched:true,phrase,command:normalized.slice(phrase.length).trim()};
   }
+  if(MEL_SILENCE_WAKE_WORDS.includes(normalized))return {matched:true,phrase:normalized,command:''};
   return {matched:false,phrase:null,command:''};
 }
 let melWakeRecognition=null,melWakeEnabled=false,melWakeArmedUntil=0,melWakeRestartTimer=null;
