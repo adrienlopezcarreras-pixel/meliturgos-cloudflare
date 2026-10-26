@@ -543,6 +543,12 @@ static class MelApp
         // The local USB helper is optional and never run on startup or by MEL's
         // remote command relay. Only install a COMPLETE set from the release ZIP.
         var packageDirectory = Path.GetDirectoryName(Application.ExecutablePath);
+        // The first-install script ships in the same release ZIP but is not
+        // part of the read-only USB inspector bundle. Copy it; never run it.
+        var packagedMiniInstaller = Path.Combine(packageDirectory, "MEL-Waveshare-Flash.ps1");
+        if (File.Exists(packagedMiniInstaller) &&
+            !string.Equals(Path.GetFullPath(packagedMiniInstaller), Path.GetFullPath(MiniFirstInstallPath), StringComparison.OrdinalIgnoreCase))
+            File.Copy(packagedMiniInstaller, MiniFirstInstallPath, true);
         bool miniUsbBundleComplete = true;
         foreach (var name in MiniUsbPreflightFiles)
             if (!File.Exists(Path.Combine(packageDirectory, name))) miniUsbBundleComplete = false;

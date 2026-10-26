@@ -4,6 +4,19 @@ import { readFile } from 'node:fs/promises';
 
 const read = path => readFile(new URL('../../' + path, import.meta.url), 'utf8');
 
+test('packaged MINI installer reaches the installed button path without executing or requiring the read-only bundle', async () => {
+  const source=await read('windows-companion/MEL-Companion.cs');
+  const build=await read('scripts/build-windows-release.ps1');
+  assert.match(build,/Copy-Item -LiteralPath \$miniInstaller -Destination \(Join-Path \$stage 'MEL-Waveshare-Flash.ps1'\)/);
+  assert.match(source,/MiniFirstInstallPath = Path.Combine\(MelDir, "MEL-Waveshare-Flash.ps1"\)/);
+  const install=source.slice(source.indexOf('public static void InstallFiles('),source.indexOf('public static void ConfigureStartup('));
+  assert.match(install,/File.Exists\(packagedMiniInstaller\)/);
+  assert.match(install,/Path.GetFullPath\(packagedMiniInstaller\), Path.GetFullPath\(MiniFirstInstallPath\)/);
+  assert.match(install,/File.Copy\(packagedMiniInstaller, MiniFirstInstallPath, true\)/);
+  assert.ok(install.indexOf('File.Copy(packagedMiniInstaller')<install.indexOf('bool miniUsbBundleComplete'));
+  assert.doesNotMatch(install,/RunMiniFirstInstall|RunHidden|Process.Start|EFFACER_MINI/);
+});
+
 test('GEN2-59 build uses canonical Windows assets and exact source SHA', async () => {
   const build = await read('scripts/build-windows-release.ps1');
   assert.match(build, /assets/);
