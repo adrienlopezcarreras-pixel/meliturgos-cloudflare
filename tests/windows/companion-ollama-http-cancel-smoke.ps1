@@ -20,6 +20,8 @@ public sealed class MelMockOllama : IDisposable {
     private readonly Thread worker;
     private readonly int latency;
     public readonly int Port;
+    public byte[] RequestBody;
+    public string RequestHeaders;
     public MelMockOllama(int delayMs) {
         latency=delayMs;
         listener=new TcpListener(IPAddress.Loopback,0);
@@ -45,16 +47,19 @@ public sealed class MelMockOllama : IDisposable {
                     else seen=b==13?1:0;
                 }
                 var lines=Encoding.ASCII.GetString(header.ToArray()).Split(new string[]{"\r\n"},StringSplitOptions.None);
+                RequestHeaders=Encoding.ASCII.GetString(header.ToArray());
                 int remaining=0;
                 foreach(var line in lines) {
                     if(line.StartsWith("Content-Length:",StringComparison.OrdinalIgnoreCase))
                        int.TryParse(line.Substring("Content-Length:".Length).Trim(),out remaining);
                 }
                 byte[] buffer=new byte[4096];
+                var requestBody=new MemoryStream();
                 while(remaining>0) {
                     int n=stream.Read(buffer,0,Math.Min(buffer.Length,remaining));
-                    if(n<=0)return;remaining-=n;
+                    if(n<=0)return;requestBody.Write(buffer,0,n);remaining-=n;
                 }
+                RequestBody=requestBody.ToArray();
                 Thread.Sleep(latency);
                 byte[] body=Encoding.UTF8.GetBytes("{\"message\":{\"content\":\"MOCK_OK\"}}");
                 var head=Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "+body.Length+"\r\nConnection: close\r\n\r\n");
@@ -99,3 +104,23 @@ $script:Checks=0
 $script:RevokeOnCheck=0
 ExpectCode 'SOVEREIGNTY_AI_LOCAL_DEADLINE_EXPIRED' {CallMock 1800 ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()+350)}
 Write-Output 'Ollama cancellable HTTP loopback tests PASS (synthetic only)'
+
+# Exercise the actual shared POST helper under Windows PowerShell 5.1. No
+# owner token, Internet call, real model or server-side mutation is involved.
+$jsonStart=$source.IndexOf('function Invoke-MelJson {')
+$jsonEnd=$source.IndexOf('function Active-Window',$jsonStart)
+if($jsonStart -lt 0 -or $jsonEnd -le $jsonStart){throw 'MEL_JSON_HELPER_NOT_FOUND'}
+Invoke-Expression $source.Substring($jsonStart,$jsonEnd-$jsonStart)
+function Headers {return @{'X-MEL-Computer-ID'='synthetic-fixture'}}
+$sample=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('SmUgc3VpcyBkw6lzb2zDqWUsIHByw6p0ZSDDoCB04oCZYWlkZXIg8J+Mng=='))
+$jsonServer=[MelMockOllama]::new(10)
+try {
+ $Server='http://127.0.0.1:'+$jsonServer.Port
+ $answer=Invoke-MelJson -Path '/synthetic-result' -Method POST -Body @{text=$sample}
+ if($answer.message.content -ne 'MOCK_OK'){throw 'JSON_POST_RESPONSE_LOST'}
+ $utf8=[Text.UTF8Encoding]::new($false,$true)
+ $received=$utf8.GetString($jsonServer.RequestBody)|ConvertFrom-Json
+ if($received.text -cne $sample){throw 'UNICODE_RESULT_CORRUPTED'}
+ if($jsonServer.RequestHeaders -notmatch 'Content-Type: application/json; charset=utf-8'){throw 'UTF8_CONTENT_TYPE_MISSING'}
+} finally {$jsonServer.Dispose()}
+Write-Output 'MEL JSON POST preserves accents and emoji over real loopback HTTP'

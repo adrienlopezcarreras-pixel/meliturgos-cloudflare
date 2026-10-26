@@ -19,7 +19,7 @@ function attr(attrs, name) {
 
 test('full control surface stays bounded and free of retired Vercel controls', () => {
   const rows = buttons();
-  assert.ok(rows.length <= 99, 'control surface grew beyond the audited 98 controls plus the explicit LoRA mode button');
+  assert.ok(rows.length <= 100, 'control surface grew beyond the neuron-day button plus the explicit LoRA mode button');
   assert.equal(rows.filter(row => attr(row.attrs, 'id') === 'chatLoraMode').length, 1, 'one canonical LoRA mode button');
   assert.equal(rows.filter(row => /id="melRole(?:Assistant|Code)"/.test(row.attrs)).length, 2, 'exactly two role controls in Professor');
   assert.match(source, /let melChatRole='code'/);

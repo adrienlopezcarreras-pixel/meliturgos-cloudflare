@@ -612,6 +612,23 @@ export function codeAccessTruth(manifest = []) {
   };
 }
 
+// Completed source reads remain evidence when inference is unavailable. This
+// is a receipt, never a diagnosis or a diff inferred from a single snapshot.
+export function codeReadEvidenceAnswer(rows = []) {
+  const lines=[];
+  for(const row of rows.filter(row=>['code.read','code.search'].includes(row?.capability)&&row.status==='SUCCEEDED'&&row.result?.ok!==false).slice(0,4)){
+    const result=row.result||{};
+    const ref=/^[0-9a-f]{40}$/i.test(result.source_ref||'')?' · SHA '+result.source_ref:'';
+    if(row.capability==='code.read'&&typeof result.path==='string'){
+      lines.push('Lecture : '+result.path+(Number.isInteger(result.start_line)?' · lignes '+result.start_line+'–'+(result.end_line||result.start_line):'')+ref+(result.partial===true?' · lecture partielle':''));
+    } else if(row.capability==='code.search'&&Array.isArray(result.matches)){
+      lines.push('Recherche effectuée'+ref+' : '+result.matches.length+' extrait(s) retourné(s), dans une recherche bornée.');
+      for(const match of result.matches.slice(0,5))if(typeof match.path==='string')lines.push('Source : '+match.path+(Number.isInteger(match.line)?' · ligne '+match.line:''));
+    }
+  }
+  return lines.length?'Éléments de mon code effectivement consultés :\n'+lines.join('\n')+'\n\nCes lectures ne prouvent pas les changements depuis une version précédente, ni une cause de panne. Aucun diagnostic, test ou correctif n’est validé pour ce tour.':null;
+}
+
 export function selectRelevantOperationalExperience(goal, corrections = [], contextual = [], limit = 12) {
   const text = String(goal || '').toLowerCase();
   const terms = [...new Set(text.split(/[^\p{L}\p{N}_-]+/u).filter(x => x.length >= 4))].slice(0, 24);
@@ -2383,6 +2400,7 @@ export async function handleNativeChat(request, env, options = {}) {
     'Lorsqu’un résultat d’outil prouve que tu as lu ou recherché ton dépôt, dis clairement que tu as accès à ce code et cite le fichier ou la branche observée.',
     'Ne prétends jamais ne pas avoir accès au code si un TOOL_RESULT SUCCEEDED de cette requête démontre le contraire.',
     'Si un TOOL_RESULT FAILED existe, donne son code d’échec exact au lieu d’inventer une incapacité générale.',
+    'CHANGEMENTS : ne dis pas remarquer tous les changements sans preuve. Si la cible est ambiguë, demande de quels changements il s’agit. N’invente aucune observation de l’apparence de l’utilisateur sans image reçue. Une seule lecture de code ne prouve pas un changement : il faut une version de référence et une comparaison.',
     'DIAGNOSTIC DU CODE : distingue observations, cause étayée, hypothèses et vérifications manquantes. Cite uniquement fichiers, lignes, branche et SHA réellement reçus. code.search prouve des extraits trouvés ; code.integrity prouve une identité ; aucun ne prouve une lecture intégrale. Une lecture avec partial=true ne couvre que start_line à end_line. Cible une plage de lignes si un fichier est trop grand. Une recherche bornée sans résultat ne prouve pas l’absence dans tout le dépôt. Ne déclare ni test réussi ni correctif livré sans résultat d’exécution correspondant.',
     autonomyActivityObserved
       ? 'ACTIVITÉ AUTONOME LIVE : autonomy.activity a réellement lu la D1 et le ledger pendant cette requête. Pour répondre à ce que tu as fait, utilise uniquement ces jobs, statuts, preuves et événements observés maintenant. N’utilise aucune ancienne conversation comme preuve de ton activité autonome actuelle et n’invente jamais un travail absent du TOOL_RESULT.'
@@ -2636,6 +2654,7 @@ export async function handleNativeChat(request, env, options = {}) {
           }), inferenceSettings:effectiveInferenceSettings
         });
       }
+      const recoveredCodeEvidence = !recovered && !privateConnectedDataRequest(activeTaskText) ? codeReadEvidenceAnswer(toolResults) : null;
       const recoveredMedia = !recovered ? collectChatMedia(toolResults,new URL(request.url).origin) : null;
       if (recovered) {
         ai = recovered;
@@ -2648,6 +2667,9 @@ export async function handleNativeChat(request, env, options = {}) {
         // Continue through the single render/archive path with explicit status.
         ai = {text:'Voici les médias récupérés par les outils pour ta demande.',
           model:'deterministic-media-evidence',provider:'mel',
+          fallback_used:true,inference_unavailable:true};
+      } else if (recoveredCodeEvidence) {
+        ai = {text:recoveredCodeEvidence,model:'deterministic-code-evidence',provider:'mel',
           fallback_used:true,inference_unavailable:true};
       } else {
         console.error('[native-chat] inference and fallback failed', {
@@ -2841,7 +2863,7 @@ export async function handleNativeChat(request, env, options = {}) {
   if(mediaEvidence?.status==='FAILED')responseText='Le média demandé n’a pas été obtenu : '+String(mediaEvidence.error||'MEDIA_FAILED')+'. Aucun résultat terminé n’est disponible.';
   else if(mediaEvidence?.result?.code==='MEDIA_SEARCH_EMPTY')responseText='Aucun son ou vidéo correspondant n’a été trouvé dans la bibliothèque libre. Précise le sujet ou essaie une autre recherche.';
   else if(mediaEvidence?.result?.provider==='mel-dsp')responseText='Création audio synthétique procédurale (sans fournisseur IA payant).\n\n'+responseText;
-  if(ai.inference_unavailable)responseText='La synthèse du modèle est indisponible pour ce tour. Les médias ci-dessous proviennent des outils réellement exécutés.\n\n'+responseText;
+  if(ai.inference_unavailable)responseText='La synthèse du modèle est indisponible pour ce tour. Les résultats ci-dessous proviennent des outils réellement exécutés.\n\n'+responseText;
   if (inferPublicImageLookup(activeTaskText) && !releaseSmoke) {
     const delivered = hasVisibleImage(responseText, validatedPictureUrl(toolResults));
     toolResults.push({
