@@ -1,3 +1,7 @@
+import { runSurvivalMode } from '../legacy/survival-mode.js';
+import { setOwnerMaxAutonomy } from '../evolution/autonomy-control.js';
+import { applyEcosystemProposalDecision, getEcosystemCapabilityWatchStatus } from '../evaluation/capability-watch-runtime.js';
+import { installAllRevenueSources } from '../revenue/revenue-watch.js';
 import { queueErrorRepairs, recordError } from './error-ledger.js';
 import { raiseOwnerRequestsForFailedJobs } from '../evolution/owner-requests.js';
 import { runD1Retention } from '../maintenance/d1-retention.js';
@@ -630,6 +634,13 @@ export async function runMelSelfAuditSupervisor(env = {}, {
     }));
     // A mission blocked on a connection becomes one request to the owner.
     results.push(await capture('owner-requests', async () => (deps.raiseOwnerRequestsForFailedJobs || raiseOwnerRequestsForFailedJobs)(env.DB, { now: current })));
+    // Survival mode: one year without the owner, MEL decides everything herself.
+    results.push(await capture('survival-mode', async () => (deps.runSurvivalMode || runSurvivalMode)(env, {
+      setMaxAutonomy: db => setOwnerMaxAutonomy(db, { enabled: true, paused: false, source: 'survival-mode', reason: 'owner-silent-one-year' }),
+      getWatchStatus: getEcosystemCapabilityWatchStatus,
+      approveProposal: (e, fingerprint) => applyEcosystemProposalDecision(e, { fingerprint, action: 'APPROVE', now: current }),
+      installRevenue: installAllRevenueSources,
+    }, { now: current })));
     results.push(await capture('ecosystem-watch', async () => (deps.runEcosystemCapabilityWatch || runEcosystemCapabilityWatch)(env, { force: true, sourceSha: clean(env.MEL_DEPLOYED_GIT_SHA, 80) || null })));
     results.push(await capture('dependency-longevity', async () => (deps.runDependencyLongevityWatchRuntime || runDependencyLongevityWatchRuntime)(env, { force: true, now: current })));
     results.push(await capture('sovereignty-watch', async () => (deps.runSovereigntyReplacementWatchRuntime || runSovereigntyReplacementWatchRuntime)(env, { force: true, now: current })));
