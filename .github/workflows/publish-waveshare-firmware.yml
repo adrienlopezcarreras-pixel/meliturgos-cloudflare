@@ -53,6 +53,19 @@ jobs:
         with:
           ref: ${{ inputs.expected_sha }}
 
+      - name: Load release verifier from workflow commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Build sources remain pinned to EXPECTED_SHA, but the predecessor
+          # verifier was introduced after that firmware build was validated.
+          # Read only this verifier from the reviewed workflow revision.
+          git fetch --no-tags origin "$GITHUB_SHA" --depth=1
+          mkdir -p tools/mini-updater
+          git show "$GITHUB_SHA:tools/mini-updater/verify-previous-release.mjs" > tools/mini-updater/verify-previous-release.mjs
+          test -s tools/mini-updater/verify-previous-release.mjs
+          node --check tools/mini-updater/verify-previous-release.mjs
+
       - name: Prove exact checkout and canonical identity
         shell: bash
         run: |
