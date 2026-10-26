@@ -31,6 +31,9 @@ test('activity API exposes recorded structured executor evidence without file co
 test('Code activity follows the last visible entry and collapse hides the full plan', async () => {
   const source = await readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8');
   assert.match(source, /if\(panel\.scrollHeight!==lastHeight\)\{lastHeight=panel\.scrollHeight;scrollToLatest\(\)\}/);
+  assert.match(source, /document\.hidden\|\|panel\.hidden\|\|panel\.classList\.contains\('is-collapsed'\)\)return/);
+  assert.match(source, /classList\.contains\('is-collapsed'\)\)return/);
+  assert.match(source, /melCodeRefreshActivity\(\)\}/);
   assert.doesNotMatch(source, /MutationObserver/);
   assert.match(source, /panel\.scrollTop=panel\.scrollHeight/);
   assert.match(source, /is-collapsed #melCodePlan/);
