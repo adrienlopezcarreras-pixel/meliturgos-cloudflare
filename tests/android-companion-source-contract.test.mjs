@@ -167,7 +167,8 @@ test('Android 0.6.15 matches the MINI reference shell with realistic MEL portrai
   assert.match(activity,/MelFaceState\.IDLE -> "PARLER"/);
   assert.match(activity,/MelFaceState\.LISTENING -> "ÉCOUTE"/);
   assert.match(activity,/MelFaceState\.THINKING -> "RÉFLEXION"/);
-  assert.match(activity,/MelFaceState\.SPEAKING -> "MEL"/);
+  assert.match(activity,/MelFaceState\.SPEAKING -> "STOP"/);
+  assert.match(activity,/model\.interruptSpeechForBargeIn\(\)/);
 });
 
 test('Android voice keeps selected-language fallback and personalized OK MEL multi-turn conversation',async()=>{
