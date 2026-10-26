@@ -4,6 +4,7 @@ import { withChatProgress } from './api/chat-progress.js';
 import { maybeDispatchCloudBridge } from './evolution/cloud-bridge-dispatch.js';
 import { handleTaskmarketWalletImport } from './revenue/taskmarket-cloud.js';
 import { runRevenueWatch } from "./revenue/revenue-watch.js";
+import { watchPaidAlternatives } from "./revenue/paid-work-watch.js";
 import { runScheduledMelWork, isDedicatedWorkMinute } from "./revenue/work-schedule.js";
 import { runModelTournament } from "./models/model-tournament.js";
 import router from "./router.js";
@@ -640,6 +641,10 @@ export default {
           }),
           runScheduledMelWork(env, { startCycle: false }).catch((error) => {
             console.error('[MEL WORK] hourly housekeeping failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          watchPaidAlternatives(env).catch((error) => {
+            console.error('[MEL WORK] hourly paid-work watch failed:', error?.code || error?.message || error);
             return null;
           }),
           runExpiredMediaCleanup(env).catch((error) => {
