@@ -22,7 +22,11 @@ test('current pope identity is forced through the stable Vatican source and reac
     MEL_WEB_MIN_INTERVAL_MS: 0,
     MEL_WEB_FETCH: async url => {
       webCalls.push(String(url));
-      assert.equal(String(url), 'https://www.vatican.va/content/vatican/fr/holy-father.html');
+      if (String(url).includes('commons.wikimedia.org')) {
+        const photo = { query: { pages: { 1: { index: 1, title: 'File:Leo XIV.jpg', imageinfo: [{ thumburl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/leo.jpg', descriptionurl: 'https://commons.wikimedia.org/wiki/File:Leo_XIV.jpg', mime: 'image/jpeg' }] } } } };
+        return new Response(JSON.stringify(photo), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (!String(url).includes('vatican.va')) return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
       return new Response(
         '<html><head><title>Pontifes</title></head><body>' + longPrefix +
         '<table><tr><td>266</td><td>François</td><td>fin 21.IV.2025</td></tr>' +
@@ -46,9 +50,10 @@ test('current pope identity is forced through the stable Vatican source and reac
   const data = await response.json();
 
   assert.equal(response.status, 200, JSON.stringify(data));
-  assert.match(data.text,/IMAGE_SEARCH_EMPTY/);
-  assert.doesNotMatch(data.text,/!\[/);
-  assert.deepEqual(webCalls, ['https://www.vatican.va/content/vatican/fr/holy-father.html']);
+  assert.match(data.text, /https:\/\/upload\.wikimedia\.org\/wikipedia\/commons\/thumb\/leo\.jpg/);
+  assert.doesNotMatch(data.text, /IMAGE_SEARCH_EMPTY/);
+  assert.equal(webCalls[0], 'https://www.vatican.va/content/vatican/fr/holy-father.html');
+  assert.ok(webCalls.some(url => url.includes('commons.wikimedia.org')));
   assert.equal(aiCalls.length, 1);
   assert.ok(data.capability_used.includes('web.images.search'));
   const system = aiCalls[0].messages.find(message => message.role === 'system')?.content || '';
@@ -222,4 +227,19 @@ for (const [label, modelText] of [
     assert.equal(host.querySelector('img').src,'https://www.vatican.va/portrait.jpg');
   } finally { dom.window.close(); }
 
+});
+
+test('source-backed photo is discovered from a semantic HTML image without social metadata', async () => {
+  const env = {
+    MELITURGOS_USER:'test', MELITURGOS_PASSWORD:'test-only', MEL_WEB_MIN_INTERVAL_MS:0,
+    MEL_WEB_FETCH: async () => new Response('<html><head><title>Official portrait</title></head><body><img class="photo" alt="Portrait officiel" src="/content/dam/portrait.jpg"><img alt="logo" src="/logo.png"></body></html>',{headers:{'content-type':'text/html'}}),
+    AI:{async run(){return {response:'Voici la photographie officielle.'};}},
+  };
+  const response=await worker.fetch(new Request('https://mel.example/api/chat', {
+    method:'POST',headers:authHeaders(),body:JSON.stringify({text:'montre moi une photo du pape',conversation_id:'portrait-semantic'}),
+  }),env);
+  const data=await response.json();
+  assert.equal(response.status,200,JSON.stringify(data));
+  assert.ok(data.text.includes('https://www.vatican.va/content/dam/portrait.jpg'),data.text);
+  assert.ok(data.media?.some(item=>item.url==='https://www.vatican.va/content/dam/portrait.jpg'),JSON.stringify(data));
 });

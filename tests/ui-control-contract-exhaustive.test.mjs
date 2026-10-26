@@ -78,7 +78,7 @@ test('normal page exposes only controls that are wired by the canonical normal r
     /id="fileInput"/,
     /id="send"/,
     /id="full"/,
-    /src="\/normal-runtime\.js\?v=9"/,
+    /src="\/normal-runtime\.js\?v=10"/,
   ], 'normal UI');
 
   expectAll(NORMAL_RUNTIME_SOURCE, [
@@ -205,5 +205,5 @@ test('capabilities view never promotes healthy registration to verified executio
   assert.ok(source.includes("santé ≠ preuve d’exécution"));
   assert.ok(!source.includes('100 % OPÉRATIONNEL · '));
   assert.ok(source.includes('Les XP témoignent de la progression'));
-  assert.ok(source.includes('Santé OK (non testé)'));
+  assert.ok(source.includes('Santé OK, non exécutées'));
 });

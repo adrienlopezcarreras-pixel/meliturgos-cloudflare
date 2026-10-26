@@ -12,4 +12,11 @@ test('control-center buttons never fail silently', async () => {
   assert.match(page, /qs\('#computerHalt'\)\.onclick=async\(\)=>\{const out=qs\('#computerOut'\);const pc=selectedComputer\(\);if\(!pc\)\{if\(out\)out\.textContent='Aucun ordinateur appairé\.'/);
   assert.match(page, /Contrôle réactivé sur/);
   assert.match(page, /terminal:\['MINI & téléphone'/);
+  assert.match(page, /id="pcMode"/);
+  assert.match(page, /Mode PC : vert/);
+  assert.match(page, /\.status-stack \.pill\{min-width:11\.6rem;min-height:34px/);
+  assert.match(page, /pc\?\.online===true&&pc\?\.local_coder===true/);
+  const nav = page.slice(page.indexOf('<nav class="nav"'), page.indexOf('</nav>'));
+  const order = ['data-view="overview"', 'data-view="chat"', 'href="/revenus"', 'data-view="lora"', 'data-view="computer"', 'data-view="terminal"'];
+  order.forEach((token, index) => assert.ok(nav.indexOf(token) > (index ? nav.indexOf(order[index - 1]) : -1), token));
 });

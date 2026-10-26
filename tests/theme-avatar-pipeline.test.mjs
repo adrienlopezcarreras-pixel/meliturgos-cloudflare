@@ -30,7 +30,7 @@ test('deployed entrypoint keeps preview auth and strips retired visual layers wi
 test('canonical normal V3 is the single theme and avatar owner', () => {
   assert.match(mvp, /data-visual-owner="mel-normal-v3"/);
   assert.match(mvp, /id="mel-normal-v3-style"/);
-  assert.match(mvp, /src="\/normal-runtime\.js\?v=9"/);
+  assert.match(mvp, /src="\/normal-runtime\.js\?v=10"/);
   assert.match(mvp, /id="melAvatar" class="avatar"/);
   assert.match(mvp, /id="themePanelV3"/);
   assert.doesNotMatch(mvp, /mel-theme-avatar-runtime/);

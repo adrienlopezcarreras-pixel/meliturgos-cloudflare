@@ -257,7 +257,11 @@ function Invoke-MelJson {
   if ($null -eq $Body) {
     return Invoke-RestMethod -Uri $uri -Method $Method -Headers $h -TimeoutSec 20
   }
-  return Invoke-RestMethod -Uri $uri -Method $Method -Headers $h -ContentType "application/json" -Body ($Body | ConvertTo-Json -Depth 12 -Compress) -TimeoutSec 20
+  # Windows PowerShell 5.1 otherwise uses a legacy request encoding. Keep
+  # accents and emoji from model/tool results intact on their way to MEL.
+  $json = $Body | ConvertTo-Json -Depth 12 -Compress
+  $payloadBytes = [Text.Encoding]::UTF8.GetBytes($json)
+  return Invoke-RestMethod -Uri $uri -Method $Method -Headers $h -ContentType "application/json; charset=utf-8" -Body $payloadBytes -TimeoutSec 20
 }
 
 function Active-Window {
@@ -2535,7 +2539,7 @@ function PcControl-SystemExec($payload) {
   if ([string]::IsNullOrWhiteSpace($command)) { throw "SYSTEM_COMMAND_REQUIRED" }
   if ($command.Length -gt 8192) { throw "SYSTEM_COMMAND_TOO_LONG" }
   $timeoutMs = 20000
-  if ($payload.timeout_ms) { $timeoutMs = [Math]::Max(500,[Math]::Min(120000,[int]$payload.timeout_ms)) }
+  if ($payload.timeout_ms) { $timeoutMs = [Math]::Max(500,[Math]::Min(600000,[int]$payload.timeout_ms)) }
   $psi = New-Object Diagnostics.ProcessStartInfo
   $psi.FileName = "powershell.exe"
   $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
@@ -3464,6 +3468,37 @@ function Process-Command($command) {
 }
 
 $trayResources = $null
+
+function Start-HiddenImageEngine {
+  try {
+    try {
+      Invoke-WebRequest 'http://127.0.0.1:7860/sdapi/v1/sd-models' -UseBasicParsing -TimeoutSec 2 | Out-Null
+      return
+    } catch {}
+    $roots = @()
+    if ($config.PSObject.Properties.Name -contains 'image_engine_dir' -and -not [string]::IsNullOrWhiteSpace([string]$config.image_engine_dir)) {
+      $roots += [string]$config.image_engine_dir
+    }
+    $roots += (Join-Path $env:USERPROFILE 'stable-diffusion-webui')
+    foreach ($root in $roots) {
+      $python = Join-Path $root 'venv\Scripts\python.exe'
+      $launch = Join-Path $root 'launch.py'
+      if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { continue }
+      if (-not (Test-Path -LiteralPath $launch -PathType Leaf)) { continue }
+      $psi = New-Object System.Diagnostics.ProcessStartInfo
+      $psi.FileName = $python
+      $psi.Arguments = '"' + $launch + '" --api --skip-python-version-check'
+      $psi.WorkingDirectory = $root
+      $psi.UseShellExecute = $false
+      $psi.CreateNoWindow = $true
+      $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+      [void][System.Diagnostics.Process]::Start($psi)
+      return
+    }
+  } catch {}
+}
+
+try { Start-HiddenImageEngine } catch {}
 if (-not $Headless) { $trayResources = New-MelTrayIcon }
 $lastHeartbeat = Get-Date "2000-01-01"
 try {

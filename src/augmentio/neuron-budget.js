@@ -3,6 +3,9 @@
 // (≈ $70 in October 2026). Every env.AI.run() goes through this meter: once the
 // day's estimated neurons reach the cap, calls are refused until 00:00 UTC,
 // when Cloudflare resets the free allocation. Unreadable budget = refused.
+// Text the owner's PC can answer is not metered. The PC does not replace MEL.
+
+import { pcCanHandle } from '../models/pc-neuron-policy.js';
 
 export const DEFAULT_DAILY_NEURON_CAP = 9000;
 // Background work (crons: MAX, mentor, watches) may only use this share of the
@@ -110,13 +113,24 @@ export async function backgroundNeuronBudgetExhausted(env, { now = Date.now() } 
   } catch { return true; }
 }
 
-export function withNeuronBudget(env, { now = () => Date.now(), background = false } = {}) {
+async function answerOnPc(env, inputs) {
+  const { runLocalPcModel } = await import('../models/local-pc-model.js');
+  const local = await runLocalPcModel({ env, messages: inputs.messages });
+  if (!local?.ok || !String(local.text || '').trim()) return null;
+  return { response: local.text, model: local.model || 'pc:qwen3:8b', local: true, provider: 'local-pc' };
+}
+
+export function withNeuronBudget(env, { now = () => Date.now(), background = false, localRun = answerOnPc } = {}) {
   const ai = env?.AI;
   if (!ai || ai.__melNeuronBudget || !env?.DB) return env;
   const db = env.DB;
   const dayCap = Number(env.MEL_AI_DAILY_NEURON_CAP) > 0 ? Number(env.MEL_AI_DAILY_NEURON_CAP) : DEFAULT_DAILY_NEURON_CAP;
   const cap = background ? Math.floor(dayCap * BACKGROUND_NEURON_SHARE) : dayCap;
   const run = async (model, inputs, options) => {
+    if (pcCanHandle(model, inputs)) {
+      const local = await localRun(env, inputs).catch(() => null);
+      if (local?.response) return local;
+    }
     let budget;
     try { budget = await readNeuronBudget(db, { now: now(), cap }); }
     catch { throw budgetError('WORKERS_AI_NEURON_BUDGET_UNAVAILABLE'); }

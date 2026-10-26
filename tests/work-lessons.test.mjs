@@ -49,7 +49,7 @@ test('a lost contract becomes a lesson that later cycles receive', async () => {
   assert.match(prompt, /LIVRABLE DE MEL :\nMon article/);
   assert.match(prompt, /LIVRABLE GAGNANT :\n# Gagnant/);
   assert.deepEqual(await recentLessons(db), ['Ajouter des chiffres et une démo.']);
-  assert.deepEqual(await outcomeSummary(db), { LOST: 1 });
+  assert.deepEqual(await outcomeSummary(db), { LOST: 1, earned_usdc: 0 });
   assert.match(lessonsBlock(await recentLessons(db)), /LEÇONS DE TES CONTRATS PERDUS/);
   // Settled once: the next hour does not re-read it.
   fetched.length = 0;

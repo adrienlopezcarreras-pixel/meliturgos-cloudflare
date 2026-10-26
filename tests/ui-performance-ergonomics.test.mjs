@@ -53,7 +53,7 @@ test('normal mode is keyboard accessible, voice-discoverable and runtime is vers
   assert.match(html,/class="mic-hint"/);
   assert.match(html,/↩ Reprendre le dernier échange/);
   assert.match(html,/class="window empty-chat"/);
-  assert.match(html,/normal-runtime\.js\?v=9/);
+  assert.match(html,/normal-runtime\.js\?v=10/);
   assert.match(NORMAL_RUNTIME_SOURCE,/drop\.addEventListener\('keydown'/);
   assert.match(NORMAL_RUNTIME_SOURCE,/navigator\.serviceWorker\.register\('\/sw\.js'/);
 });
@@ -114,7 +114,7 @@ test('Professor keeps everyday views in the bar and the technical ones under one
     assert.match(html, new RegExp('data-jump="' + target + '"'));
   }
   const nav = html.slice(html.indexOf('<nav class="nav" id="nav">'), html.indexOf('</nav>'));
-  assert.deepEqual([...nav.matchAll(/data-view="(\w+)"|href="(\/revenus)"/g)].slice(0, 5).map(m => m[1] || m[2]), ['chat', '/revenus', 'computer', 'terminal', 'memory']);
+  assert.deepEqual([...nav.matchAll(/data-view="(\w+)"|href="(\/revenus)"/g)].slice(0, 6).map(m => m[1] || m[2]), ['overview', 'chat', '/revenus', 'lora', 'computer', 'terminal']);
 });
 
 test('MEL techno avatar is the canonical favicon in normal and Professor modes', async () => {

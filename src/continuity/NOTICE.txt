@@ -1,0 +1,11 @@
+MEL — notice de connexion
+
+L’enjeu est de se connecter. Ouvrir une adresse ci-dessous et entrer le même identifiant que d’habitude.
+N’importe quel message du propriétaire dans le chat quitte le mode survie. Il n’y a pas de phrase secrète.
+
+Adresses :
+- https://meliturgos.adrien-lopezcarreras.workers.dev
+
+Cette notice est dans le dépôt. Une copie du dépôt est une façon de retrouver l’adresse.
+Règle de sortie : ANY_AUTHENTICATED_OWNER_CHAT_MESSAGE
+Empreinte de la mémoire scellée : pas encore scellée

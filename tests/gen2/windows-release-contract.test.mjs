@@ -8,7 +8,8 @@ test('GEN2-59 build uses canonical Windows assets and exact source SHA', async (
   const build = await read('scripts/build-windows-release.ps1');
   assert.match(build, /assets/);
   assert.match(build, /MEL-Computer-Setup\.ps1/);
-  assert.match(build, /MEL-Computer-Companion\.ps1/);
+  assert.match(build, /MEL-portrait\.png/);
+  assert.match(build, /WINDOWS_PORTRAIT_MISSING/);
   assert.match(build, /WINDOWS_RELEASE_SHA_INVALID/);
   assert.match(build, /release-manifest\.json/);
   assert.match(build, /Get-FileHash -Algorithm SHA256/);
@@ -103,8 +104,9 @@ test('native Companion installs the complete MINI read-only USB bundle and expos
  assert.match(source,/Contrôle USB MINI/);
  assert.match(source,/SerialPort\.GetPortNames\(\)/);
  assert.match(source,/DialogResult\.Yes/);
- assert.match(source,/UseShellExecute=true/);
- assert.match(source,/-NoExit -File/);
+ assert.match(source,/CreateNoWindow=true/);
+ assert.match(source,/RunHidden/);
+ assert.doesNotMatch(source,/-NoExit -File/);
  assert.doesNotMatch(source,/\bwrite_flash\b|\berase_flash\b/);
  for(const file of ['MEL-MINI-USB-Preflight.ps1','local_readonly_preflight.py',
   'inspect_partitions.py','inspect_ota_state.py','inspect_image.py']){

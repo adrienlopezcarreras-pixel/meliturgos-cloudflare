@@ -36,7 +36,7 @@ test('an ordinary request mentioning « activité » is not routed to MEL\'s own
 
 test('every chat turn states MEL\'s real tools, so she never describes herself as a bare text model', async () => {
   const { MEL_REAL_CAPABILITIES } = await import('../src/api/native-chat.js');
-  for (const fact of ['recherche web', 'MEL Companion', 'MEL WORK est automatique', 'tâches planifiées', 'Ne dis donc jamais']) assert.ok(MEL_REAL_CAPABILITIES.includes(fact), fact);
+  for (const fact of ['recherche web', 'MEL Companion', 'MEL WORK est automatique', 'tâches planifiées', 'Ne dis donc jamais', 'COMPTE DU MANIFESTE', 'Tu n’es pas à 100 %', 'roadmap.read']) assert.ok(MEL_REAL_CAPABILITIES.includes(fact), fact);
   const source = await readFile(new URL('../src/api/native-chat.js', import.meta.url), 'utf8');
   assert.equal(source.match(/^\s+MEL_REAL_CAPABILITIES,$/gm)?.length, 2, 'in both the plain-chat and the tool-aware system prompts');
 });

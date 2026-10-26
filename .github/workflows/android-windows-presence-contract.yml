@@ -16,4 +16,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      # The test imports runtime modules that need installed dependencies (acorn).
+      - run: npm ci --ignore-scripts
       - run: node --test tests/android-windows-presence-readonly.test.mjs

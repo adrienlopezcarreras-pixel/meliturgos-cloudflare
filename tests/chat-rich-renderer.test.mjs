@@ -135,4 +135,6 @@ test('normal page ships shared rich response styles', async () => {
   assert.match(CHAT_RICH_RENDERER_CSS, /mel-rich-table-wrap/);
   assert.match(html, /\.mel-rich-table-wrap/);
   assert.match(html, /\.msg\.mel\{white-space:normal\}/);
+  assert.match(html, /max-height:min\(42vh,320px\)/);
+  assert.match(html, /object-fit:contain/);
 });

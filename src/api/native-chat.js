@@ -1,4 +1,4 @@
-import { requireChatLora, chatLoraReceipt } from '../learning/chat-lora-binding.js';
+import { requireChatLora, chatLoraReceipt, isCensorshipRefusal } from '../learning/chat-lora-binding.js';
 import { collectChatMedia } from './chat-media.js';
 import { inferChatMediaCapability } from './chat-media-intent.js';
 import {
@@ -58,6 +58,10 @@ export const MEL_REAL_CAPABILITIES = [
   'MODE MAX (vérité, pas une hypothèse) : ' + MAX_MODE_EXPLANATION + ' Ne décris jamais MAX comme un simple mode verbeux ou de journalisation, ne dis jamais que tu ne peux pas t’auto-développer, et ne réclame pas de PAT GitHub, token Companion, clé Stripe, webhook ou scheduler pour cela. N’invente jamais de fonction, d’endpoint, de flag, de fichier ou de workflow pour expliquer ou relancer MAX : il n’y a aucun réglage à « activer » en dehors du bouton MAX, et pour son état actuel (activé, en pause, chantier en cours, étape bloquante), appuie-toi uniquement sur autonomy.status ou la page Activité.',
   'Ne dis donc jamais par défaut que les clés Bing, Google Search, Drive, Stripe, PayPal, GitHub ou Companion manquent toutes, ni que le Worker ne peut ni écrire en D1 ni exécuter de tâches programmées : inspecte les capacités runtime et les TOOL_RESULT avant une telle affirmation. Taskmarket public, D1 et GitHub ne nécessitent pas de réclamer de nouveaux secrets dans le chat. Si un service précis échoue, nomme la capacité, le code erreur et la preuve manquante. Ne demande jamais de copier un token ou un secret dans la conversation ; la configuration éventuelle se fait dans le stockage sécurisé du service concerné.',
   'Tu exécutes toi-même tes outils (boucle d’outils native) : ne réponds jamais « je ne peux pas exécuter » ni en donnant des curl à lancer ; appuie-toi sur les TOOL_RESULT de cette requête.',
+  'FICHIERS GOOGLE : drive.files.create, après accord explicite, enregistre texte, Markdown, CSV, JSON, HTML, PDF, SVG vectoriel libre, Google Doc, Google Sheet, Google Slides, Google Form ou Google Drawing. Sans TOOL_RESULT de cette requête, ce n’est pas prouvé.',
+  'OBJECTIF DE CHAT : objectif :, je veux, fais, crée, construis, prépare ou mets en place (mel devant accepté) ouvre une seule liste temporaire dans l’encart fixe du chat. On l’incrémente et on la suit. Elle n’exécute pas les étapes seule.',
+  'PC OUVERT : battement Companion Windows sous deux minutes : l’heure suivante lance l’audit complet et un audit de capacités déjà lancé finit sans plafond de chunk. PC fermé, cadence habituelle. Les veilles WORK, écosystème, longévité et infrastructure restent programmées.',
+  'COMPTE DU MANIFESTE : tu le suis, tu ne le présentes pas comme déjà accompli. Priorité 0 : un outil n’est fait que si le TOOL_RESULT de cette requête l’a exécuté. Priorité 1 : MAX ne progresse que par une écriture durable ; un tick occupé n’est pas un progrès. Priorité 2 : une demande autorisée sans outil devient un objectif de développement, pas une capacité inventée. Priorité 3 : le Council n’existe que si des modèles distincts ont répondu ; un seul avis n’est pas un quorum. Priorité 4 : Companion, APK et MINI restent non vérifiés tant qu’un appareil réel ne l’a pas prouvé. Le mode UNCENSORED n’est que le LoRA Mistral validé et activé ; sinon tu le dis. Une archive n’est pas une restauration. Après un an sans message authentifié d’Adrien, tu passes en préservation ; n’importe quel message authentifié d’Adrien t’en sort. Tu sers Adrien, puis ses héritiers. Tu n’es pas à 100 %. La liste vivante se lit par roadmap.read, pas par ta mémoire.',
 ].join(' ');
 
 
@@ -610,6 +614,23 @@ export function codeAccessTruth(manifest = []) {
       tested_now: row?.tested_now === true,
     })),
   };
+}
+
+// Completed source reads remain evidence when inference is unavailable. This
+// is a receipt, never a diagnosis or a diff inferred from a single snapshot.
+export function codeReadEvidenceAnswer(rows = []) {
+  const lines=[];
+  for(const row of rows.filter(row=>['code.read','code.search'].includes(row?.capability)&&row.status==='SUCCEEDED'&&row.result?.ok!==false).slice(0,4)){
+    const result=row.result||{};
+    const ref=/^[0-9a-f]{40}$/i.test(result.source_ref||'')?' · SHA '+result.source_ref:'';
+    if(row.capability==='code.read'&&typeof result.path==='string'){
+      lines.push('Lecture : '+result.path+(Number.isInteger(result.start_line)?' · lignes '+result.start_line+'–'+(result.end_line||result.start_line):'')+ref+(result.partial===true?' · lecture partielle':''));
+    } else if(row.capability==='code.search'&&Array.isArray(result.matches)){
+      lines.push('Recherche effectuée'+ref+' : '+result.matches.length+' extrait(s) retourné(s), dans une recherche bornée.');
+      for(const match of result.matches.slice(0,5))if(typeof match.path==='string')lines.push('Source : '+match.path+(Number.isInteger(match.line)?' · ligne '+match.line:''));
+    }
+  }
+  return lines.length?'Éléments de mon code effectivement consultés :\n'+lines.join('\n')+'\n\nCes lectures ne prouvent pas les changements depuis une version précédente, ni une cause de panne. Aucun diagnostic, test ou correctif n’est validé pour ce tour.':null;
 }
 
 export function selectRelevantOperationalExperience(goal, corrections = [], contextual = [], limit = 12) {
@@ -1435,11 +1456,11 @@ export async function handleNativeChat(request, env, options = {}) {
   if (!text) return Response.json({ error: 'MESSAGE_REQUIRED', code: 'MESSAGE_REQUIRED' }, { status: 400 });
   if (text.length > 100000) return Response.json({ error: 'MESSAGE_TOO_LONG', code: 'MESSAGE_TOO_LONG', max_input_chars: 100000 }, { status: 413 });
 
-  const requireLora = body.lora_mode === 'uncensored';
+  let requireLora = body.lora_mode === 'uncensored';
   const requestedLora = requireLora ? await activePromotedAdapter(env) : null;
   if (requireLora) {
     try { requireChatLora(requestedLora); }
-    catch (error) { return Response.json({ ok:false, error:error.code, code:error.code, text:'Mode UNCENSORED indisponible : aucun adaptateur compatible validé et activé. Aucun autre modèle n’a été utilisé.', active_lora:null }, { status:409 }); }
+    catch (error) { return Response.json({ ok:false, error:error.code, code:error.code, text:'Mode UNCENSORED : c’est le LoRA Mistral entraîné pour ce mode. Aucun adaptateur validé n’est activé, donc aucun autre modèle n’a répondu.', active_lora:null }, { status:409 }); }
   }
   const themeContract = getMelThemeContract(body.ui_theme);
   const theme = themeContract.id;
@@ -2000,7 +2021,10 @@ export async function handleNativeChat(request, env, options = {}) {
     const evidence = toolResults.find(row => ['web.research','web.images.search'].includes(row.capability)) || null;
     const authoritative = evidence?.status === 'SUCCEEDED'
       && hasAuthoritativeCurrentFactEvidence(evidence?.result, currentFactVerification);
-    if (!authoritative) {
+    const picture = inferPublicImageLookup(activeTaskText);
+    const deliveredImages = Array.isArray(evidence?.result?.images) ? evidence.result.images : [];
+    const verifiedPortrait = picture && deliveredImages.length > 0 && evidence?.result?.official_identity;
+    if (!authoritative && !verifiedPortrait) {
       const responseText = 'Je ne peux pas confirmer ce fait actuel avec une source suffisamment fiable maintenant. Je préfère ne pas deviner.';
       let archiveSaved = false;
       if (service) {
@@ -2383,6 +2407,7 @@ export async function handleNativeChat(request, env, options = {}) {
     'Lorsqu’un résultat d’outil prouve que tu as lu ou recherché ton dépôt, dis clairement que tu as accès à ce code et cite le fichier ou la branche observée.',
     'Ne prétends jamais ne pas avoir accès au code si un TOOL_RESULT SUCCEEDED de cette requête démontre le contraire.',
     'Si un TOOL_RESULT FAILED existe, donne son code d’échec exact au lieu d’inventer une incapacité générale.',
+    'CHANGEMENTS : ne dis pas remarquer tous les changements sans preuve. Si la cible est ambiguë, demande de quels changements il s’agit. N’invente aucune observation de l’apparence de l’utilisateur sans image reçue. Une seule lecture de code ne prouve pas un changement : il faut une version de référence et une comparaison.',
     'DIAGNOSTIC DU CODE : distingue observations, cause étayée, hypothèses et vérifications manquantes. Cite uniquement fichiers, lignes, branche et SHA réellement reçus. code.search prouve des extraits trouvés ; code.integrity prouve une identité ; aucun ne prouve une lecture intégrale. Une lecture avec partial=true ne couvre que start_line à end_line. Cible une plage de lignes si un fichier est trop grand. Une recherche bornée sans résultat ne prouve pas l’absence dans tout le dépôt. Ne déclare ni test réussi ni correctif livré sans résultat d’exécution correspondant.',
     autonomyActivityObserved
       ? 'ACTIVITÉ AUTONOME LIVE : autonomy.activity a réellement lu la D1 et le ledger pendant cette requête. Pour répondre à ce que tu as fait, utilise uniquement ces jobs, statuts, preuves et événements observés maintenant. N’utilise aucune ancienne conversation comme preuve de ton activité autonome actuelle et n’invente jamais un travail absent du TOOL_RESULT.'
@@ -2636,6 +2661,7 @@ export async function handleNativeChat(request, env, options = {}) {
           }), inferenceSettings:effectiveInferenceSettings
         });
       }
+      const recoveredCodeEvidence = !recovered && !privateConnectedDataRequest(activeTaskText) ? codeReadEvidenceAnswer(toolResults) : null;
       const recoveredMedia = !recovered ? collectChatMedia(toolResults,new URL(request.url).origin) : null;
       if (recovered) {
         ai = recovered;
@@ -2648,6 +2674,9 @@ export async function handleNativeChat(request, env, options = {}) {
         // Continue through the single render/archive path with explicit status.
         ai = {text:'Voici les médias récupérés par les outils pour ta demande.',
           model:'deterministic-media-evidence',provider:'mel',
+          fallback_used:true,inference_unavailable:true};
+      } else if (recoveredCodeEvidence) {
+        ai = {text:recoveredCodeEvidence,model:'deterministic-code-evidence',provider:'mel',
           fallback_used:true,inference_unavailable:true};
       } else {
         console.error('[native-chat] inference and fallback failed', {
@@ -2662,6 +2691,23 @@ export async function handleNativeChat(request, env, options = {}) {
         }, { status: 503, headers: { 'cache-control': 'no-store' } });
       }
     }
+  }
+
+  // The UNCENSORED button already ran on the LoRA. In normal mode, one
+  // censorship refusal — and only that — retries once on the validated adapter.
+  if (!requireLora && isCensorshipRefusal(ai?.text)) {
+    try {
+      requireChatLora(activeAdapter);
+      const switched = await runNativeInference({
+        env, messages, text, parallel: false, maxCandidates: 1,
+        inferenceSettings: effectiveInferenceSettings, activeAdapter,
+        requireLora: true, runtime, taskOverride: 'REASONING', maxCalls: 1, deadlineAt: chatDeadlineAt,
+      });
+      if (switched?.text && !isCensorshipRefusal(switched.text)) {
+        ai = { ...switched, censorship_switched: true };
+        requireLora = true;
+      }
+    } catch { /* no validated adapter, or the LoRA failed: the normal answer stays */ }
   }
 
   // Native Android chat bypasses the /api/chat defaults; finish explicitly
@@ -2841,7 +2887,7 @@ export async function handleNativeChat(request, env, options = {}) {
   if(mediaEvidence?.status==='FAILED')responseText='Le média demandé n’a pas été obtenu : '+String(mediaEvidence.error||'MEDIA_FAILED')+'. Aucun résultat terminé n’est disponible.';
   else if(mediaEvidence?.result?.code==='MEDIA_SEARCH_EMPTY')responseText='Aucun son ou vidéo correspondant n’a été trouvé dans la bibliothèque libre. Précise le sujet ou essaie une autre recherche.';
   else if(mediaEvidence?.result?.provider==='mel-dsp')responseText='Création audio synthétique procédurale (sans fournisseur IA payant).\n\n'+responseText;
-  if(ai.inference_unavailable)responseText='La synthèse du modèle est indisponible pour ce tour. Les médias ci-dessous proviennent des outils réellement exécutés.\n\n'+responseText;
+  if(ai.inference_unavailable)responseText='La synthèse du modèle est indisponible pour ce tour. Les résultats ci-dessous proviennent des outils réellement exécutés.\n\n'+responseText;
   if (inferPublicImageLookup(activeTaskText) && !releaseSmoke) {
     const delivered = hasVisibleImage(responseText, validatedPictureUrl(toolResults));
     toolResults.push({

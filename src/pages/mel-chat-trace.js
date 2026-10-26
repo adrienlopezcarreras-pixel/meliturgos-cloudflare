@@ -34,7 +34,8 @@ export function melTraceModel(d) {
   if (source.development_job?.id) outputs.push('Tâche de développement ' + String(source.development_job.id));
   if (source.artifact?.id) outputs.push('Livrable ' + String(source.artifact.id));
   if (Array.isArray(source.published_links)) for (const link of source.published_links.slice(0, 5)) outputs.push('Publié : ' + String(link));
-  const model = String(source.model || '').replace(/^@cf\/[^/]+\//, '');
+  const rawModel = String(source.model || '').replace(/^@cf\/[^/]+\//, '');
+  const model = rawModel === 'deterministic-media-evidence' ? 'outils, sans modèle' : rawModel === 'deterministic-code-evidence' ? 'lecture du code, sans modèle' : rawModel;
   const liveTools = live.filter(row => row?.kind === 'tool' || row?.kind === 'pc').map(row => String(row.label || row.tool || ''));
   const used = [...new Set((liveTools.length ? liveTools : steps.map(step => step.label)).filter(Boolean))];
   if (model) used.push('Modèle ' + model);
@@ -42,7 +43,10 @@ export function melTraceModel(d) {
   const ok = steps.filter(step => step.status === 'SUCCEEDED').length;
   const failed = steps.filter(step => step.status === 'FAILED').length;
   const parts = [];
+  const loraRefused = source.ok === false && String(source.code || '').startsWith('LORA_');
   if (steps.length) parts.push(ok + ' action' + (ok > 1 ? 's' : '') + ' réussie' + (ok > 1 ? 's' : '') + (failed ? ', ' + failed + ' en échec' : ''));
+  else if (loraRefused) parts.push('LoRA UNCENSORED non activé');
+  else if (source.ok === false) parts.push('modèle non utilisé');
   else parts.push('réponse directe');
   if (model) parts.push(model);
   if (seconds) parts.push(seconds);
@@ -56,35 +60,10 @@ export function melTraceModel(d) {
 }
 
 function melRenderTrace(d) {
-  const log = document.getElementById('chatlog');
-  const bubble = log ? log.lastElementChild : null;
-  if (!bubble || !d || typeof d !== 'object') return;
-  if (!document.getElementById('melTraceStyle')) {
-    const style = document.createElement('style');
-    style.id = 'melTraceStyle';
-    style.textContent = '.mel-trace{margin-top:.6rem;font-size:.82em;opacity:.8}.mel-trace summary{cursor:pointer;list-style:none}.mel-trace summary::before{content:"▸ ";}.mel-trace[open] summary::before{content:"▾ ";}.mel-trace ul{margin:.35rem 0 0;padding-left:1.1rem}.mel-trace li{margin:.1rem 0}.mel-trace .muted{opacity:.75}.mel-trace-h{margin-top:.45rem;font-weight:600;opacity:.9}.mel-live{font-size:.85em;opacity:.85;margin-bottom:.4rem;border-left:2px solid #60a5fa;padding-left:.5rem}.mel-live-failed{color:#fda4af}.mel-live-done{opacity:.8}';
-    document.head.appendChild(style);
-  }
+  if (!d || typeof d !== 'object' || typeof melCodeLiveRecord !== 'function') return;
   const model = melTraceModel(d);
-  const details = document.createElement('details');
-  details.className = 'mel-trace';
-  // Open when MEL actually did something: the owner sees it like an agent's panel.
-  if (model.steps.length || model.outputs.length) details.open = true;
-  const summary = document.createElement('summary');
-  summary.textContent = 'Ce que j’ai fait : ' + model.summary;
-  details.appendChild(summary);
-  const section = (title, rows, muted) => {
-    if (!rows.length) return;
-    const head = document.createElement('div'); head.className = 'mel-trace-h'; head.textContent = title; details.appendChild(head);
-    const list = document.createElement('ul');
-    for (const row of rows) { const li = document.createElement('li'); li.textContent = row; if (muted) li.className = 'muted'; list.appendChild(li); }
-    details.appendChild(list);
-  };
-  section('Progression', model.progress.length ? model.progress : model.steps.map(step => step.icon + ' ' + step.label + (step.detail ? ' — ' + step.detail : '')));
-  section('Sorties', model.outputs);
-  section('Utilisés', model.used);
-  section('Notes', model.notes, true);
-  bubble.appendChild(details);
+  const status = d.ok === false ? 'failed' : 'done';
+  melCodeLiveRecord({ id: 'trace-' + Date.now(), kind: 'trace', label: model.summary, status, source: 'server' });
 }
 
 export const MEL_CHAT_TRACE_SOURCE = [melTraceModel, melRenderTrace].map(fn => fn.toString()).join('\n') + '\nconst TRACE_STATUS = ' + JSON.stringify(TRACE_STATUS) + ';\n';

@@ -142,6 +142,15 @@ test('« Ce que j’ai fait » only reports what the server returned', async () 
   assert.ok(trace.notes.includes('enregistrée dans la conversation'));
   const direct = melTraceModel({ model: '@cf/google/gemma-4-26b-a4b-it', streamed: true, response_truncated: true });
   assert.equal(direct.summary, 'réponse directe · gemma-4-26b-a4b-it');
+  const refused = melTraceModel({ ok:false, code:'LORA_COMPATIBLE_ACTIVE_ADAPTER_REQUIRED', elapsed_ms:600 });
+  assert.equal(refused.summary, 'LoRA UNCENSORED non activé · 0,6 s');
+  assert.equal(refused.summary.includes('réponse directe'), false);
+  const toolsOnly = melTraceModel({ model: 'deterministic-media-evidence', elapsed_ms: 90500, tool_results: [{ capability: 'web.images.search', status: 'SUCCEEDED' }] });
+  assert.equal(toolsOnly.summary.includes('deterministic-media-evidence'), false);
+  assert.match(toolsOnly.summary, /outils, sans modèle/);
+  const { MEL_CHAT_TRACE_SOURCE } = await import('../src/pages/mel-chat-trace.js');
+  assert.match(MEL_CHAT_TRACE_SOURCE, /melCodeLiveRecord/);
+  assert.doesNotMatch(MEL_CHAT_TRACE_SOURCE, /chatlog|appendChild/);
   assert.ok(direct.notes.includes('réponse tronquée'));
   assert.ok(!direct.notes.includes('enregistrée dans la conversation'), 'no claim without archive proof');
 });
@@ -409,4 +418,14 @@ test('an advisory plan streams through the real chat with one inference and no a
  const events=await readNdjson(response);
  assert.equal(calls.length,1);assert.equal(events.at(-1).type,'done');
  assert.match(events.filter(event=>event.type==='delta').map(event=>event.text).join(''),/5\. Mesurer/);
+});
+
+test('a question about seeing future development targets stays conversational in Code mode',async()=>{
+ let calls=0;
+ const response=await handleNativeChat(new Request('https://mel.example/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:"on doit commencer à développer la mini et l'apk pour pouvoir les utiliser, tu les vois ?",stream:true,use_companion_compute:false,intent_context:{surface:'mel-full',role:'developer',requested_mode:'code'}})}),{
+  AI:{async run(_model,input){calls++;assert.equal(input.stream,true);return sse(['Parles-tu des fichiers du dépôt ou des appareils connectés ?']);}}
+ },{authorized:true});
+ assert.equal(response.status,200);const events=await readNdjson(response);
+ assert.equal(calls,1,'no action planner or development preclassification');assert.equal(events.at(-1).type,'done');
+ assert.match(events.filter(e=>e.type==='delta').map(e=>e.text).join(''),/fichiers du dépôt/);
 });

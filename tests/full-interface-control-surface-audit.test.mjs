@@ -19,7 +19,8 @@ function attr(attrs, name) {
 
 test('full control surface stays bounded and free of retired Vercel controls', () => {
   const rows = buttons();
-  assert.ok(rows.length <= 99, 'control surface grew beyond the audited 98 controls plus the explicit LoRA mode button');
+  assert.ok(rows.length <= 101, 'control surface grew beyond the neuron-day button, the LoRA mode button and the PC mode light');
+  assert.equal(rows.filter(row => attr(row.attrs, 'id') === 'pcMode').length, 1, 'one PC mode light');
   assert.equal(rows.filter(row => attr(row.attrs, 'id') === 'chatLoraMode').length, 1, 'one canonical LoRA mode button');
   assert.equal(rows.filter(row => /id="melRole(?:Assistant|Code)"/.test(row.attrs)).length, 2, 'exactly two role controls in Professor');
   assert.match(source, /let melChatRole='code'/);
@@ -97,6 +98,7 @@ test('responsive duplicate controls are limited to the audited autonomy/navigati
     'terminal mel',
     'lora',
     'diagnostic',
+    'développement',
     'actualiser',
     'tester',
     'enregistrer chiffré',

@@ -656,24 +656,25 @@ export function autonomyQueueReadBlocker(state) {
     : null;
 }
 
-export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repository = null, benchmarkEvaluator = null, benchmarkModelId = '', roadmap = null, maxAutonomy = false, epochMs = null } = {}) {
+export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repository = null, benchmarkEvaluator = null, benchmarkModelId = '', roadmap = null, maxAutonomy = false, epochMs = null, onlyJobId = null } = {}) {
   const jobRepository = repository || new D1DevJobRepository(env.DB);
   const activityEpoch = epochMs ?? await readActivityListEpoch(env?.DB, { strict: true });
   const currentRepository = currentAutonomyRepository(jobRepository, activityEpoch);
-  const reconciliation = await reconcileRuntimeTeacherReplies({ repository: currentRepository, env, fetchImpl }).catch((error) => ({
+  const focused = Boolean(onlyJobId);
+  const reconciliation = focused ? { ok: true, applied: [], skipped: 'FOCUSED_JOB' } : await reconcileRuntimeTeacherReplies({ repository: currentRepository, env, fetchImpl }).catch((error) => ({
     ok: false,
     error: error?.code || error?.message || 'TEACHER_RECONCILE_FAILED',
     applied: [],
   }));
 
-  const completions = await reconcileRuntimeCompletions({ repository: currentRepository, env, fetchImpl, benchmarkEvaluator, benchmarkModelId }).catch((error) => ({
+  const completions = focused ? { ok: true, completed: [], rejected: [], skipped: 'FOCUSED_JOB' } : await reconcileRuntimeCompletions({ repository: currentRepository, env, fetchImpl, benchmarkEvaluator, benchmarkModelId }).catch((error) => ({
     ok: false,
     error: error?.code || error?.message || 'COMPLETION_RECONCILE_FAILED',
     completed: [],
     rejected: [],
   }));
 
-  const candidateCI = await reconcileFailedCandidateRuns({ repository: currentRepository, env, fetchImpl });
+  const candidateCI = focused ? { ok: true, skipped: 'FOCUSED_JOB' } : await reconcileFailedCandidateRuns({ repository: currentRepository, env, fetchImpl });
 
   const evolutionLoader = !roadmap ? createRuntimeEvolutionLoader(env) : null;
   const supervisor = new AutonomySupervisor({
@@ -681,8 +682,10 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     epochMs: activityEpoch,
     ...(roadmap ? { roadmap } : {}),
     evolutionLoader,
+    onlyJobId,
   });
   let reopenedUnansweredRepair = false;
+  if (!focused) {
   const existing = await jobRepository.list();
   const epoch = Number(activityEpoch) || 0;
   for (const candidate of Array.isArray(existing) ? existing : []) {
@@ -710,6 +713,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     await jobRepository.update(candidate.id, { status: 'TEACHER_APPROVED', error: null, result_json: result });
     reopenedUnansweredRepair = true;
     break;
+  }
   }
   const stateBefore = await supervisor.state();
   const ensured = await supervisor.ensureNextJob();

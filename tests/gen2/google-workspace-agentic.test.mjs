@@ -502,3 +502,28 @@ test('Gmail stays callable when the Pipedream Gmail account is simply not linked
       && error.fallback_code === 'PIPEDREAM_GMAIL_ACCOUNT_REQUIRED',
   );
 });
+
+test('Gmail reads with a Google token stored on Calendar when the Gmail token is absent', async () => {
+  const seen = [];
+  const bus = new CapabilityBus();
+  registerGoogleWorkspaceCapabilities(bus, {
+    env: { MELITURGOS_USER: 'adrien' },
+    resolveAccessToken: async (connectorId) => connectorId === 'google-calendar' ? 'calendar-token' : '',
+    fetchImpl: async (url, init) => {
+      seen.push(String(init?.headers?.authorization || ''));
+      if (!String(init?.headers?.authorization || '').includes('calendar-token')) return response({}, 401);
+      if (String(url).includes('/profile')) return response({ emailAddress: 'owner@example.com' });
+      if (String(url).includes('/messages?')) return response({ messages: [{ id: 'm1', threadId: 't1' }] });
+      return response({ snippet: 'bonjour', payload: { headers: [{ name: 'Subject', value: 'Bonjour' }, { name: 'From', value: 'a@b.c' }] } });
+    },
+  });
+  const health = await bus.refreshHealth('gmail.messages.search');
+  assert.equal(health.health, 'HEALTHY');
+  const result = await bus.execute('gmail.messages.search', { query: 'newer_than:7d', limit: 1 }, {
+    owner: 'adrien',
+    permissions: ['google.gmail.read'],
+  });
+  assert.equal(result.provider, 'google');
+  assert.equal(result.messages[0].subject, 'Bonjour');
+  assert.ok(seen.some(value => value.includes('calendar-token')));
+});

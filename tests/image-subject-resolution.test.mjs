@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {resolveImageSubject,searchImages,searchPublicMedia} from '../src/search/image-search.js';
+import {resolveImageSubject,searchImages,searchPublicMedia,verifiedPontiffName} from '../src/search/image-search.js';
 function fixture({ambiguous=false,missing=false,fail=false,label='cat'}={}){
  const calls=[];
  return {calls,async fetchPage(raw){const u=new URL(raw);calls.push(u);if(fail)throw Error('private provider error');
@@ -23,6 +23,25 @@ test('untrusted labels and search operators cannot become injected entity querie
  assert.equal(await resolveImageSubject(fixture({label:'cat OR filetype:video'}),'chat'),null);
  const s=fixture();assert.equal(await resolveImageSubject(s,'chat OR filetype:video'),null);assert.equal(s.calls.length,0);
 });
+test('a current pope photo keeps the latest name and rejects another Léon', async () => {
+  const listed = '<table><tr><td>Léon I</td><td>440</td></tr><tr><td>Léon XIV</td><td>pontificat en cours</td></tr></table>';
+  assert.equal(verifiedPontiffName([{ content: listed }]), 'Léon XIV');
+  const service = {
+    async research() { return { sources: [{ url: 'https://www.vatican.va/holy-father.html', title: 'Saint-Père', content: listed }] }; },
+    async fetchPage(raw) {
+      const host = new URL(raw).hostname;
+      if (host !== 'commons.wikimedia.org') throw new Error('no article');
+      return { content: JSON.stringify({ query: { pages: {
+        1: { index: 1, title: 'File:Noel, Léon, Nadar, Gallica.jpg', imageinfo: [{ thumburl: 'https://upload.wikimedia.org/nadar.jpg', descriptionurl: 'https://commons.wikimedia.org/wiki/File:Noel', mime: 'image/jpeg' }] },
+        2: { index: 2, title: 'File:Pope Leo XIV portrait.jpg', imageinfo: [{ thumburl: 'https://upload.wikimedia.org/leo.jpg', descriptionurl: 'https://commons.wikimedia.org/wiki/File:Pope_Leo_XIV', mime: 'image/jpeg' }] },
+      } } }), source_id: 't', timestamp: 1 };
+    },
+  };
+  const result = await searchImages(service, { query: 'montre moi une photo du pape' });
+  assert.equal(result.images.length, 1);
+  assert.match(result.images[0].title, /Leo XIV/);
+});
+
 test('audio and video retain their canonical provider and do not run image resolution',async()=>{
  for(const type of ['audio','video']){const s=fixture();await searchPublicMedia(s,{query:'piano',type});assert.equal(s.calls.length,1);assert.equal(s.calls[0].hostname,'commons.wikimedia.org');}
 });

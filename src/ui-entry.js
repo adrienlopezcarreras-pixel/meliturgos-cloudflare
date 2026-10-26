@@ -4,6 +4,7 @@ import { migrate } from './persistence/migrations.js';
 import { createConversationService } from './conversations/conversation-service.js';
 import { buildActivitySnapshot } from './activity/activity-snapshot.js';
 import { answerOwnerRequest, listOwnerRequests } from './evolution/owner-requests.js';
+import { DEFAULT_DAILY_NEURON_CAP, grantNeuronBonus, readNeuronBonus, readNeuronBudget } from './augmentio/neuron-budget.js';
 import { recordError } from './diagnostics/error-ledger.js';
 import { getEcosystemCapabilityWatchStatus, runEcosystemCapabilityWatch, applyEcosystemProposalDecision } from './evaluation/capability-watch-runtime.js';
 
@@ -161,6 +162,27 @@ async function ownerRequestsResponse(request, env) {
   }
 }
 
+// Owner banner: today's neurons, the pause countdown and "+1 day" (the
+// owner's click is the authorization to spend one more day of neurons).
+async function neuronBudgetResponse(request, env) {
+  const auth = requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+  const now = Date.now();
+  const cap = Number(env.MEL_AI_DAILY_NEURON_CAP) > 0 ? Number(env.MEL_AI_DAILY_NEURON_CAP) : DEFAULT_DAILY_NEURON_CAP;
+  try {
+    if (request.method === 'POST') {
+      await grantNeuronBonus(env.DB, { id: 'owner-day-' + now, neurons: cap, expiresAt: now + 7 * 86_400_000, reason: 'Propriétaire : +1 jour de neurones (bouton)' });
+    }
+    const budget = await readNeuronBudget(env.DB, { now, cap });
+    const bonus = await readNeuronBonus(env.DB, { now });
+    const resetAt = Date.parse(budget.day + 'T00:00:00Z') + 86_400_000;
+    return json({ ok: true, day: budget.day, cap, used: Math.round(budget.neurons), remaining: Math.max(0, Math.round(cap - budget.neurons)),
+      bonus_remaining: Math.round(bonus?.remaining || 0), paused: budget.neurons >= cap && !bonus, reset_at: new Date(resetAt).toISOString(), refused: budget.refused });
+  } catch (error) {
+    return json({ ok: false, code: 'NEURON_BUDGET_UNAVAILABLE' }, 503);
+  }
+}
+
 async function clientErrorResponse(request, env) {
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
@@ -213,6 +235,7 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/mel/capability-watch/run') return capabilityWatchRunResponse(request, env, ctx);
     if (request.method === 'POST' && url.pathname === '/api/mel/capability-watch/test-all') return capabilityWatchTestAllResponse(request, env, ctx);
     if (request.method === 'POST' && url.pathname === '/api/mel/capability-watch/proposal') return capabilityWatchProposalActionResponse(request, env);
+    if (url.pathname === '/api/mel/neuron-budget' && (request.method === 'GET' || request.method === 'POST')) return neuronBudgetResponse(request, env);
     if (request.method === 'POST' && url.pathname === '/api/mel/client-error') return clientErrorResponse(request, env);
     if (url.pathname === '/api/mel/owner-requests' && (request.method === 'GET' || request.method === 'POST')) return ownerRequestsResponse(request, env);
     if (request.method === 'GET' && url.pathname === '/api/mel/conversations/latest') return latestConversationResponse(request, env);

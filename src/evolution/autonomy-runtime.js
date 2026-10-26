@@ -1,7 +1,7 @@
 import { runAutonomyRuntimeTick as runCoreAutonomyRuntimeTick, autonomyTickAdvanced, currentAutonomyRepository } from './autonomy-runtime-core.js';
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
-import { getAutonomyControl } from './autonomy-control.js';
-import { AutonomySupervisor, selectActionableAutonomyJob, setRuntimeRoadmapRegressions } from './autonomy-supervisor.js';
+import { getAutonomyControl, setOwnerMaxAutonomy } from './autonomy-control.js';
+import { AutonomySupervisor, selectActionableAutonomyJob, selectActionableAutonomyJobs, setRuntimeRoadmapRegressions } from './autonomy-supervisor.js';
 import { activeRoadmapRegressions } from '../roadmap/roadmap-regressions.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { applyOwnerMaxApproval } from '../teachers/owner-max-approval.js';
@@ -15,10 +15,61 @@ import { reconcileRuntimeCompletions } from '../teachers/github-completion-recon
 import { recordAutonomyProgressWatchdog, resetAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
 import { readActivityListEpoch } from './autonomy-activity.js';
 import { backgroundNeuronBudgetExhausted } from '../augmentio/neuron-budget.js';
+import { bindLocalPcWorkersAi, localPcModelReady } from '../models/local-pc-model.js';
+import { readSurvivalState, shouldResumeForSurvival } from '../legacy/survival-mode.js';
 
 export * from './autonomy-runtime-core.js';
 
 const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
+// One 8 GB GPU keeps a single coder loaded. Two developments run at the same
+// time against that model. Four is the most one tick may start.
+export const PC_DEVELOPMENTS_PER_TICK = 4;
+export const PC_PARALLEL_DEVELOPMENTS = 2;
+
+export async function advanceMoreOnPc({ env, ready = localPcModelReady, run, seed, alreadyRan = 1, limit = PC_DEVELOPMENTS_PER_TICK, selectJobs = null, width = PC_PARALLEL_DEVELOPMENTS } = {}) {
+  const local = await ready(env).catch(() => null);
+  if (!local?.ok || typeof run !== 'function') return { result: seed, ran: alreadyRan, job_ids: [] };
+  const room = Math.max(0, limit - alreadyRan);
+  const ids = room > 0 && typeof selectJobs === 'function'
+    ? (await selectJobs(room).catch(() => [])).filter(Boolean).slice(0, room)
+    : [];
+  if (ids.length > 1) {
+    const lanes = Math.max(1, Math.min(width, ids.length));
+    const results = [];
+    for (let index = 0; index < ids.length; index += lanes) {
+      const slice = ids.slice(index, index + lanes);
+      results.push(...await Promise.all(slice.map(onlyJobId => run({ onlyJobId }))));
+    }
+    return {
+      result: results[results.length - 1] || seed,
+      ran: alreadyRan + ids.length,
+      job_ids: results.map(row => row?.progress?.job_id || row?.job?.id || null),
+      device_id: local.device_id || null,
+      parallel: true,
+    };
+  }
+  let result = seed;
+  let ran = alreadyRan;
+  const job_ids = [];
+  const skip = new Set(ids);
+  while (ran < limit) {
+    if (result?.progress?.work_remaining !== true || result?.progress?.waiting_external === true) break;
+    const next = await run({ skipJobIds: [...skip] });
+    ran += 1;
+    const jobId = next?.progress?.job_id || next?.job?.id || null;
+    job_ids.push(jobId);
+    if (jobId) skip.add(jobId);
+    result = next;
+    if (next?.progress?.advanced !== true && next?.advanced !== true && !jobId) break;
+  }
+  return { result, ran, job_ids, device_id: local.device_id || null };
+}
+
+async function selectablePcJobs(repository, epochMs, roadmap, count) {
+  const supervisor = new AutonomySupervisor({ repository, epochMs, ...(roadmap ? { roadmap } : {}) });
+  const state = await supervisor.state();
+  return selectActionableAutonomyJobs(state.active, { epochMs, limit: count, ...(roadmap ? { roadmap } : {}) }).map(job => job.id);
+}
 const ACTIONABLE_FAILURE_STATES = new Set(['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE', 'TEACHER_APPROVED']);
 const ACTIVE_RUNTIME_STATES = new Set([
   'QUEUED',
@@ -503,8 +554,17 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
   }
 
   if (!ownerMaxSweep.applied.length) {
+    const more = await advanceMoreOnPc({
+      env,
+      seed: first,
+      run: async ({ onlyJobId } = {}) => {
+        bindLocalPcWorkersAi(env, options.runLocalPcModel);
+        return preservePreEnsureCreation(await runCoreResilient(env, { ...coreOptions, onlyJobId: onlyJobId || null }, repository), preEnsure);
+      },
+      selectJobs: (count) => selectablePcJobs(currentRepository, epochMs, options.roadmap, count),
+    });
     return {
-      ...first,
+      ...more.result,
       control,
       pre_ensure: preEnsure,
       queue_hygiene: queueHygiene,
@@ -513,12 +573,23 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
       owner_chat_teacher_mirror: ownerChatTeacherMirror,
       owner_max_applied: false,
       owner_max_sweep: ownerMaxSweep,
+      jobs_this_tick: more.ran,
     };
   }
 
   const second = preservePreEnsureCreation(await runCoreResilient(env, coreOptions, repository), preEnsure);
+  const more = await advanceMoreOnPc({
+    env,
+    seed: second,
+    alreadyRan: 2,
+    run: async ({ onlyJobId } = {}) => {
+      bindLocalPcWorkersAi(env, options.runLocalPcModel);
+      return preservePreEnsureCreation(await runCoreResilient(env, { ...coreOptions, onlyJobId: onlyJobId || null }, repository), preEnsure);
+    },
+    selectJobs: (count) => selectablePcJobs(currentRepository, epochMs, options.roadmap, count),
+  });
   return {
-    ...second,
+    ...more.result,
     control,
     pre_ensure: preEnsure,
     queue_hygiene: queueHygiene,
@@ -529,6 +600,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     owner_max_sweep: ownerMaxSweep,
     owner_max_bypassed_stage: 'WAITING_TEACHER',
     production_release_allowed: control.max_autonomy === true,
+    jobs_this_tick: more.ran,
   };
 }
 
@@ -647,8 +719,18 @@ function augmentTickProgress(tick = {}) {
 
 export async function runAutonomyRuntimeTick(env, options = {}) {
   setRuntimeRoadmapRegressions(await activeRoadmapRegressions(env?.DB).catch(() => []));
-  const control = await getAutonomyControl(env?.DB, { memoryState: options.autonomyControlState || null });
+  let control = await getAutonomyControl(env?.DB, { memoryState: options.autonomyControlState || null });
   const repository = options.repository || (env?.DB ? new D1DevJobRepository(env.DB) : null);
+  const survival = await readSurvivalState(env?.DB).catch(() => ({ active: false }));
+  if (shouldResumeForSurvival(control, survival) && env?.DB) {
+    control = await setOwnerMaxAutonomy(env.DB, {
+      enabled: true,
+      paused: false,
+      source: 'survival-mode',
+      reason: 'owner-silent-one-year',
+      memoryState: options.autonomyControlState || null,
+    });
+  }
 
   if (control.paused) {
     const watchdog = await resetAutonomyProgressWatchdog(env?.DB || null, { status: 'PAUSED' }).catch(() => null);
@@ -669,18 +751,24 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     };
   }
 
-  // Daily Workers AI share spent: wait for 00:00 UTC instead of burning
-  // attempts on refused AI calls (missions went FAILED, 25/10).
-  if (options.ignoreNeuronBudget !== true && await backgroundNeuronBudgetExhausted(env)) {
+  // The owner's PC codes first whenever local compute is actually allowed.
+  // Neurons are kept for the chat and for a PC that failed. If the daily share
+  // is already spent and the PC cannot code, MAX waits instead of failing.
+  const local = typeof options.localPcReady === 'function'
+    ? await options.localPcReady(env)
+    : await localPcModelReady(env).catch(() => ({ ok: false, code: 'LOCAL_CHECK_FAILED' }));
+  if (options.ignoreNeuronBudget !== true && await backgroundNeuronBudgetExhausted(env) && !local?.ok) {
     return {
       status: 'AI_BUDGET_EXHAUSTED',
       paused: false,
       advanced: false,
       progress: { advanced: false, events: [], work_remaining: null, waiting_external: true, block_reason: 'AI_DAILY_NEURON_BUDGET_EXHAUSTED' },
+      local_pc: local?.code || 'LOCAL_UNAVAILABLE',
       candidate_branch: env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
       control,
     };
   }
+  if (local?.ok) bindLocalPcWorkersAi(env, options.runLocalPcModel);
 
   const epochMs = await readActivityListEpoch(env?.DB, { strict: true });
   const launchApproval = launchApprovalValid(env, control, options);
