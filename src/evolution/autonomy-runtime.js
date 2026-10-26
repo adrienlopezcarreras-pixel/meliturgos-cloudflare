@@ -720,26 +720,24 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     };
   }
 
-  // Daily Workers AI share spent: do not buy more neurons. If the owner's PC
-  // is on and local compute is allowed, keep developing on Ollama. Otherwise
-  // wait for 00:00 UTC instead of failing missions on refused AI calls.
-  if (options.ignoreNeuronBudget !== true && await backgroundNeuronBudgetExhausted(env)) {
-    const local = typeof options.localPcReady === 'function'
-      ? await options.localPcReady(env)
-      : await localPcModelReady(env).catch(() => ({ ok: false, code: 'LOCAL_CHECK_FAILED' }));
-    if (!local?.ok) {
-      return {
-        status: 'AI_BUDGET_EXHAUSTED',
-        paused: false,
-        advanced: false,
-        progress: { advanced: false, events: [], work_remaining: null, waiting_external: true, block_reason: 'AI_DAILY_NEURON_BUDGET_EXHAUSTED' },
-        local_pc: local?.code || 'LOCAL_UNAVAILABLE',
-        candidate_branch: env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
-        control,
-      };
-    }
-    bindLocalPcWorkersAi(env, options.runLocalPcModel);
+  // The owner's PC codes first whenever local compute is actually allowed.
+  // Neurons are kept for the chat and for a PC that failed. If the daily share
+  // is already spent and the PC cannot code, MAX waits instead of failing.
+  const local = typeof options.localPcReady === 'function'
+    ? await options.localPcReady(env)
+    : await localPcModelReady(env).catch(() => ({ ok: false, code: 'LOCAL_CHECK_FAILED' }));
+  if (options.ignoreNeuronBudget !== true && await backgroundNeuronBudgetExhausted(env) && !local?.ok) {
+    return {
+      status: 'AI_BUDGET_EXHAUSTED',
+      paused: false,
+      advanced: false,
+      progress: { advanced: false, events: [], work_remaining: null, waiting_external: true, block_reason: 'AI_DAILY_NEURON_BUDGET_EXHAUSTED' },
+      local_pc: local?.code || 'LOCAL_UNAVAILABLE',
+      candidate_branch: env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
+      control,
+    };
   }
+  if (local?.ok) bindLocalPcWorkersAi(env, options.runLocalPcModel);
 
   const epochMs = await readActivityListEpoch(env?.DB, { strict: true });
   const launchApproval = launchApprovalValid(env, control, options);

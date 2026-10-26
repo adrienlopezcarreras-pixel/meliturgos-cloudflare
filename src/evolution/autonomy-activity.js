@@ -14,6 +14,7 @@ import { readAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
 import { readSurvivalState } from '../legacy/survival-mode.js';
 import { flattenRoadmap, isClosedRoadmapStatus } from '../roadmap/master-roadmap.js';
 import { selectNextAutonomyItem } from './autonomy-supervisor.js';
+import { localPcModelReady } from '../models/local-pc-model.js';
 
 
 export const ACTIVITY_LIST_EPOCH_ID = 'activity-list-epoch';
@@ -350,7 +351,7 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
   if (!db?.prepare) throw Object.assign(new Error('DB_BINDING_MISSING'), { status: 503 });
   const repo = repository || new D1DevJobRepository(db);
   const ledger = new D1EvolutionLedger(db);
-  const [control, watchdog, allJobs, recentLedger, dispatches, relay, workCycles, executor] = await Promise.all([
+  const [control, watchdog, allJobs, recentLedger, dispatches, relay, workCycles, executor, coder] = await Promise.all([
     getAutonomyControl(db).catch(() => null),
     readAutonomyProgressWatchdog(db).catch(() => null),
     repo.list().catch(() => []),
@@ -359,6 +360,7 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
     rows(db, 'SELECT id,status,workflow,result_json,error,created_at,updated_at FROM github_action_relay_jobs ORDER BY created_at DESC LIMIT 12'),
     rows(db, 'SELECT id,state,result,updated_at FROM mel_work_cycles ORDER BY updated_at DESC LIMIT 6'),
     db.prepare("SELECT last_seen,status FROM dev_bridge_state WHERE bridge_id='primary' LIMIT 1").first().catch(() => null),
+    localPcModelReady(env, now).catch(() => ({ ok: false, code: 'LOCAL_CHECK_FAILED' })),
   ]);
   const epoch = await readActivityListEpoch(db);
   const supervised = (Array.isArray(allJobs) ? allJobs : []).filter(job => {
@@ -390,7 +392,12 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
       launch_approved_sha: control.launch_approved_sha || null,
     } : null,
     watchdog: watchdog || null,
-    pc_executor: executor ? { online: executorAge >= 0 && executorAge < 60_000 && String(executor.status || '').toUpperCase() === 'ONLINE', last_seen: num(executor.last_seen) } : null,
+    pc_executor: executor || coder ? {
+      online: executor ? executorAge >= 0 && executorAge < 60_000 && String(executor.status || '').toUpperCase() === 'ONLINE' : false,
+      last_seen: executor ? num(executor.last_seen) : null,
+      local_coder: coder?.ok === true,
+      local_coder_reason: coder?.ok === true ? null : (coder?.code || null),
+    } : null,
     counts: {
       supervised_total: supervised.length,
       active: supervised.filter(job => !terminal.has(String(job?.status || '').toUpperCase())).length,
