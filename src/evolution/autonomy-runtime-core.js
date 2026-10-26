@@ -734,10 +734,13 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   if (job) {
     try {
       globalThis.__melTickStage = 'work-dag-proof';
-      runtimeProof = await runRuntimeWorkDagResumeProof(env, {
-        repository: jobRepository,
-        targetJobId: job.id,
-      });
+      // Production 26/10: this proof hung every tick past 50 s and the job
+      // never left QUEUED. It is evidence, not the work: bounded, then skipped.
+      let proofTimer;
+      runtimeProof = await Promise.race([
+        runRuntimeWorkDagResumeProof(env, { repository: jobRepository, targetJobId: job.id }),
+        new Promise(resolve => { proofTimer = setTimeout(() => resolve({ status: 'NOT_VERIFIED', code: 'RUNTIME_WORK_DAG_PROOF_TIMEOUT' }), Number(env?.MEL_WORK_DAG_PROOF_BUDGET_MS ?? 15_000)); }),
+      ]).finally(() => clearTimeout(proofTimer));
       job = await jobRepository.get(job.id);
     } catch (error) {
       runtimeProof = {
