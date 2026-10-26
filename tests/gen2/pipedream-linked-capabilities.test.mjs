@@ -19,6 +19,21 @@ function fixture() {
         return { body: { value: [{ id: 'file-1', name: 'doc.txt' }] } };
       }
       if (url.includes('/me/drive/root')) return { body: { id: 'root' } };
+      if (url.includes('slides.googleapis.com/v1/presentations') && url.includes(':batchUpdate')) {
+        return { body: { replies: [] } };
+      }
+      if (url.includes('slides.googleapis.com/v1/presentations')) {
+        return { body: { presentationId: 'g-slides', slides: [{ objectId: 'page_1' }] } };
+      }
+      if (url.includes('forms.googleapis.com/v1/forms') && url.includes(':batchUpdate')) {
+        return { body: { replies: [] } };
+      }
+      if (url.includes('forms.googleapis.com/v1/forms')) {
+        return { body: { formId: 'g-form' } };
+      }
+      if (url.includes('/upload/drive/v3/files?uploadType=multipart')) {
+        return { body: { id: 'g-google', name: 'Doc', mimeType: 'application/vnd.google-apps.document', webViewLink: 'https://docs.google.com/document/d/g-google' } };
+      }
       if (url.includes('www.googleapis.com/drive/v3/files?') && input.method === 'POST') return { body: { id: 'g-file-created', name: 'note.txt' } };
       if (url.includes('www.googleapis.com/upload/drive/v3/files/')) return { body: { id: 'g-file-created', name: 'note.txt' } };
       if (url.includes('www.googleapis.com/drive/v3/files/') && url.includes('alt=media')) return { body: { text: 'drive-content' } };
@@ -149,8 +164,52 @@ test('Google Drive linked account is executable and mutations remain approval-ga
     approvedCapabilities: ['drive.files.create'],
   });
   assert.equal(created.accepted, true);
+  assert.equal(created.format, 'txt');
   assert.ok(calls.some(call => call.app === 'google_drive' && call.method === 'POST'));
-  assert.ok(calls.some(call => call.app === 'google_drive' && call.method === 'PATCH'));
+  assert.ok(calls.some(call => call.app === 'google_drive' && call.method === 'PATCH' && String(call.body).startsWith('bonjour')));
+
+  calls.length = 0;
+  const pdf = await bus.execute('drive.files.create', { name: 'strategie', content: 'Un plan', format: 'pdf' }, {
+    owner: 'adrien',
+    permissions: ['google.drive.write'],
+    approvedCapabilities: ['drive.files.create'],
+  });
+  assert.equal(pdf.format, 'pdf');
+  const upload = calls.find(call => call.method === 'PATCH');
+  assert.equal(upload.headers['content-type'], 'application/pdf');
+  assert.match(String(upload.body), /^%PDF-1\.4/);
+
+  calls.length = 0;
+  const doc = await bus.execute('drive.files.create', { name: 'Notes', content: 'Bonjour', format: 'gdoc' }, {
+    owner: 'adrien',
+    permissions: ['google.drive.write'],
+    approvedCapabilities: ['drive.files.create'],
+  });
+  assert.equal(doc.format, 'gdoc');
+  assert.equal(doc.file.id, 'g-google');
+  const googleCall = calls.find(call => String(call.url).includes('uploadType=multipart'));
+  assert.equal(googleCall.method, 'POST');
+  assert.match(String(googleCall.body), /application\/vnd\.google-apps\.document/);
+
+  calls.length = 0;
+  const slides = await bus.execute('drive.files.create', { name: 'Brief', content: 'Une\n\nDeux', format: 'gslides' }, {
+    owner: 'adrien',
+    permissions: ['google.drive.write'],
+    approvedCapabilities: ['drive.files.create'],
+  });
+  assert.equal(slides.format, 'gslides');
+  assert.equal(slides.file.id, 'g-slides');
+  assert.match(slides.file.webViewLink, /presentation\/d\/g-slides/);
+  assert.equal(calls.filter(call => String(call.url).includes('slides.googleapis.com')).length, 2);
+
+  calls.length = 0;
+  const form = await bus.execute('drive.files.create', { name: 'Questions', content: 'Qui', format: 'gform' }, {
+    owner: 'adrien',
+    permissions: ['google.drive.write'],
+    approvedCapabilities: ['drive.files.create'],
+  });
+  assert.equal(form.format, 'gform');
+  assert.equal(form.file.mimeType, 'application/vnd.google-apps.form');
 });
 
 

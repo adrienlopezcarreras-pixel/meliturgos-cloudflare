@@ -606,6 +606,12 @@ export async function startPersistentCapabilityStress({ bus, db, context = {}, s
 // Only explicit owner/weekly audit launches create new jobs. This is the
 // production missing link: six-record chunks persist as QUEUED but no cron
 // previously claimed their next chunk once the HTTP caller went away.
+export function stressDrainContinues(step) {
+  if (!step || step.skipped === true || step.reason === 'NO_ACTIVE_CAPABILITY_STRESS') return false;
+  if (step.resumed === false) return false;
+  return String(step.status || '') === 'QUEUED';
+}
+
 export async function resumeActivePersistentCapabilityStress({ bus, db, context = {} } = {}) {
   if (!bus) throw stressError('CAPABILITY_STRESS_BUS_REQUIRED');
   const store = new D1CapabilityStressStore(db);

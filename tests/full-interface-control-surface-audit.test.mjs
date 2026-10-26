@@ -98,6 +98,7 @@ test('responsive duplicate controls are limited to the audited autonomy/navigati
     'terminal mel',
     'lora',
     'diagnostic',
+    'développement',
     'actualiser',
     'tester',
     'enregistrer chiffré',
