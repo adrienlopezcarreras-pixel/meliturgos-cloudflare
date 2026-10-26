@@ -10,6 +10,7 @@ import { runScheduledMelWork, isDedicatedWorkMinute } from "./revenue/work-sched
 import { runModelTournament } from "./models/model-tournament.js";
 import router from "./router.js";
 import { requireAuth, isReleaseSmokeRequest } from "./core/security.js";
+import { handleChatObjective } from "./api/chat-objective-api.js";
 import { approvedCapabilitiesFromRequest } from "./security/approval-gates.js";
 import { createGen2Runtime } from "./core/orchestrator/gen2-runtime.js";
 import { injectEvolutionPreflightCapability } from "./evolution/chat-intent.js";
@@ -475,6 +476,11 @@ async function fetchResolvedRequest(request, env, ctx) {
       if (path.startsWith('/api/android/v1/')) {
         const androidResponse = await maybeHandleAndroidCompanionApi(request, env);
         if (androidResponse) return androidResponse;
+      }
+
+      if (path === '/api/chat/objective' || path === '/api/chat/objective/step') {
+        const objectiveResponse = await handleChatObjective(request, env);
+        if (objectiveResponse) return objectiveResponse;
       }
 
       if (path === '/api/voice/transcribe') {
