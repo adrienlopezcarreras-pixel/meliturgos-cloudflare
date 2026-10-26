@@ -12,7 +12,11 @@ const MAX_ANSWER = 4000;
 // Tokens and keys look like one long unbroken word, or carry a known prefix.
 const SECRET_RE = /^(sk-|ghp_|gho_|github_pat_|xox[abpr]-|AKIA|AIza|hf_)|^[A-Za-z0-9_\-+/=.]{32,}$/;
 // Failures that only the owner can lift: a missing connection or credential.
-const AUTH_FAILURE_RE = /\b(gmail|google|oauth|token|credential|auth\w*|login|connect\w*|secret|api[ _-]?key|clé|identifiant)\b/i;
+// Only explicit runtime auth errors qualify. Service names (gmail, google…)
+// appear in tool names and Council verdicts: they caught a FOUNDER-01 review
+// about raw tool JSON as a "Gmail connection" request (26/10).
+const AUTH_FAILURE_RE = /\b(OAUTH_[A-Z_]+|[A-Z_]*TOKEN_(?:MISSING|EXPIRED|INVALID|REVOKED)|[A-Z_]*NOT_CONNECTED|[A-Z_]*AUTH(?:ENTICATION|ORIZATION)?_(?:REQUIRED|FAILED|MISSING)|MISSING_(?:SECRET|CREDENTIALS?|API_KEY)|HTTP_?40[13]|UNAUTHORIZED)\b/;
+const REVIEW_VERDICT_RE = /^COUNCIL_REJECTED/;
 
 const clean = (value, max) => String(value ?? '').trim().slice(0, max);
 
@@ -103,7 +107,8 @@ export async function raiseOwnerRequestsForFailedJobs(db, { now = Date.now(), si
   let created = 0;
   for (const job of result?.results || []) {
     const error = String(job.error || '');
-    const match = error.match(AUTH_FAILURE_RE);
+    // A Council rejection is a review verdict, never a missing connection.
+    const match = REVIEW_VERDICT_RE.test(error) ? null : error.match(AUTH_FAILURE_RE);
     if (!match) continue;
     // Autonomy job ids carry the roadmap item: mel-autonomy-mel-manifest-01-e….
     const roadmapId = (String(job.id || '').match(/^mel-autonomy-([a-z0-9]+-[a-z0-9]+-\d+)/i)?.[1] || '').toUpperCase();

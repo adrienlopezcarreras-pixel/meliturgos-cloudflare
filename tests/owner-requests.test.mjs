@@ -31,8 +31,10 @@ test('a mel-autonomy mission failed on a missing connection raises one AUTH requ
   const now = Date.now();
   await db.prepare('CREATE TABLE dev_jobs (id TEXT, status TEXT, requested_by TEXT, goal TEXT, error TEXT, updated_at INTEGER)').run();
   const insert = (id, error) => db.prepare('INSERT INTO dev_jobs VALUES (?, ?, ?, ?, ?, ?)').bind(id, 'FAILED', 'mel-autonomy', 'Lire Gmail', error, now - 1000).run();
-  await insert('mel-autonomy-mel-gmail-02-e1-1', 'COUNCIL_REJECTED_VERIFY_EXISTING: Missing evidence of five read Gmail messages');
-  await insert('mel-autonomy-mel-gmail-02-e2-1', 'COUNCIL_REJECTED_VERIFY_EXISTING: Missing evidence of five read Gmail messages');
+  await insert('mel-autonomy-mel-gmail-02-e1-1', 'GMAIL_OAUTH_TOKEN_EXPIRED: refresh refused');
+  await insert('mel-autonomy-mel-gmail-02-e2-1', 'GOOGLE_NOT_CONNECTED');
+  // Production false positive (26/10): a Council verdict naming gmail tools.
+  await insert('mel-autonomy-mel-founder-01-e1-1', 'COUNCIL_REJECTED_VERIFY_EXISTING: gpt-oss-120b : Missing proof that responses do not contain JSON of the API call (gmail.messages.search, drive.file)');
   await insert('mel-autonomy-mel-core-01-e1-1', 'AUTONOMY_RUNTIME_RETRY_EXHAUSTED:JOB_UPDATE_CONFLICT');
   const swept = await raiseOwnerRequestsForFailedJobs(db, { now });
   assert.equal(swept.created, 1);
