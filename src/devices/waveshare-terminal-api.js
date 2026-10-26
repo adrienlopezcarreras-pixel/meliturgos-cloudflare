@@ -451,10 +451,16 @@ async function runMiniDirectVoice(text, env) {
   };
 }
 
-// Phone and MINI talk. They do not code. An explicit PC action stays on the
-// computer agent; everything else is the short conversational model.
+function deviceNeedsVisibleMedia(text) {
+  const value = String(text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  return /\b(?:photo|image|portrait|video|son|audio|musique|page|site|montre|affiche)\b/.test(value);
+}
+
+// Phone and MINI talk. They do not code. A photo, a sound, a video or a page
+// still goes through the normal chat so the screen receives a real display.
+// An explicit PC action stays on the computer agent.
 export async function answerOwnedDeviceConversation(text, env) {
-  if (inferComputerAgentGoal(text)) return null;
+  if (inferComputerAgentGoal(text) || deviceNeedsVisibleMedia(text)) return null;
   const answer = await runMiniDirectVoice(text, env);
   return { ...answer, response_mode: "device-conversation" };
 }

@@ -1474,6 +1474,14 @@ static MelChatReply chat_with_mel(const std::string &text) {
                 if (cJSON_IsString(image_url) && image_url->valuestring && strncmp(image_url->valuestring, "https://", 8) == 0) {
                     row.image_url = image_url->valuestring;
                 }
+                if (row.image_url.empty()) {
+                    std::string lower = row.url;
+                    for (char &c : lower) c = (char)std::tolower((unsigned char)c);
+                    if (lower.find(".jpg") != std::string::npos || lower.find(".jpeg") != std::string::npos ||
+                        lower.find(".png") != std::string::npos || lower.find(".webp") != std::string::npos) {
+                        row.image_url = row.url;
+                    }
+                }
                 reply.display_items.push_back(std::move(row));
             }
         }
@@ -2843,25 +2851,31 @@ static bool mobile_asset_chunk(const uint8_t *data, size_t len, void *ctx_ptr) {
     return true;
 }
 
+static bool render_card_body_to_screen(const std::string &body);
+
 static bool render_display_item_card(size_t index) {
     if (!mel_mobile_bridge_ready() || g_display_items.empty()) return false;
     if (index >= g_display_items.size()) index = 0;
     const MelDisplayItem &item = g_display_items[index];
 
-    // The phone owns the real browser engine. Render the page there and return
-    // only a 320x320 RGB565 view to MINI RAM. No browser asset is persisted on MINI.
+    // A photo must be shown as a photo. Opening the article first hid the image
+    // behind a page the small screen cannot really browse.
+    if (!item.image_url.empty()) {
+        cJSON *root = cJSON_CreateObject();
+        cJSON_AddStringToObject(root, "title", item.title.c_str());
+        cJSON_AddStringToObject(root, "snippet", item.snippet.c_str());
+        cJSON_AddStringToObject(root, "url", item.url.c_str());
+        cJSON_AddStringToObject(root, "image_url", item.image_url.c_str());
+        const std::string body = json_string(root);
+        cJSON_Delete(root);
+        if (g_storage_ok && render_card_body_to_screen(body)) return true;
+    }
+
     if (open_web_page_on_mini(item.url)) return true;
+    return false;
+}
 
-    if (!g_storage_ok) return false;
-
-    cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "title", item.title.c_str());
-    cJSON_AddStringToObject(root, "snippet", item.snippet.c_str());
-    cJSON_AddStringToObject(root, "url", item.url.c_str());
-    if (!item.image_url.empty()) cJSON_AddStringToObject(root, "image_url", item.image_url.c_str());
-    const std::string body = json_string(root);
-    cJSON_Delete(root);
-
+static bool render_card_body_to_screen(const std::string &body) {
     mkdir("/melstore/mel", 0775);
     const std::string path = "/melstore/mel/web-card.mimg";
     FILE *fp = fopen(path.c_str(), "wb");
@@ -2869,7 +2883,7 @@ static bool render_display_item_card(size_t index) {
     MobileAssetContext ctx;
     ctx.fp = fp;
     int status = 0;
-    ESP_LOGI(TAG, "DISPLAY card render via MEL MOBILE index=%u", (unsigned)index);
+    ESP_LOGI(TAG, "DISPLAY card render via MEL MOBILE");
     const esp_err_t err = mel_mobile_bridge_request_stream(
         HTTP_METHOD_POST,
         "/api/device/v1/render/card",
