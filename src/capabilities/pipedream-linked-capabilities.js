@@ -1,3 +1,5 @@
+import { buildDriveUpload } from './drive-file-body.js';
+
 const GRAPH = 'https://graph.microsoft.com/v1.0';
 const MAX_LIST = 50;
 const objectOutput = { type: 'object', additionalProperties: true };
@@ -486,12 +488,13 @@ export function registerPipedreamLinkedCapabilities(bus, { pipedreamRuntime = nu
     id: 'drive.files.create',
     name: 'Google Drive text file create',
     category: 'files',
-    description: 'Creates one bounded text file in Google Drive after explicit owner approval.',
+    description: 'Creates one text, Markdown, CSV, JSON, HTML, PDF, free SVG, Google Doc, Google Sheet, Google Slides, Google Form or Google Drawing after explicit owner approval.',
     input_schema: {
       type: 'object',
       properties: {
         name: { type: 'string', minLength: 1, maxLength: 300 },
         content: { type: 'string', maxLength: 120000 },
+        format: { type: 'string', enum: ['txt', 'md', 'csv', 'json', 'html', 'pdf', 'svg', 'gdoc', 'gsheet', 'gslides', 'gform', 'gdrawing', 'doc', 'document', 'texte', 'sheet', 'classeur', 'tableur', 'vector', 'vectoriel', 'dessin', 'drawing', 'slide', 'slides', 'presentation', 'présentation', 'diaporama', 'form', 'formulaire'] },
         parent_id: { type: 'string', maxLength: 500 },
       },
       required: ['name', 'content'],
@@ -506,7 +509,39 @@ export function registerPipedreamLinkedCapabilities(bus, { pipedreamRuntime = nu
     if (/[\r\n]/.test(name)) throw capError('GOOGLE_DRIVE_NAME_INVALID', 400);
     const content = String(input.content ?? '');
     if (content.length > 120000) throw capError('GOOGLE_DRIVE_CONTENT_INVALID', 400);
-    const metadata = { name, mimeType: 'text/plain' };
+    const parentId = input.parent_id ? text(input.parent_id, 'GOOGLE_DRIVE_PARENT_ID_INVALID', 500) : '';
+    if (parentId.includes('/') || parentId.includes('..')) throw capError('GOOGLE_DRIVE_PARENT_ID_INVALID', 400);
+    const upload = buildDriveUpload({ name, content, format: input.format, parentId });
+    if (upload.api === 'slides' || upload.api === 'form') {
+      const origin = upload.api === 'slides'
+        ? 'https://slides.googleapis.com/v1/presentations'
+        : 'https://forms.googleapis.com/v1/forms';
+      const created = await proxy(pipedreamRuntime, context, 'google_drive', origin, { method: 'POST', body: upload.create });
+      const id = String(upload.api === 'slides' ? created?.presentationId || '' : created?.formId || '');
+      if (!id || /[/?#\s]/.test(id)) throw capError('GOOGLE_DRIVE_CREATE_ID_MISSING', 502);
+      const requests = upload.api === 'slides'
+        ? upload.batch(created?.slides?.[0]?.objectId || '').requests
+        : upload.batch().requests;
+      if (requests.length) {
+        await proxy(pipedreamRuntime, context, 'google_drive', origin + '/' + encodeURIComponent(id) + ':batchUpdate', {
+          method: 'POST',
+          body: { requests },
+        });
+      }
+      const mime = upload.api === 'slides' ? 'application/vnd.google-apps.presentation' : 'application/vnd.google-apps.form';
+      const link = (upload.api === 'slides' ? 'https://docs.google.com/presentation/d/' : 'https://docs.google.com/forms/d/') + encodeURIComponent(id) + '/edit';
+      return { provider: 'pipedream', service: 'google-drive', accepted: true, format: upload.format, file: { id, name: upload.name, mimeType: mime, webViewLink: link } };
+    }
+    if (upload.google) {
+      const created = await proxy(pipedreamRuntime, context, 'google_drive', upload.url, {
+        method: 'POST',
+        body: upload.body,
+        headers: { 'content-type': upload.contentType },
+      });
+      if (!created?.id) throw capError('GOOGLE_DRIVE_CREATE_ID_MISSING', 502);
+      return { provider: 'pipedream', service: 'google-drive', accepted: true, format: upload.format, file: created };
+    }
+    const metadata = { name: upload.name, mimeType: upload.mimeType.split(';', 1)[0] };
     if (input.parent_id) metadata.parents = [text(input.parent_id, 'GOOGLE_DRIVE_PARENT_ID_INVALID', 500)];
     const created = await proxy(pipedreamRuntime, context, 'google_drive', 'https://www.googleapis.com/drive/v3/files?fields=id,name,mimeType,webViewLink', {
       method: 'POST',
@@ -515,10 +550,10 @@ export function registerPipedreamLinkedCapabilities(bus, { pipedreamRuntime = nu
     const id = encodeId(created?.id, 'GOOGLE_DRIVE_CREATE_ID_MISSING');
     const uploaded = await proxy(pipedreamRuntime, context, 'google_drive', 'https://www.googleapis.com/upload/drive/v3/files/' + id + '?uploadType=media&fields=id,name,mimeType,webViewLink', {
       method: 'PATCH',
-      body: content,
-      headers: { 'content-type': 'text/plain; charset=utf-8' },
+      body: upload.body,
+      headers: { 'content-type': upload.mimeType },
     });
-    return { provider: 'pipedream', service: 'google-drive', accepted: true, file: uploaded?.id ? uploaded : created };
+    return { provider: 'pipedream', service: 'google-drive', accepted: true, format: upload.format, file: uploaded?.id ? uploaded : created };
   });
   ids.push('drive.files.create');
 

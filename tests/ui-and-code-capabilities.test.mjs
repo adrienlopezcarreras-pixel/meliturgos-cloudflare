@@ -35,7 +35,7 @@ test('normal home UI remains available while legacy Professor routes redirect ca
   assert.match(mvp, /data-visual-owner="mel-normal-v3"/);
   assert.match(mvp, /id="melAvatar"/);
   assert.match(mvp, /id="full"/);
-  assert.match(mvp, /\/normal-runtime\.js\?v=9/);
+  assert.match(mvp, /\/normal-runtime\.js\?v=10/);
   assert.match(NORMAL_RUNTIME_SOURCE, /location\.href='\/professor'/);
   assert.doesNotMatch(mvp, /status:\s*308/);
   assert.match(router, /url\.pathname === "\/professor-v1" \|\| url\.pathname === "\/professor-legacy"/);
