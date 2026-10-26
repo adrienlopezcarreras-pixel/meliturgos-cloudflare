@@ -203,3 +203,5 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 - `claude-reasoning-model-token-budget-20261025` — un modèle à raisonnement a besoin d'un budget de tokens qui couvre le raisonnement, sinon la réponse est vide.
 - `claude-limited-budget-proof-runs-weekly-20261025` — une preuve de release qui consomme un quota limité tourne une fois par semaine.
 - `claude-clone-test-sees-committed-files-20261025` — un test fondé sur un clone ne voit que les fichiers commités.
+- `claude-budget-meter-needs-every-model-rate-20261026` — un compteur de dépense estimé doit connaître le tarif réel de chaque modèle utilisé.
+- `claude-reduced-identity-audit-validated-before-missions-20261026` — un audit qui crée des missions est validé en production avant branchement ; l'inobservable est BLOCKED.
