@@ -8,6 +8,16 @@ const auth = { authorization: 'Basic ' + Buffer.from('adrien:test').toString('ba
 const req = body => new Request('https://mel.test/api/chat', { method: 'POST', headers: auth, body: JSON.stringify(body) });
 const events = async response => (await response.text()).split('\n').filter(Boolean).map(l => JSON.parse(l));
 
+test('an explanatory HTTP failure remains a stream error, never a successful answer', async () => {
+  for (const status of [409,503]) {
+    const response=await withChatProgress(req({text:'bonjour',stream:true}),env,{},async()=>Response.json({ok:false,code:'LORA_UNAVAILABLE',text:'Adaptateur indisponible.'},{status}));
+    const result=await events(response);
+    assert.equal(response.status,200, 'transport already opened before the handler finishes');
+    assert.deepEqual(result.filter(e=>e.type==='error'),[{type:'error',code:'LORA_UNAVAILABLE',status}]);
+    assert.equal(result.some(e=>['start','delta','done'].includes(e.type)),false);
+  }
+});
+
 test('tool runs are streamed as progress, then a JSON answer keeps all its fields', async () => {
   const handler = async (_r, _e, options) => {
     const runtime = instrumentBus({ bus: { execute: async () => ({ sources: [1, 2, 3] }) } }, options.onProgress);
