@@ -98,11 +98,53 @@ test('mentor fits each provider prompt budget and edits the complete long file, 
   const prompt = call => String(call.input?.input ?? call.input);
   // The paired PC rejects any message above 12 000 chars (SOVEREIGNTY_AI_MESSAGE_TOO_LARGE).
   assert.ok(prompt(calls.find(call => call.id === 'pc')).length <= 12_000);
-  assert.ok(prompt(calls.find(call => call.id === 'cloud')).length <= 40_000);
+  assert.equal(calls.some(call => call.id === 'cloud'), false);
   assert.match(prompt(calls.find(call => call.id === 'pc')), /EXTRAIT TRONQUÉ/);
   const [change] = result.proposal.changes;
   assert.equal(change.content.length, source.length, 'the rest of the file is preserved');
   assert.ok(change.content.includes('return "new";') && change.content.endsWith(`keep3999 = 3999;\n`));
+});
+
+test('a failed local coder is the signal to ask the online coder', async () => {
+  const calls = [];
+  const edit = {
+    summary: 'Remplace la valeur lue.',
+    edits: [{ path: 'src/example.js', find: 'return "old";', replace: 'return "new";' }],
+    tests: ['test:smoke'],
+    confidence: 0.8,
+  };
+  const pc = { ...sequenceProvider('pc', [new Error('local down')], calls), providerId: 'local-pc-coder' };
+  const cloud = sequenceProvider('cloud', [edit], calls);
+  const engine = new MentorEngine({ providerFactory: async () => [cloud, pc] });
+  const result = await engine.propose({
+    env: {},
+    goal: 'Changer la valeur lue',
+    inspectedFiles: [{ path: 'src/example.js', content: 'export function read() {\n  return "old";\n}\n' }],
+  });
+  assert.deepEqual(calls.map(call => call.id), ['pc', 'cloud']);
+  assert.equal(result.proposal.changes[0].content.includes('return "new";'), true);
+});
+
+test('a GitHub repair does not spend the local coder', async () => {
+  const calls = [];
+  const edit = {
+    summary: 'Corrige après le refus.',
+    edits: [{ path: 'src/example.js', find: 'return "old";', replace: 'return "fixed";' }],
+    tests: ['test:smoke'],
+    confidence: 0.8,
+  };
+  const pc = { ...sequenceProvider('pc', [edit], calls), providerId: 'local-pc-coder' };
+  const cloud = sequenceProvider('cloud', [edit], calls);
+  const engine = new MentorEngine({ providerFactory: async () => [pc, cloud] });
+  await engine.propose({
+    env: {},
+    goal: 'Corriger le refus',
+    mode: 'repair',
+    previousAttempts: [{ error: 'CI_FAILED' }],
+    inspectedFiles: [{ path: 'src/example.js', content: 'export function read() {\n  return "old";\n}\n' }],
+  });
+  assert.equal(calls.some(call => call.id === 'pc'), false);
+  assert.equal(calls.some(call => call.id === 'cloud'), true);
 });
 
 test('mentor rejects an edit that is not unique in the inspected file', async () => {

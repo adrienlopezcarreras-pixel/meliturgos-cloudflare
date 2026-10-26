@@ -1,12 +1,16 @@
-// Secours local : quand AUCUN modèle cloud ne peut répondre (quota Workers AI
-// épuisé, panne, délai dépassé), MEL utilise le modèle Ollama du PC d'Adrien via
-// le Companion — seulement s'il est en ligne et qu'Adrien a autorisé l'accès.
+// Deux règles, dans cet ordre.
+// 1. Le code part d'abord sur qwen2.5-coder:7b quand le PC est connecté.
+//    Le codeur en ligne n'est appelé que si cette proposition est refusée
+//    ou si GitHub a déjà refusé le changement.
+// 2. Quand le quota cloud est épuisé, le reste du texte part aussi sur le PC.
+//    Un PC absent n'est pas un modèle, et les médias restent hors de ce chemin.
 //
 // La conversation voyage en base64 dans une commande PowerShell fixe : aucun
 // texte utilisateur n'est interprété par PowerShell. La réponse revient en base64
 // UTF-8 pour garder les accents intacts.
 
 import { selectAgentDevice } from '../devices/computer-agent.js';
+import { ProviderAdapter } from '../augmentio/provider-adapter.js';
 
 export const LOCAL_PC_MODEL = 'qwen3:8b';
 // Fits the RX 9060 (8 GB). A larger coder does not load, so it cannot code.
@@ -148,5 +152,36 @@ export function bindLocalPcWorkersAi(env, run = runLocalPcModel) {
   };
   env.MEL_INFERENCE = 'local-pc';
   return env;
+}
+
+// MAX codes on the PC model while it is connected. Neurons stay unused until
+// this provider throws, which is how the mentor notices the PC could not do it.
+export async function createLocalPcCoderProvider(env, run = runLocalPcModel) {
+  const ready = await localPcModelReady(env);
+  if (!ready?.ok) return null;
+  const adapter = new ProviderAdapter({
+    id: 'local-pc-coder',
+    providerId: 'local-pc-coder',
+    modelId: LOCAL_PC_CODER_MODEL,
+    capabilities: ['CODE', 'CODE_SPECIALIST'],
+    priority: 1000,
+    estimatedCost: 0,
+    costProvenance: {
+      verified: true,
+      addedCost: 0,
+      source: 'owner-pc-ollama',
+      authorization: { approved: true, policy: 'ZERO_EURO', authority: 'owner-enabled-local-compute' },
+    },
+    invoke: async ({ input }) => {
+      const text = typeof input === 'string' ? input : String(input?.input || input?.prompt || '');
+      const local = await run({ env, messages: [{ role: 'user', content: text }], model: LOCAL_PC_CODER_MODEL });
+      if (!local?.ok || !String(local.text || '').trim()) {
+        throw Object.assign(new Error(local?.code || 'LOCAL_CODER_FAILED'), { code: local?.code || 'LOCAL_CODER_FAILED' });
+      }
+      return { text: local.text, provenance: { provider: 'local-pc-coder', model: LOCAL_PC_CODER_MODEL } };
+    },
+  });
+  adapter.maxInputChars = 7000;
+  return adapter;
 }
 
