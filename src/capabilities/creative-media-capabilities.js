@@ -72,6 +72,8 @@ async function health(env, definition) {
 }
 
 async function execute(env, definition, input) {
+  const local = env?.MEL_LOCAL_MEDIA?.[definition.id];
+  if (input?.provider === 'pc' && typeof local === 'function') return local(input);
   const adapter = directAdapter(env, definition.id);
   if (adapter) return adapter(input);
 
