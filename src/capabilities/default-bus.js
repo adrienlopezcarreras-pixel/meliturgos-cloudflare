@@ -476,7 +476,6 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     MEL_MEDIA_MISSING_REASONS: inspectWorkersAiMediaMissingReasons(runtimeEnv),
     MEL_LOCAL_MEDIA: localPcMedia,
     MEL_MEDIA_CAPABILITIES: {
-      ...localPcMedia,
       ...builtInProceduralMedia,
       ...builtInZeroCostMedia,
       ...(runtimeEnv.MEL_MEDIA_CAPABILITIES || {}),

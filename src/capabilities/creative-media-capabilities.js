@@ -76,7 +76,6 @@ async function execute(env, definition, input) {
   if (input?.provider === 'pc' && typeof local === 'function') return local(input);
   const adapter = directAdapter(env, definition.id);
   if (adapter) return adapter(input);
-  if (typeof local === 'function') return local(input);
 
   const binding = companion(env);
   if (binding) {
