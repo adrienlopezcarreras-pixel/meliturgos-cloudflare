@@ -559,6 +559,7 @@ export async function runMelSelfAuditSupervisor(env = {}, {
   forceLevel = null,
   stateStore = null,
   repairEnabled = true,
+  candidateLimit = 4,
   deps = {},
 } = {}) {
   if (!env?.DB && !stateStore) return { ok: true, skipped: true, status: 'SELF_AUDIT_DB_UNAVAILABLE' };
@@ -644,7 +645,7 @@ export async function runMelSelfAuditSupervisor(env = {}, {
     results.push(await capture('ecosystem-watch', async () => (deps.runEcosystemCapabilityWatch || runEcosystemCapabilityWatch)(env, { force: true, sourceSha: clean(env.MEL_DEPLOYED_GIT_SHA, 80) || null })));
     results.push(await capture('dependency-longevity', async () => (deps.runDependencyLongevityWatchRuntime || runDependencyLongevityWatchRuntime)(env, { force: true, now: current })));
     results.push(await capture('sovereignty-watch', async () => (deps.runSovereigntyReplacementWatchRuntime || runSovereigntyReplacementWatchRuntime)(env, { force: true, now: current })));
-    results.push(await capture('sovereignty-ai-prevalidation', async () => (deps.runConfiguredAiCandidateValidationRuntime || runConfiguredAiCandidateValidationRuntime)(env, { force: true, now: current, limit: 4 })));
+    results.push(await capture('sovereignty-ai-prevalidation', async () => (deps.runConfiguredAiCandidateValidationRuntime || runConfiguredAiCandidateValidationRuntime)(env, { force: true, now: current, limit: candidateLimit })));
   }
 
   let startedStress = null;

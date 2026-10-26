@@ -31,7 +31,7 @@ import { maybeHandleReleaseLaunchBootstrap } from "./evolution/release-launch-bo
 import { maybeHandleSovBackupDownload } from "./portability/google-drive-backup-restore-prevalidation-runtime.js";
 import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js";
 import { runMelSelfAuditSupervisor } from "./diagnostics/self-audit-supervisor.js";
-import { resumeActivePersistentCapabilityStress } from "./diagnostics/persistent-capability-stress.js";
+import { resumeActivePersistentCapabilityStress, stressDrainContinues } from "./diagnostics/persistent-capability-stress.js";
 import { handleVoiceTranscription } from "./api/voice-transcribe.js";
 import { handleFileUpload } from "./api/file-upload.js";
 import { handleGeneratedMedia } from "./api/generated-media.js";
@@ -40,7 +40,7 @@ import { readLastSafeWorkJob, writeLastSafeWorkJob } from "./dev/dev-bridge-stat
 import { buildVerifiedWorkComputerContext, interpretWorkScreenCapture, revokeWorkScreenConsent, workScreenErrorResponse } from "./work/companion-screen-evidence.js";
 import { getChatGPTImportStatus, recordChatGPTCollectorCoverage } from "./persistence/chatgpt-archive-importer.js";
 import { maybeHandleWaveshareTerminalApi } from "./devices/waveshare-terminal-api.js";
-import { maybeHandleComputerApi } from "./devices/computer-companion-api.js";
+import { maybeHandleComputerApi, windowsCompanionRecentlyOpen } from "./devices/computer-companion-api.js";
 import { maybeHandleAndroidCompanionApi } from "./devices/android-companion-api.js";
 import { enforceHttpAuthPolicy } from "./security/http-auth-policy.js";
 import { runShardVaultCycle, searchAutonomousShardVaultRepositories } from "./continuity/shardvault-runtime.js";
@@ -77,6 +77,29 @@ export async function runPersistentCapabilityStressResumeTick(env = {}, { waitUn
       ...(typeof waitUntil === 'function' ? { waitUntil } : {}),
     },
   });
+}
+
+// PC open: finish the already-started capability audit in this invocation.
+// Stop only when the job is no longer queued, or when a step does not advance
+// (runaway guard, not an audit quota).
+export async function drainOpenPcCapabilityStress(env = {}) {
+  if (!env?.DB) return { ok: true, skipped: true, reason: 'CAPABILITY_STRESS_DB_NOT_CONFIGURED' };
+  const runtime = createGen2Runtime({ env });
+  const context = {
+    owner: String(env.MELITURGOS_USER || 'owner'),
+    permissions: [],
+    requestId: crypto.randomUUID(),
+  };
+  let last = null;
+  let previous = '';
+  for (let step = 0; step < 2000; step += 1) {
+    last = await resumeActivePersistentCapabilityStress({ bus: runtime.bus, db: env.DB, context });
+    if (!stressDrainContinues(last)) break;
+    const cursor = [last?.summary?.next_index, last?.progress?.pass, last?.progress?.done, last?.summary?.phase].join(':');
+    if (cursor === previous) break;
+    previous = cursor;
+  }
+  return last;
 }
 
 function isArchivePayload(value) {
@@ -609,12 +632,14 @@ export default {
     const maintenanceCron = cron === '17 * * * *';
     const dailySelfAuditCron = cron === '43 2 * * *';
     const auditWaitUntil = typeof ctx?.waitUntil === 'function' ? promise => ctx.waitUntil(promise) : null;
-    const runSelfAudit = maxLevel => {
+    const pcOpen = await windowsCompanionRecentlyOpen(env).catch(() => false);
+    const runSelfAudit = (maxLevel, extra = {}) => {
       const runtime = createGen2Runtime({ env });
       return runMelSelfAuditSupervisor(env, {
         bus: runtime.bus,
         maxLevel,
         waitUntil: auditWaitUntil,
+        ...extra,
       });
     };
 
@@ -742,7 +767,9 @@ export default {
             console.error('[MEL ShardVault] hourly Internet discovery failed:', error?.code || error?.message || error);
             return null;
           }),
-          runSelfAudit('HEARTBEAT').then((result) => {
+          (pcOpen
+            ? runSelfAudit('MONTHLY', { forceLevel: 'MONTHLY', candidateLimit: 1000 })
+            : runSelfAudit('HEARTBEAT')).then((result) => {
             if (result?.status === 'SELF_AUDIT_DEGRADED') {
               console.error('[MEL self-audit] hourly heartbeat detected anomalies.');
             }
@@ -759,7 +786,9 @@ export default {
                 return null;
               })]
             : []),
-          runPersistentCapabilityStressResumeTick(env, { waitUntil: auditWaitUntil }).catch((error) => {
+          (pcOpen
+            ? drainOpenPcCapabilityStress(env)
+            : runPersistentCapabilityStressResumeTick(env, { waitUntil: auditWaitUntil })).catch((error) => {
             console.error('[MEL stress] scheduled D1 continuation failed:', error?.code || error?.message || error);
             return null;
           }),

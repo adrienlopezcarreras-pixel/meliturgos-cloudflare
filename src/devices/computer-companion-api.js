@@ -36,6 +36,20 @@ export async function readCompanionRelayPresence(env, now = Date.now()) {
  } catch { return { status: 'UNKNOWN', last_seen_at: null, observed_at: now }; }
 }
 
+// The PC is open when the Windows Companion heartbeat is still fresh.
+// Two minutes covers one missed minute-cron boundary without treating a
+// closed PC as present.
+export async function windowsCompanionRecentlyOpen(env, now = Date.now()) {
+  if (!env?.DB?.prepare) return false;
+  try {
+    const row = await env.DB.prepare('SELECT last_seen_at, halted FROM computer_devices ORDER BY last_seen_at DESC LIMIT 1').first();
+    const at = Number(row?.last_seen_at || 0);
+    return Number(row?.halted) !== 1 && at > 0 && at <= now && now - at <= 120_000;
+  } catch {
+    return false;
+  }
+}
+
 export const COMPUTER_API_BASE="/api/computer/v1";
 export const COMPUTER_ROUTES=Object.freeze({
  pairCode:"/api/computer/v1/pair-code",
