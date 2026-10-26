@@ -9,6 +9,9 @@
 import { selectAgentDevice } from '../devices/computer-agent.js';
 
 export const LOCAL_PC_MODEL = 'qwen3:8b';
+// Fits the RX 9060 (8 GB). A larger coder does not load, so it cannot code.
+export const LOCAL_PC_CODER_MODEL = 'qwen2.5-coder:7b';
+export const ONLINE_CODER_MODEL = '@cf/qwen/qwen2.5-coder-32b-instruct';
 const POLL_MS = 700;
 const TIMEOUT_MS = 600_000;
 const COMMAND_LIMIT = 8_000;
@@ -43,6 +46,13 @@ export function compactMessages(messages, budget = 16_000) {
   return out;
 }
 
+export function chooseLocalModel(messages, requested = '') {
+  const blob = [requested, ...(Array.isArray(messages) ? messages : []).map(message => message?.content || '')].join('\n');
+  return /\b(coder|patch|diff|function |import |export |class |```|fichier\s+src\/)/i.test(blob)
+    ? LOCAL_PC_CODER_MODEL
+    : LOCAL_PC_MODEL;
+}
+
 export function localPcCommand({ model = LOCAL_PC_MODEL, messages }) {
   if (!/^[A-Za-z0-9_.:/-]{1,120}$/.test(model)) throw new Error('LOCAL_MODEL_INVALID');
   let budget = 16_000;
@@ -58,7 +68,7 @@ export function localPcCommand({ model = LOCAL_PC_MODEL, messages }) {
     command = [
       "$ErrorActionPreference='Stop'",
       "$body=[Convert]::FromBase64String('" + payload + "')",
-      "$pref=Join-Path $env:LOCALAPPDATA 'MEL\\local-model.txt'",
+      "$pref=Join-Path $env:LOCALAPPDATA 'MEL\\" + (String(model).includes('coder') ? 'local-coder.txt' : 'local-model.txt') + "'",
       "if(Test-Path -LiteralPath $pref){$n=(Get-Content -LiteralPath $pref -Raw).Trim();if($n -match '^[A-Za-z0-9_.:/-]{1,80}$'){$o=[Text.Encoding]::UTF8.GetString($body)|ConvertFrom-Json;$o.model=$n;$body=[Text.Encoding]::UTF8.GetBytes(($o|ConvertTo-Json -Compress -Depth 8))}}",
       "$r=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/chat' -Method Post -ContentType 'application/json; charset=utf-8' -Body $body -TimeoutSec 580",
       "$t=[string]$r.message.content",
@@ -111,22 +121,29 @@ export async function localPcModelReady(env, now = Date.now()) {
   return { ok: true, device_id: device.id };
 }
 
-// Replaces Workers AI for one tick. Text chats go to Ollama. Nothing is metered
-// and the cloud binding is never called.
+// The PC answers first. If it cannot, the original cloud model is asked.
+// A coding request that the PC misses goes to the online coder, not to a chat model.
 export function bindLocalPcWorkersAi(env, run = runLocalPcModel) {
+  const cloud = env.AI;
   const dbEnv = env;
   env.AI = {
     __melLocalPc: true,
-    run: async (_model, inputs = {}) => {
+    run: async (model, inputs = {}) => {
       const messages = Array.isArray(inputs.messages) && inputs.messages.length
         ? inputs.messages
         : (inputs.prompt ? [{ role: 'user', content: String(inputs.prompt) }] : null);
       if (!messages) throw Object.assign(new Error('LOCAL_MODEL_TEXT_ONLY'), { code: 'LOCAL_MODEL_TEXT_ONLY' });
-      const local = await run({ env: dbEnv, messages });
-      if (!local?.ok || !String(local.text || '').trim()) {
+      const wanted = chooseLocalModel(messages, model);
+      const local = await run({ env: dbEnv, messages, model: wanted });
+      if (local?.ok && String(local.text || '').trim()) {
+        return { response: local.text, model: local.model, local: true };
+      }
+      if (typeof cloud?.run !== 'function' || cloud.__melLocalPc) {
         throw Object.assign(new Error(local?.code || 'LOCAL_MODEL_FAILED'), { code: local?.code || 'LOCAL_MODEL_FAILED' });
       }
-      return { response: local.text, model: local.model, local: true };
+      const online = wanted === LOCAL_PC_CODER_MODEL ? ONLINE_CODER_MODEL : model;
+      const answer = await cloud.run(online, inputs);
+      return { ...(answer && typeof answer === 'object' ? answer : { response: String(answer || '') }), local: false, local_fallback: local?.code || 'LOCAL_MODEL_FAILED' };
     },
   };
   env.MEL_INFERENCE = 'local-pc';

@@ -21,6 +21,26 @@ import { readSurvivalState, shouldResumeForSurvival } from '../legacy/survival-m
 export * from './autonomy-runtime-core.js';
 
 const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
+// One GPU cannot run an unlimited pile of models. Four developments in the
+// same minute is the most that still finishes before the next heartbeat.
+export const PC_DEVELOPMENTS_PER_TICK = 4;
+
+export async function advanceMoreOnPc({ env, ready = localPcModelReady, run, seed, alreadyRan = 1, limit = PC_DEVELOPMENTS_PER_TICK } = {}) {
+  const local = await ready(env).catch(() => null);
+  if (!local?.ok || typeof run !== 'function') return { result: seed, ran: alreadyRan, job_ids: [] };
+  let result = seed;
+  let ran = alreadyRan;
+  const job_ids = [];
+  while (ran < limit) {
+    if (result?.progress?.work_remaining !== true || result?.progress?.waiting_external === true) break;
+    const next = await run();
+    ran += 1;
+    job_ids.push(next?.progress?.job_id || null);
+    result = next;
+    if (next?.progress?.advanced !== true && next?.advanced !== true) break;
+  }
+  return { result, ran, job_ids, device_id: local.device_id || null };
+}
 const ACTIONABLE_FAILURE_STATES = new Set(['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE', 'TEACHER_APPROVED']);
 const ACTIVE_RUNTIME_STATES = new Set([
   'QUEUED',
@@ -505,8 +525,16 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
   }
 
   if (!ownerMaxSweep.applied.length) {
+    const more = await advanceMoreOnPc({
+      env,
+      seed: first,
+      run: async () => {
+        bindLocalPcWorkersAi(env, options.runLocalPcModel);
+        return preservePreEnsureCreation(await runCoreResilient(env, coreOptions, repository), preEnsure);
+      },
+    });
     return {
-      ...first,
+      ...more.result,
       control,
       pre_ensure: preEnsure,
       queue_hygiene: queueHygiene,
@@ -515,12 +543,22 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
       owner_chat_teacher_mirror: ownerChatTeacherMirror,
       owner_max_applied: false,
       owner_max_sweep: ownerMaxSweep,
+      jobs_this_tick: more.ran,
     };
   }
 
   const second = preservePreEnsureCreation(await runCoreResilient(env, coreOptions, repository), preEnsure);
+  const more = await advanceMoreOnPc({
+    env,
+    seed: second,
+    alreadyRan: 2,
+    run: async () => {
+      bindLocalPcWorkersAi(env, options.runLocalPcModel);
+      return preservePreEnsureCreation(await runCoreResilient(env, coreOptions, repository), preEnsure);
+    },
+  });
   return {
-    ...second,
+    ...more.result,
     control,
     pre_ensure: preEnsure,
     queue_hygiene: queueHygiene,
@@ -531,6 +569,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     owner_max_sweep: ownerMaxSweep,
     owner_max_bypassed_stage: 'WAITING_TEACHER',
     production_release_allowed: control.max_autonomy === true,
+    jobs_this_tick: more.ran,
   };
 }
 

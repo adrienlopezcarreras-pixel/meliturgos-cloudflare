@@ -30,7 +30,14 @@ export const WORK_MODELS = Object.freeze(['@cf/openai/gpt-oss-120b', '@cf/meta/l
 export const WORK_MODEL = WORK_MODELS[0];
 const DEFAULT_ORIGIN = 'https://meliturgos.adrien-lopezcarreras.workers.dev';
 export const TASKMARKET_TASKS_URL = 'https://api.taskmarket.dev/api/tasks?status=open&sort=reward_desc&limit=50';
-const MIN_REMAINING_MS = 3 * 60 * 60 * 1000; // leave the owner time to review and submit
+// Several public lists: the biggest prizes, the newest, and benchmarks.
+// One dead list must not hide the others.
+export const TASKMARKET_FEEDS = Object.freeze([
+  TASKMARKET_TASKS_URL,
+  'https://api.taskmarket.dev/api/tasks?status=open&sort=created_desc&limit=50',
+  'https://api.taskmarket.dev/api/tasks?status=open&mode=benchmark&limit=50',
+]);
+const MIN_REMAINING_MS = 45 * 60 * 1000;
 const DRAFT_MAX_TOKENS = 4_000;              // gpt-oss reasons first; the text is capped below
 const DRAFT_MAX_CHARS = 10_000;              // + links, sources and hand-in header, under the 12k artifact limit
 const encoder = new TextEncoder();
@@ -51,6 +58,44 @@ export function rankMissions(tasks, { now = Date.now(), alreadyDrafted = new Set
       return { ...task, score: reward / (1 + Number(task.submissionCount || 0)), drafted: alreadyDrafted.has(task.id) };
     })
     .sort((a, b) => (a.drafted - b.drafted) || (b.score - a.score));
+}
+
+// A model call is only spent on a bounty that can pay and that MEL can finish
+// alone. Video, identity checks and gift cards never reach the assessor.
+const NOT_PAYABLE = /\b(kyc|passport|permis|phone call|appel t[ée]l[ée]phonique|vid[ée]o|youtube|tiktok|podcast|film yourself|en personne|on[- ]site|gift ?card|carte cadeau|airdrop|seed phrase)\b/i;
+
+export function knownGap(task) {
+  const text = `${task?.title || ''} ${task?.description || ''}`;
+  if (/\b(vid[ée]os?|youtube|tiktok)\b/i.test(text)) return 'video.generate';
+  if (/\b(podcast|voix|audio)\b/i.test(text)) return 'audio.voice';
+  if (/\b(kyc|passport|permis|phone call|appel t[ée]l[ée]phonique)\b/i.test(text)) return 'identity.verify';
+  return '';
+}
+
+export function worthAssessing(task) {
+  if (!task || (task.mode !== 'bounty' && task.mode !== 'benchmark')) return false;
+  let reward = 0n;
+  try { reward = BigInt(task.reward); } catch { return false; }
+  if (reward <= 0n) return false;
+  const text = `${task.title || ''} ${task.description || ''}`;
+  return !NOT_PAYABLE.test(text);
+}
+
+export async function loadOpenTasks(fetchImpl, now = Date.now()) {
+  const byId = new Map();
+  let reached = false;
+  for (const url of TASKMARKET_FEEDS) {
+    try {
+      const response = await fetchImpl(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(12_000) });
+      if (!response?.ok) continue;
+      reached = true;
+      for (const task of normalizeRevenueTasks(await response.json(), now)) {
+        if (task?.id) byId.set(task.id, task);
+      }
+    } catch { /* the next list can still pay */ }
+  }
+  if (!reached) throw new Error('TASKMARKET_UPSTREAM_ERROR');
+  return [...byId.values()];
 }
 
 // Pulls the first JSON object out of a model reply (models often add prose or fences).
@@ -299,13 +344,15 @@ export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(
         cycleAdmitted=await recordCycle(env.DB, cycleId, 'RUNNING', null);
         if(!cycleAdmitted){send({type:'error',code:'WORK_PAUSED_FOR_MAINTENANCE'});return;}
         step('Lecture des offres Taskmarket ouvertes…');
-        const response = await fetchImpl(TASKMARKET_TASKS_URL, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(12_000) });
-        if (!response.ok) throw new Error('TASKMARKET_UPSTREAM_ERROR');
-        const tasks = normalizeRevenueTasks(await response.json(), now());
-        const ranked = rankMissions(tasks, { now: now(), alreadyDrafted: await alreadyDraftedIds(env.DB) })
-          .filter(task => !autonomous || !task.drafted)
-          // Only bounties can be handed in without anyone: MEL never claims, pitches or bids.
-          .filter(task => task.mode === 'bounty');
+        const tasks = await loadOpenTasks(fetchImpl, now());
+        const considered = rankMissions(tasks, { now: now(), alreadyDrafted: await alreadyDraftedIds(env.DB) })
+          .filter(task => !autonomous || !task.drafted);
+        for (const task of considered) {
+          if (worthAssessing(task)) continue;
+          const missing = knownGap(task);
+          if (missing) await recordWorkRejection(env.DB, task, { missingCapability: missing, reason: 'Offre hors de portée, sans appel de modèle' }, { now: now() });
+        }
+        const ranked = considered.filter(worthAssessing);
         step(tasks.length + ' offre(s) ouverte(s), ' + ranked.length + ' avec assez de temps restant. Je commence par la concurrence la plus faible.');
         const byId = new Map(ranked.map(task => [task.id, task]));
         const channels = await channelStatus(env).catch(() => ({ mel_page: true, image: false, devto: false, bluesky: false }));

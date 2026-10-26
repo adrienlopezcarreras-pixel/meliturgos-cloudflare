@@ -3,7 +3,9 @@
 import { withChatProgress } from './api/chat-progress.js';
 import { maybeDispatchCloudBridge } from './evolution/cloud-bridge-dispatch.js';
 import { handleTaskmarketWalletImport } from './revenue/taskmarket-cloud.js';
-import { runRevenueWatch } from "./revenue/revenue-watch.js";
+import { runRevenueWatch, installRevenueSource } from "./revenue/revenue-watch.js";
+import { watchPaidAlternatives } from "./revenue/paid-work-watch.js";
+import { createOwnerRequest } from "./evolution/owner-requests.js";
 import { runScheduledMelWork, isDedicatedWorkMinute } from "./revenue/work-schedule.js";
 import { runModelTournament } from "./models/model-tournament.js";
 import router from "./router.js";
@@ -640,6 +642,20 @@ export default {
           }),
           runScheduledMelWork(env, { startCycle: false }).catch((error) => {
             console.error('[MEL WORK] hourly housekeeping failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          watchPaidAlternatives(env, {
+            install: installRevenueSource,
+            askOwner: (db, lead) => createOwnerRequest(db, {
+              kind: 'AUTH',
+              title: 'Connecteur : ' + String(lead.name || 'source').slice(0, 120),
+              question: 'Je n’ai pas le connecteur. Je le code. Ouvre le lien seulement si un compte est obligatoire, puis réponds ici.',
+              link: lead.url,
+              dedupeKey: 'revenue-connector:' + lead.url,
+              goal: String(lead.how_mel_earns || '').slice(0, 500),
+            }),
+          }).catch((error) => {
+            console.error('[MEL WORK] hourly paid-work watch failed:', error?.code || error?.message || error);
             return null;
           }),
           runExpiredMediaCleanup(env).catch((error) => {

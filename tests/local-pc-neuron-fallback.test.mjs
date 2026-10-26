@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
-import { bindLocalPcWorkersAi, localPcModelReady } from '../src/models/local-pc-model.js';
+import { bindLocalPcWorkersAi, chooseLocalModel, localPcCommand, localPcModelReady, ONLINE_CODER_MODEL } from '../src/models/local-pc-model.js';
 
 async function device(db, metadata, now) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS computer_devices (
@@ -32,6 +32,26 @@ test('the local binding answers text and never calls Workers AI', async () => {
   assert.equal(answer.local, true);
   assert.equal(env.MEL_INFERENCE, 'local-pc');
   await assert.rejects(env.AI.run('image', {}), error => error.code === 'LOCAL_MODEL_TEXT_ONLY');
+});
+
+test('a coding question the PC cannot answer is asked to the online coder', async () => {
+  const seen = [];
+  const env = { DB: {}, AI: { run: async model => { seen.push(model); return { response: 'function patch(){return 1}' }; } } };
+  bindLocalPcWorkersAi(env, async (call) => {
+    assert.equal(call.model, 'qwen2.5-coder:7b');
+    return { ok: false, code: 'LOCAL_MODEL_EMPTY' };
+  });
+  const answer = await env.AI.run('@cf/meta/llama', { messages: [{ role: 'user', content: 'écris la fonction patch' }] });
+  assert.equal(answer.local, false);
+  assert.equal(answer.local_fallback, 'LOCAL_MODEL_EMPTY');
+  assert.deepEqual(seen, [ONLINE_CODER_MODEL]);
+});
+
+test('a coding command reads the coder file, not the chat model', () => {
+  assert.equal(chooseLocalModel([{ role: 'user', content: 'bonjour' }]), 'qwen3:8b');
+  const command = localPcCommand({ model: 'qwen2.5-coder:7b', messages: [{ role: 'user', content: 'function add' }] }).command;
+  assert.match(command, /local-coder\.txt/);
+  assert.doesNotMatch(command, /local-model\.txt/);
 });
 
 test('an exhausted neuron share continues on the PC instead of stopping MAX', async () => {

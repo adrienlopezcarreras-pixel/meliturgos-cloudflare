@@ -23,7 +23,7 @@ async function readEvents(response) {
 
 test('missions are ranked by expected value: low competition beats a big crowded bounty', () => {
   const ranked = rankMissions([task('crowded', 10_000_000, 120), task('quiet', 2_000_000, 0), task('soon', 9_000_000, 0, 1)], { now: NOW });
-  assert.deepEqual(ranked.map(t => t.id), ['quiet', 'crowded']); // 'soon' expires in 1 h: no time to review
+  assert.deepEqual(ranked.map(t => t.id), ['soon', 'quiet', 'crowded']); // 1 h is enough: she submits herself
 });
 
 test('missions requiring a stake or already claimed are never proposed; drafted ones go last', () => {
