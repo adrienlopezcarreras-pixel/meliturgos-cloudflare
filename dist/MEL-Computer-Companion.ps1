@@ -257,7 +257,11 @@ function Invoke-MelJson {
   if ($null -eq $Body) {
     return Invoke-RestMethod -Uri $uri -Method $Method -Headers $h -TimeoutSec 20
   }
-  return Invoke-RestMethod -Uri $uri -Method $Method -Headers $h -ContentType "application/json" -Body ($Body | ConvertTo-Json -Depth 12 -Compress) -TimeoutSec 20
+  # Windows PowerShell 5.1 otherwise uses a legacy request encoding. Keep
+  # accents and emoji from model/tool results intact on their way to MEL.
+  $json = $Body | ConvertTo-Json -Depth 12 -Compress
+  $payloadBytes = [Text.Encoding]::UTF8.GetBytes($json)
+  return Invoke-RestMethod -Uri $uri -Method $Method -Headers $h -ContentType "application/json; charset=utf-8" -Body $payloadBytes -TimeoutSec 20
 }
 
 function Active-Window {
