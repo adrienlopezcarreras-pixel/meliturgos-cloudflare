@@ -249,19 +249,19 @@ class InternetService {
     // Generic source-page fallback: inspect explicitly described raster photos,
     // rather than treating a missing social preview as proof of no images.
     // Do not accept anonymous layout icons, logos, data URIs or SVG content.
-    const tags = source.match(/<img\\b[^>]*>/gi) || [];
+    const tags = source.match(/<img\b[^>]*>/gi) || [];
     for (const tag of tags.slice(0, 60)) {
-      const attrs = Object.fromEntries([...tag.matchAll(/([\\w:-]+)\\s*=\\s*(["'])(.*?)\\2/g)].map(m => [m[1].toLowerCase(), m[3]]));
+      const attrs = Object.fromEntries([...tag.matchAll(/([\w:-]+)\s*=\s*(["'])(.*?)\2/g)].map(m => [m[1].toLowerCase(), m[3]]));
       const description = String([attrs.alt, attrs.title].filter(Boolean).join(' ')).trim();
-      if (!description || !/\\b(?:portrait|photo|photograph|retrato|fotografia|fotografía|portraiture)\\b/i.test(description)
-          || /\\b(?:logo|icon|icone|icône|banner|bannière|placeholder|avatar default)\\b/i.test(description)) continue;
+      if (!description || !/\b(?:portrait|photo|photograph|retrato|fotografia|fotografía|portraiture)\b/i.test(description)
+          || /\b(?:logo|icon|icone|icône|banner|bannière|placeholder|avatar default)\b/i.test(description)) continue;
       const raw = attrs.src || attrs['data-src'];
       if (!raw || /^(?:data:|blob:)/i.test(raw)) continue;
       try {
-        const candidate = new URL(raw.replace(/&amp;/g, '&'), baseUrl);
+        const candidate = new URL(raw.replace(/&/g, '&'), baseUrl);
         const check = validateUrl(candidate.href);
         if (!check.valid || check.url.protocol !== 'https:' || check.url.username || check.url.password
-            || /\\.svg(?:[?#]|$)/i.test(check.url.pathname) || !/\\.(?:jpg|jpeg|png|webp|avif)(?:[?#]|$)/i.test(check.url.href)) continue;
+            || /\.svg(?:[?#]|$)/i.test(check.url.pathname) || !/\.(?:jpg|jpeg|png|webp|avif)(?:[?#]|$)/i.test(check.url.href)) continue;
         // An official page may use its own image CDN. Retain strict public URL
         // validation and cite the page that supplied the photo.
         return check.url.href.slice(0, 1200);
