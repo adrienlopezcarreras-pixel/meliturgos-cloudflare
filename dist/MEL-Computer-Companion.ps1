@@ -3467,6 +3467,8 @@ function Process-Command($command) {
   }
 }
 
+$trayResources = $null
+
 function Start-HiddenImageEngine {
   try {
     try {
@@ -3497,7 +3499,6 @@ function Start-HiddenImageEngine {
 }
 
 try { Start-HiddenImageEngine } catch {}
-$trayResources = $null
 if (-not $Headless) { $trayResources = New-MelTrayIcon }
 $lastHeartbeat = Get-Date "2000-01-01"
 try {

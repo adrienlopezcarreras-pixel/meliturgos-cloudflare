@@ -25,6 +25,7 @@ const SERVER_FILES = [
   '../src/pages/shardvault-status.js',
   '../src/api/public-fides-chat.js',
   '../src/api/public-wordpress-chat.js',
+  '../src/api/google-oauth-api.js',
   '../src/devices/computer-companion-api.js',
   '../src/devices/waveshare-terminal-api.js',
 ];
