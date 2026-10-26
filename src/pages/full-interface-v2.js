@@ -444,7 +444,8 @@ async function melCodeRefreshActivity(){
 }
 function melCodeLiveRecord(event){
   const panel=qs('#melCodeLivePanel'),host=qs('#melCodeLiveEvents');
-  if(!panel||!host||melChatRole!=='code'||panel.hidden)return;
+  const trace=event?.kind==='trace';
+  if(!host||(!trace&&(!panel||melChatRole!=='code'||panel.hidden)))return;
   const key=String(event?.id||'row-'+Date.now()+'-'+host.children.length).slice(0,120);
   let node=[...host.children].find(row=>row.dataset.eventKey===key);
   if(!node){node=document.createElement('div');node.dataset.eventKey=key;host.appendChild(node)}

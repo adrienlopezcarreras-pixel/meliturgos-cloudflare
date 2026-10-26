@@ -145,6 +145,12 @@ test('« Ce que j’ai fait » only reports what the server returned', async () 
   const refused = melTraceModel({ ok:false, code:'LORA_COMPATIBLE_ACTIVE_ADAPTER_REQUIRED', elapsed_ms:600 });
   assert.equal(refused.summary, 'LoRA UNCENSORED non activé · 0,6 s');
   assert.equal(refused.summary.includes('réponse directe'), false);
+  const toolsOnly = melTraceModel({ model: 'deterministic-media-evidence', elapsed_ms: 90500, tool_results: [{ capability: 'web.images.search', status: 'SUCCEEDED' }] });
+  assert.equal(toolsOnly.summary.includes('deterministic-media-evidence'), false);
+  assert.match(toolsOnly.summary, /outils, sans modèle/);
+  const { MEL_CHAT_TRACE_SOURCE } = await import('../src/pages/mel-chat-trace.js');
+  assert.match(MEL_CHAT_TRACE_SOURCE, /melCodeLiveRecord/);
+  assert.doesNotMatch(MEL_CHAT_TRACE_SOURCE, /chatlog|appendChild/);
   assert.ok(direct.notes.includes('réponse tronquée'));
   assert.ok(!direct.notes.includes('enregistrée dans la conversation'), 'no claim without archive proof');
 });
