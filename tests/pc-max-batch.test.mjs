@@ -32,7 +32,24 @@ test('with the PC on, one tick continues until the cap', async () => {
   assert.equal(n, PC_DEVELOPMENTS_PER_TICK - 1);
 });
 
-test('a tick stops when the next development does not advance', async () => {
+test('two distinct jobs run at the same time, then the next pair', async () => {
+  const seen = [];
+  const result = await advanceMoreOnPc({
+    env: {},
+    ready,
+    seed: { progress: { work_remaining: true, advanced: true } },
+    selectJobs: async () => ['job-a', 'job-b', 'job-c'],
+    run: async ({ onlyJobId }) => {
+      seen.push(onlyJobId);
+      return { progress: { advanced: true, job_id: onlyJobId, work_remaining: true } };
+    },
+  });
+  assert.equal(result.parallel, true);
+  assert.deepEqual(seen, ['job-a', 'job-b', 'job-c']);
+  assert.equal(result.ran, 4);
+});
+
+test('a tick stops when the next development does not advance and names no job', async () => {
   const result = await advanceMoreOnPc({
     env: {},
     ready,

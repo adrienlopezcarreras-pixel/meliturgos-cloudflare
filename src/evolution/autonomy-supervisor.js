@@ -175,16 +175,23 @@ function compareActiveJobs(left, right) {
     || String(left?.id || '').localeCompare(String(right?.id || ''));
 }
 
-export function selectActionableAutonomyJob(jobs = [], { epochMs = 0, roadmap = flattenRoadmap() } = {}) {
+export function selectActionableAutonomyJobs(jobs = [], { epochMs = 0, roadmap = flattenRoadmap(), excludeIds = [], limit = 4 } = {}) {
   const closedIds = new Set(roadmap.filter(isVerifiedRoadmap).map(item => item.id));
   const epoch = Number(epochMs) || 0;
+  const excluded = new Set(excludeIds);
   return (Array.isArray(jobs) ? jobs : [])
     .filter(isSupervisedAutonomyJob)
     .filter(job => !closedIds.has(roadmapIdFromJob(job)))
     .filter((job) => !TERMINAL_JOB.has(String(job?.status || '').toUpperCase()))
     .filter((job) => !isPassiveRuntimeJob(job))
     .filter((job) => !epoch || Number(job?.created_at || 0) >= epoch)
-    .sort(compareActiveJobs)[0] || null;
+    .filter((job) => !excluded.has(job?.id))
+    .sort(compareActiveJobs)
+    .slice(0, Math.max(1, Math.min(4, Number(limit) || 1)));
+}
+
+export function selectActionableAutonomyJob(jobs = [], options = {}) {
+  return selectActionableAutonomyJobs(jobs, { ...options, limit: 1 })[0] || null;
 }
 
 export function manifestObjective(roadmap = flattenRoadmap()) {
@@ -227,13 +234,14 @@ export function isSupervisedAutonomyJob(job) {
 }
 
 export class AutonomySupervisor {
-  constructor({ repository, roadmap = currentRoadmap(), evolutionLoader = null, epochMs = 0 } = {}) {
+  constructor({ repository, roadmap = currentRoadmap(), evolutionLoader = null, epochMs = 0, onlyJobId = null } = {}) {
     if (!repository || typeof repository.list !== 'function' || typeof repository.create !== 'function') {
       throw Object.assign(new Error('AUTONOMY_JOB_REPOSITORY_REQUIRED'), { code: 'AUTONOMY_JOB_REPOSITORY_REQUIRED' });
     }
     this.repository = repository;
     this.roadmap = roadmap;
     this.epochMs = Number(epochMs) || 0;
+    this.onlyJobId = onlyJobId ? String(onlyJobId) : null;
     if (evolutionLoader !== null && typeof evolutionLoader !== 'function') throw new Error('EVOLUTION_QUEUE_INVALID_LOADER');
     this.evolutionLoader = evolutionLoader;
   }
@@ -315,6 +323,10 @@ export class AutonomySupervisor {
 
   async ensureNextJob() {
     const current = await this.state();
+    if (this.onlyJobId) {
+      const wanted = current.active.find(job => job.id === this.onlyJobId) || null;
+      return { created: false, job: wanted, next: current.next };
+    }
     const actionable = selectActionableAutonomyJob(current.active, { epochMs: this.epochMs, roadmap: this.roadmap });
     if (actionable) return { created: false, job: actionable, next: current.next };
 
