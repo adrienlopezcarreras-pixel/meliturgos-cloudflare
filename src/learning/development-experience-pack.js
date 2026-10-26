@@ -1453,4 +1453,48 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1792944000000
   },
+  {
+    "id": "claude-budget-meter-needs-every-model-rate-20261026",
+    "domain": "budget",
+    "task": "Plafonner la dépense IA par un compteur estimé.",
+    "input": "Le compteur de neurones appliquait le tarif plafond aux modèles absents de sa table, dont le modèle principal glm-4.7-flash.",
+    "before": "Plafond atteint après ~20 appels par jour : 2 100 refus le 25/10, chat bloqué, preuve MEDIA-02 en 429 et release annulée.",
+    "after": "Tarifs officiels de chaque modèle du ModelRegistry ; un test impose qu'aucun modèle utilisé ne soit compté au plafond inconnu.",
+    "rationale": "Un garde-fou de dépense estimé doit connaître le tarif réel de chaque modèle utilisé ; une surestimation silencieuse affame tout le système.",
+    "tests": [
+      "PR #2708",
+      "D1 mel_ai_neuron_budget 26/10 : 9 459 neurones pour 25 appels"
+    ],
+    "tags": [
+      "zero-cost",
+      "workers-ai",
+      "budget"
+    ],
+    "source": "claude",
+    "validated": true,
+    "quality": 1,
+    "created_at": 1793000000000
+  },
+  {
+    "id": "claude-reduced-identity-audit-validated-before-missions-20261026",
+    "domain": "audit",
+    "task": "Auditer la production avec une identité réduite.",
+    "input": "Audit UI en lecture seule : les panneaux ne chargeaient pas leurs données sous cette identité.",
+    "before": "Premier passage réel : 16 constats « chargement bloqué », tous des artefacts, qui auraient ouvert une mission de réparation.",
+    "after": "Ce que l'identité ne peut pas observer est compté BLOCKED ; l'audit a été rejoué en production jusqu'à 0 faux constat avant fusion.",
+    "rationale": "Un audit qui crée des missions doit être validé sur la vraie production avant d'être branché ; ce qu'il ne peut pas observer n'est jamais un échec.",
+    "tests": [
+      "PR #2709",
+      "Runs architecture-audit 26/10 : 16 → 1 → 0 constat"
+    ],
+    "tags": [
+      "audit",
+      "truth",
+      "production"
+    ],
+    "source": "claude",
+    "validated": true,
+    "quality": 1,
+    "created_at": 1793000000000
+  },
 ]);
