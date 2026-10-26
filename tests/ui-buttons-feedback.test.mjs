@@ -14,5 +14,6 @@ test('control-center buttons never fail silently', async () => {
   assert.match(page, /terminal:\['MINI & téléphone'/);
   assert.match(page, /id="pcMode"/);
   assert.match(page, /Mode PC : vert/);
+  assert.match(page, /\.status-stack \.pill\{min-width:11\.6rem;min-height:34px/);
   assert.match(page, /pc\?\.online===true&&pc\?\.local_coder===true/);
 });
