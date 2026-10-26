@@ -1,3 +1,4 @@
+import { requireChatLora, chatLoraReceipt } from '../learning/chat-lora-binding.js';
 import { collectChatMedia } from './chat-media.js';
 import { inferChatMediaCapability } from './chat-media-intent.js';
 import {
@@ -1228,7 +1229,8 @@ export function createNativeModelRouter(env, inferenceSettings = null, activeAda
   const generation = inferenceGenerationOptions(inferenceSettings);
   const runtimeModel = String(activeAdapter?.runtime_model || activeAdapter?.adapter?.runtime_model || '').trim();
   const finetuneId = String(activeAdapter?.finetune_id || activeAdapter?.adapter?.finetune_id || '').trim();
-  const registry = new ModelRegistry(standardRegistry.list());
+  const registry = new ModelRegistry(routerOptions.requireLora ? [] : standardRegistry.list());
+  if (routerOptions.requireLora) requireChatLora(activeAdapter);
   if (runtimeModel && finetuneId) {
     registry.register({
       id: runtimeModel,
@@ -1343,14 +1345,14 @@ export function resolveContinuationInferenceRoute({ voiceReply = false, professo
   };
 }
 
-export async function runNativeInference({ env, messages, text, parallel = false, maxCandidates = 4, inferenceSettings = null, activeAdapter = null, runtime = null, taskOverride = null, preferredModel = null, timeoutMs = null, maxCalls = null, deadlineAt = null } = {}) {
+export async function runNativeInference({ env, messages, text, parallel = false, maxCandidates = 4, inferenceSettings = null, activeAdapter = null, runtime = null, taskOverride = null, preferredModel = null, timeoutMs = null, maxCalls = null, deadlineAt = null, requireLora = false } = {}) {
   if (!env?.AI || typeof env.AI.run !== 'function') {
     const error = new Error('AI_BINDING_MISSING');
     error.code = 'AI_BINDING_MISSING';
     throw error;
   }
   if (deadlineAt != null && !hasChatBudget(deadlineAt, 1)) throw chatDeadlineError();
-  const router = createNativeModelRouter(env, inferenceSettings, activeAdapter, { timeoutMs, maxCalls, deadlineAt });
+  const router = createNativeModelRouter(env, inferenceSettings, activeAdapter, { timeoutMs, maxCalls, deadlineAt, requireLora });
   const task = taskOverride ? String(taskOverride).toUpperCase() : classifyTask(text || '');
   const boundedCandidates = Math.max(1, Math.min(12, Number(maxCandidates) || 4));
   if (parallel && !activeAdapter) {
@@ -1388,7 +1390,7 @@ export async function runNativeInference({ env, messages, text, parallel = false
   return router.execute({
     task,
     messages,
-    model: preferredModel || undefined,
+    model: requireLora ? (activeAdapter.runtime_model || activeAdapter.adapter.runtime_model) : (preferredModel || undefined),
     parallel: false,
     maxCandidates: boundedCandidates,
   }, { source: 'native-chat', inference_settings: inferenceSettings || null });
@@ -1433,6 +1435,12 @@ export async function handleNativeChat(request, env, options = {}) {
   if (!text) return Response.json({ error: 'MESSAGE_REQUIRED', code: 'MESSAGE_REQUIRED' }, { status: 400 });
   if (text.length > 100000) return Response.json({ error: 'MESSAGE_TOO_LONG', code: 'MESSAGE_TOO_LONG', max_input_chars: 100000 }, { status: 413 });
 
+  const requireLora = body.lora_mode === 'uncensored';
+  const requestedLora = requireLora ? await activePromotedAdapter(env) : null;
+  if (requireLora) {
+    try { requireChatLora(requestedLora); }
+    catch (error) { return Response.json({ ok:false, error:error.code, code:error.code, text:'Mode UNCENSORED indisponible : aucun adaptateur compatible validé et activé. Aucun autre modèle n’a été utilisé.', active_lora:null }, { status:409 }); }
+  }
   const themeContract = getMelThemeContract(body.ui_theme);
   const theme = themeContract.id;
   const themeInstruction = themeContract.instruction;
@@ -2279,7 +2287,7 @@ export async function handleNativeChat(request, env, options = {}) {
     : await rememberExplicit(env, text);
   const [activeInferenceSettings, activeAdapter] = await Promise.all([
     activePromotedInferenceSettings(env),
-    activePromotedAdapter(env),
+    requireLora ? Promise.resolve(requestedLora) : activePromotedAdapter(env),
   ]);
   const archiveRecallQuery = negativeFeedbackRecovery?.original_request || (conversationFocus.elliptical && conversationFocus.anchor ? conversationFocus.anchor : text);
   const shouldRecallArchive = String(capability?.id || '') !== 'autonomy.activity'
@@ -2363,7 +2371,7 @@ export async function handleNativeChat(request, env, options = {}) {
     'N’utilise un TOOL_RESULT que s’il répond directement au dernier message. Si un outil a été déclenché hors sujet, ignore son contenu dans la réponse au lieu de ramener la conversation vers une ancienne question.',
     'ARCHITECTURE MEL : tu es l’application MELITURGOS, une couche d’orchestration distincte du modèle de fondation qui produit le texte. Le flux principal est interface MEL (/ ou /professor) -> Worker/router -> /api/chat -> native-chat/context-builder -> mémoire et récupération -> bus de capabilities/outils -> ModelRouter et fournisseur(s) de modèle -> réponse et archivage. Le Learning Engine exploite les corrections et preuves persistées; les benchmarks évaluent les versions et la non-régression; un LoRA activé et persisté devient prioritaire dans l’inférence courante.',
     activeAdapter
-      ? `LORA_RUNTIME ACTIF : plan=${String(activeAdapter.plan_id || 'inconnu')} runtime=${String(activeAdapter.runtime_model || activeAdapter?.adapter?.runtime_model || 'inconnu')} finetune=${String(activeAdapter.finetune_id || activeAdapter?.adapter?.finetune_id || 'inconnu')}.`
+      ? `LORA_RUNTIME CONFIGURÉ (appliqué uniquement sur son runtime compatible) : plan=${String(activeAdapter.plan_id || 'inconnu')} runtime=${String(activeAdapter.runtime_model || activeAdapter?.adapter?.runtime_model || 'inconnu')} finetune=${String(activeAdapter.finetune_id || activeAdapter?.adapter?.finetune_id || 'inconnu')}.`
       : 'LORA_RUNTIME : aucun adaptateur actif persistant; utilise le routage standard.',
     `VÉRITÉ ACCÈS CODE : ${JSON.stringify(codeAccess)}. Si available=true, réponds clairement « oui, j’ai accès à mon dépôt/code MEL via mes capacités code » lorsqu’Adrien te le demande. Il t’est interdit de dire que tu n’as pas accès à ton code lorsque ce statut indique available=true. Un échec ponctuel d’outil signifie « l’opération a échoué cette fois », pas « je n’ai plus accès au code ». Tu ne dis que l’accès est indisponible si le manifeste courant le prouve réellement.`,
     'ACCÈS AU CODE : distingue toujours la DISPONIBILITÉ de la capacité et la PREUVE d’une lecture précise. Tu peux affirmer avoir accès au dépôt MEL lorsque codeAccess.available=true. En revanche, tu ne peux affirmer avoir effectivement lu/inspecté un fichier précis que lorsqu’un TOOL_RESULT code.read/code.search/code.integrity SUCCEEDED de la requête courante le prouve. Cet accès concerne le dépôt MEL exposé par tes outils; il ne signifie pas que tu disposes du code source propriétaire, des poids ou des mécanismes internes du modèle de fondation ou d’un fournisseur externe. Une simple question « as-tu accès à ton code source ? » ne doit pas inventer une cible de fichier : réponds depuis la vérité du manifeste.',
@@ -2471,6 +2479,7 @@ export async function handleNativeChat(request, env, options = {}) {
       maxCandidates: body.max_candidates ?? env.MEL_AUGMENTIO_MAX_CANDIDATES ?? activeInferenceSettings?.council_min_responses ?? 4,
       inferenceSettings: effectiveInferenceSettings,
       activeAdapter,
+      requireLora,
       runtime,
       taskOverride: voiceReply ? 'FAST' : (professorRoute?.task || (personalProfileIntent ? 'REASONING' : null)),
       preferredModel: voiceReply
@@ -2481,6 +2490,7 @@ export async function handleNativeChat(request, env, options = {}) {
       deadlineAt: chatDeadlineAt,
     });
   } catch (error) {
+    if (requireLora) return Response.json({ ok:false, error:'LORA_INFERENCE_UNAVAILABLE', code:'LORA_INFERENCE_UNAVAILABLE', text:'Le modèle associé au LoRA est indisponible. Aucun modèle de remplacement n’a été utilisé.', active_lora:null }, { status:503 });
     if (voiceReply) {
       try {
         const fallbackModel = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
@@ -2669,6 +2679,7 @@ export async function handleNativeChat(request, env, options = {}) {
       maxCandidates: 1,
       inferenceSettings: effectiveInferenceSettings,
       activeAdapter,
+      requireLora,
       runtime,
       taskOverride: continuationRoute.task,
       preferredModel: continuationRoute.model,
@@ -2778,6 +2789,7 @@ export async function handleNativeChat(request, env, options = {}) {
           maxCandidates:1,
           inferenceSettings:effectiveInferenceSettings,
           activeAdapter,
+      requireLora,
           runtime,
           taskOverride:'REASONING',
           deadlineAt:chatDeadlineAt,
@@ -2896,7 +2908,7 @@ export async function handleNativeChat(request, env, options = {}) {
   if (service) {
     try {
       await service.archiveMessage({ conversationId, deviceId, role: 'user', content: text, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now(), provenance: userProvenance, metadata: userMetadata });
-      await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: responseText, model: ai.model, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now() + 1, provenance: automaticCouncilAccepted ? 'native-chat:council-recovery' : (ai.augmentio_used ? 'native-chat:augmentio' : 'native-chat'), metadata: { ...responseMedia, ...(ai.inference_unavailable ? { analysis_available:false,analysis_error:'CHAT_INFERENCE_FAILED' } : {}), ...(automaticCouncilAccepted ? { council_recovery:true, xp_gain:Number(automaticCouncilXp.xp_gain || 0) } : {}) } });
+      await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: responseText, model: ai.model, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now() + 1, provenance: automaticCouncilAccepted ? 'native-chat:council-recovery' : (ai.augmentio_used ? 'native-chat:augmentio' : 'native-chat'), metadata: { lora_mode:requireLora ? 'uncensored' : 'automatic', active_lora:chatLoraReceipt(activeAdapter, ai), ...responseMedia, ...(ai.inference_unavailable ? { analysis_available:false,analysis_error:'CHAT_INFERENCE_FAILED' } : {}), ...(automaticCouncilAccepted ? { council_recovery:true, xp_gain:Number(automaticCouncilXp.xp_gain || 0) } : {}) } });
       archiveSaved = true;
     } catch { archiveSaved = false; }
   }
@@ -2979,11 +2991,8 @@ export async function handleNativeChat(request, env, options = {}) {
     memory_stored: memoryWrite.stored === true,
     memory_reason: memoryWrite.reason || null,
     active_inference_settings: activeInferenceSettings,
-    active_lora: activeAdapter ? {
-      plan_id: activeAdapter.plan_id || null,
-      runtime_model: activeAdapter.runtime_model || activeAdapter?.adapter?.runtime_model || null,
-      finetune_id: activeAdapter.finetune_id || activeAdapter?.adapter?.finetune_id || null,
-    } : null,
+    lora_mode: requireLora ? 'uncensored' : 'automatic',
+    active_lora: chatLoraReceipt(activeAdapter, ai),
     inference_settings_applied: activeInferenceSettings ? { generation: ['temperature','top_p','max_tokens'], memory: ['memory_results'], council: parallel ? ['council_min_responses'] : [], review_passes: 'not_supported_in_single-pass-chat' } : null,
     active_theme: theme,
     input_source: inputSource,
