@@ -86,3 +86,34 @@ test('the real chat documents a source-tool call without contacting GitHub',asyn
  const response=await worker.fetch(request('Explique un exemple JSON d’appel code.read pour src/index.js'),env);
  const data=await response.json();assert.equal(response.status,200);assert.equal(calls,0);assert.deepEqual(data.tool_results,[]);
 });
+
+test('completed code search survives model failure without inventing analysis or sending tools to the PC',async()=>{
+ const pin='d'.repeat(40);let sourceCalls=0;
+ const {sqliteD1}=await import('./helpers/sqlite-d1.mjs');const DB=sqliteD1();
+ try {
+ const environment={DB,MELITURGOS_USER:'fixture',MELITURGOS_PASSWORD:'fixture-password',MEL_DEPLOYED_GIT_SHA:pin,MEL_DEPLOYED_GIT_BRANCH:'release/fixture',AI:{async run(){throw Object.assign(Error('PRIVATE_PROVIDER_BODY'),{code:'WORKERS_AI_DAILY_NEURON_BUDGET_EXHAUSTED'});}},async MEL_GITHUB_FETCH(url){
+  sourceCalls++;const u=new URL(url);
+  if(u.pathname.includes('/git/ref/heads/'))return Response.json({object:{sha:pin}});
+  if(u.pathname.includes('/git/trees/'))return Response.json({tree:[{path:'src/helper.js',type:'blob',size:42}]});
+  if(u.pathname.includes('/contents/'))return Response.json({type:'file',sha:pin,size:42,content:Buffer.from('export function renderFoo() {}').toString('base64')});
+  return new Response('',{status:404});
+ }};
+ const response=await worker.fetch(request('Cherche dans ton code "renderFoo" puis explique les changements'),environment);const data=await response.json();
+ assert.equal(response.status,200,JSON.stringify(data));assert.ok(sourceCalls>0);assert.equal(data.model,'deterministic-code-evidence');
+ assert.equal(data.analysis_available,false);assert.equal(data.analysis_error,'CHAT_INFERENCE_FAILED');
+ assert.match(data.text,/src\/helper.js/);assert.match(data.text,/ne prouvent pas les changements/);assert.doesNotMatch(data.text,/PRIVATE_PROVIDER_BODY/);
+ assert.ok(data.tool_results.some(row=>row.capability==='code.search'&&row.status==='SUCCEEDED'));
+ assert.ok(!data.tool_results.some(row=>['evolution.enqueue','autonomy.tick','computer.compute'].includes(row.capability)));
+ const {ConversationService}=await import('../src/conversations/conversation-service.js');const saved=(await new ConversationService(DB).getMessages('code-investigation')).find(row=>row.role==='assistant');
+ assert.ok(saved);assert.equal(saved.metadata.analysis_available,false);
+ }finally{DB.close();}
+});
+
+test('code evidence receipt excludes failed reads and keeps coverage limits explicit',async()=>{
+ const {codeReadEvidenceAnswer}=await import('../src/api/native-chat.js');
+ assert.equal(codeReadEvidenceAnswer([{capability:'code.read',status:'FAILED',result:{path:'secret',content:'PRIVATE'}}]),null);
+ assert.equal(codeReadEvidenceAnswer([{capability:'code.read',status:'SUCCEEDED',result:{ok:false,path:'secret'}}]),null);
+ const receipt=codeReadEvidenceAnswer([{capability:'code.read',status:'SUCCEEDED',result:{path:'src/a.js',start_line:2,end_line:4,partial:true,source_ref:'e'.repeat(40)}}]);
+ assert.match(receipt,/lignes 2–4/);assert.match(receipt,/lecture partielle/);assert.match(receipt,/'?e{40}/);
+ assert.match(codeReadEvidenceAnswer([{capability:'code.search',status:'SUCCEEDED',result:{matches:[]}}]),/0 extrait/);
+});

@@ -70,3 +70,13 @@ Correction supplémentaire dans la recherche canonique : résoudre les titres ex
 Vérification HTTPS réelle : Wikipédia Chat → Q146, label anglais cat ; Commons cat haswbstatement:P180=Q146 retourne File:Felis catus-cat on snow.jpg (JPEG). Le self-test photo exige désormais cette identité en plus du média typé ; une image d’un autre sujet échoue même si elle se charge. Ces preuves réseau locales ne valent pas déploiement de ce second lot.
 
 XP MEL : NON. Pertinence et limites de preuve déjà couvertes par le corpus. Chat global IN_PROGRESS ; inférence réelle bloquée par le compteur estimé quotidien, sans modification de plafond.
+
+## Lecture du code après panne IA — 26 octobre
+
+Capture propriétaire : deux réponses via pc:qwen3:8b, puis recherche code réussie mais CHAT_INFERENCE_FAILED. Cause vérifiée : la garde du secours Companion exige toolResults.length === 0 ; après outil le secours local n’est donc pas autorisé. Cette protection reste intacte.
+
+Le même parcours canonique de rendu/qualité/Council/archivage conserve maintenant un reçu borné des lectures et recherches de code réussies si tous les modèles échouent. Il indique les chemins, lignes et références réellement reçus, sans exposer de contenu fournisseur, inventer de diff, diagnostic ou tests. analysis_available=false persiste dans l’archive. Les lectures échouées ne deviennent pas réussies ; aucune donnée d’outil n’est transférée au PC. Les consignes distinguent également une question ambiguë sur les changements d’une observation réelle, et interdisent d’inventer l’apparence de l’utilisateur.
+
+Validation : 393 tests chat/NativeChat/intention réussis et syntaxe réussie. Régression Worker réelle avec SQLite : recherche réussie, panne de tous les modèles, reçu factuel conservé, aucun lancement de développement/MAX, archivage explicite de l’analyse indisponible. Cette validation n’est pas une preuve de disponibilité du modèle Cloud. La correction du compteur #2708 existe déjà sur main ; pas de doublon ni remise à zéro.
+
+XP MEL : NON. Conservation des preuves et distinction lecture/diagnostic déjà couvertes par le corpus. Statut IN_PROGRESS ; publication bloquée tant que les preuves production échouent sur quota.
