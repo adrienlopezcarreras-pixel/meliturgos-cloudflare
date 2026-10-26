@@ -8,8 +8,35 @@ export function verifiedPontiffName(sources) {
   const text = (Array.isArray(sources) ? sources : []).map(source => [source?.title, source?.snippet, source?.content].filter(Boolean).join('\n')).join('\n');
   const cells = [...text.matchAll(/<t[dh][^>]*>([\s\S]{1,80}?)<\/t[dh]>/gi)].map(match => match[1].replace(/<[^>]+>/g, '').trim());
   const current = cells.findIndex(cell => /pontificat en cours/i.test(cell));
-  const before = current > 0 ? cells.slice(0, current).join('\n') : '';
-  return (before.match(REIGN_NAME) || text.match(REIGN_NAME) || [])[0] || '';
+  const reign = () => new RegExp(REIGN_NAME.source, 'gi');
+  if (current > 0) {
+    const matches = [...cells.slice(0, current).join('\n').matchAll(reign())];
+    if (matches.length) return matches[matches.length - 1][0];
+  }
+  const marker = text.search(/pontificat en cours/i);
+  if (marker >= 0) {
+    const matches = [...text.slice(Math.max(0, marker - 500), marker).matchAll(reign())];
+    if (matches.length) return matches[matches.length - 1][0];
+  }
+  return '';
+}
+
+function depictsNamedPerson(title, name) {
+  const fold = value => String(value || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  const wanted = fold(name);
+  const numeral = wanted.match(/\b[ivx]{1,6}\b/)?.[0];
+  const hay = fold(title);
+  if (numeral && !new RegExp('\\b' + numeral + '\\b').test(hay)) return false;
+  const given = wanted.replace(/\b[ivx]{1,6}\b/g, '').trim();
+  const equivalents = [
+    ['leon', 'leo'],
+    ['francois', 'francis'],
+    ['benoit', 'benedict'],
+    ['jean-paul', 'john paul', 'john-paul'],
+    ['pie', 'pius'],
+  ];
+  const group = equivalents.find(row => row.some(item => given.includes(item))) || [given];
+  return group.some(item => hay.includes(item));
 }
 
 function publicHttps(value) {
@@ -45,12 +72,12 @@ export async function searchImages(service,{query,max_images=3,language='fr'}={}
       if(name) {
         try {
           const commons=await searchPublicMedia(service,{query:name,type:'image',max_results:limit,language:'fr'});
-          images=Array.isArray(commons.images)?commons.images:[];
+          images=(Array.isArray(commons.images)?commons.images:[]).filter(image => depictsNamedPerson(image.title, name));
           if(images.length) {
             const raw=(result.sources||[]).map(source=>String(source.content||source.snippet||'')).join('\n').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ');
             const at=raw.toLowerCase().indexOf(String(name).toLowerCase());
             const identity_evidence=at>=0?raw.slice(Math.max(0,at-80),at+400):raw.slice(-800);
-            return {...commons,official_identity:name,identity_evidence,official_source:result.sources?.[0]?.url||'',code:null,provider:'wikimedia-commons'};
+            return {...commons,images,media:images,official_identity:name,identity_evidence,official_source:result.sources?.[0]?.url||'',code:null,provider:'wikimedia-commons'};
           }
         } catch { /* confirmed name, no readable public photo */ }
       }
