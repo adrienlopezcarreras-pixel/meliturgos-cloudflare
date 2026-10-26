@@ -60,7 +60,8 @@ test('bottom chat button toggles an explicit LoRA request without claiming activ
   button.click();
   assert.equal(button.value,'uncensored');
   assert.equal(button.getAttribute('aria-pressed'),'true');
-  assert.match(button.textContent,/requis/);
+  assert.equal(button.textContent,'UNCENSORED');
+  assert.equal(button.className,'primary');
   button.click();
   assert.equal(button.value,'automatic');
   assert.equal(button.getAttribute('aria-pressed'),'false');
