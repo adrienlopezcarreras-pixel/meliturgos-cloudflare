@@ -114,7 +114,7 @@ test('Professor keeps everyday views in the bar and the technical ones under one
     assert.match(html, new RegExp('data-jump="' + target + '"'));
   }
   const nav = html.slice(html.indexOf('<nav class="nav" id="nav">'), html.indexOf('</nav>'));
-  assert.deepEqual([...nav.matchAll(/data-view="(\w+)"|href="(\/revenus)"/g)].slice(0, 5).map(m => m[1] || m[2]), ['chat', '/revenus', 'computer', 'terminal', 'memory']);
+  assert.deepEqual([...nav.matchAll(/data-view="(\w+)"|href="(\/revenus)"/g)].slice(0, 5).map(m => m[1] || m[2]), ['overview', 'chat', '/revenus', 'lora', 'computer']);
 });
 
 test('MEL techno avatar is the canonical favicon in normal and Professor modes', async () => {
