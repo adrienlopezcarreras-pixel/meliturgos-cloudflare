@@ -194,10 +194,9 @@ test('MINI simple spoken chat has a direct low-latency route before native-chat'
     new URL('../src/devices/waveshare-terminal-api.js', import.meta.url),
     'utf8'
   );
-  assert.match(source, /runMiniDirectVoice/);
-  assert.match(source, /miniVoiceNeedsFullRuntime/);
+  assert.match(source, /answerOwnedDeviceConversation/);
   assert.match(source, /@cf\/zai-org\/glm-4\.7-flash/);
   assert.match(source, /timeoutMs: 4500/);
-  assert.match(source, /response_mode: "mini-voice-fast"/);
-  assert.match(source, /voiceReply && inputSource === "voice-server-transcription"/);
+  assert.match(source, /response_mode: "device-conversation"/);
+  assert.match(source, /Tu ne programmes pas/);
 });

@@ -3,6 +3,7 @@ import { createGen2Runtime } from "../core/orchestrator/gen2-runtime.js";
 import { handleNativeChat } from "../api/native-chat.js";
 import { handleVoiceTranscription } from "../api/voice-transcribe.js";
 
+import { inferComputerAgentGoal } from "./computer-agent-intent.js";
 import {readLinkedAndroidActivity} from "./mini-linked-android-phase.js";
 
 export const WAVESHARE_TERMINAL_MODEL = "waveshare-esp32-s3-touch-lcd-3.5-c";
@@ -390,11 +391,6 @@ async function serveSetupScript(request, env) {
 }
 
 
-function miniVoiceNeedsFullRuntime(text) {
-  const value = String(text || "").toLowerCase();
-  return /\b(?:ouvre|ouvrir|cherche|recherche|internet|web|m[ée]t[ée]o|temps|temp[ée]rature|actualit[ée]|news|mail|email|gmail|outlook|agenda|calendrier|rendez-vous|rappel|souviens|m[ée]moire|photo|vid[ée]o|cam[ée]ra|fichier|document|t[ée]l[ée]charge|navigateur|site|page|prix|bourse|score|horaire|aujourd'hui|demain|maintenant)\b/i.test(value);
-}
-
 async function runMiniDirectVoice(text, env) {
   if (!env?.AI || typeof env.AI.run !== "function") {
     return { ok: false, code: "AI_BINDING_MISSING", status: 503 };
@@ -402,7 +398,7 @@ async function runMiniDirectVoice(text, env) {
   const messages = [
     {
       role: "system",
-      content: "Tu es MEL, compagnon vocal d'Adrien. Réponds en français, en tutoyant Adrien, directement, naturellement, en 1 à 3 phrases courtes. Pas de listes, pas de préambule, pas de markdown. Si la demande exige une information actuelle, un outil, un fichier, une action ou une mémoire personnelle, réponds seulement que tu passes au mode complet."
+      content: "Tu es MEL, en conversation avec Adrien. Tu tutoies. Réponds en français, en 1 à 3 phrases, sans liste, sans markdown et sans code. Tu ne programmes pas. Si on te demande de coder, de modifier MEL ou d'utiliser un outil, dis que cela se fait sur le site, pas depuis le téléphone ni la MINI."
     },
     { role: "user", content: String(text || "").slice(0, 4000) }
   ];
@@ -455,6 +451,14 @@ async function runMiniDirectVoice(text, env) {
   };
 }
 
+// Phone and MINI talk. They do not code. An explicit PC action stays on the
+// computer agent; everything else is the short conversational model.
+export async function answerOwnedDeviceConversation(text, env) {
+  if (inferComputerAgentGoal(text)) return null;
+  const answer = await runMiniDirectVoice(text, env);
+  return { ...answer, response_mode: "device-conversation" };
+}
+
 async function deviceChat(request, env, auth) {
   const body = await request.json().catch(() => ({}));
   const text = String(body.text || body.message || "").trim();
@@ -463,11 +467,8 @@ async function deviceChat(request, env, auth) {
     ? "voice-server-transcription"
     : "text";
   const voiceReply = body.voice_reply === true || body.voice_mode === true;
-
-  if (voiceReply && inputSource === "voice-server-transcription" && !miniVoiceNeedsFullRuntime(text)) {
-    const fast = await runMiniDirectVoice(text, env);
-    if (fast.ok) return json(fast, 200);
-  }
+  const conversation = await answerOwnedDeviceConversation(text, env);
+  if (conversation) return json(conversation, conversation.ok ? 200 : (conversation.status || 503));
 
   const internal = new Request(new URL("/api/chat", request.url), {
     method: "POST",
