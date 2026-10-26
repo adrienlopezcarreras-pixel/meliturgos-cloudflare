@@ -64,6 +64,14 @@ export function rankMissions(tasks, { now = Date.now(), alreadyDrafted = new Set
 // alone. Video, identity checks and gift cards never reach the assessor.
 const NOT_PAYABLE = /\b(kyc|passport|permis|phone call|appel t[ée]l[ée]phonique|vid[ée]o|youtube|tiktok|podcast|film yourself|en personne|on[- ]site|gift ?card|carte cadeau|airdrop|seed phrase)\b/i;
 
+export function knownGap(task) {
+  const text = `${task?.title || ''} ${task?.description || ''}`;
+  if (/\b(vid[ée]os?|youtube|tiktok)\b/i.test(text)) return 'video.generate';
+  if (/\b(podcast|voix|audio)\b/i.test(text)) return 'audio.voice';
+  if (/\b(kyc|passport|permis|phone call|appel t[ée]l[ée]phonique)\b/i.test(text)) return 'identity.verify';
+  return '';
+}
+
 export function worthAssessing(task) {
   if (!task || (task.mode !== 'bounty' && task.mode !== 'benchmark')) return false;
   let reward = 0n;
@@ -337,10 +345,14 @@ export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(
         if(!cycleAdmitted){send({type:'error',code:'WORK_PAUSED_FOR_MAINTENANCE'});return;}
         step('Lecture des offres Taskmarket ouvertes…');
         const tasks = await loadOpenTasks(fetchImpl, now());
-        const ranked = rankMissions(tasks, { now: now(), alreadyDrafted: await alreadyDraftedIds(env.DB) })
-          .filter(task => !autonomous || !task.drafted)
-          // Only bounties can be handed in without anyone: MEL never claims, pitches or bids.
-          .filter(worthAssessing);
+        const considered = rankMissions(tasks, { now: now(), alreadyDrafted: await alreadyDraftedIds(env.DB) })
+          .filter(task => !autonomous || !task.drafted);
+        for (const task of considered) {
+          if (worthAssessing(task)) continue;
+          const missing = knownGap(task);
+          if (missing) await recordWorkRejection(env.DB, task, { missingCapability: missing, reason: 'Offre hors de portée, sans appel de modèle' }, { now: now() });
+        }
+        const ranked = considered.filter(worthAssessing);
         step(tasks.length + ' offre(s) ouverte(s), ' + ranked.length + ' avec assez de temps restant. Je commence par la concurrence la plus faible.');
         const byId = new Map(ranked.map(task => [task.id, task]));
         const channels = await channelStatus(env).catch(() => ({ mel_page: true, image: false, devto: false, bluesky: false }));
