@@ -943,7 +943,10 @@ function renderAutonomy(state){
   const act=qs('#melFullActivity');if(act)act.title='Tout ce que MEL fait : travaux, étapes, journal, pont cloud, MEL WORK.';const watch=document.querySelector('.canonical-watch-link');if(watch)watch.title='Ce que la veille a trouvé et ce qu’elle propose de développer.';
   const mobilePause=qs('#mobilePauseAutonomy');if(mobilePause){mobilePause.textContent=releasePause?'Pause de mise en prod…':autonomyControl.paused===true?'Reprendre MEL':'Mettre MEL en pause';mobilePause.disabled=releasePause}
 }
+let autonomyRefreshFlight=null;
 async function loadAutonomy(){
+  if(autonomyRefreshFlight)return autonomyRefreshFlight;
+  autonomyRefreshFlight=(async()=>{
   try{
     const d=await jfetch('/api/gen2/autonomy/state');
     renderAutonomy(d);
@@ -962,7 +965,9 @@ async function loadAutonomy(){
   }catch(e){
     try{const d=await jfetch('/api/gen2/autonomy/control');renderAutonomy(d);return d}
     catch{qs('#autonomyNote').textContent='État autonomie indisponible : '+e.message;return null}
-  }
+  }finally{autonomyRefreshFlight=null}
+  })();
+  return autonomyRefreshFlight;
 }
 async function autonomyAction(button,url,body,label,feedback=qs('#mobileAutonomyFeedback')){
   if(!button)return null;
@@ -1913,8 +1918,7 @@ qs('#pipedreamTest').onclick=testPipedream;
 qs('#yahooPipedream').onclick=()=>connectViaPipedream('imap',qs('#yahooPipedream'));
 qsa('[data-pd-connect]').forEach(button=>{if(button.id==='yahooPipedream')return;button.onclick=()=>connectViaPipedream(button.dataset.pdConnect,button)});
 
-let autonomyRefreshPending=false;
-setInterval(()=>{if(document.hidden||autonomyRefreshPending)return;autonomyRefreshPending=true;loadAutonomy().catch(()=>{}).finally(()=>{autonomyRefreshPending=false})},30000);
+setInterval(()=>{if(!document.hidden)loadAutonomy().catch(()=>{})},30000);
 async function boot(){qs('#codeMetric').textContent='MANUEL';qs('#codeSummary').textContent='Test à la demande pour accélérer l’ouverture.';const tasks=await Promise.allSettled([loadDashboardSummary(false),loadAutonomy()]);const dashboard=tasks[0];if(dashboard.status!=='fulfilled'){renderCapabilityOverview(null);renderRoadmapSummary(null);qs('#globalState').textContent='Diagnostic requis';qs('#globalDot').className='dot bad';qs('#healthRows').textContent='Résumé système indisponible.';return}qs('#globalState').textContent='Vérification des capacités…';qs('#globalDot').className='dot warn';loadDashboardSummary(true).catch(()=>{qs('#globalState').textContent='Santé à actualiser';qs('#globalDot').className='dot warn';});}
 
 function toggleLearningDetails(){
