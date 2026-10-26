@@ -149,8 +149,20 @@ test('Google Drive linked account is executable and mutations remain approval-ga
     approvedCapabilities: ['drive.files.create'],
   });
   assert.equal(created.accepted, true);
+  assert.equal(created.format, 'txt');
   assert.ok(calls.some(call => call.app === 'google_drive' && call.method === 'POST'));
-  assert.ok(calls.some(call => call.app === 'google_drive' && call.method === 'PATCH'));
+  assert.ok(calls.some(call => call.app === 'google_drive' && call.method === 'PATCH' && String(call.body).startsWith('bonjour')));
+
+  calls.length = 0;
+  const pdf = await bus.execute('drive.files.create', { name: 'strategie', content: 'Un plan', format: 'pdf' }, {
+    owner: 'adrien',
+    permissions: ['google.drive.write'],
+    approvedCapabilities: ['drive.files.create'],
+  });
+  assert.equal(pdf.format, 'pdf');
+  const upload = calls.find(call => call.method === 'PATCH');
+  assert.equal(upload.headers['content-type'], 'application/pdf');
+  assert.match(String(upload.body), /^%PDF-1\.4/);
 });
 
 
