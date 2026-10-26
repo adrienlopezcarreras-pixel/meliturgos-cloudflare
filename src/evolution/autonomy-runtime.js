@@ -1,6 +1,6 @@
 import { runAutonomyRuntimeTick as runCoreAutonomyRuntimeTick, autonomyTickAdvanced, currentAutonomyRepository } from './autonomy-runtime-core.js';
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
-import { getAutonomyControl } from './autonomy-control.js';
+import { getAutonomyControl, setOwnerMaxAutonomy } from './autonomy-control.js';
 import { AutonomySupervisor, selectActionableAutonomyJob, setRuntimeRoadmapRegressions } from './autonomy-supervisor.js';
 import { activeRoadmapRegressions } from '../roadmap/roadmap-regressions.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
@@ -16,6 +16,7 @@ import { recordAutonomyProgressWatchdog, resetAutonomyProgressWatchdog } from '.
 import { readActivityListEpoch } from './autonomy-activity.js';
 import { backgroundNeuronBudgetExhausted } from '../augmentio/neuron-budget.js';
 import { bindLocalPcWorkersAi, localPcModelReady } from '../models/local-pc-model.js';
+import { readSurvivalState, shouldResumeForSurvival } from '../legacy/survival-mode.js';
 
 export * from './autonomy-runtime-core.js';
 
@@ -648,8 +649,18 @@ function augmentTickProgress(tick = {}) {
 
 export async function runAutonomyRuntimeTick(env, options = {}) {
   setRuntimeRoadmapRegressions(await activeRoadmapRegressions(env?.DB).catch(() => []));
-  const control = await getAutonomyControl(env?.DB, { memoryState: options.autonomyControlState || null });
+  let control = await getAutonomyControl(env?.DB, { memoryState: options.autonomyControlState || null });
   const repository = options.repository || (env?.DB ? new D1DevJobRepository(env.DB) : null);
+  const survival = await readSurvivalState(env?.DB).catch(() => ({ active: false }));
+  if (shouldResumeForSurvival(control, survival) && env?.DB) {
+    control = await setOwnerMaxAutonomy(env.DB, {
+      enabled: true,
+      paused: false,
+      source: 'survival-mode',
+      reason: 'owner-silent-one-year',
+      memoryState: options.autonomyControlState || null,
+    });
+  }
 
   if (control.paused) {
     const watchdog = await resetAutonomyProgressWatchdog(env?.DB || null, { status: 'PAUSED' }).catch(() => null);

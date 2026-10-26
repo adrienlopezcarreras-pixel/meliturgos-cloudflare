@@ -7,9 +7,15 @@ export function isReadOnlyAdviceRequest(text) {
     .replace(/^(?:(?:peux|pourrais)[- ]tu|tu\s+(?:peux|pourrais))\s+(?:me\s+|m['’])?/,'');
   const explanation=/^(?:explique(?:r)?|pourquoi|comment|compare(?:r)?|decris|decrire|apprends[- ]moi)\b/.test(value);
   const plan=/^(?:etablis|etablir|prepare(?:r)?|propose(?:r)?|redige(?:r)?|fais|faire|donne(?:r)?)(?:[- ]moi)?\s+(?:(?:un|une|le|la)\s+)?(?:plan|strategie|explication|comparaison)\b/.test(value);
-  if(!explanation&&!plan)return false;
+  // A stated future project followed by an access question is still a
+  // question, not permission to create an autonomous development job.
+  const accessQuestion=/(?:^|[,;.!]\s*)(?:est[- ]ce que\s+)?tu\s+(?:(?:les?|la)\s+voi\s*s|y\s+as\s+acces|as\s+acces\s+(?:a\s+)?(?:ces?|les?)\s+[^?]{1,100})\s*\??$/.test(value)
+    || /^(?:les?|la)\s+voir\s*\?$/.test(value);
+  if(!explanation&&!plan&&!accessQuestion)return false;
+  // A polite action (the modal prefix was stripped above) remains an action.
+  if(/^(?:executer|lancer|creer|ajouter|corriger|reparer|modifier|supprimer|deployer|demarrer|developper|implementer|tester|verifier|auditer)\b/.test(value))return false;
   // Preserve a separate, explicit imperative after the requested explanation.
-  return !/\b(?:puis|ensuite|et)\s+(?:execute|lance|cree|ajoute|corrige|repare|modifie|supprime|deploie|demarre|developpe|implemente|teste|verifie|audite)\b/.test(value);
+  return !/(?:^|[;.!]\s*|\b(?:puis|ensuite|et)\s+)(?:execute|lance|cree|ajoute|corrige|repare|modifie|supprime|deploie|demarre|developpe|implemente|teste|verifie|audite)\b/.test(value);
 }
 
 function extractJson(text) {

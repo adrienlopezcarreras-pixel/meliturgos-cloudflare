@@ -1,3 +1,4 @@
+import { councilOperationalCatalog } from '../council/operational-catalog.js';
 import { computeRoadmapTruth } from '../roadmap/roadmap-truth.js';
 import { CapabilityBus } from './capability-bus.js';
 import { registerGitHubCodeCapabilities } from './github-code-capabilities.js';
@@ -242,6 +243,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     return runModelCouncil({
       env: runtimeEnv,
       request: input.request,
+      operationalCatalog:councilOperationalCatalog(bus,runtimeEnv),
       capability: String(input.capability || 'GENERAL'),
       maxCandidates: Math.min(12, Math.max(1, Number(input.maxCandidates) || 4)),
       timeoutMs: Math.min(120000, Math.max(100, Number(input.timeoutMs) || 30000)),
@@ -261,7 +263,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     return runAugmentioStateOfPlay({
       env: runtimeEnv,
       goal: input.goal,
-      context: input.context || {},
+      context: { ...(input.context || {}), operational_catalog:councilOperationalCatalog(bus,runtimeEnv) },
       minResponses: Math.max(2, Number(input.minResponses) || 2)
     });
   });

@@ -410,3 +410,13 @@ test('an advisory plan streams through the real chat with one inference and no a
  assert.equal(calls.length,1);assert.equal(events.at(-1).type,'done');
  assert.match(events.filter(event=>event.type==='delta').map(event=>event.text).join(''),/5\. Mesurer/);
 });
+
+test('a question about seeing future development targets stays conversational in Code mode',async()=>{
+ let calls=0;
+ const response=await handleNativeChat(new Request('https://mel.example/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:"on doit commencer à développer la mini et l'apk pour pouvoir les utiliser, tu les vois ?",stream:true,use_companion_compute:false,intent_context:{surface:'mel-full',role:'developer',requested_mode:'code'}})}),{
+  AI:{async run(_model,input){calls++;assert.equal(input.stream,true);return sse(['Parles-tu des fichiers du dépôt ou des appareils connectés ?']);}}
+ },{authorized:true});
+ assert.equal(response.status,200);const events=await readNdjson(response);
+ assert.equal(calls,1,'no action planner or development preclassification');assert.equal(events.at(-1).type,'done');
+ assert.match(events.filter(e=>e.type==='delta').map(e=>e.text).join(''),/fichiers du dépôt/);
+});

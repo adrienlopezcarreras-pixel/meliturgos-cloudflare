@@ -237,6 +237,12 @@ test('GEN2-42 production proof accepts a truly idle ledger without masking open 
     const fresh=await proveEcosystemTeacherHandoff({DB},{now,developmentRepository:repo});
     assert.equal(fresh.ok,true);
     assert.equal(fresh.released_fresh_owner_queued_count,1);
+    // A Council that got no AI answers (budget exhausted) is transient, not a broken handoff.
+    const councilLedger={schema:'mel.ecosystem-discovery-ledger.v1',items:[{fingerprint:'council-down',handoff:{job_id:'job-council',status:'FAILED',retryable:false,code:'COUNCIL_INSUFFICIENT_RESPONSES',teacher_request_id:null,closed:false}}]};
+    await DB.prepare(`UPDATE capability_watch_state SET state_json=?,updated_at=? WHERE id=?`).bind(JSON.stringify(councilLedger),Date.now(),'ecosystem-discoveries-canonical').run();
+    const councilDown=await proveEcosystemTeacherHandoff({DB},{now,developmentRepository:{async get(id){return {id,status:'FAILED',requested_by:'mel-autonomy',optional_context:{source:'ecosystem-watch'},created_at:1,result_json:{}};}}});
+    assert.equal(councilDown.ok,true);
+    assert.equal(councilDown.released_retryable_failure_count,1);
     await DB.prepare(`UPDATE capability_watch_state SET state_json=?,updated_at=? WHERE id=?`).bind(JSON.stringify(ownerLedger(now-2*86400000)),Date.now(),'ecosystem-discoveries-canonical').run();
     const stuck=await proveEcosystemTeacherHandoff({DB},{now,developmentRepository:repo});
     assert.equal(stuck.ok,false);

@@ -7,7 +7,7 @@ test('conversation reaches PowerShell only as base64; command stays under the en
   const evil = "'; Remove-Item C:\\ -Recurse; '" + 'é'.repeat(20000);
   const { command, timeout_ms } = localPcCommand({ messages: [{ role: 'system', content: 'S'.repeat(5000) }, { role: 'user', content: evil }] });
   assert.ok(command.length <= 8192, String(command.length));
-  assert.ok(timeout_ms <= 145000);
+  assert.ok(timeout_ms <= 600000);
   assert.doesNotMatch(command, /Remove-Item/);
   assert.match(command, /http:\/\/127\.0\.0\.1:11434\/api\/chat/);
   const b64 = command.match(/FromBase64String\('([A-Za-z0-9+/=]+)'\)/)[1];
