@@ -1,4 +1,4 @@
-import { requireChatLora, chatLoraReceipt } from '../learning/chat-lora-binding.js';
+import { requireChatLora, chatLoraReceipt, isCensorshipRefusal } from '../learning/chat-lora-binding.js';
 import { collectChatMedia } from './chat-media.js';
 import { inferChatMediaCapability } from './chat-media-intent.js';
 import {
@@ -1453,7 +1453,7 @@ export async function handleNativeChat(request, env, options = {}) {
   if (!text) return Response.json({ error: 'MESSAGE_REQUIRED', code: 'MESSAGE_REQUIRED' }, { status: 400 });
   if (text.length > 100000) return Response.json({ error: 'MESSAGE_TOO_LONG', code: 'MESSAGE_TOO_LONG', max_input_chars: 100000 }, { status: 413 });
 
-  const requireLora = body.lora_mode === 'uncensored';
+  let requireLora = body.lora_mode === 'uncensored';
   const requestedLora = requireLora ? await activePromotedAdapter(env) : null;
   if (requireLora) {
     try { requireChatLora(requestedLora); }
@@ -2688,6 +2688,23 @@ export async function handleNativeChat(request, env, options = {}) {
         }, { status: 503, headers: { 'cache-control': 'no-store' } });
       }
     }
+  }
+
+  // The UNCENSORED button already ran on the LoRA. In normal mode, one
+  // censorship refusal — and only that — retries once on the validated adapter.
+  if (!requireLora && isCensorshipRefusal(ai?.text)) {
+    try {
+      requireChatLora(activeAdapter);
+      const switched = await runNativeInference({
+        env, messages, text, parallel: false, maxCandidates: 1,
+        inferenceSettings: effectiveInferenceSettings, activeAdapter,
+        requireLora: true, runtime, taskOverride: 'REASONING', maxCalls: 1, deadlineAt: chatDeadlineAt,
+      });
+      if (switched?.text && !isCensorshipRefusal(switched.text)) {
+        ai = { ...switched, censorship_switched: true };
+        requireLora = true;
+      }
+    } catch { /* no validated adapter, or the LoRA failed: the normal answer stays */ }
   }
 
   // Native Android chat bypasses the /api/chat defaults; finish explicitly

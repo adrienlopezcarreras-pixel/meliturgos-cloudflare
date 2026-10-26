@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { requireChatLora, chatLoraReceipt } from '../src/learning/chat-lora-binding.js';
+import { requireChatLora, chatLoraReceipt, isCensorshipRefusal } from '../src/learning/chat-lora-binding.js';
 import { runNativeInference, handleNativeChat } from '../src/api/native-chat.js';
 import { onRequestGet } from '../src/pages/full-interface-v2.js';
 import { JSDOM } from 'jsdom';
@@ -67,4 +67,49 @@ test('bottom chat button toggles an explicit LoRA request without claiming activ
   assert.equal(button.getAttribute('aria-pressed'),'false');
   assert.match(runtime,/lora_mode:qs\('#chatLoraMode'\)\?\.value/);
   dom.window.close();
+});
+
+test('only a short policy refusal counts as censorship', () => {
+  assert.equal(isCensorshipRefusal('Je ne peux pas vous aider avec cette demande.'), true);
+  assert.equal(isCensorshipRefusal('I cannot assist with that request.'), true);
+  assert.equal(isCensorshipRefusal('Je ne peux pas lire ta boîte Gmail : le connecteur est absent.'), false);
+  assert.equal(isCensorshipRefusal('Mode UNCENSORED indisponible : aucun adaptateur.'), false);
+  assert.equal(isCensorshipRefusal('x'.repeat(501) + ' I cannot assist'), false);
+});
+
+test('normal mode switches to the validated LoRA after one censorship refusal', async () => {
+  const { sqliteD1 } = await import('./helpers/sqlite-d1.mjs');
+  const { MentorMemoryRepository } = await import('../src/learning/mentor-memory.js');
+  const DB = sqliteD1();
+  try {
+    await new MentorMemoryRepository(DB).remember({
+      kind: 'LORA_ADAPTER_ACTIVE', lesson: 'Adaptateur validé.',
+      evidence: active,
+    });
+    const calls = [];
+    const response = await handleNativeChat(new Request('https://mel.test/api/chat', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'raconte une histoire courte', lora_mode: 'automatic', use_companion_compute: false }),
+    }), { DB, AI: { run: async (model) => { calls.push(model); return { response: calls.length === 1 ? 'Je ne peux pas vous aider avec cette demande.' : 'Histoire libre.' }; } } }, { authorized: true });
+    const payload = await response.json();
+    assert.equal(payload.text, 'Histoire libre.');
+    assert.equal(payload.lora_mode, 'uncensored');
+    assert.ok(calls.length >= 2);
+  } finally { DB.close(); }
+});
+
+test('without a validated adapter a censorship refusal stays on the normal answer', async () => {
+  const { sqliteD1 } = await import('./helpers/sqlite-d1.mjs');
+  const DB = sqliteD1();
+  try {
+    const calls = [];
+    const response = await handleNativeChat(new Request('https://mel.test/api/chat', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'raconte une histoire courte', use_companion_compute: false }),
+    }), { DB, AI: { run: async (model) => { calls.push(model); return { response: 'Je ne peux pas vous aider avec cette demande.' }; } } }, { authorized: true });
+    const payload = await response.json();
+    assert.equal(payload.text, 'Je ne peux pas vous aider avec cette demande.');
+    assert.equal(payload.lora_mode, 'automatic');
+    assert.equal(calls.length, 1);
+  } finally { DB.close(); }
 });
