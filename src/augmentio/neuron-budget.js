@@ -19,6 +19,12 @@ const TEXT_RATES = {
   '@cf/qwen/qwen2.5-coder-32b-instruct': [60000, 90909],
   '@cf/meta/llama-3.1-8b-instruct-fast': [4119, 34868],
   '@cf/meta/llama-3.1-8b-instruct-fp8': [4119, 34868],
+  // Official rates (developers.cloudflare.com/workers-ai/platform/pricing,
+  // 26/10). Missing them charged MEL's main chat model at the unknown-model
+  // ceiling, ~6x its price: the cap was reached after ~20 calls a day.
+  '@cf/zai-org/glm-4.7-flash': [5500, 36400],
+  '@cf/google/gemma-4-26b-a4b-it': [9091, 27273],
+  '@cf/nvidia/nemotron-3-120b-a12b': [45455, 136364],
 };
 const UNKNOWN_TEXT_RATE = [60000, 204805];
 // Per call, for models not priced per token (images, speech, embeddings).
