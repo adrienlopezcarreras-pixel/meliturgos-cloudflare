@@ -36,6 +36,7 @@ export async function observe(browser, baseUrl, headers, path, panel) {
   const page = await context.newPage();
   const errors = [];
   const responses = [];
+  const aborted = [];
   // Requests this audit aborts (non-GET) reject as "Failed to fetch"; they
   // are the audit's own read-only guard, not a defect of the page.
   page.on('pageerror', error => { if (!/failed to fetch/i.test(error.message)) errors.push(error.message); });
@@ -46,7 +47,11 @@ export async function observe(browser, baseUrl, headers, path, panel) {
     }
   });
   // Read-only: block any non-GET request the page might start on its own.
-  await page.route('**/*', route => (route.request().method() === 'GET' ? route.continue() : route.abort()));
+  await page.route('**/*', route => {
+    if (route.request().method() === 'GET') return route.continue();
+    aborted.push(route.request().method() + ' ' + new URL(route.request().url()).pathname);
+    return route.abort();
+  });
   await page.goto(baseUrl + path, { waitUntil: 'domcontentloaded', timeout: 45_000 });
   if (panel) await page.evaluate(view => document.querySelector(`#nav button[data-view="${view}"]`)?.click(), panel);
   await page.waitForTimeout(SETTLE_MS);
@@ -58,7 +63,7 @@ export async function observe(browser, baseUrl, headers, path, panel) {
       .map(el => el.id).slice(0, 20);
   }, LOADING_RE.source);
   await context.close();
-  return { path, panel, errors, responses, stuck };
+  return { path, panel, errors, responses, stuck, aborted };
 }
 
 async function main() {
@@ -75,6 +80,7 @@ async function main() {
   } finally {
     await browser.close();
   }
+  if (process.env.UI_AUDIT_TRACE) console.error(JSON.stringify(observations.map(o => ({ panel: o.panel, responses: o.responses, aborted: o.aborted })), null, 1));
   process.stdout.write(JSON.stringify(summarizeUiAudit(observations), null, 2) + '\n');
 }
 
