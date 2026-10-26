@@ -135,7 +135,7 @@ async function askModels(env, models, user, timeoutMs, system = SYSTEM) {
     let timer;
     try {
       const out = await Promise.race([
-        env.AI.run(model, { messages: [{ role: 'system', content: system }, { role: 'user', content: user }], max_tokens: 1200 }),
+        env.AI.run(model, { neuron_reserve: true, messages: [{ role: 'system', content: system }, { role: 'user', content: user }], max_tokens: 1200 }),
         new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('REVIEW_TIMEOUT')), timeoutMs); }),
       ]);
       const text = typeof out === 'string' ? out : out?.response || out?.choices?.[0]?.message?.content || out?.output_text || '';

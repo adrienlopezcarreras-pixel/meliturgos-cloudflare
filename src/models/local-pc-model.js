@@ -10,8 +10,8 @@ import { selectAgentDevice } from '../devices/computer-agent.js';
 
 export const LOCAL_PC_MODEL = 'qwen3:8b';
 const POLL_MS = 700;
-const TIMEOUT_MS = 150_000;
-const MAX_PAYLOAD_B64 = 6_800;
+const TIMEOUT_MS = 600_000;
+const COMMAND_LIMIT = 8_000;
 
 function toBase64Utf8(text) {
   const bytes = new TextEncoder().encode(text);
@@ -26,42 +26,49 @@ function fromBase64Utf8(b64) {
 }
 
 // Keeps the system prompt head and the latest turns so the command stays small.
-export function compactMessages(messages, budget = 4_800) {
+export function compactMessages(messages, budget = 16_000) {
   const list = Array.isArray(messages) ? messages.filter(m => m && typeof m.content === 'string') : [];
   const system = list.find(m => m.role === 'system');
   const turns = list.filter(m => m.role !== 'system');
   const out = [];
   let used = 0;
-  for (let i = turns.length - 1; i >= 0 && out.length < 6; i -= 1) {
+  for (let i = turns.length - 1; i >= 0 && out.length < 24; i -= 1) {
     const room = budget - used;
     if (room < 200) break;
     const content = turns[i].content.length > room ? turns[i].content.slice(-room) : turns[i].content;
     out.unshift({ role: turns[i].role === 'assistant' ? 'assistant' : 'user', content });
     used += content.length;
   }
-  if (system) out.unshift({ role: 'system', content: system.content.slice(0, 900) });
+  if (system) out.unshift({ role: 'system', content: system.content.slice(0, Math.min(4_000, budget)) });
   return out;
 }
 
 export function localPcCommand({ model = LOCAL_PC_MODEL, messages }) {
   if (!/^[A-Za-z0-9_.:/-]{1,120}$/.test(model)) throw new Error('LOCAL_MODEL_INVALID');
-  let budget = 4_800;
-  let payload;
-  do {
-    payload = toBase64Utf8(JSON.stringify({ model, messages: compactMessages(messages, budget), stream: false, think: false, options: { num_ctx: 8192 } }));
-    budget -= 800;
-  } while (payload.length > MAX_PAYLOAD_B64 && budget > 400);
-  if (payload.length > MAX_PAYLOAD_B64) throw new Error('LOCAL_PAYLOAD_TOO_LARGE');
-  const command = [
-    "$ErrorActionPreference='Stop'",
-    "$body=[Convert]::FromBase64String('" + payload + "')",
-    "$pref=Join-Path $env:LOCALAPPDATA 'MEL\\local-model.txt'",
-    "if(Test-Path -LiteralPath $pref){$n=(Get-Content -LiteralPath $pref -Raw).Trim();if($n -match '^[A-Za-z0-9_.:/-]{1,80}$'){$o=[Text.Encoding]::UTF8.GetString($body)|ConvertFrom-Json;$o.model=$n;$body=[Text.Encoding]::UTF8.GetBytes(($o|ConvertTo-Json -Compress -Depth 8))}}",
-    "$r=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/chat' -Method Post -ContentType 'application/json; charset=utf-8' -Body $body -TimeoutSec 140",
-    "$t=[string]$r.message.content",
-    "[ordered]@{action='local.model.chat';model=[string]$r.model;text_b64=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($t));eval_count=$r.eval_count}|ConvertTo-Json -Compress",
-  ].join('\n');
-  return { command, timeout_ms: 145_000 };
+  let budget = 16_000;
+  let command = '';
+  while (budget > 300) {
+    const payload = toBase64Utf8(JSON.stringify({
+      model,
+      messages: compactMessages(messages, budget),
+      stream: false,
+      think: false,
+      options: { num_ctx: 32768, num_predict: 4096 },
+    }));
+    command = [
+      "$ErrorActionPreference='Stop'",
+      "$body=[Convert]::FromBase64String('" + payload + "')",
+      "$pref=Join-Path $env:LOCALAPPDATA 'MEL\\local-model.txt'",
+      "if(Test-Path -LiteralPath $pref){$n=(Get-Content -LiteralPath $pref -Raw).Trim();if($n -match '^[A-Za-z0-9_.:/-]{1,80}$'){$o=[Text.Encoding]::UTF8.GetString($body)|ConvertFrom-Json;$o.model=$n;$body=[Text.Encoding]::UTF8.GetBytes(($o|ConvertTo-Json -Compress -Depth 8))}}",
+      "$r=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/chat' -Method Post -ContentType 'application/json; charset=utf-8' -Body $body -TimeoutSec 580",
+      "$t=[string]$r.message.content",
+      "[ordered]@{action='local.model.chat';model=[string]$r.model;text_b64=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($t));eval_count=$r.eval_count}|ConvertTo-Json -Compress",
+    ].join('\n');
+    if (command.length <= COMMAND_LIMIT) break;
+    budget = Math.floor(budget * 0.65);
+  }
+  if (command.length > 8192) throw new Error('LOCAL_PAYLOAD_TOO_LARGE');
+  return { command, timeout_ms: TIMEOUT_MS };
 }
 
 export async function runLocalPcModel({ env, messages, model = env?.MEL_LOCAL_PC_MODEL || LOCAL_PC_MODEL, sleep = ms => new Promise(r => setTimeout(r, ms)), now = () => Date.now() }) {
@@ -89,3 +96,40 @@ export async function runLocalPcModel({ env, messages, model = env?.MEL_LOCAL_PC
   await db.prepare("UPDATE computer_commands SET status='FAILED',error_code=? WHERE id=? AND status IN ('PENDING','RUNNING')").bind('LOCAL_MODEL_TIMEOUT', id).run().catch(() => {});
   return { ok: false, code: 'LOCAL_MODEL_TIMEOUT' };
 }
+
+// The PC can take over only when the Companion engine is fresh, remote access
+// is on, and the owner has enabled local compute. A missing PC is not a model.
+export async function localPcModelReady(env, now = Date.now()) {
+  const db = env?.DB;
+  if (!db?.prepare) return { ok: false, code: 'LOCAL_DB_UNAVAILABLE' };
+  const device = await selectAgentDevice(db, now).catch(() => null);
+  if (!device) return { ok: false, code: 'COMPANION_OFFLINE_OR_NOT_AUTHORIZED' };
+  const row = await db.prepare('SELECT metadata FROM computer_devices WHERE id=?').bind(device.id).first().catch(() => null);
+  let metadata = {};
+  try { metadata = JSON.parse(row?.metadata || '{}'); } catch { metadata = {}; }
+  if (metadata.local_compute_enabled !== true) return { ok: false, code: 'LOCAL_COMPUTE_DISABLED' };
+  return { ok: true, device_id: device.id };
+}
+
+// Replaces Workers AI for one tick. Text chats go to Ollama. Nothing is metered
+// and the cloud binding is never called.
+export function bindLocalPcWorkersAi(env, run = runLocalPcModel) {
+  const dbEnv = env;
+  env.AI = {
+    __melLocalPc: true,
+    run: async (_model, inputs = {}) => {
+      const messages = Array.isArray(inputs.messages) && inputs.messages.length
+        ? inputs.messages
+        : (inputs.prompt ? [{ role: 'user', content: String(inputs.prompt) }] : null);
+      if (!messages) throw Object.assign(new Error('LOCAL_MODEL_TEXT_ONLY'), { code: 'LOCAL_MODEL_TEXT_ONLY' });
+      const local = await run({ env: dbEnv, messages });
+      if (!local?.ok || !String(local.text || '').trim()) {
+        throw Object.assign(new Error(local?.code || 'LOCAL_MODEL_FAILED'), { code: local?.code || 'LOCAL_MODEL_FAILED' });
+      }
+      return { response: local.text, model: local.model, local: true };
+    },
+  };
+  env.MEL_INFERENCE = 'local-pc';
+  return env;
+}
+
