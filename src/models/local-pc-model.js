@@ -89,3 +89,40 @@ export async function runLocalPcModel({ env, messages, model = env?.MEL_LOCAL_PC
   await db.prepare("UPDATE computer_commands SET status='FAILED',error_code=? WHERE id=? AND status IN ('PENDING','RUNNING')").bind('LOCAL_MODEL_TIMEOUT', id).run().catch(() => {});
   return { ok: false, code: 'LOCAL_MODEL_TIMEOUT' };
 }
+
+// The PC can take over only when the Companion engine is fresh, remote access
+// is on, and the owner has enabled local compute. A missing PC is not a model.
+export async function localPcModelReady(env, now = Date.now()) {
+  const db = env?.DB;
+  if (!db?.prepare) return { ok: false, code: 'LOCAL_DB_UNAVAILABLE' };
+  const device = await selectAgentDevice(db, now).catch(() => null);
+  if (!device) return { ok: false, code: 'COMPANION_OFFLINE_OR_NOT_AUTHORIZED' };
+  const row = await db.prepare('SELECT metadata FROM computer_devices WHERE id=?').bind(device.id).first().catch(() => null);
+  let metadata = {};
+  try { metadata = JSON.parse(row?.metadata || '{}'); } catch { metadata = {}; }
+  if (metadata.local_compute_enabled !== true) return { ok: false, code: 'LOCAL_COMPUTE_DISABLED' };
+  return { ok: true, device_id: device.id };
+}
+
+// Replaces Workers AI for one tick. Text chats go to Ollama. Nothing is metered
+// and the cloud binding is never called.
+export function bindLocalPcWorkersAi(env, run = runLocalPcModel) {
+  const dbEnv = env;
+  env.AI = {
+    __melLocalPc: true,
+    run: async (_model, inputs = {}) => {
+      const messages = Array.isArray(inputs.messages) && inputs.messages.length
+        ? inputs.messages
+        : (inputs.prompt ? [{ role: 'user', content: String(inputs.prompt) }] : null);
+      if (!messages) throw Object.assign(new Error('LOCAL_MODEL_TEXT_ONLY'), { code: 'LOCAL_MODEL_TEXT_ONLY' });
+      const local = await run({ env: dbEnv, messages });
+      if (!local?.ok || !String(local.text || '').trim()) {
+        throw Object.assign(new Error(local?.code || 'LOCAL_MODEL_FAILED'), { code: local?.code || 'LOCAL_MODEL_FAILED' });
+      }
+      return { response: local.text, model: local.model, local: true };
+    },
+  };
+  env.MEL_INFERENCE = 'local-pc';
+  return env;
+}
+

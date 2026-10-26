@@ -1,0 +1,41 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { sqliteD1 } from './helpers/sqlite-d1.mjs';
+import { bindLocalPcWorkersAi, localPcModelReady } from '../src/models/local-pc-model.js';
+
+async function device(db, metadata, now) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS computer_devices (
+    id TEXT PRIMARY KEY, token_hash TEXT NOT NULL, name TEXT NOT NULL, platform TEXT NOT NULL,
+    capabilities TEXT NOT NULL, allowed_apps TEXT NOT NULL, halted INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL, metadata TEXT NOT NULL DEFAULT '{}'
+  )`).run();
+  await db.prepare('INSERT INTO computer_devices (id, token_hash, name, platform, capabilities, allowed_apps, halted, created_at, last_seen_at, metadata) VALUES (?,?,?,?,?,?,?,?,?,?)')
+    .bind('pc-1', 'hash', 'pc', 'windows', '[]', '[]', 0, now, now, JSON.stringify(metadata)).run();
+}
+
+test('local compute is refused unless the Companion is fresh and the owner allowed it', async () => {
+  const db = sqliteD1();
+  const now = Date.now();
+  assert.equal((await localPcModelReady({ DB: db }, now)).code, 'COMPANION_OFFLINE_OR_NOT_AUTHORIZED');
+  await device(db, { remote_access_enabled: true, engine_heartbeat_at: now, local_compute_enabled: false }, now);
+  assert.equal((await localPcModelReady({ DB: db }, now)).code, 'LOCAL_COMPUTE_DISABLED');
+  await db.prepare('UPDATE computer_devices SET metadata=? WHERE id=?').bind(JSON.stringify({ remote_access_enabled: true, engine_heartbeat_at: now, local_compute_enabled: true }), 'pc-1').run();
+  assert.equal((await localPcModelReady({ DB: db }, now)).ok, true);
+});
+
+test('the local binding answers text and never calls Workers AI', async () => {
+  const env = { DB: {}, AI: { run: async () => { throw new Error('CLOUD_MUST_NOT_RUN'); } } };
+  bindLocalPcWorkersAi(env, async () => ({ ok: true, text: 'suite locale', model: 'pc:qwen3:8b' }));
+  const answer = await env.AI.run('@cf/openai/gpt-oss-120b', { messages: [{ role: 'user', content: 'continue' }] });
+  assert.equal(answer.response, 'suite locale');
+  assert.equal(answer.local, true);
+  assert.equal(env.MEL_INFERENCE, 'local-pc');
+  await assert.rejects(env.AI.run('image', {}), error => error.code === 'LOCAL_MODEL_TEXT_ONLY');
+});
+
+test('an exhausted neuron share continues on the PC instead of stopping MAX', async () => {
+  const source = await readFile('src/evolution/autonomy-runtime.js', 'utf8');
+  assert.match(source, /bindLocalPcWorkersAi\(env, options\.runLocalPcModel\)/);
+  assert.match(source, /status: 'AI_BUDGET_EXHAUSTED'/);
+});

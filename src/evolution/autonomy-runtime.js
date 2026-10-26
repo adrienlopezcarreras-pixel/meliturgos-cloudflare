@@ -15,6 +15,7 @@ import { reconcileRuntimeCompletions } from '../teachers/github-completion-recon
 import { recordAutonomyProgressWatchdog, resetAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
 import { readActivityListEpoch } from './autonomy-activity.js';
 import { backgroundNeuronBudgetExhausted } from '../augmentio/neuron-budget.js';
+import { bindLocalPcWorkersAi, localPcModelReady } from '../models/local-pc-model.js';
 
 export * from './autonomy-runtime-core.js';
 
@@ -669,17 +670,25 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     };
   }
 
-  // Daily Workers AI share spent: wait for 00:00 UTC instead of burning
-  // attempts on refused AI calls (missions went FAILED, 25/10).
+  // Daily Workers AI share spent: do not buy more neurons. If the owner's PC
+  // is on and local compute is allowed, keep developing on Ollama. Otherwise
+  // wait for 00:00 UTC instead of failing missions on refused AI calls.
   if (options.ignoreNeuronBudget !== true && await backgroundNeuronBudgetExhausted(env)) {
-    return {
-      status: 'AI_BUDGET_EXHAUSTED',
-      paused: false,
-      advanced: false,
-      progress: { advanced: false, events: [], work_remaining: null, waiting_external: true, block_reason: 'AI_DAILY_NEURON_BUDGET_EXHAUSTED' },
-      candidate_branch: env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
-      control,
-    };
+    const local = typeof options.localPcReady === 'function'
+      ? await options.localPcReady(env)
+      : await localPcModelReady(env).catch(() => ({ ok: false, code: 'LOCAL_CHECK_FAILED' }));
+    if (!local?.ok) {
+      return {
+        status: 'AI_BUDGET_EXHAUSTED',
+        paused: false,
+        advanced: false,
+        progress: { advanced: false, events: [], work_remaining: null, waiting_external: true, block_reason: 'AI_DAILY_NEURON_BUDGET_EXHAUSTED' },
+        local_pc: local?.code || 'LOCAL_UNAVAILABLE',
+        candidate_branch: env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
+        control,
+      };
+    }
+    bindLocalPcWorkersAi(env, options.runLocalPcModel);
   }
 
   const epochMs = await readActivityListEpoch(env?.DB, { strict: true });
