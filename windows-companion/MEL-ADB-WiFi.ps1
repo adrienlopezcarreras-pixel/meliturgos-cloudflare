@@ -51,18 +51,29 @@ function Run-Adb([string[]]$arglist) {
   $stderr = "$scratch.err"
   $process = $null
   try {
-    $quoted = @($arglist | ForEach-Object { '"' + ([string]$_).Replace('"','\"') + '"' }) -join ' '
-    $process = Start-Process -FilePath $adb -ArgumentList $quoted -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    $process = Start-Process -FilePath $adb -ArgumentList $arglist -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
     if (-not $process.WaitForExit(8000)) {
       try { $process.Kill() } catch { }
+      try { $null = $process.WaitForExit(1000) } catch { }
       throw 'ADB_COMMAND_TIMEOUT'
     }
+    # A timed wait can return before ExitCode is published. $null -ne 0 is true,
+    # which previously produced "exit= detail=" with no real failure text.
+    try { $null = $process.WaitForExit() } catch { }
+    try { $process.Refresh() } catch { }
     $output = @()
     if (Test-Path -LiteralPath $stdout) { $output += @(Get-Content -LiteralPath $stdout -ErrorAction SilentlyContinue | ForEach-Object { [string]$_ }) }
     $errorText = ''
     if (Test-Path -LiteralPath $stderr) { $errorText = Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue }
     $flatError = [string]($errorText -replace '[\r\n]+',' ')
-    if ($process.ExitCode -ne 0) { throw ("ADB_COMMAND_FAILED exit={0} detail={1}" -f $process.ExitCode,$flatError.Substring(0,[Math]::Min(180,$flatError.Length))) }
+    if ([string]::IsNullOrWhiteSpace($flatError)) {
+      $flatError = [string]((($output | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join ' ') -replace '[\r\n]+',' ')
+    }
+    $detail = $flatError.Trim()
+    if ($detail.Length -gt 180) { $detail = $detail.Substring(0,180) }
+    $code = $process.ExitCode
+    if ($null -eq $code) { $code = -1 }
+    if ($null -eq $process.ExitCode -or $process.ExitCode -ne 0) { throw ("ADB_COMMAND_FAILED exit={0} detail={1}" -f $code,$detail) }
     return $output
   } finally {
     if ($null -ne $process) { $process.Dispose() }
