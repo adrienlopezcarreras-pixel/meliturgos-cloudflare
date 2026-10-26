@@ -424,9 +424,13 @@ export async function proveEcosystemTeacherHandoff(
   // A retryable FAILED handoff is deliberately released by handoffOwnsDiscovery()
   // so the next watch can retry/rebuild it. Keep it observable, but do not let
   // stale retryable failures block a release proof forever.
+  // A Council that got no AI answers failed for lack of budget or provider,
+  // not because of the handoff: transient, retried by the next watch (26/10:
+  // seven approvals failed this way while the neuron cap was exhausted).
+  const transientCouncil = item => /COUNCIL_INSUFFICIENT_RESPONSES/.test(String(item.handoff.code || ''));
   const releasedRetryableFailures = rawOpen.filter(item =>
     String(item.handoff.status || '').toUpperCase() === 'FAILED'
-      && item.handoff.retryable === true
+      && (item.handoff.retryable === true || transientCouncil(item))
   );
   // A Teacher request explicitly invalidated because its candidate SHA became
   // stale is no longer an active Teacher proof. If the canonical dev job has
