@@ -230,7 +230,22 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
   if (isActivityReset) {
     if (request.method !== 'POST') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'POST' } });
     const reset = await resetAutonomyActivityList(env.DB);
-    return Response.json({ ok: true, reset, activity: await buildAutonomyActivity(env, { repository }) }, { headers: { 'cache-control': 'no-store' } });
+    // Clearing the activity generation also cancels its active jobs. Without
+    // another tick, the UI remains empty until the next scheduled heartbeat.
+    // Reuse the ordinary lease-protected runtime: do not override PC model,
+    // fallback, neuron accounting, launch approval, or maintenance gates.
+    const resume = typeof waitUntil === 'function'
+      ? { status: 'SCHEDULED', trigger: 'ACTIVITY_RESET' }
+      : { status: 'AWAITING_SCHEDULED_TICK', trigger: 'ACTIVITY_RESET' };
+    if (typeof waitUntil === 'function') {
+      waitUntil(runAutonomyRuntimeTick(env, {
+        repository: repository || new D1DevJobRepository(env.DB),
+        fetchImpl,
+        autonomyControlState,
+        roadmap,
+      }).catch(() => null));
+    }
+    return Response.json({ ok: true, reset, resume, activity: await buildAutonomyActivity(env, { repository }) }, { headers: { 'cache-control': 'no-store' } });
   }
 
   // A PC-only Council approval waits for the owner (owner rule 21/10/2026).
