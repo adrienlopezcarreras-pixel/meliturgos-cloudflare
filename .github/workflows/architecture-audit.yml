@@ -64,7 +64,7 @@ jobs:
           if BASE_URL=https://meliturgos.adrien-lopezcarreras.workers.dev CHROME_PATH=/usr/bin/google-chrome \
             node scripts/ui-production-audit.mjs > ui-report.json; then
             node -e "const fs=require('fs');const r=JSON.parse(fs.readFileSync('architecture-report.json'));r.ui=JSON.parse(fs.readFileSync('ui-report.json'));fs.writeFileSync('architecture-report.json',JSON.stringify(r))"
-            node -e "const u=require('./ui-report.json');console.log('UI audit:',u.pages,'pages,',u.api_calls,'API calls,',u.blocked_calls,'blocked,',u.findings.length,'findings')"
+            node -e "const u=require('./ui-report.json');console.log('UI audit:',u.pages,'pages,',u.api_calls,'API calls,',u.blocked_calls,'blocked,',u.findings.length,'findings');for(const f of u.findings)console.log(' -',f.code,f.detail)"
           else
             echo "UI audit failed to run; report sent without ui."
           fi
