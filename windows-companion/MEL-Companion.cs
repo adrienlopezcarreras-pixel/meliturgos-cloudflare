@@ -1980,10 +1980,9 @@ class MainForm : Form
     void ChooseMiniUsbAction(object sender,EventArgs e)
     {
         var choice=MessageBox.Show(this,
-            "OUI : diagnostic USB en lecture seule.\nNON : sauvegarde intégrale USB en lecture seule (deux lectures vérifiées).\nANNULER : ne rien faire.\n\nAucune de ces actions ne flashe la MINI.",
-            "MEL MINI — opération locale",MessageBoxButtons.YesNoCancel,MessageBoxIcon.Warning);
-        if(choice==DialogResult.Yes)RunMiniUsbPreflight(sender,e);
-        else if(choice==DialogResult.No)RunMiniUsbBackup(sender,e);
+            "Ce bouton flashe la MINI par USB. Il télécharge le firmware publié, vérifie son empreinte, efface la carte, puis écrit le firmware. La fenêtre demandera EFFACER_MINI. Continuer ?",
+            "MEL MINI — flash USB",MessageBoxButtons.YesNo,MessageBoxIcon.Warning);
+        if(choice==DialogResult.Yes)RunMiniFirstInstall(sender,e);
     }
     void RunMiniUsbBackup(object sender,EventArgs e)
     {
