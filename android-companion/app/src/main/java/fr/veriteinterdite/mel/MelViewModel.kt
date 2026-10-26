@@ -37,8 +37,47 @@ data class MelChatMessage(
     val text: String,
     val voice: Boolean = false,
     // Assigned only to archived server messages, never inferred from text.
-    val serverId: String? = null
+    val serverId: String? = null,
+    val imageUrl: String? = null,
+    val pageUrl: String? = null,
+    val audioUrl: String? = null,
+    val videoUrl: String? = null
 )
+
+internal fun httpsMediaUrl(value: String?): String? {
+    val url = value?.trim().orEmpty()
+    if (!url.startsWith("https://") || url.length > 1200) return null
+    return url
+}
+
+internal fun messageFromServer(text: String, response: JSONObject): MelChatMessage {
+    val items = response.optJSONObject("display")?.optJSONArray("items")
+    var image: String? = null
+    var page: String? = null
+    var audio: String? = null
+    var video: String? = null
+    if (items != null) {
+        for (index in 0 until items.length()) {
+            val item = items.optJSONObject(index) ?: continue
+            val url = httpsMediaUrl(item.optString("url"))
+            val picture = httpsMediaUrl(item.optString("image_url"))
+            if (image == null && picture != null) image = picture
+            if (page == null && url != null) page = url
+            val lower = url?.lowercase().orEmpty()
+            if (audio == null && Regex("""\.(mp3|wav|ogg|m4a)(?:\?|$)""").containsMatchIn(lower)) audio = url
+            if (video == null && Regex("""\.(mp4|webm|mov)(?:\?|$)""").containsMatchIn(lower)) video = url
+            if (image == null && Regex("""\.(jpg|jpeg|png|webp)(?:\?|$)""").containsMatchIn(lower)) image = url
+        }
+    }
+    return MelChatMessage(
+        role = "mel",
+        text = text,
+        imageUrl = image,
+        pageUrl = page,
+        audioUrl = audio,
+        videoUrl = video
+    )
+}
 
 // Preserve two legitimate identical messages with different server IDs while
 // preventing redelivery of one archived message after a failed ACK.
@@ -573,11 +612,13 @@ class MelViewModel(
                 val answer = response.optString("text", response.optString("response", "")).trim()
                 if (answer.isBlank()) throw MelApiException("EMPTY_RESPONSE", 502)
                 synchronized(pendingContext) { pendingContext.clear() }
+                val shown = messageFromServer(displayChatAnswer(answer, response), response)
+                val spoken = MelChatMessage("mel", displayChatAnswer(answer, response))
                 _state.value = _state.value.copy(
                     busy = voice,
                     speaking = false,
                     status = if (voice) "MEL prépare sa voix…" else "MEL connectée · mode ${mode.label}",
-                    messages = _state.value.messages + MelChatMessage("mel", displayChatAnswer(answer, response))
+                    messages = _state.value.messages + spoken.copy(voice = shown.voice, serverId = shown.serverId, imageUrl = shown.imageUrl, pageUrl = shown.pageUrl, audioUrl = shown.audioUrl, videoUrl = shown.videoUrl)
                 )
                 if (voice) speakAnswer(answer, mode)
                 appendDiagnosticLine("Chat complet · ${SystemClock.elapsedRealtime() - requestStartedAt} ms")
@@ -650,11 +691,13 @@ class MelViewModel(
                 val answer = response.optString("text", response.optString("response", "")).trim()
                 if (answer.isBlank()) throw MelApiException("EMPTY_RESPONSE", 502)
                 synchronized(pendingContext) { pendingContext.clear() }
+                val shown = messageFromServer(displayChatAnswer(answer, response), response)
+                val spoken = MelChatMessage("mel", displayChatAnswer(answer, response))
                 _state.value = _state.value.copy(
                     busy = true,
                     speaking = false,
                     status = "MEL prépare sa voix…",
-                    messages = _state.value.messages + MelChatMessage("mel", displayChatAnswer(answer, response))
+                    messages = _state.value.messages + spoken.copy(voice = shown.voice, serverId = shown.serverId, imageUrl = shown.imageUrl, pageUrl = shown.pageUrl, audioUrl = shown.audioUrl, videoUrl = shown.videoUrl)
                 )
                 speakAnswer(answer, mode)
                 appendDiagnosticLine("Voix complète · ${SystemClock.elapsedRealtime() - voiceRequestStartedAt} ms")
@@ -857,7 +900,7 @@ class MelViewModel(
                             "Fichier texte analysé · serveur ancien compatible"
                         else
                             "Fichier analysé · mode " + mode.label,
-                        messages = _state.value.messages + MelChatMessage("mel", answer)
+                        messages = _state.value.messages + messageFromServer(answer, response)
                     )
                     appendDiagnosticLine("Fichier réel: OK")
                 } else {

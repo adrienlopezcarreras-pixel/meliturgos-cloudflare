@@ -11,6 +11,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.media.MediaPlayer
 import android.media.AudioManager
 import android.media.MediaRecorder
 import android.net.ConnectivityManager
@@ -108,6 +110,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -3443,9 +3446,83 @@ private fun MessageBubble(message: MelChatMessage) {
                 )
                 Spacer(Modifier.height(3.dp))
                 Text(message.text, color = MelInk, lineHeight = 20.sp, fontSize = 14.sp)
+                message.imageUrl?.let { url ->
+                    Spacer(Modifier.height(8.dp))
+                    RemoteMediaImage(url)
+                }
+                val context = LocalContext.current
+                message.audioUrl?.let { url ->
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = { playRemoteAudio(context, url) }, modifier = Modifier.testTag("media-audio")) {
+                        Text("Écouter")
+                    }
+                }
+                message.videoUrl?.let { url ->
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = { openExternal(context, url) }, modifier = Modifier.testTag("media-video")) {
+                        Text("Voir la vidéo")
+                    }
+                }
+                if (message.pageUrl != null && message.pageUrl != message.imageUrl && message.pageUrl != message.videoUrl && message.pageUrl != message.audioUrl) {
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = { openExternal(context, message.pageUrl) }, modifier = Modifier.testTag("media-page")) {
+                        Text("Ouvrir la page")
+                    }
+                }
             }
         }
     }
 }
 
 // VISUAL_SHELL: 0.6.11-mini-reference-luna-audio
+
+private var remoteAudio: MediaPlayer? = null
+
+private fun playRemoteAudio(context: Context, url: String) {
+    if (!url.startsWith("https://")) return
+    runCatching {
+        remoteAudio?.release()
+        val player = MediaPlayer()
+        remoteAudio = player
+        player.setDataSource(context, Uri.parse(url))
+        player.setOnCompletionListener {
+            it.release()
+            if (remoteAudio === it) remoteAudio = null
+        }
+        player.setOnPreparedListener { it.start() }
+        player.prepareAsync()
+    }
+}
+
+private fun openExternal(context: Context, url: String) {
+    if (!url.startsWith("https://")) return
+    runCatching {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+}
+
+@Composable
+private fun RemoteMediaImage(url: String) {
+    var bitmap by remember(url) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(url) {
+        bitmap = withContext(Dispatchers.IO) {
+            runCatching {
+                val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                connection.connectTimeout = 8000
+                connection.readTimeout = 12000
+                connection.setRequestProperty("Accept", "image/*")
+                if (connection.responseCode !in 200..299) return@runCatching null
+                val declared = connection.contentLength
+                if (declared > 4_000_000) return@runCatching null
+                connection.inputStream.use { BitmapFactory.decodeStream(it) }
+            }.getOrNull()
+        }
+    }
+    bitmap?.let { shown ->
+        Image(
+            bitmap = shown.asImageBitmap(),
+            contentDescription = "Image envoyée par MEL",
+            modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(RoundedCornerShape(12.dp))
+        )
+    }
+}

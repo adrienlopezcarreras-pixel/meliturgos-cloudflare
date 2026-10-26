@@ -22,6 +22,7 @@ test('Android request forwards both switches, never to voice requests',async()=>
  const cli=await read(root+'MelApiClient.kt'),route=await read('src/devices/android-companion-api.js');
  assert.match(cli,/\.put\("prefer_companion_compute", preferCompanionCompute && !voice\)/);
  assert.match(cli,/\.put\("use_companion_compute", preferCompanionCompute && !voice\)/);
- assert.match(route,/prefer_companion_compute:body.prefer_companion_compute === true && inputSource === "text"/);
- assert.match(route,/use_companion_compute:body.use_companion_compute === true && inputSource === "text"/);
+ assert.match(route,/answerOwnedDeviceConversation/);
+ assert.doesNotMatch(route,/prefer_companion_compute:body.prefer_companion_compute === true/);
+ assert.doesNotMatch(route,/use_companion_compute:body.use_companion_compute === true/);
 });

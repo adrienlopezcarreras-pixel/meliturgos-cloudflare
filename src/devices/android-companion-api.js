@@ -3,7 +3,7 @@ import { handleNativeChat } from "../api/native-chat.js";
 import { handleVoiceTranscription } from "../api/voice-transcribe.js";
 import { handleFileUpload } from "../api/file-upload.js";
 import { createConversationService } from "../conversations/conversation-service.js";
-import { handleAndroidDelegatedMiniRequest } from "./waveshare-terminal-api.js";
+import { handleAndroidDelegatedMiniRequest, answerOwnedDeviceConversation } from "./waveshare-terminal-api.js";
 
 export const ANDROID_API_BASE = "/api/android/v1";
 export const ANDROID_PROTOCOL_VERSION = "1.0";
@@ -363,6 +363,12 @@ async function deviceChat(request,env,auth) {
   if (!text) return json({ok:false,code:"MESSAGE_REQUIRED"},400);
   const inputSource = body.input_source === "voice-server-transcription" ? "voice-server-transcription" : "text";
   const uiMode = safe(body.ui_mode,20).toLowerCase() === "complete" ? "complete" : "normal";
+  const conversation = await answerOwnedDeviceConversation(text, env, {
+    voice: (body.voice_reply === true || inputSource !== "text") && inputSource === "voice-server-transcription",
+  });
+  if (conversation) {
+    return json({ ...conversation, conversation_id: conversationId }, conversation.ok ? 200 : (conversation.status || 503));
+  }
   const internal = new Request(new URL("/api/chat",request.url),{
     method:"POST",
     headers:{"content-type":"application/json"},
@@ -374,8 +380,6 @@ async function deviceChat(request,env,auth) {
       ui_mode:uiMode,
       input_source:inputSource,
       voice_reply:body.voice_reply === true || inputSource !== "text",
-      prefer_companion_compute:body.prefer_companion_compute === true && inputSource === "text",
-      use_companion_compute:body.use_companion_compute === true && inputSource === "text",
       intent_context:{
         surface:uiMode === "complete" ? "mel-android-complete" : "mel-android-normal",
         ui_mode:uiMode,
