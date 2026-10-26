@@ -155,68 +155,6 @@ static class MelApp
     public static Color Red = Color.FromArgb(251, 113, 133);
     public static Color Line = Color.FromArgb(48, 78, 112);
 
-    public static Bitmap MakeMelTechnoFace(int size)
-    {
-        var bmp = new Bitmap(size, size);
-        using (var g = Graphics.FromImage(bmp))
-        {
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-            g.Clear(Color.Transparent);
-            var scale = Math.Max(0.01f, size / 100f);
-            g.ScaleTransform(scale, scale);
-
-            using (var glow = new Pen(Color.FromArgb(70, 68, 232, 255), 9f))
-            using (var outer = new Pen(Color.FromArgb(72, 120, 255), 4f))
-            using (var cyan = new Pen(Cyan, 3f))
-            using (var faceFill = new SolidBrush(Color.FromArgb(14, 29, 55)))
-            using (var eyeFill = new SolidBrush(Color.FromArgb(74, 239, 255)))
-            using (var eyeCore = new SolidBrush(Color.White))
-            using (var mouth = new Pen(Color.FromArgb(112, 150, 255), 3f))
-            {
-                g.DrawEllipse(glow, 11, 11, 78, 78);
-                g.DrawArc(outer, 8, 8, 84, 84, 204, 312);
-
-                var head = new Point[] {
-                    new Point(50,12), new Point(78,23), new Point(88,48),
-                    new Point(80,74), new Point(63,89), new Point(50,94),
-                    new Point(37,89), new Point(20,74), new Point(12,48),
-                    new Point(22,23)
-                };
-                g.FillPolygon(faceFill, head);
-                g.DrawPolygon(cyan, head);
-
-                var leftEye = new Point[] {
-                    new Point(24,43), new Point(43,38), new Point(39,51), new Point(25,54)
-                };
-                var rightEye = new Point[] {
-                    new Point(76,43), new Point(57,38), new Point(61,51), new Point(75,54)
-                };
-                g.FillPolygon(eyeFill, leftEye);
-                g.FillPolygon(eyeFill, rightEye);
-                g.FillEllipse(eyeCore, 31, 43, 5, 5);
-                g.FillEllipse(eyeCore, 64, 43, 5, 5);
-
-                g.DrawLine(cyan, 24, 34, 43, 31);
-                g.DrawLine(cyan, 57, 31, 76, 34);
-                g.DrawLine(cyan, 50, 47, 50, 65);
-                g.DrawLine(cyan, 46, 66, 54, 66);
-
-                g.DrawLine(mouth, 34, 72, 43, 75);
-                g.DrawLine(mouth, 43, 75, 57, 75);
-                g.DrawLine(mouth, 57, 75, 66, 72);
-
-                g.DrawLine(cyan, 8, 48, 2, 48);
-                g.DrawLine(cyan, 92, 48, 98, 48);
-                g.DrawLine(cyan, 17, 28, 8, 21);
-                g.DrawLine(cyan, 83, 28, 92, 21);
-                g.FillEllipse(eyeFill, 0, 46, 5, 5);
-                g.FillEllipse(eyeFill, 95, 46, 5, 5);
-            }
-        }
-        return bmp;
-    }
-
     public static Image LoadPortrait(int size)
     {
         try
@@ -229,7 +167,7 @@ static class MelApp
             }
         }
         catch { }
-        return MakeMelTechnoFace(Math.Max(32, size));
+        return null;
     }
 
     public static PictureBox MelFace(int x, int y, int size)
