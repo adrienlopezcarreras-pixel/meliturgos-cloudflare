@@ -65,3 +65,14 @@ test('MAX waits for the next UTC day instead of failing missions once its share 
   assert.equal(result.status, 'AI_BUDGET_EXHAUSTED');
   assert.equal(result.progress.block_reason, 'AI_DAILY_NEURON_BUDGET_EXHAUSTED');
 });
+
+test('every Workers AI text model in ModelRegistry has its official neuron rate', async () => {
+  const { estimateNeurons } = await import('../src/augmentio/neuron-budget.js');
+  const { standardRegistry } = await import('../src/models/ModelRegistry.js');
+  const unknownCeiling = estimateNeurons('@cf/unknown/model', { messages: 'x'.repeat(4000) }, { usage: { prompt_tokens: 1000, completion_tokens: 1000 } });
+  for (const model of standardRegistry.list().filter(m => String(m.id).startsWith('@cf/'))) {
+    const cost = estimateNeurons(model.id, {}, { usage: { prompt_tokens: 1000, completion_tokens: 1000 } });
+    assert.ok(cost < unknownCeiling, model.id + ' is charged at the unknown-model ceiling');
+  }
+  assert.equal(Math.round(estimateNeurons('@cf/zai-org/glm-4.7-flash', {}, { usage: { prompt_tokens: 1e6, completion_tokens: 1e6 } })), 5500 + 36400);
+});
