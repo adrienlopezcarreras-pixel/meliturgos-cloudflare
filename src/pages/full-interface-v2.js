@@ -984,7 +984,7 @@ function activitySection(title,body){return '<div class="act-sec"><div class="ac
 function activityMarkup(a){
   if(!a||a.ok!==true)return 'Activité indisponible.';
   const c=a.control||{},wd=a.watchdog||{},wc=wd.counters||{},pc=a.pc_executor,fmtW=v=>{const n=finiteMetric(v);return n===null?'—':String(n)};
-  const mode=c.reason==='NEW_RELEASE_AWAITING_OWNER_LAUNCH'&&c.paused?'⏸ Release terminée : active MAX ou reprends MEL':c.paused&&(c.reason==='predeploy-release-safety'||/^release-/.test(String(c.source||'')))?'⏸ Pause de mise en production : levée automatiquement après les vérifications'+(c.max_remembered?', puis MAX reprend':''):c.paused?'⏸ En pause'+(c.reason?' ('+c.reason+')':''):c.max_autonomy?'⚡ MAX 100 % (auto-développement sans validation humaine)':'Autonomie supervisée (chaque plan attend ta validation)';
+  const mode=a.survival?.active===true?'⚡ Mode survie : elle décide tout. Un message de vous dans le chat la ramène.':c.reason==='NEW_RELEASE_AWAITING_OWNER_LAUNCH'&&c.paused?'⏸ Release terminée : active MAX ou reprends MEL':c.paused&&(c.reason==='predeploy-release-safety'||/^release-/.test(String(c.source||'')))?'⏸ Pause de mise en production : levée automatiquement après les vérifications'+(c.max_remembered?', puis MAX reprend':''):c.paused?'⏸ En pause'+(c.reason?' ('+c.reason+')':''):c.max_autonomy?'⚡ MAX 100 % (auto-développement sans validation humaine)':'Autonomie supervisée (chaque plan attend ta validation)';
   let h=activitySection('Mode',
     '<div><b>'+esc(mode)+'</b></div>'
     +'<div class="act-kv">Garde-fou de progression : <b>'+esc(wd.status||'—')+'</b>'+(wd.tripped?' · <span class="act-bad">bloqué après '+esc(wd.consecutive_stalls??'?')+' cycles sans progrès</span>':'')+'</div>'

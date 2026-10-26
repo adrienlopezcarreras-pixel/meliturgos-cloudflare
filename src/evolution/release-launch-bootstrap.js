@@ -33,6 +33,7 @@ import { runCompanionInfrastructurePrevalidationRuntime } from '../portability/c
 import { runGoogleDriveBackupRestorePrevalidationRuntime } from '../portability/google-drive-backup-restore-prevalidation-runtime.js';
 import { authorizeGitHubActionsOidcRequest } from '../security/github-actions-oidc.js';
 import { runMelMedia02LiveProof } from '../media/media-roadmap-proof.js';
+import { readSurvivalState, releaseAutonomyPatch } from '../legacy/survival-mode.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
 const PHASES = new Set(['all', 'identity', 'pause', 'backup', 'code-sync', 'readiness', 'sovereignty-proof', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'connection-proof', 'media-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max', 'release-rollback-restore']);
@@ -917,21 +918,15 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   }
 
   // A deployment may inherit RUNNING/MAX control state from the previous SHA.
-  // Force the new release into PAUSED before any preparation. Only the normal
+  // While the owner is present, force the new release into PAUSED. Only the
   // owner-authenticated Resume/MAX endpoint may approve and start this SHA.
-  // Only an explicit release safety-pause may change the owner's MAX state.
-  // Health/proof/readiness calls must be read-only for autonomy control;
-  // otherwise a late post-release probe re-pauses MAX after owner activation.
+  // In survival (one year without an owner message) she must not stop: the
+  // same release keeps MAX running. A later owner message ends survival.
+  const survival = (phase === 'pause' || phase === 'all')
+    ? await readSurvivalState(env?.DB).catch(() => ({ active: false }))
+    : { active: false };
   const releaseControl = (phase === 'pause' || phase === 'all')
-    ? await setControl(env?.DB, {
-      paused: true,
-      max_autonomy: false,
-      source: 'release-launch-bootstrap',
-      reason: 'NEW_RELEASE_AWAITING_OWNER_LAUNCH',
-      launch_approved_sha: null,
-      launch_approved_at: null,
-      launch_gate_digest: null,
-    })
+    ? await setControl(env?.DB, releaseAutonomyPatch(survival.active === true))
     : null;
 
   if (phase === 'capability-watch-proof') {
