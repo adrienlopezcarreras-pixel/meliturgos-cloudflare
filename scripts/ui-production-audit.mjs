@@ -66,7 +66,9 @@ export async function observe(browser, baseUrl, headers, path, panel) {
   const stuck = await page.evaluate(source => {
     const re = new RegExp(source, 'i');
     const visible = el => el.offsetParent !== null;
-    return [...document.querySelectorAll('[id]')]
+    // Only the open panel: header elements depend on loaders this panel never ran.
+    const scope = document.querySelector('section.view.active') || document;
+    return [...scope.querySelectorAll('[id]')]
       .filter(el => el.children.length === 0 && visible(el) && re.test(el.textContent.trim()))
       .map(el => el.id).slice(0, 20);
   }, LOADING_RE.source);
