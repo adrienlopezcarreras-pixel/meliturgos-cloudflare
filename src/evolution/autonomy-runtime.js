@@ -891,7 +891,19 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
 
   const stopRenewal = keepAutonomyRuntimeLeaseAlive({ db: leaseArgs.db, owner: leaseArgs.owner, leaseMs: leaseArgs.leaseMs, memoryStore: leaseArgs.memoryStore });
   try {
-    const raw = await runAutonomyRuntimeTickUnlocked(env, { ...options, epochMs, repository: repository || options.repository }, control);
+    // A tick that never answers must not hold MAX (26/10: every tick hung for
+    // minutes, the job stayed QUEUED): give up after the budget and free the lease.
+    const tickBudgetMs = Number(options.tickBudgetMs ?? env?.MEL_AUTONOMY_TICK_BUDGET_MS ?? 50_000);
+    let timer;
+    const raw = await Promise.race([
+      runAutonomyRuntimeTickUnlocked(env, { ...options, epochMs, repository: repository || options.repository }, control),
+      new Promise(resolve => { timer = setTimeout(() => resolve({ ok: false, status: 'TICK_TIMEOUT', advanced: false, progress: { advanced: false, block_reason: 'AUTONOMY_TICK_TIMEOUT' } }), tickBudgetMs); }),
+    ]).finally(() => clearTimeout(timer));
+    if (raw?.status === 'TICK_TIMEOUT') {
+      await import('../diagnostics/error-ledger.js')
+        .then(({ recordError }) => recordError(env?.DB, { source: 'max/autonomy-tick', code: 'AUTONOMY_TICK_TIMEOUT', detail: `tick > ${tickBudgetMs} ms` }))
+        .catch(() => null);
+    }
     const tick = augmentTickProgress(raw);
     const watchdog = await recordAutonomyProgressWatchdog(env?.DB || null, tick, {
       maxAutonomy: control.max_autonomy === true,
