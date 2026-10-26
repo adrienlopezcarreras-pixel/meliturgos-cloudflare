@@ -1,5 +1,8 @@
 param(
-  [switch]$Pair
+  [switch]$Pair,
+  [string]$PairAddress = '',
+  [string]$PairCode = '',
+  [string]$ConnectAddress = ''
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -60,6 +63,28 @@ if (-not $Pair) {
   Write-Host 'Pour associer le telephone, execute ce script avec -Pair.'
   Write-Host 'Sur Xiaomi : Parametres > Parametres supplementaires > Options developpeur > Debogage sans fil.'
   Write-Host 'Ne communique jamais ton code d appairage dans une conversation.'
+  exit 0
+}
+
+if ($PairAddress -and $PairCode -and $ConnectAddress) {
+  $pairAddress = Assert-PrivateWifiEndpoint $PairAddress
+  $connectAddress = Assert-PrivateWifiEndpoint $ConnectAddress
+  if ($PairCode -notmatch '^[0-9]{6}$') { throw 'ANDROID_PAIR_CODE_INVALID' }
+  & $adb pair $pairAddress $PairCode
+  if ($LASTEXITCODE -ne 0) { throw 'ANDROID_LOCAL_PAIRING_FAILED' }
+  if ($pairAddress.Split(':')[0] -ne $connectAddress.Split(':')[0]) {
+    throw 'ANDROID_WIFI_ENDPOINT_ADDRESS_CHANGED'
+  }
+  & $adb connect $connectAddress
+  if ($LASTEXITCODE -ne 0) { throw 'ANDROID_LOCAL_CONNECT_FAILED' }
+  $devices = @(& $adb devices -l)
+  if ($LASTEXITCODE -ne 0) { throw 'ANDROID_ADB_LIST_FAILED' }
+  $connected = @($devices | Where-Object {
+    ([string]$_).StartsWith($connectAddress + [char]9 + 'device') -or
+    ([string]$_) -match ('^' + [regex]::Escape($connectAddress) + '\s+device\b')
+  })
+  if ($connected.Count -ne 1) { throw 'ANDROID_ADB_CONNECTED_DEVICE_NOT_CONFIRMED' }
+  Write-Host 'Android Wi-Fi ADB est autorise sur ce PC.'
   exit 0
 }
 

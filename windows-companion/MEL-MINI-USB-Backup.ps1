@@ -1,5 +1,6 @@
 ﻿param(
-  [Parameter(Mandatory=$true)][ValidatePattern('^COM[0-9]{1,3}$')][string]$Port
+  [Parameter(Mandatory=$true)][ValidatePattern('^COM[0-9]{1,3}$')][string]$Port,
+  [string]$Approval = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -8,8 +9,10 @@ Set-StrictMode -Version Latest
 Write-Host 'MEL MINI - sauvegarde USB INTEGRALE, en lecture seule.'
 Write-Host 'La liaison au bootloader peut redemarrer la MINI.'
 Write-Host 'La sauvegarde contient potentiellement des secrets Wi-Fi et des donnees NVS : ne la partagez pas.'
-$approval = Read-Host 'Tapez exactement SAUVEGARDER_MINI_USB pour continuer'
-if ($approval -cne 'SAUVEGARDER_MINI_USB') { throw 'MINI_BACKUP_OWNER_CONFIRMATION_REQUIRED' }
+if ([string]::IsNullOrWhiteSpace($Approval)) {
+  $Approval = Read-Host 'Tapez exactement SAUVEGARDER_MINI_USB pour continuer'
+}
+if ($Approval -cne 'SAUVEGARDER_MINI_USB') { throw 'MINI_BACKUP_OWNER_CONFIRMATION_REQUIRED' }
 
 $port = $Port.ToUpperInvariant()
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path

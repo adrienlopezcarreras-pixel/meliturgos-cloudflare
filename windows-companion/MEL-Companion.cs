@@ -973,19 +973,19 @@ static class MelApp
 
     public static Icon MakeIcon()
     {
-        // One high-contrast initial, intentionally legible at 16x16 in the Windows tray.
         using (var bmp = new Bitmap(32, 32))
         using (var g = Graphics.FromImage(bmp))
-        using (var fill = new SolidBrush(Color.FromArgb(37, 91, 164)))
-        using (var white = new SolidBrush(Color.White))
-        using (var font = new Font("Segoe UI", 20f, FontStyle.Bold, GraphicsUnit.Pixel))
+        using (var portrait = LoadPortrait(32))
         {
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
             g.Clear(Color.Transparent);
-            g.FillEllipse(fill, 1, 1, 30, 30);
-            var fmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-            g.DrawString("M", font, white, new RectangleF(1, 1, 30, 29), fmt);
+            using (var clip = new System.Drawing.Drawing2D.GraphicsPath())
+            {
+                clip.AddEllipse(1, 1, 30, 30);
+                g.SetClip(clip);
+                if (portrait != null) g.DrawImage(portrait, 1, 1, 30, 30);
+                else g.Clear(Color.FromArgb(37, 91, 164));
+            }
             return Icon.FromHandle(bmp.GetHicon());
         }
     }
@@ -1911,6 +1911,89 @@ class MainForm : Form
         }
         cards.ResumeLayout(true);
     }
+    string AskPhrase(string title, string phrase)
+    {
+        using (var dialog=new Form())
+        {
+            dialog.Text=title;
+            dialog.ClientSize=new Size(520,150);
+            dialog.FormBorderStyle=FormBorderStyle.FixedDialog;
+            dialog.StartPosition=FormStartPosition.CenterParent;
+            dialog.MaximizeBox=false;dialog.MinimizeBox=false;
+            dialog.Controls.Add(new Label{Text="Tapez exactement "+phrase,Left=16,Top=16,Width=480,Height=36});
+            var box=new TextBox{Left=16,Top=58,Width=480};
+            var ok=new Button{Text="Continuer",Left=286,Top=100,Width=100,DialogResult=DialogResult.OK};
+            var cancel=new Button{Text="Annuler",Left=396,Top=100,Width=100,DialogResult=DialogResult.Cancel};
+            dialog.Controls.Add(box);dialog.Controls.Add(ok);dialog.Controls.Add(cancel);
+            dialog.AcceptButton=ok;dialog.CancelButton=cancel;
+            if(dialog.ShowDialog(this)!=DialogResult.OK)return null;
+            return (box.Text??"").Trim();
+        }
+    }
+    void ShowLocalResult(string title, string text)
+    {
+        if(IsDisposed)return;
+        var body=text??"";
+        if(body.Length>4000)body=body.Substring(0,4000);
+        if(body.Length==0)body="Terminé.";
+        using(var dialog=new Form())
+        {
+            dialog.Text=title;
+            dialog.ClientSize=new Size(640,420);
+            dialog.StartPosition=FormStartPosition.CenterParent;
+            dialog.FormBorderStyle=FormBorderStyle.Sizable;
+            var output=new TextBox{Left=12,Top=12,Width=616,Height=350,Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical,Text=body,Font=new Font("Consolas",9f)};
+            var close=new Button{Text="Fermer",Left=520,Top=372,Width=108,DialogResult=DialogResult.OK};
+            dialog.Controls.Add(output);dialog.Controls.Add(close);
+            dialog.AcceptButton=close;
+            dialog.ShowDialog(this);
+        }
+    }
+    void RunHidden(string title, string scriptPath, string extraArgs)
+    {
+        if(string.IsNullOrEmpty(scriptPath)||!File.Exists(scriptPath))
+        {
+            MessageBox.Show(this,"Outil absent. Réinstallez le Companion.","MEL Companion",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            return;
+        }
+        ThreadPool.QueueUserWorkItem(delegate {
+            var text="";
+            try
+            {
+                var psi=new ProcessStartInfo("powershell.exe");
+                psi.WorkingDirectory=MelApp.MelDir;
+                psi.Arguments="-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File \""+scriptPath+"\" "+(extraArgs??"");
+                psi.UseShellExecute=false;
+                psi.CreateNoWindow=true;
+                psi.RedirectStandardOutput=true;
+                psi.RedirectStandardError=true;
+                psi.WindowStyle=ProcessWindowStyle.Hidden;
+                using(var process=Process.Start(psi))
+                {
+                    if(process==null)throw new InvalidOperationException("Le programme local n'a pas démarré.");
+                    var output=new System.Text.StringBuilder();
+                    process.OutputDataReceived+=delegate(object s,DataReceivedEventArgs ev){if(ev.Data!=null)output.AppendLine(ev.Data);};
+                    process.ErrorDataReceived+=delegate(object s,DataReceivedEventArgs ev){if(ev.Data!=null)output.AppendLine(ev.Data);};
+                    process.BeginOutputReadLine();
+                    process.BeginErrorReadLine();
+                    if(!process.WaitForExit(20*60*1000))
+                    {
+                        try{process.Kill();}catch{}
+                        text="Interrompu après 20 minutes. L'action n'a pas été perdue : relancez-la depuis MEL.";
+                    }
+                    else
+                    {
+                        process.WaitForExit();
+                        text=output.ToString().Trim();
+                        if(text.Length==0)text="Terminé. Code "+process.ExitCode+".";
+                    }
+                }
+            }
+            catch(Exception ex){text=ex.Message;}
+            if(IsDisposed)return;
+            try{BeginInvoke((Action)delegate{ShowLocalResult(title,text);});}catch{}
+        });
+    }
     void RunAndroidWifiPairing(object sender,EventArgs e)
     {
         if (!File.Exists(MelApp.AndroidWifiPairingPath))
@@ -1920,21 +2003,29 @@ class MainForm : Form
             return;
         }
         if (MessageBox.Show(this,
-            "Cela ouvre un terminal local pour associer ce téléphone à Windows. Le code d'appairage reste uniquement dans ce terminal et ne doit pas être communiqué à MEL. Le téléphone et le PC doivent être sur le même réseau Wi-Fi. Continuer ?",
+            "Le téléphone et le PC doivent être sur le même Wi-Fi. Le code reste sur cet ordinateur et n'est pas envoyé à MEL. Continuer ?",
             "Configurer ADB Wi-Fi",MessageBoxButtons.YesNo,MessageBoxIcon.Information)!=DialogResult.Yes)return;
-        try
+        using(var dialog=new Form())
         {
-            var psi=new ProcessStartInfo("powershell.exe");
-            psi.UseShellExecute=true;psi.WindowStyle=ProcessWindowStyle.Normal;
-            psi.WorkingDirectory=MelApp.MelDir;
-            psi.Arguments="-NoProfile -ExecutionPolicy Bypass -NoExit -File \"" +
-                MelApp.AndroidWifiPairingPath + "\" -Pair";
-            Process.Start(psi);
-        }
-        catch(Exception ex)
-        {
-            MessageBox.Show(this,"Impossible d'ouvrir l'assistant ADB Wi-Fi : "+ex.Message,
-                "MEL — Android Wi-Fi",MessageBoxButtons.OK,MessageBoxIcon.Error);
+            dialog.Text="ADB Wi-Fi";
+            dialog.ClientSize=new Size(460,230);
+            dialog.FormBorderStyle=FormBorderStyle.FixedDialog;
+            dialog.StartPosition=FormStartPosition.CenterParent;
+            dialog.MaximizeBox=false;dialog.MinimizeBox=false;
+            dialog.Controls.Add(new Label{Text="IP:port d'appairage",Left=16,Top=12,Width=420,Height=20});
+            var pair=new TextBox{Left=16,Top=34,Width=420};
+            dialog.Controls.Add(new Label{Text="Code à 6 chiffres",Left=16,Top=66,Width=420,Height=20});
+            var code=new TextBox{Left=16,Top=88,Width=160,UseSystemPasswordChar=true};
+            dialog.Controls.Add(new Label{Text="IP:port de débogage",Left=16,Top=120,Width=420,Height=20});
+            var connect=new TextBox{Left=16,Top=142,Width=420};
+            var ok=new Button{Text="Associer",Left=236,Top=182,Width=96,DialogResult=DialogResult.OK};
+            var cancel=new Button{Text="Annuler",Left=340,Top=182,Width=96,DialogResult=DialogResult.Cancel};
+            dialog.Controls.Add(pair);dialog.Controls.Add(code);dialog.Controls.Add(connect);
+            dialog.Controls.Add(ok);dialog.Controls.Add(cancel);
+            dialog.AcceptButton=ok;dialog.CancelButton=cancel;
+            if(dialog.ShowDialog(this)!=DialogResult.OK)return;
+            var args="-Pair -PairAddress \""+(pair.Text??"").Trim()+"\" -PairCode \""+(code.Text??"").Trim()+"\" -ConnectAddress \""+(connect.Text??"").Trim()+"\"";
+            RunHidden("ADB Wi-Fi",MelApp.AndroidWifiPairingPath,args);
         }
     }
     void ChooseMiniUsbAction(object sender,EventArgs e)
@@ -1999,21 +2090,13 @@ class MainForm : Form
                 "Cela peut durer plusieurs minutes et nécessite une alimentation stable. " +
                 "Aucune écriture sur la MINI ne sera effectuée.",
                 "MEL MINI — sauvegarde USB",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
-            try
+            var phrase=AskPhrase("MEL MINI — sauvegarde","SAUVEGARDER_MINI_USB");
+            if(phrase!="SAUVEGARDER_MINI_USB")
             {
-                var psi=new ProcessStartInfo("powershell.exe");
-                psi.UseShellExecute=true;
-                psi.WindowStyle=ProcessWindowStyle.Normal;
-                psi.WorkingDirectory=MelApp.MelDir;
-                psi.Arguments="-NoProfile -ExecutionPolicy Bypass -NoExit -File \"" +
-                    MelApp.MiniUsbBackupPath + "\" -Port " + port;
-                Process.Start(psi);
+                if(phrase!=null)MessageBox.Show(this,"La phrase ne correspond pas. Rien n'a été lancé.","MEL MINI — sauvegarde",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                return;
             }
-            catch(Exception ex)
-            {
-                MessageBox.Show(this,"Impossible de démarrer la sauvegarde : "+ex.Message,
-                    "MEL MINI — sauvegarde",MessageBoxButtons.OK,MessageBoxIcon.Error);
-            }
+            RunHidden("MEL MINI — sauvegarde",MelApp.MiniUsbBackupPath,"-Port "+port+" -Approval SAUVEGARDER_MINI_USB");
         }
     }
     void RunMiniFirstInstall(object sender,EventArgs e)
@@ -2028,20 +2111,7 @@ class MainForm : Form
         if (MessageBox.Show(this,
             "PREMIÈRE INSTALLATION UNIQUEMENT. L'outil efface intégralement la mémoire de la carte ESP32-S3. Ne l'utilisez PAS pour mettre à jour une MINI configurée. La sauvegarde et la restauration ne sont pas assurées par cet outil. Continuer ?",
             "MEL — Effacement total de la MINI",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
-        try
-        {
-            var psi=new ProcessStartInfo("powershell.exe");
-            psi.UseShellExecute=true;
-            psi.WindowStyle=ProcessWindowStyle.Normal;
-            psi.WorkingDirectory=MelApp.MelDir;
-            psi.Arguments="-NoProfile -ExecutionPolicy Bypass -NoExit -File \"" + MelApp.MiniFirstInstallPath + "\"";
-            Process.Start(psi);
-        }
-        catch(Exception ex)
-        {
-            MessageBox.Show(this,"Impossible d'ouvrir l'installateur MINI : "+ex.Message,
-                "MEL — MINI",MessageBoxButtons.OK,MessageBoxIcon.Error);
-        }
+        RunHidden("MEL — MINI",MelApp.MiniFirstInstallPath,"");
     }
     void RunMiniUsbPreflight(object sender,EventArgs e)
     {
@@ -2084,22 +2154,15 @@ class MainForm : Form
             var port=Convert.ToString(portList.SelectedItem);
             if (!System.Text.RegularExpressions.Regex.IsMatch(port??"", @"^COM[0-9]{1,3}$"))
                 throw new InvalidOperationException("Port MINI invalide.");
-            if (MessageBox.Show(this,"Le précontrôle peut redémarrer la MINI. Confirmer l'ouverture du terminal local ? Une autorisation textuelle supplémentaire sera demandée.",
+            if (MessageBox.Show(this,"Le précontrôle peut redémarrer la MINI. Une phrase exacte est encore demandée. Aucune fenêtre PowerShell.",
                 "MEL — USB MINI",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
-            try
+            var phrase=AskPhrase("MEL — USB MINI","AUTORISER_LECTURE_USB_MINI");
+            if(phrase!="AUTORISER_LECTURE_USB_MINI")
             {
-                var psi=new ProcessStartInfo("powershell.exe");
-                psi.UseShellExecute=true;psi.WindowStyle=ProcessWindowStyle.Normal;
-                psi.WorkingDirectory=MelApp.MelDir;
-                psi.Arguments="-NoProfile -ExecutionPolicy Bypass -NoExit -File \""+
-                    MelApp.MiniUsbPreflightPath+"\" -Port "+port;
-                Process.Start(psi);
+                if(phrase!=null)MessageBox.Show(this,"La phrase ne correspond pas. Rien n'a été lancé.","MEL — USB MINI",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                return;
             }
-            catch(Exception ex)
-            {
-                MessageBox.Show(this,"Impossible d'ouvrir le précontrôle local : "+ex.Message,
-                    "MEL — USB MINI",MessageBoxButtons.OK,MessageBoxIcon.Error);
-            }
+            RunHidden("MEL — USB MINI",MelApp.MiniUsbPreflightPath,"-Port "+port+" -Approval AUTORISER_LECTURE_USB_MINI");
         }
     }
     void RunGrandCleanup(object sender,EventArgs e)
@@ -2113,19 +2176,7 @@ class MainForm : Form
         if(MessageBox.Show(
             "Lancer le diagnostic de grand nettoyage ? Il sauvegarde d'abord, puis liste ce qui pourrait etre retire. Il ne supprime rien : ni GitHub, ni la memoire, ni MAX, ni les preuves. Le rapport dit exactement ce qui est bloque.",
             "Grand nettoyage MEL",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
-        try
-        {
-            var psi=new ProcessStartInfo("powershell.exe");
-            psi.UseShellExecute=true;
-            psi.WorkingDirectory=MelApp.MelDir;
-            psi.Arguments="-NoProfile -ExecutionPolicy Bypass -NoExit -File \""+MelApp.CleanupPath+"\"";
-            Process.Start(psi);
-        }
-        catch(Exception ex)
-        {
-            MessageBox.Show(this,"Impossible de lancer le nettoyage : "+ex.Message,
-                "MEL Companion",MessageBoxButtons.OK,MessageBoxIcon.Error);
-        }
+        RunHidden("Grand nettoyage MEL",MelApp.CleanupPath,"");
     }
 
     void RunLocalAiBenchmark(object sender,EventArgs e)
