@@ -7,6 +7,7 @@
 // UTF-8 pour garder les accents intacts.
 
 import { selectAgentDevice } from '../devices/computer-agent.js';
+import { ProviderAdapter } from '../augmentio/provider-adapter.js';
 
 export const LOCAL_PC_MODEL = 'qwen3:8b';
 // Fits the RX 9060 (8 GB). A larger coder does not load, so it cannot code.
@@ -148,5 +149,36 @@ export function bindLocalPcWorkersAi(env, run = runLocalPcModel) {
   };
   env.MEL_INFERENCE = 'local-pc';
   return env;
+}
+
+// MAX codes on the PC model while it is connected. Neurons stay unused until
+// this provider throws, which is how the mentor notices the PC could not do it.
+export async function createLocalPcCoderProvider(env, run = runLocalPcModel) {
+  const ready = await localPcModelReady(env);
+  if (!ready?.ok) return null;
+  const adapter = new ProviderAdapter({
+    id: 'local-pc-coder',
+    providerId: 'local-pc-coder',
+    modelId: LOCAL_PC_CODER_MODEL,
+    capabilities: ['CODE', 'CODE_SPECIALIST'],
+    priority: 1000,
+    estimatedCost: 0,
+    costProvenance: {
+      verified: true,
+      addedCost: 0,
+      source: 'owner-pc-ollama',
+      authorization: { approved: true, policy: 'ZERO_EURO', authority: 'owner-enabled-local-compute' },
+    },
+    invoke: async ({ input }) => {
+      const text = typeof input === 'string' ? input : String(input?.input || input?.prompt || '');
+      const local = await run({ env, messages: [{ role: 'user', content: text }], model: LOCAL_PC_CODER_MODEL });
+      if (!local?.ok || !String(local.text || '').trim()) {
+        throw Object.assign(new Error(local?.code || 'LOCAL_CODER_FAILED'), { code: local?.code || 'LOCAL_CODER_FAILED' });
+      }
+      return { text: local.text, provenance: { provider: 'local-pc-coder', model: LOCAL_PC_CODER_MODEL } };
+    },
+  });
+  adapter.maxInputChars = 7000;
+  return adapter;
 }
 

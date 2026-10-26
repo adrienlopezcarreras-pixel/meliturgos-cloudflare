@@ -4,6 +4,7 @@ import { MentorMemoryRepository } from './mentor-memory.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { ZeroEuroGovernor } from '../augmentio/zero-euro-governor.js';
 import { sanitizeInferenceSettings } from './inference-adaptation.js';
+import { createLocalPcCoderProvider } from '../models/local-pc-model.js';
 
 const MAX_FILES = 8;
 const MAX_FILE_CHARS = 45_000;
@@ -439,7 +440,9 @@ function sourceBlock(files) {
 function promptLimit(provider) {
   const explicit = Number(provider?.maxInputChars);
   if (Number.isFinite(explicit) && explicit > 0) return explicit;
-  return provider?.providerId === 'local-companion-ai' ? COMPANION_PROMPT_CHARS : DEFAULT_PROMPT_CHARS;
+  return provider?.providerId === 'local-companion-ai' || provider?.providerId === 'local-pc-coder'
+    ? COMPANION_PROMPT_CHARS
+    : DEFAULT_PROMPT_CHARS;
 }
 
 // A long file used to be shown from its first line only, so the code a goal
@@ -598,8 +601,10 @@ export class MentorEngine {
     // general models; the weekly development audit reports the exclusion.
     const cloud = coders.length ? coders : pool.list({ capability: 'CODE' }).filter(provider => governor.allows(provider)).slice(0, codeCouncil ? 16 : 6);
     const companion = await createMentorCompanionFallback(env);
+    const pcCoder = await createLocalPcCoderProvider(env);
     if (codeCouncil) return cloud;
-    return companion ? [...cloud, companion] : cloud;
+    const local = [pcCoder, companion].filter(Boolean);
+    return local.length ? [...local, ...cloud] : cloud;
   }
 
   async _learnedRuntime() {
@@ -644,8 +649,12 @@ export class MentorEngine {
       this.memory.experienceContext(objective, { limit: learned.inference.memory_results }),
     ]);
     const codeCouncil = mode === 'repair' || previousAttempts.length >= 2;
-    // Large code models only after three failed attempts with the small ones.
-    const providers = await this._providers(env, { codeCouncil, escalate: previousAttempts.length >= 3 });
+    // The PC coder takes the first attempt. A GitHub refusal or a proposal MEL
+    // already rejected moves the work to the online coder.
+    const providers = await this._providers(env, {
+      codeCouncil,
+      escalate: mode === 'repair' || previousAttempts.length > 0,
+    });
     if (!providers.length) throw Object.assign(new Error('MENTOR_NO_ZERO_COST_CODE_PROVIDER'), { code: 'MENTOR_NO_ZERO_COST_CODE_PROVIDER', status: 503 });
 
     const roles = ['implémenteur principal', 'relecteur architecture et régressions', 'testeur-réparateur'];
@@ -655,17 +664,16 @@ export class MentorEngine {
     let repairAttempted = false;
     let repairValidProposals = 0;
 
-    // [ChatGPT-GPT6 / MEL-CODE-CLOUD-FIRST] Separate zero-added-cost cloud
-    // waves from optional, prevalidated Companion inference. A partial final
-    // cloud wave must finish before any local PC inference can be attempted.
-    // No extra scheduler, provider registry or budget is introduced.
-    const cloudProviders = providers.filter(provider => provider.providerId !== 'local-companion-ai');
-    const localProviders = providers.filter(provider => provider.providerId === 'local-companion-ai');
+    // The connected PC coder goes first and, when it answers, the cloud coder
+    // is not called. A repair or a previous failure skips the PC.
+    const localIds = new Set(['local-pc-coder', 'local-companion-ai']);
+    const localProviders = providers.filter(provider => localIds.has(provider.providerId));
+    const cloudProviders = providers.filter(provider => !localIds.has(provider.providerId));
+    const problem = mode === 'repair' || previousAttempts.length > 0 || codeCouncil;
+    const tiers = !problem && localProviders.length ? [localProviders, cloudProviders] : [cloudProviders];
     const providerWaves = [];
-    for (const tier of [cloudProviders, localProviders]) {
-      for (let offset = 0; offset < tier.length; offset += 3) {
-        providerWaves.push(tier.slice(offset, offset + 3));
-      }
+    for (const tier of tiers) {
+      for (let offset = 0; offset < tier.length; offset += 3) providerWaves.push(tier.slice(offset, offset + 3));
     }
     const startedAt = this.now();
     const remaining = () => this.proposeBudgetMs - (this.now() - startedAt);
