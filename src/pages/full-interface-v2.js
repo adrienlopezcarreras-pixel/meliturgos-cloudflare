@@ -1838,6 +1838,9 @@ async function testConnection(provider,connector,button){
   try{
     await jfetch(connectionApi(provider,'test'),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({connector_id:connector})});
     const ui=connectionUiMap[connector];if(ui)setConnectionBadge(ui.state,'TEST RÉEL OK','good');
+    // The Gmail test reads the mailbox profile through the Gmail API: access is
+    // proven, message reading is not; the note must not contradict the badge.
+    if(connector==='gmail'){const note=qs('#connNoteGmail');if(note)note.textContent='Test réel réussi : la boîte Gmail répond à MEL (profil lu par l’API Gmail).'}
   }catch(e){
     const ui=connectionUiMap[connector];if(ui)setConnectionBadge(ui.state,'TEST ÉCHOUÉ','bad');
     const banner=qs('#connectionBanner');if(banner){banner.hidden=false;banner.className='connection-banner bad';banner.textContent='Test '+connector+' : '+e.message}
