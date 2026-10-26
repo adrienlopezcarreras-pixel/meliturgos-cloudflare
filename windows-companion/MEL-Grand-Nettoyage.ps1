@@ -71,6 +71,16 @@ try {
     throw 'MEL_GITHUB_DRY_RUN_COMPLETION_NOT_PROVEN'
   }
   Report 'GITHUB : simulation validee, aucune suppression appliquee.'
+  Report 'GITHUB : application des suppressions deja prouvees eligibles.'
+  $applyLog=@(& $githubScript -Apply 2>&1)
+  foreach ($line in $applyLog) { Report "$line" }
+  if ($applyLog | Where-Object { $_ -match 'ATTENTION:|erreur|ECHEC|BLOQUE' }) {
+    throw 'MEL_GITHUB_APPLY_REPORTED_ERRORS'
+  }
+  if (-not ($applyLog | Where-Object { $_ -match 'TERMINE \(APPLY\)' })) {
+    throw 'MEL_GITHUB_APPLY_COMPLETION_NOT_PROVEN'
+  }
+  Report 'GITHUB : nettoyage applique.'
 } catch {
   Report "GITHUB : BLOQUE - $($_.Exception.Message)"
 }

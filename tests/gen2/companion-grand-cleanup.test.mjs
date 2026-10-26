@@ -16,9 +16,12 @@ test('Companion ships the owner-run grand cleanup behind a button, simulation fi
   // Never run on install: InstallFiles only copies.
   const install = native.slice(native.indexOf('public static void InstallFiles('), native.indexOf('public static void ConfigureStartup('));
   assert.doesNotMatch(install, /Process\.Start\(.*Cleanup/);
-  // Destructive GitHub operations are unavailable until the full preflight exists.
+  // GitHub deletes run only after the dry-run has proved what is eligible.
+  const proved = orchestrator.indexOf('TERMINE \\(SIMULATION\\)');
+  const apply = orchestrator.indexOf('$githubScript -Apply');
+  assert.ok(proved >= 0 && apply > proved);
+  assert.doesNotMatch(orchestrator.slice(0, proved), /\$githubScript -Apply/);
   assert.match(github, /param\(\[switch\]\$Apply\)/);
-  assert.doesNotMatch(orchestrator, /\$githubScript -Apply/);
   assert.ok(orchestrator.indexOf('maintenance/inspect') < orchestrator.indexOf('MEL-Nettoyage-GitHub.ps1'));
   for (const prefix of ['archive/', 'release/', 'candidate/']) assert.ok(github.includes(`'${prefix}'`));
 });
@@ -54,8 +57,8 @@ test('GitHub cleanup fail closed unless dry-run confirms success and no errors',
   const src=await read('windows-companion/MEL-Grand-Nettoyage.ps1');
   assert.match(src,/MEL_GITHUB_DRY_RUN_REPORTED_ERRORS/);
   assert.match(src,/MEL_GITHUB_DRY_RUN_COMPLETION_NOT_PROVEN/);
-  assert.match(src,/TERMINE/);
-  assert.doesNotMatch(src,/-Apply/);
+  assert.match(src,/MEL_GITHUB_APPLY_COMPLETION_NOT_PROVEN/);
+  assert.ok(src.indexOf('TERMINE \\(SIMULATION\\)') < src.indexOf('$githubScript -Apply'));
   assert.doesNotMatch(src,/Read-Host/);
 });
 
@@ -65,7 +68,7 @@ test('Companion reports actual global maintenance lease and isolated restore sta
  assert.match(source,/EXPIRED_MAINTENANCE_REQUIRES_RECOVERY/);
  assert.match(source,/inventory\.backup\.restore_tested/);
  assert.match(source,/inventory\.reset_available/);
- assert.doesNotMatch(source,/\$githubScript -Apply/);
+ assert.ok(source.indexOf('TERMINE \\(SIMULATION\\)') < source.indexOf('$githubScript -Apply'));
 });
 
 test('read only Companion report never claims to have paused producers', async () => {

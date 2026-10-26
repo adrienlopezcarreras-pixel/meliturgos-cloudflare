@@ -1980,10 +1980,9 @@ class MainForm : Form
     void ChooseMiniUsbAction(object sender,EventArgs e)
     {
         var choice=MessageBox.Show(this,
-            "OUI : diagnostic USB en lecture seule.\nNON : sauvegarde intégrale USB en lecture seule (deux lectures vérifiées).\nANNULER : ne rien faire.\n\nAucune de ces actions ne flashe la MINI.",
-            "MEL MINI — opération locale",MessageBoxButtons.YesNoCancel,MessageBoxIcon.Warning);
-        if(choice==DialogResult.Yes)RunMiniUsbPreflight(sender,e);
-        else if(choice==DialogResult.No)RunMiniUsbBackup(sender,e);
+            "Ce bouton flashe la MINI par USB. Il télécharge le firmware publié, vérifie son empreinte, efface la carte, puis écrit le firmware. La fenêtre demandera EFFACER_MINI. Continuer ?",
+            "MEL MINI — flash USB",MessageBoxButtons.YesNo,MessageBoxIcon.Warning);
+        if(choice==DialogResult.Yes)RunMiniFirstInstall(sender,e);
     }
     void RunMiniUsbBackup(object sender,EventArgs e)
     {
@@ -2151,7 +2150,7 @@ class MainForm : Form
             return;
         }
         if(MessageBox.Show(
-            "Lancer le diagnostic de grand nettoyage ? Il sauvegarde d'abord, puis liste ce qui pourrait etre retire. Il ne supprime rien : ni GitHub, ni la memoire, ni MAX, ni les preuves. Le rapport dit exactement ce qui est bloque.",
+            "Lancer le grand nettoyage ? Il sauvegarde d'abord. Ensuite il supprime sur GitHub les branches déjà fusionnées, les caches de plus de 45 jours, les exécutions annulées de plus de 90 jours et les vieux artefacts temporaires. Il ne touche pas à la mémoire, à MAX, ni aux preuves.",
             "Grand nettoyage MEL",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
         try
         {
