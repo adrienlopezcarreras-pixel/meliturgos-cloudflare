@@ -896,12 +896,12 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     const tickBudgetMs = Number(options.tickBudgetMs ?? env?.MEL_AUTONOMY_TICK_BUDGET_MS ?? 50_000);
     let timer;
     const raw = await Promise.race([
-      runAutonomyRuntimeTickUnlocked(env, { ...options, epochMs, repository: repository || options.repository }, control),
+      (globalThis.__melTickStage = 'pre-ensure', runAutonomyRuntimeTickUnlocked)(env, { ...options, epochMs, repository: repository || options.repository }, control),
       new Promise(resolve => { timer = setTimeout(() => resolve({ ok: false, status: 'TICK_TIMEOUT', advanced: false, progress: { advanced: false, block_reason: 'AUTONOMY_TICK_TIMEOUT' } }), tickBudgetMs); }),
     ]).finally(() => clearTimeout(timer));
     if (raw?.status === 'TICK_TIMEOUT') {
       await import('../diagnostics/error-ledger.js')
-        .then(({ recordError }) => recordError(env?.DB, { source: 'max/autonomy-tick', code: 'AUTONOMY_TICK_TIMEOUT', detail: `tick > ${tickBudgetMs} ms` }))
+        .then(({ recordError }) => recordError(env?.DB, { source: 'max/autonomy-tick', code: 'AUTONOMY_TICK_TIMEOUT', detail: `tick > ${tickBudgetMs} ms, étape : ${globalThis.__melTickStage || 'avant-core'}` }))
         .catch(() => null);
     }
     const tick = augmentTickProgress(raw);

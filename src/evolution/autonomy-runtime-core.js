@@ -661,12 +661,14 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   const activityEpoch = epochMs ?? await readActivityListEpoch(env?.DB, { strict: true });
   const currentRepository = currentAutonomyRepository(jobRepository, activityEpoch);
   const focused = Boolean(onlyJobId);
+  globalThis.__melTickStage = 'teacher-replies';
   const reconciliation = focused ? { ok: true, applied: [], skipped: 'FOCUSED_JOB' } : await reconcileRuntimeTeacherReplies({ repository: currentRepository, env, fetchImpl }).catch((error) => ({
     ok: false,
     error: error?.code || error?.message || 'TEACHER_RECONCILE_FAILED',
     applied: [],
   }));
 
+  globalThis.__melTickStage = 'completions';
   const completions = focused ? { ok: true, completed: [], rejected: [], skipped: 'FOCUSED_JOB' } : await reconcileRuntimeCompletions({ repository: currentRepository, env, fetchImpl, benchmarkEvaluator, benchmarkModelId }).catch((error) => ({
     ok: false,
     error: error?.code || error?.message || 'COMPLETION_RECONCILE_FAILED',
@@ -674,6 +676,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     rejected: [],
   }));
 
+  globalThis.__melTickStage = 'candidate-ci';
   const candidateCI = focused ? { ok: true, skipped: 'FOCUSED_JOB' } : await reconcileFailedCandidateRuns({ repository: currentRepository, env, fetchImpl });
 
   const evolutionLoader = !roadmap ? createRuntimeEvolutionLoader(env) : null;
@@ -716,6 +719,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   }
   }
   const stateBefore = await supervisor.state();
+  globalThis.__melTickStage = 'ensure-next-job';
   const ensured = await supervisor.ensureNextJob();
   let job = ensured.job;
   const initialJobId = job?.id || null;
@@ -729,6 +733,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
 
   if (job) {
     try {
+      globalThis.__melTickStage = 'work-dag-proof';
       runtimeProof = await runRuntimeWorkDagResumeProof(env, {
         repository: jobRepository,
         targetJobId: job.id,
@@ -843,6 +848,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
 
   if (job && ['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE', 'READY_FOR_REVIEW'].includes(String(job.status || '').toUpperCase())) {
     try {
+      globalThis.__melTickStage = 'council-teacher';
       teacher = await prepareAutonomyTeacherRequest({ env, repository: jobRepository, job, fetchImpl });
       job = await jobRepository.get(job.id);
     } catch (error) {
@@ -881,6 +887,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
 
   if (job && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED') {
     try {
+      globalThis.__melTickStage = 'implementation';
       implementation = await prepareApprovedImplementationProposal({
         env,
         repository: jobRepository,
@@ -911,6 +918,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       let ciRunId = null;
       let ciLookupFailure = null;
       try {
+        globalThis.__melTickStage = 'candidate-ci-run';
         ciRunId = await findGreenFullCandidateRun(env, implementation.candidate_sha, { fetchImpl });
       } catch (error) {
         const status = Number(error?.status || 0);
@@ -951,6 +959,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       bridgePreparation = { status: 'NOT_READY', code: 'BRIDGE_PREPARATION_KILLED', failures: [] };
     } else if (implementation?.status === 'READY' && job && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED') {
       try {
+        globalThis.__melTickStage = 'bridge-package';
         bridgePreparation = await prepareApprovedBridgePackage({
           env,
           repository: jobRepository,
