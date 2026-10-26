@@ -42,7 +42,10 @@ export function melTraceModel(d) {
   const ok = steps.filter(step => step.status === 'SUCCEEDED').length;
   const failed = steps.filter(step => step.status === 'FAILED').length;
   const parts = [];
+  const loraRefused = source.ok === false && String(source.code || '').startsWith('LORA_');
   if (steps.length) parts.push(ok + ' action' + (ok > 1 ? 's' : '') + ' réussie' + (ok > 1 ? 's' : '') + (failed ? ', ' + failed + ' en échec' : ''));
+  else if (loraRefused) parts.push('LoRA UNCENSORED non activé');
+  else if (source.ok === false) parts.push('modèle non utilisé');
   else parts.push('réponse directe');
   if (model) parts.push(model);
   if (seconds) parts.push(seconds);

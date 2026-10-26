@@ -1456,7 +1456,7 @@ export async function handleNativeChat(request, env, options = {}) {
   const requestedLora = requireLora ? await activePromotedAdapter(env) : null;
   if (requireLora) {
     try { requireChatLora(requestedLora); }
-    catch (error) { return Response.json({ ok:false, error:error.code, code:error.code, text:'Mode UNCENSORED indisponible : aucun adaptateur compatible validé et activé. Aucun autre modèle n’a été utilisé.', active_lora:null }, { status:409 }); }
+    catch (error) { return Response.json({ ok:false, error:error.code, code:error.code, text:'Mode UNCENSORED : c’est le LoRA Mistral entraîné pour ce mode. Aucun adaptateur validé n’est activé, donc aucun autre modèle n’a répondu.', active_lora:null }, { status:409 }); }
   }
   const themeContract = getMelThemeContract(body.ui_theme);
   const theme = themeContract.id;
