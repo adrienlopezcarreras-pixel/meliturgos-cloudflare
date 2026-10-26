@@ -15,6 +15,7 @@ import { reconcileRuntimeCompletions } from '../teachers/github-completion-recon
 import { recordAutonomyProgressWatchdog, resetAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
 import { readActivityListEpoch } from './autonomy-activity.js';
 import { backgroundNeuronBudgetExhausted } from '../augmentio/neuron-budget.js';
+import { bindLocalPcWorkersAi, localPcModelReady } from '../models/local-pc-model.js';
 import { readSurvivalState, shouldResumeForSurvival } from '../legacy/survival-mode.js';
 
 export * from './autonomy-runtime-core.js';
@@ -683,14 +684,18 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   // Daily Workers AI share spent: wait for 00:00 UTC instead of burning
   // attempts on refused AI calls (missions went FAILED, 25/10).
   if (options.ignoreNeuronBudget !== true && await backgroundNeuronBudgetExhausted(env)) {
-    return {
-      status: 'AI_BUDGET_EXHAUSTED',
-      paused: false,
-      advanced: false,
-      progress: { advanced: false, events: [], work_remaining: null, waiting_external: true, block_reason: 'AI_DAILY_NEURON_BUDGET_EXHAUSTED' },
-      candidate_branch: env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
-      control,
-    };
+    const local = await localPcModelReady(env);
+    if (!local?.ok) {
+      return {
+        status: 'AI_BUDGET_EXHAUSTED',
+        paused: false,
+        advanced: false,
+        progress: { advanced: false, events: [], work_remaining: null, waiting_external: true, block_reason: 'AI_DAILY_NEURON_BUDGET_EXHAUSTED' },
+        candidate_branch: env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
+        control,
+      };
+    }
+    bindLocalPcWorkersAi(env, options.runLocalPcModel);
   }
 
   const epochMs = await readActivityListEpoch(env?.DB, { strict: true });

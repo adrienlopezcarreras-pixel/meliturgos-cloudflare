@@ -95,3 +95,23 @@ test('an owner-granted bonus lets calls through past the cap until spent or expi
   await assert.rejects(env.AI.run('@cf/zai-org/glm-4.7-flash', {}), { code: 'WORKERS_AI_DAILY_NEURON_BUDGET_EXHAUSTED' });
   assert.equal(calls, 3);
 });
+
+test('text the PC can answer does not spend neurons, and a reserved vote still does', async () => {
+  const db = sqliteD1();
+  const calls = [];
+  const env = withNeuronBudget({
+    DB: db,
+    AI: aiFake(calls),
+    MEL_AI_DAILY_NEURON_CAP: '9000',
+  }, {
+    now: () => Date.parse('2026-10-26T10:00:00Z'),
+    localRun: async () => ({ response: 'réponse du pc', model: 'pc:qwen3:8b', local: true }),
+  });
+  const local = await env.AI.run(model, { messages: [{ role: 'user', content: 'bonjour' }] });
+  assert.equal(local.response, 'réponse du pc');
+  assert.equal(calls.length, 0);
+  assert.equal((await readNeuronBudget(db, { now: Date.parse('2026-10-26T10:00:00Z') })).neurons, 0);
+  await env.AI.run(model, { neuron_reserve: true, messages: [{ role: 'user', content: 'vote' }] });
+  await env.AI.run('@cf/bytedance/stable-diffusion-xl-lightning', { prompt: 'cercle' });
+  assert.equal(calls.length, 2);
+});
