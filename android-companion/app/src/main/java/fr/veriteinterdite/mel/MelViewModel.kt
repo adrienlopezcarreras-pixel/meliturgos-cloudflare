@@ -612,11 +612,13 @@ class MelViewModel(
                 val answer = response.optString("text", response.optString("response", "")).trim()
                 if (answer.isBlank()) throw MelApiException("EMPTY_RESPONSE", 502)
                 synchronized(pendingContext) { pendingContext.clear() }
+                val shown = messageFromServer(displayChatAnswer(answer, response), response)
+                val spoken = MelChatMessage("mel", displayChatAnswer(answer, response))
                 _state.value = _state.value.copy(
                     busy = voice,
                     speaking = false,
                     status = if (voice) "MEL prépare sa voix…" else "MEL connectée · mode ${mode.label}",
-                    messages = _state.value.messages + messageFromServer(displayChatAnswer(answer, response), response)
+                    messages = _state.value.messages + spoken.copy(voice = shown.voice, serverId = shown.serverId, imageUrl = shown.imageUrl, pageUrl = shown.pageUrl, audioUrl = shown.audioUrl, videoUrl = shown.videoUrl)
                 )
                 if (voice) speakAnswer(answer, mode)
                 appendDiagnosticLine("Chat complet · ${SystemClock.elapsedRealtime() - requestStartedAt} ms")
@@ -689,11 +691,13 @@ class MelViewModel(
                 val answer = response.optString("text", response.optString("response", "")).trim()
                 if (answer.isBlank()) throw MelApiException("EMPTY_RESPONSE", 502)
                 synchronized(pendingContext) { pendingContext.clear() }
+                val shown = messageFromServer(displayChatAnswer(answer, response), response)
+                val spoken = MelChatMessage("mel", displayChatAnswer(answer, response))
                 _state.value = _state.value.copy(
                     busy = true,
                     speaking = false,
                     status = "MEL prépare sa voix…",
-                    messages = _state.value.messages + messageFromServer(displayChatAnswer(answer, response), response)
+                    messages = _state.value.messages + spoken.copy(voice = shown.voice, serverId = shown.serverId, imageUrl = shown.imageUrl, pageUrl = shown.pageUrl, audioUrl = shown.audioUrl, videoUrl = shown.videoUrl)
                 )
                 speakAnswer(answer, mode)
                 appendDiagnosticLine("Voix complète · ${SystemClock.elapsedRealtime() - voiceRequestStartedAt} ms")
