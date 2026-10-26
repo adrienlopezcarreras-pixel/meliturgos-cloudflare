@@ -113,7 +113,7 @@ test('capability health UI uses real refreshes instead of presenting startup def
   const match = html.match(/<script>([\s\S]*?)<\/script>/);
   assert.ok(match);
   const runtime = match[1];
-  assert.match(html, /État réel vérifié automatiquement/);
+  assert.match(html, /Une santé OK n’est pas une exécution de chaque compétence/);
   assert.match(runtime, /skills:\(\)=>loadSkills\(true\)/);
   assert.match(runtime, /chat:\(\)=>loadChatCapabilities\(true\)/);
   assert.match(runtime, /\/api\/gen2\/capabilities\?refresh=1/);
