@@ -142,6 +142,9 @@ test('« Ce que j’ai fait » only reports what the server returned', async () 
   assert.ok(trace.notes.includes('enregistrée dans la conversation'));
   const direct = melTraceModel({ model: '@cf/google/gemma-4-26b-a4b-it', streamed: true, response_truncated: true });
   assert.equal(direct.summary, 'réponse directe · gemma-4-26b-a4b-it');
+  const refused = melTraceModel({ ok:false, code:'LORA_COMPATIBLE_ACTIVE_ADAPTER_REQUIRED', elapsed_ms:600 });
+  assert.equal(refused.summary, 'LoRA UNCENSORED non activé · 0,6 s');
+  assert.equal(refused.summary.includes('réponse directe'), false);
   assert.ok(direct.notes.includes('réponse tronquée'));
   assert.ok(!direct.notes.includes('enregistrée dans la conversation'), 'no claim without archive proof');
 });
