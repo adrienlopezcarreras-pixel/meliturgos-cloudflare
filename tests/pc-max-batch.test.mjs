@@ -32,7 +32,7 @@ test('with the PC on, one tick continues until the cap', async () => {
   assert.equal(n, PC_DEVELOPMENTS_PER_TICK - 1);
 });
 
-test('one additional distinct PC job runs with the seeded job per tick', async () => {
+test('two distinct jobs run at the same time, then the next pair', async () => {
   const seen = [];
   const result = await advanceMoreOnPc({
     env: {},
@@ -45,8 +45,8 @@ test('one additional distinct PC job runs with the seeded job per tick', async (
     },
   });
   assert.equal(result.parallel, true);
-  assert.deepEqual(seen, ['job-a']);
-  assert.equal(result.ran, 2);
+  assert.deepEqual(seen, ['job-a', 'job-b', 'job-c']);
+  assert.equal(result.ran, 4);
 });
 
 test('a tick stops when the next development does not advance and names no job', async () => {
