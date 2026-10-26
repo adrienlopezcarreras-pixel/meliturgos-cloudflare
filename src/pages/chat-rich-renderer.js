@@ -288,8 +288,8 @@ export const CHAT_RICH_RENDERER_CSS = String.raw`
 .mel-rich-table-wrap{max-width:100%;overflow-x:auto;margin:.75em 0;border:1px solid rgba(127,127,127,.24);border-radius:9px}
 .mel-rich table{border-collapse:collapse;width:100%;min-width:360px;font-size:.92em}.mel-rich th,.mel-rich td{padding:.5em .65em;text-align:left;vertical-align:top;border-bottom:1px solid rgba(127,127,127,.2)}.mel-rich th{font-weight:800;background:rgba(127,127,127,.09)}.mel-rich tbody tr:last-child td{border-bottom:0}
 .mel-rich-media{margin:.7em 0;max-width:100%}
-.mel-rich-media img,.mel-rich-media video,.mel-rich-media iframe{display:block;width:100%;max-width:100%;border:0;border-radius:10px;background:rgba(0,0,0,.25)}
-.mel-rich-media img,.mel-rich-media video{height:auto}
+.mel-rich-media img,.mel-rich-media video,.mel-rich-media iframe{display:block;width:auto;max-width:min(100%,520px);border:0;border-radius:10px;background:rgba(0,0,0,.25)}
+.mel-rich-media img,.mel-rich-media video{height:auto;max-height:min(42vh,320px);object-fit:contain}
 .mel-rich-media iframe{height:360px}
 .mel-rich-media audio{width:100%}
 .mel-rich-media a{display:inline-block;margin-top:.35em;overflow-wrap:anywhere}
