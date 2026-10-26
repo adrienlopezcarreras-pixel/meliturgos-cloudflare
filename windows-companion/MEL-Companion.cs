@@ -1393,8 +1393,8 @@ class PermissionsForm : Form
     CheckBox gpuCompute;
     ComboBox computeProfile;
     readonly string[] paths = MelApp.PermissionPaths();
-    readonly Color ink = Color.FromArgb(34,45,60);
-    readonly Color muted = Color.FromArgb(88,102,118);
+    readonly Color ink = MelApp.Text;
+    readonly Color muted = MelApp.Muted;
 
     Label Caption(string value, float size, bool strong)
     {
@@ -1405,7 +1405,7 @@ class PermissionsForm : Form
     }
     Panel Section(string title, int height)
     {
-        var section=new Panel { Dock=DockStyle.Top, Height=height, BackColor=Color.White, Padding=new Padding(18,12,18,8) };
+        var section=new Panel { Dock=DockStyle.Top, Height=height, BackColor=MelApp.Panel, Padding=new Padding(18,12,18,8) };
         var head=Caption(title,11,true);head.Dock=DockStyle.Top;
         section.Controls.Add(head);
         return section;
@@ -1418,33 +1418,35 @@ class PermissionsForm : Form
         StartPosition=FormStartPosition.CenterParent;
         AutoScaleMode=AutoScaleMode.None;
         Font=new Font("Segoe UI",10f);
-        BackColor=Color.FromArgb(245,247,250);
+        BackColor=MelApp.Bg;
         ForeColor=ink;
 
         var footer=new Panel { Dock=DockStyle.Bottom,Height=112,Padding=new Padding(22,12,22,12),
-            BackColor=Color.FromArgb(245,247,250) };
+            BackColor=MelApp.Bg) };
         var note=new Label { Text="Les modifications s'appliquent uniquement aux autorisations locales de MEL.",
             Dock=DockStyle.Top,Height=34,ForeColor=muted,Font=new Font("Segoe UI",9f),
             TextAlign=ContentAlignment.MiddleLeft };
         footer.Controls.Add(note);
         var actions=new FlowLayoutPanel { Dock=DockStyle.Bottom, Height=52,
             FlowDirection=FlowDirection.RightToLeft,WrapContents=false };
-        var save=new Button {Text="Appliquer",Width=145,Height=42,Font=new Font("Segoe UI",10f)};
+        var save=new Button {Text="Appliquer",Width=145,Height=42,Font=new Font("Segoe UI",10f),
+            FlatStyle=FlatStyle.Flat,BackColor=MelApp.Cyan,ForeColor=Color.FromArgb(3,18,27)};
         save.Click+=Apply; actions.Controls.Add(save);
-        var cancel=new Button {Text="Annuler",Width=125,Height=42,Font=new Font("Segoe UI",10f)};
+        var cancel=new Button {Text="Annuler",Width=125,Height=42,Font=new Font("Segoe UI",10f),
+            FlatStyle=FlatStyle.Flat,BackColor=MelApp.Glass,ForeColor=MelApp.Text};
         cancel.Click+=delegate{Close();}; actions.Controls.Add(cancel);
         footer.Controls.Add(actions);
         Controls.Add(footer);
 
         // Avoid AutoSize FlowLayoutPanel + Dock Fill: WinForms can collapse its
         // content to zero height before layout, leaving an empty dialog.
-        var scroll=new Panel {Dock=DockStyle.Fill,AutoScroll=true,BackColor=Color.FromArgb(245,247,250)};
+        var scroll=new Panel {Dock=DockStyle.Fill,AutoScroll=true,BackColor=MelApp.Bg};
         Controls.Add(scroll);
         // Explicitly place the scroll area above the footer.
         scroll.BringToFront();
         footer.BringToFront();
         var content=new Panel {Location=new Point(0,0),Width=scroll.ClientSize.Width,Height=630,
-            BackColor=Color.FromArgb(245,247,250)};
+            BackColor=MelApp.Bg};
         scroll.Controls.Add(content);
         var header=Caption("Autorisations locales",15,true);
         header.Dock=DockStyle.None;header.SetBounds(22,18,700,50);content.Controls.Add(header);
@@ -1559,11 +1561,11 @@ class MainForm : Form
     int triadRefreshing;
     int adbRefreshBusy;
     bool refreshing;
-    readonly Color text=Color.FromArgb(27,39,59);
-    readonly Color gray=Color.FromArgb(99,113,133);
-    readonly Color blue=Color.FromArgb(40,88,178);
-    readonly Color background=Color.FromArgb(246,248,252);
-    readonly Color stroke=Color.FromArgb(220,228,239);
+    readonly Color text=MelApp.Text;
+    readonly Color gray=MelApp.Muted;
+    readonly Color blue=MelApp.Cyan;
+    readonly Color background=MelApp.Bg;
+    readonly Color stroke=MelApp.Line;
     readonly List<Control> cardRows=new List<Control>();
     // Windows display scaling (125 %, 150 %…): every fixed pixel size below is
     // multiplied by this factor, otherwise text grows but its boxes do not and
@@ -1587,12 +1589,12 @@ class MainForm : Form
             AutoSize=true,AutoSizeMode=AutoSizeMode.GrowOnly,MinimumSize=new Size(S(w),S(42)),Padding=new Padding(S(8),0,S(8),0),
             FlatStyle=FlatStyle.Flat,Font=new Font("Segoe UI Semibold",9.5f,FontStyle.Regular),
             UseVisualStyleBackColor=false,Cursor=Cursors.Hand,TabStop=true,
-            BackColor=primary?blue:Color.White,
-            ForeColor=primary?Color.White:(danger?Color.FromArgb(154,39,51):text)};
-        button.FlatAppearance.BorderSize=primary?0:1;
-        button.FlatAppearance.BorderColor=primary?blue:(danger?Color.FromArgb(232,188,191):stroke);
-        button.FlatAppearance.MouseOverBackColor=primary?Color.FromArgb(28,80,150):Color.FromArgb(234,240,248);
-        button.FlatAppearance.MouseDownBackColor=primary?Color.FromArgb(23,67,125):Color.FromArgb(222,232,245);
+            BackColor=primary?blue:MelApp.Glass,
+            ForeColor=primary?Color.FromArgb(3,18,27):(danger?MelApp.Red:text)};
+        button.FlatAppearance.BorderSize=1;
+        button.FlatAppearance.BorderColor=primary?blue:(danger?MelApp.Red:stroke);
+        button.FlatAppearance.MouseOverBackColor=primary?Color.FromArgb(94,226,245):MelApp.Panel;
+        button.FlatAppearance.MouseDownBackColor=primary?Color.FromArgb(14,160,184):Color.FromArgb(8,18,34);
         button.Click+=action;parent.Controls.Add(button);return button;
     }
     Panel Card(Control parent,int y,int height)
@@ -1602,7 +1604,7 @@ class MainForm : Form
         var p=new Panel {
             Location=new Point(0,y),
             Size=new Size(Math.Max(350,parent.ClientSize.Width-26),height),
-            BackColor=Color.White,Padding=new Padding(8),
+            BackColor=MelApp.Panel,Padding=new Padding(8),
             BorderStyle=BorderStyle.FixedSingle,
             Anchor=AnchorStyles.Left|AnchorStyles.Top
         };
@@ -1638,13 +1640,13 @@ class MainForm : Form
         b.Parent.Controls.Remove(b);
         b.Height=S(42);
         b.Margin=new Padding(5,3,5,3);
-        if(primary){b.BackColor=blue;b.ForeColor=Color.White;b.FlatAppearance.BorderSize=0;}
+        if(primary){b.BackColor=blue;b.ForeColor=Color.FromArgb(3,18,27);b.FlatAppearance.BorderSize=0;}
         return b;
     }
     Panel Surface()
     {
         return new Panel {
-            Dock=DockStyle.Fill, BackColor=Color.White,
+            Dock=DockStyle.Fill, BackColor=MelApp.Panel,
             BorderStyle=BorderStyle.FixedSingle,
             Padding=new Padding(16),Margin=new Padding(0,4,0,4)
         };
@@ -1652,7 +1654,7 @@ class MainForm : Form
     Panel NewDeviceSurface()
     {
         var tile=new Panel {
-            Width=S(440),Height=S(194),BackColor=Color.White,
+            Width=S(440),Height=S(194),BackColor=MelApp.Panel,
             BorderStyle=BorderStyle.FixedSingle,
             Padding=new Padding(16),
             Margin=new Padding(0,0,12,12),
@@ -1691,22 +1693,27 @@ class MainForm : Form
         shell.RowStyles.Add(Abs(110f));
         Controls.Add(shell);
 
-        var header=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,
+        var header=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=3,RowCount=1,
             Margin=new Padding(0),BackColor=Color.Transparent};
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,78f));
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,22f));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,S(92)));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100f));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,S(180)));
         shell.Controls.Add(header,0,0);
+        var face=MelApp.MelFace(0,0,S(72));
+        face.Dock=DockStyle.Fill;
+        face.Margin=new Padding(0,S(8),S(12),S(8));
+        header.Controls.Add(face,0,0);
         var brand=Stack(3);
         brand.RowStyles.Add(Abs(48f));
         brand.RowStyles.Add(Abs(29f));
         brand.RowStyles.Add(new RowStyle(SizeType.Percent,100f));
-        header.Controls.Add(brand,0,0);
+        header.Controls.Add(brand,1,0);
         CellLabel(brand,"MEL Companion",21f,true);
         connection=CellLabel(brand,"Vérification de la connexion…",10.5f,true,gray);
         triadActivityStatus=CellLabel(brand,"Android : activité non vérifiée",9.5f,false,gray);
         var open=ActionButton("Ouvrir MEL",156,delegate{MelApp.OpenMel();},true);
         open.Anchor=AnchorStyles.Right;
-        header.Controls.Add(open,1,0);
+        header.Controls.Add(open,2,0);
 
         var pc=Surface();
         shell.Controls.Add(pc,0,1);
