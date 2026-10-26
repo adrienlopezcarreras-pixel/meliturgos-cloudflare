@@ -1,6 +1,9 @@
-// Secours local : quand AUCUN modèle cloud ne peut répondre (quota Workers AI
-// épuisé, panne, délai dépassé), MEL utilise le modèle Ollama du PC d'Adrien via
-// le Companion — seulement s'il est en ligne et qu'Adrien a autorisé l'accès.
+// Deux règles, dans cet ordre.
+// 1. Le code part d'abord sur qwen2.5-coder:7b quand le PC est connecté.
+//    Le codeur en ligne n'est appelé que si cette proposition est refusée
+//    ou si GitHub a déjà refusé le changement.
+// 2. Quand le quota cloud est épuisé, le reste du texte part aussi sur le PC.
+//    Un PC absent n'est pas un modèle, et les médias restent hors de ce chemin.
 //
 // La conversation voyage en base64 dans une commande PowerShell fixe : aucun
 // texte utilisateur n'est interprété par PowerShell. La réponse revient en base64
