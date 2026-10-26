@@ -13,6 +13,8 @@ on:
       - 'tests/*terminal*.test.mjs'
       - 'tests/*computer*.test.mjs'
       - 'tests/voice-internal-device.test.mjs'
+      - '.github/workflows/publish-waveshare-firmware.yml'
+      - 'tools/mini-updater/verify-previous-release.mjs'
       - '.github/workflows/hardware-lab-ci.yml'
   workflow_dispatch:
 
