@@ -12,7 +12,7 @@ import {
 test('MEL-VOICE-01 normalizes French wake phrases locally', () => {
   assert.equal(normalizeWakeText('  Allô, MEL !  '), 'allo mel');
   assert.equal(normalizeWakeText('BONJOUR Mél'), 'bonjour mel');
-  assert.deepEqual(MEL_WAKE_PHRASES, ['bonjour mel','allo mel']);
+  assert.deepEqual(MEL_WAKE_PHRASES, ['ok mel','bonjour mel','allo mel']);
 });
 
 test('MEL-VOICE-01 detects exact wake phrases and optional inline commands', () => {
@@ -23,6 +23,9 @@ test('MEL-VOICE-01 detects exact wake phrases and optional inline commands', () 
     command:'quelle heure est-il',
   });
   assert.deepEqual(detectWakePhrase('bonjour tout le monde'), {matched:false,phrase:null,command:''});
+  assert.deepEqual(detectWakePhrase('OK MEL'), {matched:true,phrase:'ok mel',command:''});
+  assert.deepEqual(detectWakePhrase('Mel'), {matched:true,phrase:'mel',command:''});
+  assert.deepEqual(detectWakePhrase('mel allume la lumière'), {matched:false,phrase:null,command:''});
 });
 
 test('MEL-VOICE-01 wake runtime only auto-starts after an already granted microphone permission', () => {
