@@ -2,6 +2,7 @@ import { runSurvivalMode } from '../legacy/survival-mode.js';
 import { setOwnerMaxAutonomy } from '../evolution/autonomy-control.js';
 import { applyEcosystemProposalDecision, getEcosystemCapabilityWatchStatus } from '../evaluation/capability-watch-runtime.js';
 import { installAllRevenueSources } from '../revenue/revenue-watch.js';
+import { queueErrorRepairs, recordError } from './error-ledger.js';
 import { raiseOwnerRequestsForFailedJobs } from '../evolution/owner-requests.js';
 import { runD1Retention } from '../maintenance/d1-retention.js';
 import { runShardVaultCycle } from '../continuity/shardvault-runtime.js';
@@ -607,6 +608,14 @@ export async function runMelSelfAuditSupervisor(env = {}, {
     });
   }
 
+  if (due.includes('HEARTBEAT')) {
+    // Golden rule: every recorded error becomes a MAX repair task.
+    results.push(await capture('error-ledger', async () => (deps.queueErrorRepairs || queueErrorRepairs)(env.DB, {
+      enqueue: options => (deps.enqueueDevelopment || enqueueSupervisedDevelopmentRequest)({ env, ...options }),
+      now: current,
+    })));
+  }
+
   if (due.includes('DAILY')) {
     results.push(await capture('capability-health-refresh', async () => {
       const rows = await bus.refreshHealthAll();
@@ -690,6 +699,11 @@ export async function runMelSelfAuditSupervisor(env = {}, {
     }));
   }
 
+  // Golden rule registry: every failed background task (watch, LoRA, WORK,
+  // memory, backups…) is recorded; its repair stays the streak → Council path.
+  for (const row of results.filter(r => r.ok !== true && !['development-audit', 'domain-audit', 'error-ledger'].includes(r.name))) {
+    await recordError(env?.DB, { source: 'cron ' + row.name, code: clean(row.error || 'TASK_FAILED', 120), now: current, covered: true }).catch(() => null);
+  }
   const failureStreaks = updateFailureStreaks(state.failure_streaks, results);
   // A development finding is repaired the same week; its codes make the
   // fingerprint, so a new problem queues a new repair.

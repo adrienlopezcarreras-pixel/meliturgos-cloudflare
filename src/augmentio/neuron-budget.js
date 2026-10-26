@@ -61,6 +61,33 @@ async function ensureSchema(db) {
   return schemaReady.get(db);
 }
 
+// Owner-granted reserve (26/10: "deux jours de neurones, exceptionnellement",
+// to develop MEL). Used only once the daily cap is reached, consumed by the
+// estimated cost of each call, and gone at expiry. Beyond the free allocation
+// these neurons are billed: the grant itself is the owner's authorization.
+const bonusReady = new WeakMap();
+function ensureBonusSchema(db) {
+  if (!bonusReady.has(db)) {
+    bonusReady.set(db, db.prepare('CREATE TABLE IF NOT EXISTS mel_ai_neuron_bonus (id TEXT PRIMARY KEY, granted REAL NOT NULL, remaining REAL NOT NULL, expires_at INTEGER NOT NULL, reason TEXT)').run()
+      .catch(error => { bonusReady.delete(db); throw error; }));
+  }
+  return bonusReady.get(db);
+}
+
+export async function readNeuronBonus(db, { now = Date.now() } = {}) {
+  try {
+    await ensureBonusSchema(db);
+    const row = await db.prepare('SELECT id, remaining FROM mel_ai_neuron_bonus WHERE remaining > 0 AND expires_at > ? ORDER BY expires_at LIMIT 1').bind(now).first();
+    return row ? { id: row.id, remaining: Number(row.remaining) } : null;
+  } catch { return null; }
+}
+
+export async function grantNeuronBonus(db, { id, neurons, expiresAt, reason = '' }) {
+  await ensureBonusSchema(db);
+  await db.prepare('INSERT OR IGNORE INTO mel_ai_neuron_bonus (id, granted, remaining, expires_at, reason) VALUES (?, ?, ?, ?, ?)')
+    .bind(String(id), Number(neurons), Number(neurons), Number(expiresAt), String(reason).slice(0, 300)).run();
+}
+
 function budgetError(code, detail) {
   return Object.assign(new Error(`${code}${detail ? ':' + detail : ''}`), { code, status: 429 });
 }
@@ -93,7 +120,8 @@ export function withNeuronBudget(env, { now = () => Date.now(), background = fal
     let budget;
     try { budget = await readNeuronBudget(db, { now: now(), cap }); }
     catch { throw budgetError('WORKERS_AI_NEURON_BUDGET_UNAVAILABLE'); }
-    if (budget.neurons >= cap) {
+    const bonus = budget.neurons >= cap ? await readNeuronBonus(db, { now: now() }) : null;
+    if (budget.neurons >= cap && !bonus) {
       await db.prepare('UPDATE mel_ai_neuron_budget SET refused = refused + 1 WHERE day = ?').bind(budget.day).run().catch(() => null);
       throw budgetError('WORKERS_AI_DAILY_NEURON_BUDGET_EXHAUSTED', `${Math.round(budget.neurons)}/${cap}`);
     }
@@ -101,6 +129,7 @@ export function withNeuronBudget(env, { now = () => Date.now(), background = fal
     try { output = await ai.run(model, inputs, options); }
     finally {
       const spent = estimateNeurons(model, inputs, output);
+      if (bonus) await db.prepare('UPDATE mel_ai_neuron_bonus SET remaining = max(0, remaining - ?) WHERE id = ?').bind(spent, bonus.id).run().catch(() => null);
       await db.prepare('INSERT INTO mel_ai_neuron_budget (day, neurons, calls) VALUES (?, ?, 1) ON CONFLICT(day) DO UPDATE SET neurons = neurons + excluded.neurons, calls = calls + 1')
         .bind(budget.day, spent).run().catch(() => null);
     }
