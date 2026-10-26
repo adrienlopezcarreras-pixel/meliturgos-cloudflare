@@ -653,7 +653,7 @@ export class MentorEngine {
     // already rejected moves the work to the online coder.
     const providers = await this._providers(env, {
       codeCouncil,
-      escalate: mode === 'repair' || previousAttempts.length > 0,
+      escalate: previousAttempts.length >= 3,
     });
     if (!providers.length) throw Object.assign(new Error('MENTOR_NO_ZERO_COST_CODE_PROVIDER'), { code: 'MENTOR_NO_ZERO_COST_CODE_PROVIDER', status: 503 });
 
