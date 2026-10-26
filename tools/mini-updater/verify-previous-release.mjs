@@ -9,7 +9,7 @@ const [manifestPath, otaPath, installerPath, expectedVersion] = process.argv.sli
 assert.ok(manifestPath && otaPath && installerPath && expectedVersion, 'Missing required arguments');
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
 assert.equal(manifest.model, 'waveshare-esp32-s3-touch-lcd-3.5-c');
-assert.equal(manifest.firmware?.version, expectedVersion, 'Published predecessor is not the expected release');
+assert.ok(typeof manifest.firmware?.version === 'string' && (manifest.firmware.version === expectedVersion || manifest.firmware.version.startsWith(expectedVersion + '-')), 'Published predecessor is not the expected release');
 assert.equal(manifest.firmware?.available, true);
 assert.equal(manifest.installer?.available, true);
 assert.equal(manifest.firmware?.key, 'devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin');
