@@ -155,66 +155,19 @@ static class MelApp
     public static Color Red = Color.FromArgb(251, 113, 133);
     public static Color Line = Color.FromArgb(48, 78, 112);
 
-    public static Bitmap MakeMelTechnoFace(int size)
+    public static Image LoadPortrait(int size)
     {
-        var bmp = new Bitmap(size, size);
-        using (var g = Graphics.FromImage(bmp))
+        try
         {
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-            g.Clear(Color.Transparent);
-            var scale = Math.Max(0.01f, size / 100f);
-            g.ScaleTransform(scale, scale);
-
-            using (var glow = new Pen(Color.FromArgb(70, 68, 232, 255), 9f))
-            using (var outer = new Pen(Color.FromArgb(72, 120, 255), 4f))
-            using (var cyan = new Pen(Cyan, 3f))
-            using (var faceFill = new SolidBrush(Color.FromArgb(14, 29, 55)))
-            using (var eyeFill = new SolidBrush(Color.FromArgb(74, 239, 255)))
-            using (var eyeCore = new SolidBrush(Color.White))
-            using (var mouth = new Pen(Color.FromArgb(112, 150, 255), 3f))
+            var path = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath) ?? "", "MEL-portrait.png");
+            if (File.Exists(path))
             {
-                g.DrawEllipse(glow, 11, 11, 78, 78);
-                g.DrawArc(outer, 8, 8, 84, 84, 204, 312);
-
-                var head = new Point[] {
-                    new Point(50,12), new Point(78,23), new Point(88,48),
-                    new Point(80,74), new Point(63,89), new Point(50,94),
-                    new Point(37,89), new Point(20,74), new Point(12,48),
-                    new Point(22,23)
-                };
-                g.FillPolygon(faceFill, head);
-                g.DrawPolygon(cyan, head);
-
-                var leftEye = new Point[] {
-                    new Point(24,43), new Point(43,38), new Point(39,51), new Point(25,54)
-                };
-                var rightEye = new Point[] {
-                    new Point(76,43), new Point(57,38), new Point(61,51), new Point(75,54)
-                };
-                g.FillPolygon(eyeFill, leftEye);
-                g.FillPolygon(eyeFill, rightEye);
-                g.FillEllipse(eyeCore, 31, 43, 5, 5);
-                g.FillEllipse(eyeCore, 64, 43, 5, 5);
-
-                g.DrawLine(cyan, 24, 34, 43, 31);
-                g.DrawLine(cyan, 57, 31, 76, 34);
-                g.DrawLine(cyan, 50, 47, 50, 65);
-                g.DrawLine(cyan, 46, 66, 54, 66);
-
-                g.DrawLine(mouth, 34, 72, 43, 75);
-                g.DrawLine(mouth, 43, 75, 57, 75);
-                g.DrawLine(mouth, 57, 75, 66, 72);
-
-                g.DrawLine(cyan, 8, 48, 2, 48);
-                g.DrawLine(cyan, 92, 48, 98, 48);
-                g.DrawLine(cyan, 17, 28, 8, 21);
-                g.DrawLine(cyan, 83, 28, 92, 21);
-                g.FillEllipse(eyeFill, 0, 46, 5, 5);
-                g.FillEllipse(eyeFill, 95, 46, 5, 5);
+                using (var raw = Image.FromFile(path))
+                    return new Bitmap(raw);
             }
         }
-        return bmp;
+        catch { }
+        return null;
     }
 
     public static PictureBox MelFace(int x, int y, int size)
@@ -223,7 +176,7 @@ static class MelApp
         box.SetBounds(x, y, size, size);
         box.BackColor = Color.Transparent;
         box.SizeMode = PictureBoxSizeMode.Zoom;
-        box.Image = MakeMelTechnoFace(size);
+        box.Image = LoadPortrait(size);
         box.TabStop = false;
         return box;
     }
@@ -1020,19 +973,19 @@ static class MelApp
 
     public static Icon MakeIcon()
     {
-        // One high-contrast initial, intentionally legible at 16x16 in the Windows tray.
         using (var bmp = new Bitmap(32, 32))
         using (var g = Graphics.FromImage(bmp))
-        using (var fill = new SolidBrush(Color.FromArgb(37, 91, 164)))
-        using (var white = new SolidBrush(Color.White))
-        using (var font = new Font("Segoe UI", 20f, FontStyle.Bold, GraphicsUnit.Pixel))
+        using (var portrait = LoadPortrait(32))
         {
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
             g.Clear(Color.Transparent);
-            g.FillEllipse(fill, 1, 1, 30, 30);
-            var fmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-            g.DrawString("M", font, white, new RectangleF(1, 1, 30, 29), fmt);
+            using (var clip = new System.Drawing.Drawing2D.GraphicsPath())
+            {
+                clip.AddEllipse(1, 1, 30, 30);
+                g.SetClip(clip);
+                if (portrait != null) g.DrawImage(portrait, 1, 1, 30, 30);
+                else g.Clear(Color.FromArgb(37, 91, 164));
+            }
             return Icon.FromHandle(bmp.GetHicon());
         }
     }
@@ -1393,8 +1346,8 @@ class PermissionsForm : Form
     CheckBox gpuCompute;
     ComboBox computeProfile;
     readonly string[] paths = MelApp.PermissionPaths();
-    readonly Color ink = Color.FromArgb(34,45,60);
-    readonly Color muted = Color.FromArgb(88,102,118);
+    readonly Color ink = MelApp.Text;
+    readonly Color muted = MelApp.Muted;
 
     Label Caption(string value, float size, bool strong)
     {
@@ -1405,7 +1358,7 @@ class PermissionsForm : Form
     }
     Panel Section(string title, int height)
     {
-        var section=new Panel { Dock=DockStyle.Top, Height=height, BackColor=Color.White, Padding=new Padding(18,12,18,8) };
+        var section=new Panel { Dock=DockStyle.Top, Height=height, BackColor=MelApp.Panel, Padding=new Padding(18,12,18,8) };
         var head=Caption(title,11,true);head.Dock=DockStyle.Top;
         section.Controls.Add(head);
         return section;
@@ -1418,33 +1371,35 @@ class PermissionsForm : Form
         StartPosition=FormStartPosition.CenterParent;
         AutoScaleMode=AutoScaleMode.None;
         Font=new Font("Segoe UI",10f);
-        BackColor=Color.FromArgb(245,247,250);
+        BackColor=MelApp.Bg;
         ForeColor=ink;
 
         var footer=new Panel { Dock=DockStyle.Bottom,Height=112,Padding=new Padding(22,12,22,12),
-            BackColor=Color.FromArgb(245,247,250) };
+            BackColor=MelApp.Bg };
         var note=new Label { Text="Les modifications s'appliquent uniquement aux autorisations locales de MEL.",
             Dock=DockStyle.Top,Height=34,ForeColor=muted,Font=new Font("Segoe UI",9f),
             TextAlign=ContentAlignment.MiddleLeft };
         footer.Controls.Add(note);
         var actions=new FlowLayoutPanel { Dock=DockStyle.Bottom, Height=52,
             FlowDirection=FlowDirection.RightToLeft,WrapContents=false };
-        var save=new Button {Text="Appliquer",Width=145,Height=42,Font=new Font("Segoe UI",10f)};
+        var save=new Button {Text="Appliquer",Width=145,Height=42,Font=new Font("Segoe UI",10f),
+            FlatStyle=FlatStyle.Flat,BackColor=MelApp.Cyan,ForeColor=Color.FromArgb(3,18,27)};
         save.Click+=Apply; actions.Controls.Add(save);
-        var cancel=new Button {Text="Annuler",Width=125,Height=42,Font=new Font("Segoe UI",10f)};
+        var cancel=new Button {Text="Annuler",Width=125,Height=42,Font=new Font("Segoe UI",10f),
+            FlatStyle=FlatStyle.Flat,BackColor=MelApp.Glass,ForeColor=MelApp.Text};
         cancel.Click+=delegate{Close();}; actions.Controls.Add(cancel);
         footer.Controls.Add(actions);
         Controls.Add(footer);
 
         // Avoid AutoSize FlowLayoutPanel + Dock Fill: WinForms can collapse its
         // content to zero height before layout, leaving an empty dialog.
-        var scroll=new Panel {Dock=DockStyle.Fill,AutoScroll=true,BackColor=Color.FromArgb(245,247,250)};
+        var scroll=new Panel {Dock=DockStyle.Fill,AutoScroll=true,BackColor=MelApp.Bg};
         Controls.Add(scroll);
         // Explicitly place the scroll area above the footer.
         scroll.BringToFront();
         footer.BringToFront();
         var content=new Panel {Location=new Point(0,0),Width=scroll.ClientSize.Width,Height=630,
-            BackColor=Color.FromArgb(245,247,250)};
+            BackColor=MelApp.Bg};
         scroll.Controls.Add(content);
         var header=Caption("Autorisations locales",15,true);
         header.Dock=DockStyle.None;header.SetBounds(22,18,700,50);content.Controls.Add(header);
@@ -1559,11 +1514,11 @@ class MainForm : Form
     int triadRefreshing;
     int adbRefreshBusy;
     bool refreshing;
-    readonly Color text=Color.FromArgb(27,39,59);
-    readonly Color gray=Color.FromArgb(99,113,133);
-    readonly Color blue=Color.FromArgb(40,88,178);
-    readonly Color background=Color.FromArgb(246,248,252);
-    readonly Color stroke=Color.FromArgb(220,228,239);
+    readonly Color text=MelApp.Text;
+    readonly Color gray=MelApp.Muted;
+    readonly Color blue=MelApp.Cyan;
+    readonly Color background=MelApp.Bg;
+    readonly Color stroke=MelApp.Line;
     readonly List<Control> cardRows=new List<Control>();
     // Windows display scaling (125 %, 150 %…): every fixed pixel size below is
     // multiplied by this factor, otherwise text grows but its boxes do not and
@@ -1587,12 +1542,12 @@ class MainForm : Form
             AutoSize=true,AutoSizeMode=AutoSizeMode.GrowOnly,MinimumSize=new Size(S(w),S(42)),Padding=new Padding(S(8),0,S(8),0),
             FlatStyle=FlatStyle.Flat,Font=new Font("Segoe UI Semibold",9.5f,FontStyle.Regular),
             UseVisualStyleBackColor=false,Cursor=Cursors.Hand,TabStop=true,
-            BackColor=primary?blue:Color.White,
-            ForeColor=primary?Color.White:(danger?Color.FromArgb(154,39,51):text)};
-        button.FlatAppearance.BorderSize=primary?0:1;
-        button.FlatAppearance.BorderColor=primary?blue:(danger?Color.FromArgb(232,188,191):stroke);
-        button.FlatAppearance.MouseOverBackColor=primary?Color.FromArgb(28,80,150):Color.FromArgb(234,240,248);
-        button.FlatAppearance.MouseDownBackColor=primary?Color.FromArgb(23,67,125):Color.FromArgb(222,232,245);
+            BackColor=primary?blue:MelApp.Glass,
+            ForeColor=primary?Color.FromArgb(3,18,27):(danger?MelApp.Red:text)};
+        button.FlatAppearance.BorderSize=1;
+        button.FlatAppearance.BorderColor=primary?blue:(danger?MelApp.Red:stroke);
+        button.FlatAppearance.MouseOverBackColor=primary?Color.FromArgb(94,226,245):MelApp.Panel;
+        button.FlatAppearance.MouseDownBackColor=primary?Color.FromArgb(14,160,184):Color.FromArgb(8,18,34);
         button.Click+=action;parent.Controls.Add(button);return button;
     }
     Panel Card(Control parent,int y,int height)
@@ -1602,7 +1557,7 @@ class MainForm : Form
         var p=new Panel {
             Location=new Point(0,y),
             Size=new Size(Math.Max(350,parent.ClientSize.Width-26),height),
-            BackColor=Color.White,Padding=new Padding(8),
+            BackColor=MelApp.Panel,Padding=new Padding(8),
             BorderStyle=BorderStyle.FixedSingle,
             Anchor=AnchorStyles.Left|AnchorStyles.Top
         };
@@ -1638,13 +1593,13 @@ class MainForm : Form
         b.Parent.Controls.Remove(b);
         b.Height=S(42);
         b.Margin=new Padding(5,3,5,3);
-        if(primary){b.BackColor=blue;b.ForeColor=Color.White;b.FlatAppearance.BorderSize=0;}
+        if(primary){b.BackColor=blue;b.ForeColor=Color.FromArgb(3,18,27);b.FlatAppearance.BorderSize=0;}
         return b;
     }
     Panel Surface()
     {
         return new Panel {
-            Dock=DockStyle.Fill, BackColor=Color.White,
+            Dock=DockStyle.Fill, BackColor=MelApp.Panel,
             BorderStyle=BorderStyle.FixedSingle,
             Padding=new Padding(16),Margin=new Padding(0,4,0,4)
         };
@@ -1652,7 +1607,7 @@ class MainForm : Form
     Panel NewDeviceSurface()
     {
         var tile=new Panel {
-            Width=S(440),Height=S(194),BackColor=Color.White,
+            Width=S(440),Height=S(194),BackColor=MelApp.Panel,
             BorderStyle=BorderStyle.FixedSingle,
             Padding=new Padding(16),
             Margin=new Padding(0,0,12,12),
@@ -1691,22 +1646,27 @@ class MainForm : Form
         shell.RowStyles.Add(Abs(110f));
         Controls.Add(shell);
 
-        var header=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,
+        var header=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=3,RowCount=1,
             Margin=new Padding(0),BackColor=Color.Transparent};
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,78f));
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,22f));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,S(92)));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100f));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,S(180)));
         shell.Controls.Add(header,0,0);
+        var face=MelApp.MelFace(0,0,S(72));
+        face.Dock=DockStyle.Fill;
+        face.Margin=new Padding(0,S(8),S(12),S(8));
+        header.Controls.Add(face,0,0);
         var brand=Stack(3);
         brand.RowStyles.Add(Abs(48f));
         brand.RowStyles.Add(Abs(29f));
         brand.RowStyles.Add(new RowStyle(SizeType.Percent,100f));
-        header.Controls.Add(brand,0,0);
+        header.Controls.Add(brand,1,0);
         CellLabel(brand,"MEL Companion",21f,true);
         connection=CellLabel(brand,"Vérification de la connexion…",10.5f,true,gray);
         triadActivityStatus=CellLabel(brand,"Android : activité non vérifiée",9.5f,false,gray);
         var open=ActionButton("Ouvrir MEL",156,delegate{MelApp.OpenMel();},true);
         open.Anchor=AnchorStyles.Right;
-        header.Controls.Add(open,1,0);
+        header.Controls.Add(open,2,0);
 
         var pc=Surface();
         shell.Controls.Add(pc,0,1);
@@ -1951,6 +1911,89 @@ class MainForm : Form
         }
         cards.ResumeLayout(true);
     }
+    string AskPhrase(string title, string phrase)
+    {
+        using (var dialog=new Form())
+        {
+            dialog.Text=title;
+            dialog.ClientSize=new Size(520,150);
+            dialog.FormBorderStyle=FormBorderStyle.FixedDialog;
+            dialog.StartPosition=FormStartPosition.CenterParent;
+            dialog.MaximizeBox=false;dialog.MinimizeBox=false;
+            dialog.Controls.Add(new Label{Text="Tapez exactement "+phrase,Left=16,Top=16,Width=480,Height=36});
+            var box=new TextBox{Left=16,Top=58,Width=480};
+            var ok=new Button{Text="Continuer",Left=286,Top=100,Width=100,DialogResult=DialogResult.OK};
+            var cancel=new Button{Text="Annuler",Left=396,Top=100,Width=100,DialogResult=DialogResult.Cancel};
+            dialog.Controls.Add(box);dialog.Controls.Add(ok);dialog.Controls.Add(cancel);
+            dialog.AcceptButton=ok;dialog.CancelButton=cancel;
+            if(dialog.ShowDialog(this)!=DialogResult.OK)return null;
+            return (box.Text??"").Trim();
+        }
+    }
+    void ShowLocalResult(string title, string text)
+    {
+        if(IsDisposed)return;
+        var body=text??"";
+        if(body.Length>4000)body=body.Substring(0,4000);
+        if(body.Length==0)body="Terminé.";
+        using(var dialog=new Form())
+        {
+            dialog.Text=title;
+            dialog.ClientSize=new Size(640,420);
+            dialog.StartPosition=FormStartPosition.CenterParent;
+            dialog.FormBorderStyle=FormBorderStyle.Sizable;
+            var output=new TextBox{Left=12,Top=12,Width=616,Height=350,Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical,Text=body,Font=new Font("Consolas",9f)};
+            var close=new Button{Text="Fermer",Left=520,Top=372,Width=108,DialogResult=DialogResult.OK};
+            dialog.Controls.Add(output);dialog.Controls.Add(close);
+            dialog.AcceptButton=close;
+            dialog.ShowDialog(this);
+        }
+    }
+    void RunHidden(string title, string scriptPath, string extraArgs)
+    {
+        if(string.IsNullOrEmpty(scriptPath)||!File.Exists(scriptPath))
+        {
+            MessageBox.Show(this,"Outil absent. Réinstallez le Companion.","MEL Companion",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            return;
+        }
+        ThreadPool.QueueUserWorkItem(delegate {
+            var text="";
+            try
+            {
+                var psi=new ProcessStartInfo("powershell.exe");
+                psi.WorkingDirectory=MelApp.MelDir;
+                psi.Arguments="-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File \""+scriptPath+"\" "+(extraArgs??"");
+                psi.UseShellExecute=false;
+                psi.CreateNoWindow=true;
+                psi.RedirectStandardOutput=true;
+                psi.RedirectStandardError=true;
+                psi.WindowStyle=ProcessWindowStyle.Hidden;
+                using(var process=Process.Start(psi))
+                {
+                    if(process==null)throw new InvalidOperationException("Le programme local n'a pas démarré.");
+                    var output=new System.Text.StringBuilder();
+                    process.OutputDataReceived+=delegate(object s,DataReceivedEventArgs ev){if(ev.Data!=null)output.AppendLine(ev.Data);};
+                    process.ErrorDataReceived+=delegate(object s,DataReceivedEventArgs ev){if(ev.Data!=null)output.AppendLine(ev.Data);};
+                    process.BeginOutputReadLine();
+                    process.BeginErrorReadLine();
+                    if(!process.WaitForExit(20*60*1000))
+                    {
+                        try{process.Kill();}catch{}
+                        text="Interrompu après 20 minutes. L'action n'a pas été perdue : relancez-la depuis MEL.";
+                    }
+                    else
+                    {
+                        process.WaitForExit();
+                        text=output.ToString().Trim();
+                        if(text.Length==0)text="Terminé. Code "+process.ExitCode+".";
+                    }
+                }
+            }
+            catch(Exception ex){text=ex.Message;}
+            if(IsDisposed)return;
+            try{BeginInvoke((Action)delegate{ShowLocalResult(title,text);});}catch{}
+        });
+    }
     void RunAndroidWifiPairing(object sender,EventArgs e)
     {
         if (!File.Exists(MelApp.AndroidWifiPairingPath))
@@ -1960,15 +2003,15 @@ class MainForm : Form
             return;
         }
         if (MessageBox.Show(this,
-            "Cela ouvre un terminal local pour associer ce téléphone à Windows. Le code d'appairage reste uniquement dans ce terminal et ne doit pas être communiqué à MEL. Le téléphone et le PC doivent être sur le même réseau Wi-Fi. Continuer ?",
+            "Le téléphone et le PC doivent être sur le même Wi-Fi. Le code se saisit dans la fenêtre locale, jamais dans MEL. Continuer ?",
             "Configurer ADB Wi-Fi",MessageBoxButtons.YesNo,MessageBoxIcon.Information)!=DialogResult.Yes)return;
         try
         {
             var psi=new ProcessStartInfo("powershell.exe");
-            psi.UseShellExecute=true;psi.WindowStyle=ProcessWindowStyle.Normal;
+            psi.UseShellExecute=true;
+            psi.WindowStyle=ProcessWindowStyle.Normal;
             psi.WorkingDirectory=MelApp.MelDir;
-            psi.Arguments="-NoProfile -ExecutionPolicy Bypass -NoExit -File \"" +
-                MelApp.AndroidWifiPairingPath + "\" -Pair";
+            psi.Arguments="-NoProfile -ExecutionPolicy Bypass -File \""+MelApp.AndroidWifiPairingPath+"\" -Pair";
             Process.Start(psi);
         }
         catch(Exception ex)
@@ -1980,10 +2023,9 @@ class MainForm : Form
     void ChooseMiniUsbAction(object sender,EventArgs e)
     {
         var choice=MessageBox.Show(this,
-            "OUI : diagnostic USB en lecture seule.\nNON : sauvegarde intégrale USB en lecture seule (deux lectures vérifiées).\nANNULER : ne rien faire.\n\nAucune de ces actions ne flashe la MINI.",
-            "MEL MINI — opération locale",MessageBoxButtons.YesNoCancel,MessageBoxIcon.Warning);
-        if(choice==DialogResult.Yes)RunMiniUsbPreflight(sender,e);
-        else if(choice==DialogResult.No)RunMiniUsbBackup(sender,e);
+            "Ce bouton flashe la MINI par USB. Il télécharge le firmware publié, vérifie son empreinte, efface la carte, puis écrit le firmware. La fenêtre demandera EFFACER_MINI. Continuer ?",
+            "MEL MINI — flash USB",MessageBoxButtons.YesNo,MessageBoxIcon.Warning);
+        if(choice==DialogResult.Yes)RunMiniFirstInstall(sender,e);
     }
     void RunMiniUsbBackup(object sender,EventArgs e)
     {
@@ -2039,21 +2081,13 @@ class MainForm : Form
                 "Cela peut durer plusieurs minutes et nécessite une alimentation stable. " +
                 "Aucune écriture sur la MINI ne sera effectuée.",
                 "MEL MINI — sauvegarde USB",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
-            try
+            var phrase=AskPhrase("MEL MINI — sauvegarde","SAUVEGARDER_MINI_USB");
+            if(phrase!="SAUVEGARDER_MINI_USB")
             {
-                var psi=new ProcessStartInfo("powershell.exe");
-                psi.UseShellExecute=true;
-                psi.WindowStyle=ProcessWindowStyle.Normal;
-                psi.WorkingDirectory=MelApp.MelDir;
-                psi.Arguments="-NoProfile -ExecutionPolicy Bypass -NoExit -File \"" +
-                    MelApp.MiniUsbBackupPath + "\" -Port " + port;
-                Process.Start(psi);
+                if(phrase!=null)MessageBox.Show(this,"La phrase ne correspond pas. Rien n'a été lancé.","MEL MINI — sauvegarde",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                return;
             }
-            catch(Exception ex)
-            {
-                MessageBox.Show(this,"Impossible de démarrer la sauvegarde : "+ex.Message,
-                    "MEL MINI — sauvegarde",MessageBoxButtons.OK,MessageBoxIcon.Error);
-            }
+            RunHidden("MEL MINI — sauvegarde",MelApp.MiniUsbBackupPath,"-Port "+port+" -Approval SAUVEGARDER_MINI_USB");
         }
     }
     void RunMiniFirstInstall(object sender,EventArgs e)
@@ -2068,20 +2102,7 @@ class MainForm : Form
         if (MessageBox.Show(this,
             "PREMIÈRE INSTALLATION UNIQUEMENT. L'outil efface intégralement la mémoire de la carte ESP32-S3. Ne l'utilisez PAS pour mettre à jour une MINI configurée. La sauvegarde et la restauration ne sont pas assurées par cet outil. Continuer ?",
             "MEL — Effacement total de la MINI",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
-        try
-        {
-            var psi=new ProcessStartInfo("powershell.exe");
-            psi.UseShellExecute=true;
-            psi.WindowStyle=ProcessWindowStyle.Normal;
-            psi.WorkingDirectory=MelApp.MelDir;
-            psi.Arguments="-NoProfile -ExecutionPolicy Bypass -NoExit -File \"" + MelApp.MiniFirstInstallPath + "\"";
-            Process.Start(psi);
-        }
-        catch(Exception ex)
-        {
-            MessageBox.Show(this,"Impossible d'ouvrir l'installateur MINI : "+ex.Message,
-                "MEL — MINI",MessageBoxButtons.OK,MessageBoxIcon.Error);
-        }
+        RunHidden("MEL — MINI",MelApp.MiniFirstInstallPath,"");
     }
     void RunMiniUsbPreflight(object sender,EventArgs e)
     {
@@ -2124,22 +2145,15 @@ class MainForm : Form
             var port=Convert.ToString(portList.SelectedItem);
             if (!System.Text.RegularExpressions.Regex.IsMatch(port??"", @"^COM[0-9]{1,3}$"))
                 throw new InvalidOperationException("Port MINI invalide.");
-            if (MessageBox.Show(this,"Le précontrôle peut redémarrer la MINI. Confirmer l'ouverture du terminal local ? Une autorisation textuelle supplémentaire sera demandée.",
+            if (MessageBox.Show(this,"Le précontrôle peut redémarrer la MINI. Une phrase exacte est encore demandée. Aucune fenêtre PowerShell.",
                 "MEL — USB MINI",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
-            try
+            var phrase=AskPhrase("MEL — USB MINI","AUTORISER_LECTURE_USB_MINI");
+            if(phrase!="AUTORISER_LECTURE_USB_MINI")
             {
-                var psi=new ProcessStartInfo("powershell.exe");
-                psi.UseShellExecute=true;psi.WindowStyle=ProcessWindowStyle.Normal;
-                psi.WorkingDirectory=MelApp.MelDir;
-                psi.Arguments="-NoProfile -ExecutionPolicy Bypass -NoExit -File \""+
-                    MelApp.MiniUsbPreflightPath+"\" -Port "+port;
-                Process.Start(psi);
+                if(phrase!=null)MessageBox.Show(this,"La phrase ne correspond pas. Rien n'a été lancé.","MEL — USB MINI",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                return;
             }
-            catch(Exception ex)
-            {
-                MessageBox.Show(this,"Impossible d'ouvrir le précontrôle local : "+ex.Message,
-                    "MEL — USB MINI",MessageBoxButtons.OK,MessageBoxIcon.Error);
-            }
+            RunHidden("MEL — USB MINI",MelApp.MiniUsbPreflightPath,"-Port "+port+" -Approval AUTORISER_LECTURE_USB_MINI");
         }
     }
     void RunGrandCleanup(object sender,EventArgs e)
@@ -2151,21 +2165,9 @@ class MainForm : Form
             return;
         }
         if(MessageBox.Show(
-            "Lancer le diagnostic de grand nettoyage ? Il sauvegarde d'abord, puis liste ce qui pourrait etre retire. Il ne supprime rien : ni GitHub, ni la memoire, ni MAX, ni les preuves. Le rapport dit exactement ce qui est bloque.",
+            "Lancer le grand nettoyage ? Une sauvegarde et une simulation passent d'abord. Tapez O dans la fenetre pour supprimer seulement les branches deja fusionnees, les vieux caches et les runs annules. main, release, candidate, la memoire, MAX, les preuves et les revenus ne sont pas touches.",
             "Grand nettoyage MEL",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
-        try
-        {
-            var psi=new ProcessStartInfo("powershell.exe");
-            psi.UseShellExecute=true;
-            psi.WorkingDirectory=MelApp.MelDir;
-            psi.Arguments="-NoProfile -ExecutionPolicy Bypass -NoExit -File \""+MelApp.CleanupPath+"\"";
-            Process.Start(psi);
-        }
-        catch(Exception ex)
-        {
-            MessageBox.Show(this,"Impossible de lancer le nettoyage : "+ex.Message,
-                "MEL Companion",MessageBoxButtons.OK,MessageBoxIcon.Error);
-        }
+        RunHidden("Grand nettoyage MEL",MelApp.CleanupPath,"");
     }
 
     void RunLocalAiBenchmark(object sender,EventArgs e)

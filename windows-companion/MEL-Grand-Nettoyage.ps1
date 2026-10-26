@@ -70,7 +70,20 @@ try {
   if (-not ($dryRunLog | Where-Object { $_ -match 'TERMINE \(SIMULATION\)' })) {
     throw 'MEL_GITHUB_DRY_RUN_COMPLETION_NOT_PROVEN'
   }
-  Report 'GITHUB : simulation validee, aucune suppression appliquee.'
+  Report 'GITHUB : simulation validee.'
+  $backupProved = Select-String -Path $Report -Pattern 'SAUVEGARDE LOCALE : PROUVEE' -Quiet
+  if (-not $backupProved) {
+    Report 'GITHUB : aucune suppression, la sauvegarde locale n a pas ete prouvee.'
+  } else {
+    $answer = Read-Host 'Tapez O pour supprimer les branches deja fusionnees, les vieux caches, les runs annules et les artefacts temporaires. main, release, candidate, memoire, MAX, preuves et revenus restent'
+    if ($answer -eq 'O') {
+      $applyLog = @(& $githubScript -Apply 2>&1)
+      foreach ($line in $applyLog) { Report "$line" }
+      Report 'GITHUB : suppression demandee appliquee, voir le rapport.'
+    } else {
+      Report 'GITHUB : confirmation refusee, aucune suppression.'
+    }
+  }
 } catch {
   Report "GITHUB : BLOQUE - $($_.Exception.Message)"
 }

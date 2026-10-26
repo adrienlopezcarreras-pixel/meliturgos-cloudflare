@@ -362,6 +362,30 @@ function tasksHealthcheck(resolveAccessToken, fetchImpl, env, pipedreamRuntime, 
 }
 
 
+const GMAIL_TOKEN_CONNECTORS = ['gmail', 'google-calendar', 'google-drive', 'google-tasks'];
+
+function gmailAuthFailure(cause) {
+  const code = String(cause?.code || '');
+  const http = Number(cause?.status || 0);
+  return http === 401 || http === 403 || /AUTH_REQUIRED|_AUTH$/.test(code);
+}
+
+async function gmailNativeRead({ resolveAccessToken, fetchImpl, context, url, method, body, code }) {
+  let last = null;
+  for (const connectorId of GMAIL_TOKEN_CONNECTORS) {
+    try {
+      const token = await tokenFor(resolveAccessToken, connectorId, context);
+      const result = await requestJson(fetchImpl, token, url, { method, body, code, signal: context?.signal });
+      return { provider: 'google', body: result };
+    } catch (cause) {
+      last = cause;
+      if (gmailAuthFailure(cause)) continue;
+      throw cause;
+    }
+  }
+  throw last || error('GMAIL_AUTH_REQUIRED', 503);
+}
+
 async function gmailRequest({
   resolveAccessToken,
   fetchImpl,
@@ -387,9 +411,7 @@ async function gmailRequest({
   }
   let nativeError = null;
   try {
-    const token = await tokenFor(resolveAccessToken, 'gmail', context);
-    const result = await requestJson(fetchImpl, token, url, { method, body, code, signal: context?.signal });
-    return { provider: 'google', body: result };
+    return await gmailNativeRead({ resolveAccessToken, fetchImpl, context, url, method, body, code });
   } catch (error_) {
     nativeError = error_;
   }
@@ -411,8 +433,9 @@ function gmailHealthcheck(resolveAccessToken, fetchImpl, env, pipedreamRuntime, 
   const probe = GMAIL_API + '/profile';
   return async () => {
     try {
-      const token = await tokenFor(resolveAccessToken, 'gmail', { owner });
-      await requestJson(fetchImpl, token, probe, { method: 'GET', code: 'GMAIL_HEALTH_FAILED' });
+      await gmailNativeRead({
+        resolveAccessToken, fetchImpl, context: { owner }, url: probe, method: 'GET', code: 'GMAIL_HEALTH_FAILED',
+      });
       return { status: protectedAction ? 'PROTECTED' : 'HEALTHY', transport: 'google' };
     } catch (nativeError) {
       if (!pipedreamRuntime || typeof pipedreamRuntime.proxy !== 'function') {

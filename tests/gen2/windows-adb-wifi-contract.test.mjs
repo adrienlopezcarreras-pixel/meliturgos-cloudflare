@@ -68,6 +68,9 @@ test("Failed ADB process exit cannot masquerade as successful device telemetry",
   assert.match(run, /\$process\.ExitCode -ne 0/);
   assert.match(run, /ADB_COMMAND_FAILED/);
   assert.match(run, /WaitForExit\(8000\)/);
+  assert.match(run, /\$null = \$process\.WaitForExit\(\)/);
+  assert.match(run, /ArgumentList \$arglist/);
+  assert.match(run, /if \(\$null -eq \$code\) \{ \$code = -1 \}/);
 });
 
 
