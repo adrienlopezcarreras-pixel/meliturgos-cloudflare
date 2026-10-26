@@ -41,3 +41,15 @@ test('MINI CI artifacts are candidate-only, provenance-bound and checksum verifi
   assert.match(build, /Candidate binary SHA-256 and lengths verified/);
   assert.match(build, /sha256sum -c \.\.\/SHA256SUMS\.txt/);
 });
+
+test('MINI preserves and verifies predecessor and remote archive before replacing active firmware', async () => {
+  const publish = await readWorkflow('publish-waveshare-firmware.yml');
+  const archive = publish.indexOf('Preserve and verify previous 0.6.17 release before replacement');
+  const upload = publish.indexOf('Upload OTA app image first');
+  assert.ok(archive > 0 && upload > archive, 'preservation must precede any active overwrite');
+  assert.match(publish, /verify-previous-release\.mjs previous-mini\/manifest\.json/);
+  assert.match(publish, /archive\/0\.6\.17/);
+  assert.match(publish, /cmp "previous-mini\/\$file" "restore-drill\/\$file"/);
+  assert.match(publish, /verify-previous-release\.mjs restore-drill\/manifest\.json/);
+  assert.doesNotMatch(publish, /erase_flash/);
+});
