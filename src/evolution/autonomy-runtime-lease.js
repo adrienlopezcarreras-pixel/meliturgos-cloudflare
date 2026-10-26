@@ -113,8 +113,14 @@ export async function renewAutonomyRuntimeLease({ db = null, owner, leaseMs = DE
   return changedRows(result) === 1;
 }
 
-export function keepAutonomyRuntimeLeaseAlive(args, { everyMs = 30_000 } = {}) {
-  const timer = setInterval(() => { renewAutonomyRuntimeLease({ ...args, now: Date.now() }).catch(() => false); }, everyMs);
+// A hung tick must not hold the lease forever (26/10: one tick renewed it for
+// over an hour and MAX stayed LEASE_BUSY): renewal stops after maxHoldMs.
+export function keepAutonomyRuntimeLeaseAlive(args, { everyMs = 30_000, maxHoldMs = MAX_LEASE_MS, now = Date.now } = {}) {
+  const until = now() + maxHoldMs;
+  const timer = setInterval(() => {
+    if (now() > until) { clearInterval(timer); return; }
+    renewAutonomyRuntimeLease({ ...args, now: now() }).catch(() => false);
+  }, everyMs);
   return () => clearInterval(timer);
 }
 
