@@ -69,6 +69,17 @@ export async function queueTaskmarketSubmission(env, { artifactId, taskId, mode,
     }
     return cloud;
   }
+  const queued = await queueOnPc(env, { artifactId, taskId, now });
+  if (queued.status === 'COMPANION_OFFLINE') {
+    await db.prepare('INSERT INTO mel_work_submissions (task_id,artifact_id,command_id,status,created_at,updated_at) VALUES (?,?,?,?,?,?)')
+      .bind(taskId.toLowerCase(), artifactId, '', 'WAITING_FOR_PC', now, now).run();
+    return { status: 'WAITING_FOR_PC' };
+  }
+  return queued;
+}
+
+async function queueOnPc(env, { artifactId, taskId, now, replace = false }) {
+  const db = env.DB;
   const device = await selectAgentDevice(db, now).catch(() => null);
   if (!device) return { status: 'COMPANION_OFFLINE' };
   const artifact = await db.prepare('SELECT content FROM mel_work_artifacts WHERE id=?').bind(artifactId).first();
@@ -80,8 +91,26 @@ export async function queueTaskmarketSubmission(env, { artifactId, taskId, mode,
   const commandId = crypto.randomUUID();
   const plan = { schema: 'mel.devices.pc-control.v1', owner_authorized: true, steps: [{ id: 'pc-control-1', action: 'system.exec', payload: step }] };
   await db.prepare('INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)').bind(commandId, device.id, 'mel-work-submit-' + commandId, JSON.stringify(plan), 'PENDING', now).run();
-  await db.prepare('INSERT INTO mel_work_submissions (task_id,artifact_id,command_id,status,created_at,updated_at) VALUES (?,?,?,?,?,?)').bind(taskId.toLowerCase(), artifactId, commandId, 'QUEUED', now, now).run();
+  if (replace) {
+    const updated = await db.prepare("UPDATE mel_work_submissions SET command_id=?, status='QUEUED', updated_at=? WHERE task_id=? AND status='WAITING_FOR_PC'").bind(commandId, now, taskId.toLowerCase()).run();
+    if (Number(updated?.meta?.changes || 0) !== 1) return { status: 'ALREADY_SUBMITTED' };
+  } else {
+    await db.prepare('INSERT INTO mel_work_submissions (task_id,artifact_id,command_id,status,created_at,updated_at) VALUES (?,?,?,?,?,?)').bind(taskId.toLowerCase(), artifactId, commandId, 'QUEUED', now, now).run();
+  }
   return { status: 'QUEUED', commandId };
+}
+
+export async function resumeWaitingSubmissions(env, { now = Date.now() } = {}) {
+  const db = env?.DB;
+  if (!db?.prepare) return { resumed: 0 };
+  await ensureTable(db);
+  const rows = (await db.prepare("SELECT task_id, artifact_id FROM mel_work_submissions WHERE status='WAITING_FOR_PC' LIMIT 10").all())?.results || [];
+  let resumed = 0;
+  for (const row of rows) {
+    const queued = await queueOnPc(env, { artifactId: row.artifact_id, taskId: row.task_id, now, replace: true });
+    if (queued.status === 'QUEUED') resumed += 1;
+  }
+  return { resumed };
 }
 
 // Reads back the Companion results of queued submissions (run every hour).
@@ -89,6 +118,7 @@ export async function refreshTaskmarketSubmissions(env, { now = Date.now() } = {
   const db = env?.DB;
   if (!db?.prepare) return { updated: 0 };
   await ensureTable(db);
+  await resumeWaitingSubmissions(env, { now });
   const rows = (await db.prepare("SELECT task_id, command_id FROM mel_work_submissions WHERE status='QUEUED' LIMIT 20").all())?.results || [];
   let updated = 0;
   for (const row of rows) {
