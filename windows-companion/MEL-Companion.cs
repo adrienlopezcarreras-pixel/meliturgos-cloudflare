@@ -2151,7 +2151,7 @@ class MainForm : Form
             return;
         }
         if(MessageBox.Show(
-            "Lancer le diagnostic de grand nettoyage ? Il sauvegarde d'abord, puis liste ce qui pourrait etre retire. Il ne supprime rien : ni GitHub, ni la memoire, ni MAX, ni les preuves. Le rapport dit exactement ce qui est bloque.",
+            "Lancer le grand nettoyage ? Une sauvegarde et une simulation passent d'abord. Tapez O dans la fenetre pour supprimer seulement les branches deja fusionnees, les vieux caches et les runs annules. main, release, candidate, la memoire, MAX, les preuves et les revenus ne sont pas touches.",
             "Grand nettoyage MEL",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
         try
         {

@@ -52,7 +52,13 @@ test('the queued command fetches exactly the stored draft once, and the result i
   assert.equal((await listTaskmarketSubmissions(env.DB))[0].status, 'SUBMITTED');
 });
 
-test('Companion offline or access not allowed: nothing is queued', async () => {
+test('Companion offline keeps the paid draft and submits it when the PC is back', async () => {
   const env = await setup({ remote: false });
-  assert.equal((await queueTaskmarketSubmission(env, { artifactId: ART, taskId: TASK, mode: 'bounty', status: 'DRAFT_UNVERIFIED' })).status, 'COMPANION_OFFLINE');
+  assert.equal((await queueTaskmarketSubmission(env, { artifactId: ART, taskId: TASK, mode: 'bounty', status: 'DRAFT_UNVERIFIED' })).status, 'WAITING_FOR_PC');
+  assert.equal((await env.DB.prepare('SELECT COUNT(*) AS n FROM computer_commands').first()).n, 0);
+  await env.DB.prepare('UPDATE computer_devices SET metadata=?').bind(JSON.stringify({ remote_access_enabled: true, engine_heartbeat_at: Date.now() })).run();
+  assert.equal((await refreshTaskmarketSubmissions(env)).updated, 0);
+  const row = (await listTaskmarketSubmissions(env.DB))[0];
+  assert.equal(row.status, 'QUEUED');
+  assert.ok(row.artifact_id);
 });
