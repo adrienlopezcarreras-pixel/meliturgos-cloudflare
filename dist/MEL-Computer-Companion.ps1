@@ -2539,7 +2539,7 @@ function PcControl-SystemExec($payload) {
   if ([string]::IsNullOrWhiteSpace($command)) { throw "SYSTEM_COMMAND_REQUIRED" }
   if ($command.Length -gt 8192) { throw "SYSTEM_COMMAND_TOO_LONG" }
   $timeoutMs = 20000
-  if ($payload.timeout_ms) { $timeoutMs = [Math]::Max(500,[Math]::Min(120000,[int]$payload.timeout_ms)) }
+  if ($payload.timeout_ms) { $timeoutMs = [Math]::Max(500,[Math]::Min(600000,[int]$payload.timeout_ms)) }
   $psi = New-Object Diagnostics.ProcessStartInfo
   $psi.FileName = "powershell.exe"
   $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
