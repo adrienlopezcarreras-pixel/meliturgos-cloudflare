@@ -227,6 +227,20 @@ test('GEN2-42 production proof accepts a truly idle ledger without masking open 
     assert.equal(blocked.status,'GEN2_42_TEACHER_HANDOFF_NOT_READY');
     assert.equal(blocked.idle_verified,false);
     assert.equal(blocked.open_handoff_count,1);
+
+    // A fresh owner approval still QUEUED is backlog, not a broken handoff;
+    // the same approval left untouched for over a day blocks again.
+    const now=Date.parse('2026-10-26T08:00:00Z');
+    const ownerLedger=at=>({schema:'mel.ecosystem-discovery-ledger.v1',items:[{fingerprint:'owner-approved',owner_decision:{status:'APPROVED',decided_at:at},handoff:{job_id:'job-owner',status:'QUEUED',teacher_request_id:null,closed:false}}]});
+    const repo={async get(id){return {id,status:'QUEUED',requested_by:'mel-autonomy',optional_context:{source:'ecosystem-watch'},created_at:1,result_json:{}};}};
+    await DB.prepare(`UPDATE capability_watch_state SET state_json=?,updated_at=? WHERE id=?`).bind(JSON.stringify(ownerLedger(now-3600000)),Date.now(),'ecosystem-discoveries-canonical').run();
+    const fresh=await proveEcosystemTeacherHandoff({DB},{now,developmentRepository:repo});
+    assert.equal(fresh.ok,true);
+    assert.equal(fresh.released_fresh_owner_queued_count,1);
+    await DB.prepare(`UPDATE capability_watch_state SET state_json=?,updated_at=? WHERE id=?`).bind(JSON.stringify(ownerLedger(now-2*86400000)),Date.now(),'ecosystem-discoveries-canonical').run();
+    const stuck=await proveEcosystemTeacherHandoff({DB},{now,developmentRepository:repo});
+    assert.equal(stuck.ok,false);
+    assert.equal(stuck.status,'GEN2_42_TEACHER_HANDOFF_NOT_READY');
   } finally {
     DB.close();
   }
