@@ -20,6 +20,7 @@ import { registerPipedreamLinkedCapabilities } from './pipedream-linked-capabili
 import { registerCreativeMediaCapabilities } from './creative-media-capabilities.js';
 import { createWorkersAiZeroCostMediaCapabilities, inspectWorkersAiMediaMissingReasons } from '../media/workers-ai-media-capabilities.js';
 import { createProceduralAudioCapabilities } from '../media/procedural-audio-capabilities.js';
+import { createLocalPcMediaCapabilities } from '../models/local-pc-media.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { Augmentio } from '../augmentio/augmentio.js';
 import { ParallelScheduler } from '../augmentio/parallel-scheduler.js';
@@ -466,11 +467,14 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
 
   const builtInZeroCostMedia = createWorkersAiZeroCostMediaCapabilities(runtimeEnv);
   const builtInProceduralMedia = createProceduralAudioCapabilities(runtimeEnv);
+  const localPcMedia = createLocalPcMediaCapabilities(runtimeEnv);
   const mediaEnv = {
     ...runtimeEnv,
     // Diagnostic is passive and reports configuration only, not runtime proof.
     MEL_MEDIA_MISSING_REASONS: inspectWorkersAiMediaMissingReasons(runtimeEnv),
+    MEL_LOCAL_MEDIA: localPcMedia,
     MEL_MEDIA_CAPABILITIES: {
+      ...localPcMedia,
       ...builtInProceduralMedia,
       ...builtInZeroCostMedia,
       ...(runtimeEnv.MEL_MEDIA_CAPABILITIES || {}),
