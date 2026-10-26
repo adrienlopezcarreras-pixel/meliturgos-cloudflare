@@ -181,6 +181,8 @@ async function neuronBudgetResponse(request, env) {
   } catch (error) {
     return json({ ok: false, code: 'NEURON_BUDGET_UNAVAILABLE' }, 503);
   }
+}
+
 async function clientErrorResponse(request, env) {
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
