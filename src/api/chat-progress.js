@@ -145,7 +145,7 @@ export async function withChatProgress(request, env, options, handler) {
         }
         let data = {};
         try { data = await response.json(); } catch { data = {}; }
-        if (!response.ok && !(data?.text || data?.response)) {
+        if (!response.ok) {
           send({ type: 'error', code: String(data?.code || data?.error || ('HTTP ' + response.status)), status: response.status });
           return;
         }
