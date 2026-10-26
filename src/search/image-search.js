@@ -2,6 +2,16 @@ import { validateUrl } from '../devices/web-capability.js';
 import { inferCurrentFactVerificationPolicy } from '../api/current-fact-reliability.js';
 import { inferChatMediaCapability } from '../api/chat-media-intent.js';
 
+const REIGN_NAME = /\b(L[ée]on|Leo|Fran[çc]ois|Beno[iî]t|Jean-Paul|Pie)\s+[IVX]{1,6}\b/i;
+
+export function verifiedPontiffName(sources) {
+  const text = (Array.isArray(sources) ? sources : []).map(source => [source?.title, source?.snippet, source?.content].filter(Boolean).join('\n')).join('\n');
+  const cells = [...text.matchAll(/<t[dh][^>]*>([\s\S]{1,80}?)<\/t[dh]>/gi)].map(match => match[1].replace(/<[^>]+>/g, '').trim());
+  const current = cells.findIndex(cell => /pontificat en cours/i.test(cell));
+  const before = current > 0 ? cells.slice(0, current).join('\n') : '';
+  return (before.match(REIGN_NAME) || text.match(REIGN_NAME) || [])[0] || '';
+}
+
 function publicHttps(value) {
   const checked=validateUrl(String(value || ''));
   if(!checked.valid || checked.url.protocol!=='https:' || checked.url.username || checked.url.password) return null;
@@ -27,6 +37,27 @@ export function normalizeImageResults(rows, limit=3) {
 export async function searchImages(service,{query,max_images=3,language='fr'}={}) {
   const limit=Math.min(6,Math.max(1,Number(max_images)||3));
   const policy=inferCurrentFactVerificationPolicy(query);
+  if(policy?.strict && policy.role==='pope') {
+    const result=await service.research(query,policy.preferred_domains,2,policy.official_seed_urls);
+    let images=normalizeImageResults(result.sources.map(source=>({url:source.image_url,source_url:source.url,title:source.title})),limit);
+    if(!images.length) {
+      const name=verifiedPontiffName(result.sources);
+      if(name) {
+        try {
+          const commons=await searchPublicMedia(service,{query:name,type:'image',max_results:limit,language:'fr'});
+          images=Array.isArray(commons.images)?commons.images:[];
+          if(images.length) {
+            const raw=(result.sources||[]).map(source=>String(source.content||source.snippet||'')).join('\n').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ');
+            const at=raw.toLowerCase().indexOf(String(name).toLowerCase());
+            const identity_evidence=at>=0?raw.slice(Math.max(0,at-80),at+400):raw.slice(-800);
+            return {...commons,official_identity:name,identity_evidence,official_source:result.sources?.[0]?.url||'',code:null,provider:'wikimedia-commons'};
+          }
+        } catch { /* confirmed name, no readable public photo */ }
+      }
+    }
+    return {...result,images,media:images,references:result.sources.map(source=>({url:source.url,title:source.title})),
+      code:images.length?null:'IMAGE_SEARCH_EMPTY',provider:'official-source'};
+  }
   if(policy?.strict) {
     const result=await service.research(query,policy.preferred_domains,2,policy.official_seed_urls);
     const images=normalizeImageResults(result.sources.map(source=>({url:source.image_url,source_url:source.url,title:source.title})),limit);

@@ -2017,7 +2017,10 @@ export async function handleNativeChat(request, env, options = {}) {
     const evidence = toolResults.find(row => ['web.research','web.images.search'].includes(row.capability)) || null;
     const authoritative = evidence?.status === 'SUCCEEDED'
       && hasAuthoritativeCurrentFactEvidence(evidence?.result, currentFactVerification);
-    if (!authoritative) {
+    const picture = inferPublicImageLookup(activeTaskText);
+    const deliveredImages = Array.isArray(evidence?.result?.images) ? evidence.result.images : [];
+    const verifiedPortrait = picture && deliveredImages.length > 0 && evidence?.result?.official_identity;
+    if (!authoritative && !verifiedPortrait) {
       const responseText = 'Je ne peux pas confirmer ce fait actuel avec une source suffisamment fiable maintenant. Je préfère ne pas deviner.';
       let archiveSaved = false;
       if (service) {
