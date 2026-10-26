@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Security
 
 function Read-Plain([Security.SecureString]$secure) {

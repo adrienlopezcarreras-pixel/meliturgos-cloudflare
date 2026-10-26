@@ -221,3 +221,13 @@ test('MINI destructive installer stays single, verified and explicitly addressed
   assert.doesNotMatch(script, /\$installInfo = \$info\.firmware/);
   assert.ok(script.indexOf('chip_id') < script.indexOf('erase_flash'));
 });
+
+
+test('published MINI installer has UTF-8 BOM for Windows PowerShell 5.1 and is parsed in Windows CI', async () => {
+  const bytes=await readFile(new URL('../../dist/MEL-Waveshare-Flash.ps1',import.meta.url));
+  assert.deepEqual([...bytes.subarray(0,3)],[239,187,191]);
+  const workflow=await read('.github/workflows/mini-flash-windows-ci.yml');
+  assert.match(workflow,/Published first-install script parses in Windows PowerShell 5.1/);
+  assert.match(workflow,/MINI_INSTALLER_PARSE_FAILED/);
+  assert.match(workflow,/MINI_INSTALLER_UTF8_BOM_REQUIRED/);
+});
