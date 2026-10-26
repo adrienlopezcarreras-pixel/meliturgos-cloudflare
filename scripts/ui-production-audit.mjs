@@ -11,11 +11,14 @@ export const PAGES = ['/', '/professor'];
 const PANELS = ['overview', 'chat', 'skills', 'roadmap', 'multi', 'memory', 'lora', 'connections', 'computer', 'diagnostics', 'terminal'];
 const LOADING_RE = /^(chargement…?|chargement\.\.\.|lecture de l’état…|vérification…|état à charger…)$/i;
 const SETTLE_MS = 6000;
+// Requested by every panel; never evidence that a given panel loaded its data.
+const SHARED_API = new Set(['/api/learning/progress']);
 
 /** Pure classification, unit-tested: raw browser observations → report. */
 export function summarizeUiAudit(observations = []) {
   const findings = [];
   let blocked = 0;
+  let stuckBlocked = 0;
   let checked = 0;
   for (const page of observations) {
     for (const error of page.errors || []) findings.push({ code: 'UI_JS_ERROR', detail: `${page.path}${page.panel ? '#' + page.panel : ''} : ${String(error).slice(0, 200)}` });
@@ -24,11 +27,16 @@ export function summarizeUiAudit(observations = []) {
       if (call.status === 401 || call.status === 403) { blocked++; continue; }
       if (call.status >= 500) findings.push({ code: 'UI_API_SERVER_ERROR', detail: `${page.path} → ${call.method} ${call.path} HTTP ${call.status}` });
     }
+    // Production proof 26/10: under the read-only identity most panels never
+    // request their own data (only the shared progress call). A placeholder
+    // there proves nothing about MEL: it is BLOCKED, not a finding.
+    const ownCalls = new Set((page.responses || []).map(call => call.path).filter(path => !SHARED_API.has(path)));
+    if (!ownCalls.size) { stuckBlocked += (page.stuck || []).length; continue; }
     for (const id of page.stuck || []) findings.push({ code: 'UI_STUCK_LOADING', detail: `${page.path}#${page.panel || '-'} : #${id} reste en chargement` });
   }
   // One finding per distinct problem, however many panels repeat it.
   const unique = [...new Map(findings.map(row => [row.code + row.detail.replace(/#[a-z-]+ :/, ':'), row])).values()];
-  return { schema: 'mel.ui-production-audit/v1', pages: observations.length, api_calls: checked, blocked_calls: blocked, findings: unique.slice(0, 40) };
+  return { schema: 'mel.ui-production-audit/v1', pages: observations.length, api_calls: checked, blocked_calls: blocked, blocked_stuck: stuckBlocked, findings: unique.slice(0, 40) };
 }
 
 export async function observe(browser, baseUrl, headers, path, panel) {
