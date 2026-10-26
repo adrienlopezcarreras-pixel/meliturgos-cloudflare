@@ -22,6 +22,15 @@ test('full mode receives MAX, STOP, activity and one global clickable recall lin
   assert.doesNotMatch(html, /<button[^>]*>Reprendre le dernier échange/i);
 });
 
+test('a page that already has the chat resume button is not given a second recall control', async () => {
+  const source = new Response(`<!doctype html><html><body>
+    <section data-panel="chat"><div class="composer"><input id="chatInput"><button id="resumeLatestChat" type="button">Reprendre</button></div></section>
+  </body></html>`, { headers: { 'content-type': 'text/html' } });
+  const html = await (await enhanceFullModeControls(source)).text();
+  const recall = html.slice(html.indexOf('function installRecall'), html.indexOf('function richifyMelMessages'));
+  assert.match(recall, /getElementById\('resumeLatestChat'\)\)return/);
+});
+
 test('normal MVP behavior does not inject duplicate recall/autonomy controls', async () => {
   const source = new Response(`<!doctype html><html><body>
     <main class="app"><div class="avatar-wrap"></div><section class="window"><div id="messages"></div><div class="composer"><textarea id="input"></textarea><div class="controls"><button id="send">Envoyer</button><button id="full">Mode complet</button></div><div id="status"></div></div></section></main>

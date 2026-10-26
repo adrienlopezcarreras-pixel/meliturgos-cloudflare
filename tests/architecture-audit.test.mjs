@@ -14,12 +14,13 @@ test('the repository audit finds oversized, untested, legacy-imported and duplic
   await mkdir(path.join(root, 'tests'), { recursive: true });
   await writeFile(path.join(root, 'src/big.js'), 'export function same() {}\n'.repeat(1600));
   await writeFile(path.join(root, 'src/old.js'), '// LEGACY_DO_NOT_USE\nexport function same() {}\n');
-  await writeFile(path.join(root, 'src/user.js'), "import { same } from './old.js';\nexport function onRequestGet() {}\n");
+  await writeFile(path.join(root, 'src/roadmap.js'), "export function item(){ return 'LEGACY_DO_NOT_USE'; }\n");
+  await writeFile(path.join(root, 'src/user.js'), "import { same } from './old.js';\nimport { item } from './roadmap.js';\nexport function onRequestGet() {}\n");
   await writeFile(path.join(root, 'src/page.js'), 'export function onRequestGet() {}\n');
   await writeFile(path.join(root, 'tests/user.test.mjs'), "import '../src/user.js';\n");
   const report = await auditArchitecture(root);
   assert.deepEqual(report.oversized.map(r => r.path), ['src/big.js']);
-  assert.deepEqual(report.untested_modules, ['src/big.js', 'src/old.js', 'src/page.js']);
+  assert.deepEqual(report.untested_modules, ['src/big.js', 'src/old.js', 'src/page.js', 'src/roadmap.js']);
   assert.deepEqual(report.legacy_imported, [{ path: 'src/old.js', imported_by: 'src/user.js' }]);
   assert.deepEqual(report.duplicate_exports.map(d => d.name), ['same'], 'onRequest* page handlers are not duplicates');
 });

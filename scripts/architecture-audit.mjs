@@ -45,7 +45,7 @@ export async function auditArchitecture(repoRoot = root) {
   const testedModules = new Set(testFiles.flatMap(file => importsOf(file, sources.get(file), rel)));
   const untested = srcFiles.map(rel).filter(name => !testedModules.has(name)).sort();
 
-  const legacy = new Set(srcFiles.filter(file => /LEGACY_DO_NOT_USE/.test(sources.get(file))).map(rel));
+  const legacy = new Set(srcFiles.filter(file => /^[ \t]*\/\/[ \t]*LEGACY_DO_NOT_USE\b/m.test(sources.get(file))).map(rel));
   const legacyImported = [];
   for (const file of srcFiles) {
     for (const target of importsOf(file, sources.get(file), rel)) {
