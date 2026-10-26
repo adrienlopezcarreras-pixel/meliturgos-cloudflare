@@ -10,12 +10,14 @@ const QUERIES = Object.freeze([
   'algora OR opire OR issuehunt bounty payout in:readme',
 ]);
 const PAY = /bounty|payout|usdc|reward|paid/i;
+const NEEDS_OWNER = /\b(api key|compte|account|log ?in|sign ?up|oauth|inscription)\b/i;
+const MAX_CONNECTORS_PER_RUN = 3;
 
 async function ensureTable(db) {
   await db.prepare("CREATE TABLE IF NOT EXISTS revenue_watch (url TEXT PRIMARY KEY, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, data TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'NEW')").run();
 }
 
-export async function watchPaidAlternatives(env, { fetchImpl = fetch, now = new Date(), githubDiscovery = discoverGithubBounties } = {}) {
+export async function watchPaidAlternatives(env, { fetchImpl = fetch, now = new Date(), githubDiscovery = discoverGithubBounties, install = null, askOwner = null } = {}) {
   if (!env?.DB?.prepare) return { status: 'RUNTIME_UNAVAILABLE', found: 0, fresh: 0 };
   await ensureTable(env.DB);
   const today = now.toISOString().slice(0, 10);
@@ -53,5 +55,19 @@ export async function watchPaidAlternatives(env, { fetchImpl = fetch, now = new 
       fresh += 1;
     }
   }
-  return { status: 'DONE', found: leads.size, fresh, errors };
+  const connectors = [];
+  const asked = [];
+  let handed = 0;
+  for (const lead of leads.values()) {
+    if (handed >= MAX_CONNECTORS_PER_RUN || lead.type !== 'marketplace') continue;
+    const row = await env.DB.prepare('SELECT status FROM revenue_watch WHERE url=?').bind(lead.url).first();
+    if (!row || !['NEW', 'DISCOVERY_ONLY'].includes(row.status)) continue;
+    handed += 1;
+    if (install) connectors.push(await install(env, lead.url).catch(error => ({ status: 'INSTALL_FAILED', error: String(error?.code || error?.message || '').slice(0, 120) })));
+    if (askOwner && NEEDS_OWNER.test(`${lead.name} ${lead.summary || ''}`)) {
+      await askOwner(env.DB, lead).catch(() => null);
+      asked.push(lead.url);
+    }
+  }
+  return { status: 'DONE', found: leads.size, fresh, connectors: connectors.length, asked, errors };
 }
