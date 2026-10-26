@@ -1,7 +1,7 @@
 import { runAutonomyRuntimeTick as runCoreAutonomyRuntimeTick, autonomyTickAdvanced, currentAutonomyRepository } from './autonomy-runtime-core.js';
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
 import { getAutonomyControl, setOwnerMaxAutonomy } from './autonomy-control.js';
-import { AutonomySupervisor, selectActionableAutonomyJob, setRuntimeRoadmapRegressions } from './autonomy-supervisor.js';
+import { AutonomySupervisor, selectActionableAutonomyJob, selectActionableAutonomyJobs, setRuntimeRoadmapRegressions } from './autonomy-supervisor.js';
 import { activeRoadmapRegressions } from '../roadmap/roadmap-regressions.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { applyOwnerMaxApproval } from '../teachers/owner-max-approval.js';
@@ -21,25 +21,54 @@ import { readSurvivalState, shouldResumeForSurvival } from '../legacy/survival-m
 export * from './autonomy-runtime-core.js';
 
 const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
-// One GPU cannot run an unlimited pile of models. Four developments in the
-// same minute is the most that still finishes before the next heartbeat.
+// One 8 GB GPU keeps a single coder loaded. Two developments run at the same
+// time against that model. Four is the most one tick may start.
 export const PC_DEVELOPMENTS_PER_TICK = 4;
+export const PC_PARALLEL_DEVELOPMENTS = 2;
 
-export async function advanceMoreOnPc({ env, ready = localPcModelReady, run, seed, alreadyRan = 1, limit = PC_DEVELOPMENTS_PER_TICK } = {}) {
+export async function advanceMoreOnPc({ env, ready = localPcModelReady, run, seed, alreadyRan = 1, limit = PC_DEVELOPMENTS_PER_TICK, selectJobs = null, width = PC_PARALLEL_DEVELOPMENTS } = {}) {
   const local = await ready(env).catch(() => null);
   if (!local?.ok || typeof run !== 'function') return { result: seed, ran: alreadyRan, job_ids: [] };
+  const room = Math.max(0, limit - alreadyRan);
+  const ids = room > 0 && typeof selectJobs === 'function'
+    ? (await selectJobs(room).catch(() => [])).filter(Boolean).slice(0, room)
+    : [];
+  if (ids.length > 1) {
+    const lanes = Math.max(1, Math.min(width, ids.length));
+    const results = [];
+    for (let index = 0; index < ids.length; index += lanes) {
+      const slice = ids.slice(index, index + lanes);
+      results.push(...await Promise.all(slice.map(onlyJobId => run({ onlyJobId }))));
+    }
+    return {
+      result: results[results.length - 1] || seed,
+      ran: alreadyRan + ids.length,
+      job_ids: results.map(row => row?.progress?.job_id || row?.job?.id || null),
+      device_id: local.device_id || null,
+      parallel: true,
+    };
+  }
   let result = seed;
   let ran = alreadyRan;
   const job_ids = [];
+  const skip = new Set(ids);
   while (ran < limit) {
     if (result?.progress?.work_remaining !== true || result?.progress?.waiting_external === true) break;
-    const next = await run();
+    const next = await run({ skipJobIds: [...skip] });
     ran += 1;
-    job_ids.push(next?.progress?.job_id || null);
+    const jobId = next?.progress?.job_id || next?.job?.id || null;
+    job_ids.push(jobId);
+    if (jobId) skip.add(jobId);
     result = next;
-    if (next?.progress?.advanced !== true && next?.advanced !== true) break;
+    if (next?.progress?.advanced !== true && next?.advanced !== true && !jobId) break;
   }
   return { result, ran, job_ids, device_id: local.device_id || null };
+}
+
+async function selectablePcJobs(repository, epochMs, roadmap, count) {
+  const supervisor = new AutonomySupervisor({ repository, epochMs, ...(roadmap ? { roadmap } : {}) });
+  const state = await supervisor.state();
+  return selectActionableAutonomyJobs(state.active, { epochMs, limit: count, ...(roadmap ? { roadmap } : {}) }).map(job => job.id);
 }
 const ACTIONABLE_FAILURE_STATES = new Set(['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE', 'TEACHER_APPROVED']);
 const ACTIVE_RUNTIME_STATES = new Set([
@@ -528,10 +557,11 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     const more = await advanceMoreOnPc({
       env,
       seed: first,
-      run: async () => {
+      run: async ({ onlyJobId } = {}) => {
         bindLocalPcWorkersAi(env, options.runLocalPcModel);
-        return preservePreEnsureCreation(await runCoreResilient(env, coreOptions, repository), preEnsure);
+        return preservePreEnsureCreation(await runCoreResilient(env, { ...coreOptions, onlyJobId: onlyJobId || null }, repository), preEnsure);
       },
+      selectJobs: (count) => selectablePcJobs(currentRepository, epochMs, options.roadmap, count),
     });
     return {
       ...more.result,
@@ -552,10 +582,11 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     env,
     seed: second,
     alreadyRan: 2,
-    run: async () => {
+    run: async ({ onlyJobId } = {}) => {
       bindLocalPcWorkersAi(env, options.runLocalPcModel);
-      return preservePreEnsureCreation(await runCoreResilient(env, coreOptions, repository), preEnsure);
+      return preservePreEnsureCreation(await runCoreResilient(env, { ...coreOptions, onlyJobId: onlyJobId || null }, repository), preEnsure);
     },
+    selectJobs: (count) => selectablePcJobs(currentRepository, epochMs, options.roadmap, count),
   });
   return {
     ...more.result,
