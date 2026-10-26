@@ -1375,7 +1375,7 @@ class PermissionsForm : Form
         ForeColor=ink;
 
         var footer=new Panel { Dock=DockStyle.Bottom,Height=112,Padding=new Padding(22,12,22,12),
-            BackColor=MelApp.Bg) };
+            BackColor=MelApp.Bg };
         var note=new Label { Text="Les modifications s'appliquent uniquement aux autorisations locales de MEL.",
             Dock=DockStyle.Top,Height=34,ForeColor=muted,Font=new Font("Segoe UI",9f),
             TextAlign=ContentAlignment.MiddleLeft };
@@ -2003,29 +2003,21 @@ class MainForm : Form
             return;
         }
         if (MessageBox.Show(this,
-            "Le téléphone et le PC doivent être sur le même Wi-Fi. Le code reste sur cet ordinateur et n'est pas envoyé à MEL. Continuer ?",
+            "Le téléphone et le PC doivent être sur le même Wi-Fi. Le code se saisit dans la fenêtre locale, jamais dans MEL. Continuer ?",
             "Configurer ADB Wi-Fi",MessageBoxButtons.YesNo,MessageBoxIcon.Information)!=DialogResult.Yes)return;
-        using(var dialog=new Form())
+        try
         {
-            dialog.Text="ADB Wi-Fi";
-            dialog.ClientSize=new Size(460,230);
-            dialog.FormBorderStyle=FormBorderStyle.FixedDialog;
-            dialog.StartPosition=FormStartPosition.CenterParent;
-            dialog.MaximizeBox=false;dialog.MinimizeBox=false;
-            dialog.Controls.Add(new Label{Text="IP:port d'appairage",Left=16,Top=12,Width=420,Height=20});
-            var pair=new TextBox{Left=16,Top=34,Width=420};
-            dialog.Controls.Add(new Label{Text="Code à 6 chiffres",Left=16,Top=66,Width=420,Height=20});
-            var code=new TextBox{Left=16,Top=88,Width=160,UseSystemPasswordChar=true};
-            dialog.Controls.Add(new Label{Text="IP:port de débogage",Left=16,Top=120,Width=420,Height=20});
-            var connect=new TextBox{Left=16,Top=142,Width=420};
-            var ok=new Button{Text="Associer",Left=236,Top=182,Width=96,DialogResult=DialogResult.OK};
-            var cancel=new Button{Text="Annuler",Left=340,Top=182,Width=96,DialogResult=DialogResult.Cancel};
-            dialog.Controls.Add(pair);dialog.Controls.Add(code);dialog.Controls.Add(connect);
-            dialog.Controls.Add(ok);dialog.Controls.Add(cancel);
-            dialog.AcceptButton=ok;dialog.CancelButton=cancel;
-            if(dialog.ShowDialog(this)!=DialogResult.OK)return;
-            var args="-Pair -PairAddress \""+(pair.Text??"").Trim()+"\" -PairCode \""+(code.Text??"").Trim()+"\" -ConnectAddress \""+(connect.Text??"").Trim()+"\"";
-            RunHidden("ADB Wi-Fi",MelApp.AndroidWifiPairingPath,args);
+            var psi=new ProcessStartInfo("powershell.exe");
+            psi.UseShellExecute=true;
+            psi.WindowStyle=ProcessWindowStyle.Normal;
+            psi.WorkingDirectory=MelApp.MelDir;
+            psi.Arguments="-NoProfile -ExecutionPolicy Bypass -File \""+MelApp.AndroidWifiPairingPath+"\" -Pair";
+            Process.Start(psi);
+        }
+        catch(Exception ex)
+        {
+            MessageBox.Show(this,"Impossible d'ouvrir l'assistant ADB Wi-Fi : "+ex.Message,
+                "MEL — Android Wi-Fi",MessageBoxButtons.OK,MessageBoxIcon.Error);
         }
     }
     void ChooseMiniUsbAction(object sender,EventArgs e)
