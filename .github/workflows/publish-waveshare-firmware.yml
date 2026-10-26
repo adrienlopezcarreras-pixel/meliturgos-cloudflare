@@ -195,6 +195,37 @@ jobs:
       - name: Install exact Wrangler
         run: npm ci
 
+      - name: Preserve and verify previous 0.6.17 release before replacement
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          BASE="meliturgos-private-media/devices/waveshare-esp32-s3-touch-lcd-3.5-c"
+          mkdir -p previous-mini restore-drill
+          # Read the live stable objects, never infer their contents from git or CI.
+          npx wrangler r2 object get "$BASE/manifest.json" --file previous-mini/manifest.json --remote
+          npx wrangler r2 object get "$BASE/mel-terminal.bin" --file previous-mini/mel-terminal.bin --remote
+          npx wrangler r2 object get "$BASE/mini-first-install.bin" --file previous-mini/mini-first-install.bin --remote
+          node tools/mini-updater/verify-previous-release.mjs previous-mini/manifest.json previous-mini/mel-terminal.bin previous-mini/mini-first-install.bin 0.6.17
+          # Version-specific keys preserve the exact published predecessor without
+          # changing the active manifest. Upload only after all hashes pass.
+          ARCHIVE="$BASE/archive/0.6.17"
+          for file in manifest.json mel-terminal.bin mini-first-install.bin; do
+            # Fail closed on existing mismatched archives; never silently overwrite them.
+            if npx wrangler r2 object get "$ARCHIVE/$file" --file "restore-drill/$file" --remote; then
+              cmp "previous-mini/$file" "restore-drill/$file"
+            else
+              npx wrangler r2 object put "$ARCHIVE/$file" --file "previous-mini/$file" --remote --force --content-type application/octet-stream --cache-control no-store
+            fi
+            # Actual remote-read recovery drill, not merely a local copy.
+            npx wrangler r2 object get "$ARCHIVE/$file" --file "restore-drill/$file" --remote
+            cmp "previous-mini/$file" "restore-drill/$file"
+          done
+          node tools/mini-updater/verify-previous-release.mjs restore-drill/manifest.json restore-drill/mel-terminal.bin restore-drill/mini-first-install.bin 0.6.17
+          echo "0.6.17 archive round-trip recovery verified; device untouched."
+
       - name: Upload OTA app image first
         shell: bash
         run: |
