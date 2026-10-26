@@ -90,7 +90,8 @@ export async function handleRevenueApi(request, env, ctx = null) {
     if (typeof env?.DB?.prepare !== 'function') return json({ ok: false, code: 'WORK_DRAFT_DB_REQUIRED' }, 503);
     const body = await request.json().catch(() => ({}));
     try {
-      return json(body?.all === true ? await installAllRevenueSources(env) : await installRevenueSource(env, body?.url));
+      const waitUntil = typeof ctx?.waitUntil === 'function' ? ctx.waitUntil.bind(ctx) : null;
+      return json(body?.all === true ? await installAllRevenueSources(env, { waitUntil }) : await installRevenueSource(env, body?.url, { waitUntil }));
     } catch (error) { return json({ ok: false, code: 'REVENUE_INSTALL_FAILED', detail: String(error?.code || error?.message || '').slice(0, 120) }, 503); }
   }
   if (url.pathname === '/api/revenue/watch') {

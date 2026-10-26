@@ -1,6 +1,12 @@
 // Public, read-only source independent of Taskmarket. Never submit or claim on GitHub.
 const API = 'https://api.github.com/search/issues';
-const QUERIES = Object.freeze(['is:issue is:open label:bounty', 'is:issue is:open "paid bounty"']);
+const QUERIES = Object.freeze([
+  'is:issue is:open label:bounty',
+  'is:issue is:open "paid bounty"',
+  'is:issue is:open label:algora',
+  'is:issue is:open "USDC" bounty',
+  'is:issue is:open label:"💰 Bounty"',
+]);
 const clean = s => String(s || '').replace(/[\x00-\x1f]/g, ' ').trim();
 export async function discoverGithubBounties({ fetchImpl = fetch, now = new Date(), perQuery = 10 } = {}) {
   const found = new Map();

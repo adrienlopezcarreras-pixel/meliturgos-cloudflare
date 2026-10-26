@@ -13,6 +13,7 @@ test('speculative token or gift-card offers are never installed', () => {
   assert.equal(isUnsafeRevenueSource({ title: '[STEAM VAULT] Exchange 100,000 DOOM ($wDOOM) for a $10 Steam Digital Gift Card!' }), true);
   assert.equal(isUnsafeRevenueSource({ title: 'Service de nettoyage et normalisation de fichiers CSV/JSON' }), false);
   assert.equal(isUnsafeRevenueSource({ title: '[BOUNTY $75] TEMPLATE: CLAUDE.md for a Next.js + SQLite SaaS project' }), false);
+  assert.equal(isUnsafeRevenueSource({ title: '[$35 BOUNTY] Add single-flight token refresh handling' }), false);
 });
 
 test('installing a source hands MAX one connector mission, once', async () => {
