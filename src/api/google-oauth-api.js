@@ -67,7 +67,10 @@ function withRequestPublicOrigin(env = {}, url) {
 }
 
 export async function maybeHandleGoogleOAuthApi(request, env = {}, url = new URL(request.url), options = {}) {
-  const match = url.pathname.match(/^\/api\/gen2\/oauth\/google\/([^/]+)\/(status|begin|callback|refresh|revoke)$/);
+  const named = url.pathname === '/api/gen2/oauth/google/gmail/begin'
+    ? [url.pathname, 'gmail', 'begin']
+    : null;
+  const match = named || url.pathname.match(/^\/api\/gen2\/oauth\/google\/([^/]+)\/(status|begin|callback|refresh|revoke)$/);
   if (!match) return null;
 
   const connectorId = decodeURIComponent(match[1]);

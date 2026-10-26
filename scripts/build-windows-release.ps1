@@ -98,6 +98,9 @@ foreach ($cleanupName in @("MEL-Grand-Nettoyage.ps1","MEL-Nettoyage-GitHub.ps1",
 
 $desktopSource = Join-Path $repoRoot "windows-companion\MEL-Companion.cs"
 if (-not (Test-Path -LiteralPath $desktopSource -PathType Leaf)) { throw "WINDOWS_DESKTOP_SOURCE_MISSING" }
+$portraitSource = Join-Path $repoRoot "windows-companion\MEL-portrait.png"
+if (-not (Test-Path -LiteralPath $portraitSource -PathType Leaf)) { throw "WINDOWS_PORTRAIT_MISSING" }
+Copy-Item -LiteralPath $portraitSource -Destination (Join-Path $stage "MEL-portrait.png")
 $companionSource = Join-Path $assetDir "MEL-Computer-Companion.ps1"
 $desktopText = [IO.File]::ReadAllText($desktopSource,[Text.Encoding]::UTF8)
 if ($desktopText -notmatch "__COMPANION_B64__") { throw "WINDOWS_DESKTOP_EMBED_PLACEHOLDER_MISSING" }

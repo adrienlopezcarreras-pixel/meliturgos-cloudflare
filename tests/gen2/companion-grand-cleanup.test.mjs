@@ -16,9 +16,10 @@ test('Companion ships the owner-run grand cleanup behind a button, simulation fi
   // Never run on install: InstallFiles only copies.
   const install = native.slice(native.indexOf('public static void InstallFiles('), native.indexOf('public static void ConfigureStartup('));
   assert.doesNotMatch(install, /Process\.Start\(.*Cleanup/);
-  // Destructive GitHub operations are unavailable until the full preflight exists.
+  // Destructive GitHub operations run only after the typed confirmation, and only
+  // for branches the dry-run already proved merged. The script never calls them earlier.
   assert.match(github, /param\(\[switch\]\$Apply\)/);
-  assert.doesNotMatch(orchestrator, /\$githubScript -Apply/);
+  assert.ok(orchestrator.indexOf('Read-Host') < orchestrator.indexOf('$githubScript -Apply'));
   assert.ok(orchestrator.indexOf('maintenance/inspect') < orchestrator.indexOf('MEL-Nettoyage-GitHub.ps1'));
   for (const prefix of ['archive/', 'release/', 'candidate/']) assert.ok(github.includes(`'${prefix}'`));
 });
@@ -55,8 +56,8 @@ test('GitHub cleanup fail closed unless dry-run confirms success and no errors',
   assert.match(src,/MEL_GITHUB_DRY_RUN_REPORTED_ERRORS/);
   assert.match(src,/MEL_GITHUB_DRY_RUN_COMPLETION_NOT_PROVEN/);
   assert.match(src,/TERMINE/);
-  assert.doesNotMatch(src,/-Apply/);
-  assert.doesNotMatch(src,/Read-Host/);
+  assert.ok(src.indexOf('SAUVEGARDE LOCALE : PROUVEE') < src.indexOf('Read-Host'));
+  assert.ok(src.indexOf('Read-Host') < src.indexOf('$githubScript -Apply'));
 });
 
 test('Companion reports actual global maintenance lease and isolated restore status', async () => {
@@ -65,7 +66,7 @@ test('Companion reports actual global maintenance lease and isolated restore sta
  assert.match(source,/EXPIRED_MAINTENANCE_REQUIRES_RECOVERY/);
  assert.match(source,/inventory\.backup\.restore_tested/);
  assert.match(source,/inventory\.reset_available/);
- assert.doesNotMatch(source,/\$githubScript -Apply/);
+ assert.ok(source.indexOf('Read-Host') < source.indexOf('$githubScript -Apply'));
 });
 
 test('read only Companion report never claims to have paused producers', async () => {

@@ -724,6 +724,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun beginPushToTalk() {
+        if (model.state.value.speaking) {
+            pushToTalkHeld = false
+            stopBargeInListening()
+            voiceMessage.value = "Je me tais."
+            model.interruptSpeechForBargeIn()
+            return
+        }
         pushToTalkHeld = true
         stopWakeWordListening()
         if (model.state.value.session != SessionStage.CONNECTED) {
@@ -2416,7 +2423,7 @@ private fun MiniHomePanel(
     val stateLabel = when (faceState) {
         MelFaceState.LISTENING -> "ÉCOUTE"
         MelFaceState.THINKING -> "RÉFLEXION"
-        MelFaceState.SPEAKING -> "MEL"
+        MelFaceState.SPEAKING -> "STOP"
         MelFaceState.ERROR -> "ERREUR"
         MelFaceState.IDLE -> "PARLER"
     }
@@ -2445,7 +2452,7 @@ private fun MiniHomePanel(
         ReferenceVoiceButton(
             label = if (recording) "ARRÊTER" else stateLabel,
             accent = accent,
-            enabled = !state.busy || recording,
+            enabled = (!state.busy || recording || faceState == MelFaceState.SPEAKING),
             onPress = onVoicePress,
             onRelease = onVoiceRelease,
             modifier = Modifier
@@ -2861,18 +2868,18 @@ private fun KeyboardPanel(
                             .weight(.28f)
                             .height(46.dp)
                             .testTag("micro-button")
-                            .pointerInput(state.busy, recording) {
+                            .pointerInput(state.busy, state.speaking, recording) {
                                 awaitEachGesture {
-                                    if (state.busy && !recording) return@awaitEachGesture
+                                    if (state.busy && !state.speaking && !recording) return@awaitEachGesture
                                     awaitFirstDown(requireUnconsumed = false)
                                     onVoicePress()
                                     waitForUpOrCancellation()
                                     onVoiceRelease()
                                 }
                             },
-                        enabled = !state.busy || recording,
+                        enabled = !state.busy || recording || state.speaking,
                         shape = RoundedCornerShape(14.dp)
-                    ) { Text(if (recording) "Relâche" else "Maintenir", fontSize = 11.sp) }
+                    ) { Text(if (state.speaking) "STOP" else if (recording) "Relâche" else "Maintenir", fontSize = 11.sp) }
                     Button(
                         onClick = onSend,
                         modifier = Modifier.weight(.44f).height(46.dp).testTag("send-button"),
@@ -3357,7 +3364,7 @@ private fun MelCoreVisual(faceState: MelFaceState, voiceLevel: Float) {
     val label = when (faceState) {
         MelFaceState.LISTENING -> "ÉCOUTE"
         MelFaceState.THINKING -> "RÉFLEXION"
-        MelFaceState.SPEAKING -> "MEL"
+        MelFaceState.SPEAKING -> "STOP"
         MelFaceState.ERROR -> "ERREUR"
         MelFaceState.IDLE -> "PARLER"
     }

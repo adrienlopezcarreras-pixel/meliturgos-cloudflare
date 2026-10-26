@@ -58,7 +58,7 @@ test('Waveshare terminal capability contract does not overclaim unimplemented ha
 });
 
 
-test('device TTS uses self-describing 16 kHz mono linear16 WAV for MINI playback', async () => {
+test('device TTS is converted to 48 kHz mono so the MINI can play it', async () => {
   let aiCall = null;
   const db = {
     prepare(sql) {
@@ -108,6 +108,10 @@ test('device TTS uses self-describing 16 kHz mono linear16 WAV for MINI playback
   const out = new Uint8Array(await r.arrayBuffer());
   assert.equal(new TextDecoder().decode(out.slice(0,4)),'RIFF');
   assert.equal(new TextDecoder().decode(out.slice(8,12)),'WAVE');
+  const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
+  assert.equal(view.getUint32(24, true), 48000);
+  assert.equal(view.getUint16(22, true), 1);
+  assert.equal(view.getUint16(34, true), 16);
   assert.equal(aiCall.model,'@cf/deepgram/aura-1');
   assert.deepEqual(aiCall.input,{
     text:'Bonjour MINI',

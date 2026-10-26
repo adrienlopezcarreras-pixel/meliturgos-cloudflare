@@ -689,7 +689,7 @@ static void mini_anim_cb(lv_timer_t *) {
     } else if (state == MEL_TERMINAL_THINKING) {
         if (state != last_face_state && status_label) lv_label_set_text(status_label, "REFLEXION");
     } else if (state == MEL_TERMINAL_SPEAKING) {
-        if (state != last_face_state && status_label) lv_label_set_text(status_label, "MEL PARLE");
+        if (state != last_face_state && status_label) lv_label_set_text(status_label, "STOP");
     } else if (state == MEL_TERMINAL_ERROR) {
         if (state != last_face_state && status_label) {
             const char *voice_error = mel_terminal_last_voice_error();
@@ -1952,6 +1952,13 @@ static void touch_cb(lv_event_t *e) {
     if (state == MEL_TERMINAL_LISTENING) {
         mel_terminal_request_voice();
         ESP_LOGI(TAG, "PARLER second click -> stop and transcribe");
+        return;
+    }
+
+    if (state == MEL_TERMINAL_SPEAKING) {
+        mel_terminal_stop_voice_output();
+        lv_label_set_text(status_label, "VOIX STOP");
+        ESP_LOGI(TAG, "PARLER during speech -> stop");
         return;
     }
 

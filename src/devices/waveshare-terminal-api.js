@@ -5,6 +5,8 @@ import { handleVoiceTranscription } from "../api/voice-transcribe.js";
 
 import { inferComputerAgentGoal } from "./computer-agent-intent.js";
 import {readLinkedAndroidActivity} from "./mini-linked-android-phase.js";
+import { toMiniWav } from "./mini-wav.js";
+import { runLocalPcMedia } from "../models/local-pc-media.js";
 
 export const WAVESHARE_TERMINAL_MODEL = "waveshare-esp32-s3-touch-lcd-3.5-c";
 export const WAVESHARE_TERMINAL_API = "/api/device/v1";
@@ -508,53 +510,53 @@ async function deviceVoice(request, env, auth) {
 }
 
 
+function miniWavResponse(bytes) {
+  return new Response(bytes, {
+    status: 200,
+    headers: {
+      "content-type": "audio/wav",
+      "cache-control": "no-store",
+      "x-mel-audio-format": "wav-pcm-s16le",
+      "x-mel-audio-rate": "48000",
+      "x-mel-audio-channels": "1",
+    },
+  });
+}
+
+async function cloudMiniWav(env, text, speaker) {
+  const model = String(env.MEL_TTS_MODEL || "@cf/deepgram/aura-1");
+  const result = await env.AI.run(model, {
+    text,
+    speaker,
+    encoding: "linear16",
+    container: "wav",
+    sample_rate: 48000,
+  }, { returnRawResponse: true });
+  if (result instanceof Response) {
+    if (!result.ok) return null;
+    return toMiniWav(new Uint8Array(await result.arrayBuffer()));
+  }
+  const body = result?.body;
+  if (!body) return null;
+  const bytes = body instanceof Uint8Array ? body : new Uint8Array(await new Response(body).arrayBuffer());
+  return toMiniWav(bytes);
+}
+
 async function deviceTts(request, env, auth) {
   const body = await request.json().catch(() => ({}));
-  const text = String(body.text || "").trim().slice(0, 1200);
+  const text = String(body.text || "").trim().slice(0, 400);
   if (!text) return json({ ok: false, code: "TEXT_REQUIRED" }, 400);
-  if (!env?.AI || typeof env.AI.run !== "function") {
-    return json({ ok: false, code: "TTS_UNAVAILABLE", reason: "AI_BINDING_MISSING" }, 503);
-  }
-
   const speaker = String(body.speaker || "luna").trim().slice(0, 32) || "luna";
-  const model = String(env.MEL_TTS_MODEL || "@cf/deepgram/aura-1");
-
-  try {
-    const result = await env.AI.run(model, {
-      text,
-      speaker,
-      encoding: "linear16",
-      container: "wav",
-      sample_rate: 48000
-    }, { returnRawResponse: true });
-
-    if (result instanceof Response) {
-      const headers = new Headers(result.headers);
-      headers.set("content-type", "audio/wav");
-      headers.set("cache-control", "no-store");
-      headers.set("x-mel-audio-format", "wav-pcm-s16le");
-      headers.set("x-mel-audio-rate", "48000");
-      headers.set("x-mel-audio-channels", "1");
-      return new Response(result.body, { status: result.status, headers });
-    }
-
-    if (result?.body) {
-      return new Response(result.body, {
-        status: 200,
-        headers: {
-          "content-type": "audio/wav",
-          "cache-control": "no-store",
-          "x-mel-audio-format": "wav-pcm-s16le",
-          "x-mel-audio-rate": "48000",
-          "x-mel-audio-channels": "1"
-        }
-      });
-    }
-
-    return json({ ok: false, code: "TTS_EMPTY_RESPONSE" }, 503);
-  } catch (error) {
-    return json({ ok: false, code: "TTS_FAILED", detail: String(error?.message || error).slice(0, 180) }, 503);
+  let wav = null;
+  if (env?.AI && typeof env.AI.run === "function") {
+    try { wav = await cloudMiniWav(env, text, speaker); } catch { wav = null; }
   }
+  if (!wav) {
+    const local = await runLocalPcMedia({ env, kind: "speech", text }).catch(() => null);
+    wav = local?.ok ? toMiniWav(local.bytes) : null;
+  }
+  if (!wav) return json({ ok: false, code: "TTS_UNAVAILABLE", reason: "NO_CLOUD_AND_NO_PC" }, 503);
+  return miniWavResponse(wav);
 }
 
 async function linkAndroidMini(env, androidDeviceId, miniDeviceId) {
