@@ -217,13 +217,28 @@ static class MelApp
         return bmp;
     }
 
+    public static Image LoadPortrait(int size)
+    {
+        try
+        {
+            var path = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath) ?? "", "MEL-portrait.png");
+            if (File.Exists(path))
+            {
+                using (var raw = Image.FromFile(path))
+                    return new Bitmap(raw);
+            }
+        }
+        catch { }
+        return MakeMelTechnoFace(Math.Max(32, size));
+    }
+
     public static PictureBox MelFace(int x, int y, int size)
     {
         var box = new PictureBox();
         box.SetBounds(x, y, size, size);
         box.BackColor = Color.Transparent;
         box.SizeMode = PictureBoxSizeMode.Zoom;
-        box.Image = MakeMelTechnoFace(size);
+        box.Image = LoadPortrait(size);
         box.TabStop = false;
         return box;
     }

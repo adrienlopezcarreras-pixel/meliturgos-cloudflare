@@ -8,7 +8,8 @@ test('GEN2-59 build uses canonical Windows assets and exact source SHA', async (
   const build = await read('scripts/build-windows-release.ps1');
   assert.match(build, /assets/);
   assert.match(build, /MEL-Computer-Setup\.ps1/);
-  assert.match(build, /MEL-Computer-Companion\.ps1/);
+  assert.match(build, /MEL-portrait\.png/);
+  assert.match(build, /WINDOWS_PORTRAIT_MISSING/);
   assert.match(build, /WINDOWS_RELEASE_SHA_INVALID/);
   assert.match(build, /release-manifest\.json/);
   assert.match(build, /Get-FileHash -Algorithm SHA256/);
