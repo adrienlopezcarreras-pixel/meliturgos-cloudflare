@@ -377,6 +377,8 @@ async function queueDiscoveryCandidate(env, candidate, {
   };
 }
 
+const FRESH_OWNER_QUEUED_MS = 24 * 60 * 60 * 1000;
+
 export async function proveEcosystemTeacherHandoff(
   env,
   {
@@ -415,15 +417,20 @@ export async function proveEcosystemTeacherHandoff(
     .map(item => ({
       fingerprint: item?.fingerprint || null,
       handoff: item?.handoff || null,
+      decided_at: Number(item?.owner_decision?.decided_at || 0),
     }))
     .filter(item => item.handoff && item.handoff.closed !== true);
 
   // A retryable FAILED handoff is deliberately released by handoffOwnsDiscovery()
   // so the next watch can retry/rebuild it. Keep it observable, but do not let
   // stale retryable failures block a release proof forever.
+  // A Council that got no AI answers failed for lack of budget or provider,
+  // not because of the handoff: transient, retried by the next watch (26/10:
+  // seven approvals failed this way while the neuron cap was exhausted).
+  const transientCouncil = item => /COUNCIL_INSUFFICIENT_RESPONSES/.test(String(item.handoff.code || ''));
   const releasedRetryableFailures = rawOpen.filter(item =>
     String(item.handoff.status || '').toUpperCase() === 'FAILED'
-      && item.handoff.retryable === true
+      && (item.handoff.retryable === true || transientCouncil(item))
   );
   // A Teacher request explicitly invalidated because its candidate SHA became
   // stale is no longer an active Teacher proof. If the canonical dev job has
@@ -440,10 +447,21 @@ export async function proveEcosystemTeacherHandoff(
   const releasedCancelled = rawOpen.filter(item =>
     String(item.handoff.status || '').toUpperCase() === 'CANCELLED'
   );
+  // Fresh owner approvals still QUEUED are backlog, not a broken handoff:
+  // 26/10 the owner's "Tout approuver" queued 5 jobs while MAX was paused by
+  // the budget, and the release carrying the budget fix was refused for it.
+  // Untouched for over a day, a QUEUED approval blocks again (stuck chain).
+  const releasedFreshOwnerQueued = rawOpen.filter(item =>
+    String(item.handoff.status || '').toUpperCase() === 'QUEUED'
+      && !String(item.handoff.teacher_request_id || '').trim()
+      && item.decided_at > 0
+      && now - item.decided_at < FRESH_OWNER_QUEUED_MS
+  );
   const releasedNonBlocking = new Set([
     ...releasedRetryableFailures,
     ...releasedStaleTeacherRequeues,
     ...releasedCancelled,
+    ...releasedFreshOwnerQueued,
   ]);
   const open = rawOpen.filter(item => !releasedNonBlocking.has(item));
 
@@ -494,6 +512,7 @@ export async function proveEcosystemTeacherHandoff(
       code: item.handoff.code || null,
     })),
     released_cancelled_count: releasedCancelled.length,
+    released_fresh_owner_queued_count: releasedFreshOwnerQueued.length,
     released_stale_teacher_requeue_count: releasedStaleTeacherRequeues.length,
     released_stale_teacher_requeues: releasedStaleTeacherRequeues.slice(0, 20).map(item => ({
       fingerprint: item.fingerprint,

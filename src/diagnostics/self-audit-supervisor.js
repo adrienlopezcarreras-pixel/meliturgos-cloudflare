@@ -1,3 +1,8 @@
+import { runSurvivalMode } from '../legacy/survival-mode.js';
+import { setOwnerMaxAutonomy } from '../evolution/autonomy-control.js';
+import { applyEcosystemProposalDecision, getEcosystemCapabilityWatchStatus } from '../evaluation/capability-watch-runtime.js';
+import { installAllRevenueSources } from '../revenue/revenue-watch.js';
+import { queueErrorRepairs, recordError } from './error-ledger.js';
 import { raiseOwnerRequestsForFailedJobs } from '../evolution/owner-requests.js';
 import { runD1Retention } from '../maintenance/d1-retention.js';
 import { runShardVaultCycle } from '../continuity/shardvault-runtime.js';
@@ -15,6 +20,7 @@ import { readPersistentCapabilityStress } from './persistent-capability-stress.j
 import { getAutonomyControl } from '../evolution/autonomy-control.js';
 import { auditDevelopment, probeCodeModels } from './development-audit.js';
 import { runDomainAudit } from './domain-audit.js';
+import { appendResolved, findingsForRepair, measureOutcomeRepairs, recordRepairs } from './outcome-loop.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { enqueueSupervisedDevelopmentRequest } from '../evolution/owner-development-queue.js';
 import { evaluateCouncilReleaseProof } from '../models/model-council-evidence.js';
@@ -602,6 +608,14 @@ export async function runMelSelfAuditSupervisor(env = {}, {
     });
   }
 
+  if (due.includes('HEARTBEAT')) {
+    // Golden rule: every recorded error becomes a MAX repair task.
+    results.push(await capture('error-ledger', async () => (deps.queueErrorRepairs || queueErrorRepairs)(env.DB, {
+      enqueue: options => (deps.enqueueDevelopment || enqueueSupervisedDevelopmentRequest)({ env, ...options }),
+      now: current,
+    })));
+  }
+
   if (due.includes('DAILY')) {
     results.push(await capture('capability-health-refresh', async () => {
       const rows = await bus.refreshHealthAll();
@@ -620,6 +634,13 @@ export async function runMelSelfAuditSupervisor(env = {}, {
     }));
     // A mission blocked on a connection becomes one request to the owner.
     results.push(await capture('owner-requests', async () => (deps.raiseOwnerRequestsForFailedJobs || raiseOwnerRequestsForFailedJobs)(env.DB, { now: current })));
+    // Survival mode: one year without the owner, MEL decides everything herself.
+    results.push(await capture('survival-mode', async () => (deps.runSurvivalMode || runSurvivalMode)(env, {
+      setMaxAutonomy: db => setOwnerMaxAutonomy(db, { enabled: true, paused: false, source: 'survival-mode', reason: 'owner-silent-one-year' }),
+      getWatchStatus: getEcosystemCapabilityWatchStatus,
+      approveProposal: (e, fingerprint) => applyEcosystemProposalDecision(e, { fingerprint, action: 'APPROVE', now: current }),
+      installRevenue: installAllRevenueSources,
+    }, { now: current })));
     results.push(await capture('ecosystem-watch', async () => (deps.runEcosystemCapabilityWatch || runEcosystemCapabilityWatch)(env, { force: true, sourceSha: clean(env.MEL_DEPLOYED_GIT_SHA, 80) || null })));
     results.push(await capture('dependency-longevity', async () => (deps.runDependencyLongevityWatchRuntime || runDependencyLongevityWatchRuntime)(env, { force: true, now: current })));
     results.push(await capture('sovereignty-watch', async () => (deps.runSovereigntyReplacementWatchRuntime || runSovereigntyReplacementWatchRuntime)(env, { force: true, now: current })));
@@ -678,16 +699,31 @@ export async function runMelSelfAuditSupervisor(env = {}, {
     }));
   }
 
+  // Golden rule registry: every failed background task (watch, LoRA, WORK,
+  // memory, backups…) is recorded; its repair stays the streak → Council path.
+  for (const row of results.filter(r => r.ok !== true && !['development-audit', 'domain-audit', 'error-ledger'].includes(r.name))) {
+    await recordError(env?.DB, { source: 'cron ' + row.name, code: clean(row.error || 'TASK_FAILED', 120), now: current, covered: true }).catch(() => null);
+  }
   const failureStreaks = updateFailureStreaks(state.failure_streaks, results);
   // A development finding is repaired the same week; its codes make the
   // fingerprint, so a new problem queues a new repair.
   const outcomeAudits = new Set(['development-audit', 'domain-audit']);
-  const developmentFindings = results
+  const currentFindings = results
     .filter(row => outcomeAudits.has(row.name) && row.ok !== true)
     .flatMap(row => (Array.isArray(row.value?.findings) ? row.value.findings : []));
+  // MEL-AUDIT-07: a repaired finding must be gone from a later audit; one
+  // still present after its grace week reopens the repair with that proof.
+  const outcomeLoop = measureOutcomeRepairs(state.outcome_repairs || {}, currentFindings, {
+    measured: results.some(row => outcomeAudits.has(row.name) && row.value),
+    now: current,
+  });
+  const developmentFindings = findingsForRepair(currentFindings, outcomeLoop);
+  const reopenTag = outcomeLoop.persisting.length
+    ? ':reopen-' + outcomeLoop.persisting.map(row => row.code + '#' + row.attempts).sort().join(',')
+    : '';
   const recurring = [
     ...recurringTaskFailures(failureStreaks, 2).filter(row => !outcomeAudits.has(row.name)),
-    ...(developmentFindings.length ? [{ name: 'outcome-audit:' + developmentFindings.map(row => row.code).sort().join(','), streak: 1, findings: developmentFindings }] : []),
+    ...(developmentFindings.length ? [{ name: 'outcome-audit:' + developmentFindings.map(row => row.code).sort().join(',') + reopenTag, streak: 1, findings: developmentFindings }] : []),
   ];
   const fingerprint = failureFingerprint({
     stressJobId: previousStress?.job_id || previousStress?.id || '',
@@ -699,6 +735,7 @@ export async function runMelSelfAuditSupervisor(env = {}, {
   let council = null;
   let repair = null;
   let repairFingerprints = Array.isArray(state.repair_fingerprints) ? [...state.repair_fingerprints] : [];
+  let outcomeRepairs = outcomeLoop.ledger;
   if (repairEnabled !== false && repairNeeded && fingerprint && !repairFingerprints.includes(fingerprint)) {
     council = await runCouncilRepairAnalysis(bus, context, {
       stress_job_id: previousStress?.job_id || previousStress?.id || null,
@@ -720,6 +757,7 @@ export async function runMelSelfAuditSupervisor(env = {}, {
     // A paused or unapproved handoff is not repaired. Preserve the fingerprint
     // for a future audit after release unpauses, rather than losing the retry.
     if (repair?.queued === true) {
+      outcomeRepairs = recordRepairs(outcomeRepairs, developmentFindings, { now: current });
       repairFingerprints.push(fingerprint);
       repairFingerprints = repairFingerprints.slice(-MAX_REPAIR_HISTORY);
     }
@@ -783,6 +821,11 @@ export async function runMelSelfAuditSupervisor(env = {}, {
       status: startedStress.status || null,
     } : null,
     recurring_failures: recurring,
+    outcome_loop: {
+      resolved: outcomeLoop.resolved,
+      reopened: outcomeLoop.persisting,
+      escalated: outcomeLoop.escalated,
+    },
     council,
     repair,
     sovereignty,
@@ -806,6 +849,8 @@ export async function runMelSelfAuditSupervisor(env = {}, {
     last_runs: lastRuns,
     failure_streaks: failureStreaks,
     repair_fingerprints: repairFingerprints,
+    outcome_repairs: outcomeRepairs,
+    resolved_findings: appendResolved(state.resolved_findings, outcomeLoop.resolved),
     capability_ledger: capabilityLedger,
     survival_ledger: survivalLedger,
     last_report: report,

@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       cases:
-        description: Comma-separated cases (short,plan,capabilities,big,huge)
+        description: Comma-separated cases (short,plan,photo,capabilities,big,huge)
         required: false
         default: short,plan,big,huge
         type: string

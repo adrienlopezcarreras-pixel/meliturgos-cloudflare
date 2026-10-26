@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import {getRoadmapPayload,flattenRoadmap,validateRoadmap,ROADMAP_REGISTRY_REVISION} from '../src/roadmap/master-roadmap.js';
 import {classifyRoadmapItem} from '../src/roadmap/roadmap-truth.js';
 
-test('the actual roadmap audit payload exposes all eight professional-chat acceptance goals as open',()=>{
+test('the actual roadmap audit payload exposes professional-chat, Council and LoRA acceptance goals as open',()=>{
  const payload=getRoadmapPayload(),phase=payload.phases.find(row=>row.id==='P19');
  assert.ok(phase);assert.equal(payload.source.revision,ROADMAP_REGISTRY_REVISION);
- assert.deepEqual(phase.items.map(row=>row.id),['MEL-CHAT-01','MEL-CHAT-02','MEL-CHAT-03','MEL-CHAT-04','MEL-CHAT-05','MEL-CHAT-06','MEL-CHAT-07','MEL-CHAT-08']);
+ assert.deepEqual(phase.items.map(row=>row.id),['MEL-CHAT-01','MEL-CHAT-02','MEL-CHAT-03','MEL-CHAT-04','MEL-CHAT-05','MEL-CHAT-06','MEL-CHAT-07','MEL-CHAT-08','MEL-COUNCIL-OPS-01','MEL-COUNCIL-OPS-02','MEL-LORA-CHAT-01','MEL-LORA-MODE-01']);
  assert.ok(phase.items.every(row=>['IN_PROGRESS','PLANNED'].includes(row.status)));
  assert.ok(phase.items.every(row=>/Council réel/.test(row.next)),'no synthetic or missing Council verdict closes the acceptance goals');
  assert.equal(validateRoadmap().ok,true);

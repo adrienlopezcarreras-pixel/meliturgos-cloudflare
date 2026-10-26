@@ -1,7 +1,7 @@
 import { listD1ValidatedDrafts } from '../revenue/taskmarket-worker-cycle.js';
 import { streamDirectWork } from '../revenue/work-stream.js';
 import { channelStatus, saveChannelCredential } from '../revenue/work-channels.js';
-import { readRevenueWatch } from '../revenue/revenue-watch.js';
+import { readRevenueWatch, installRevenueSource, installAllRevenueSources } from '../revenue/revenue-watch.js';
 import { listTaskmarketSubmissions } from '../revenue/taskmarket-autosubmit.js';
 import { requireAuth } from '../core/security.js';
 import { maybeHandleComputerApi } from '../devices/computer-companion-api.js';
@@ -42,7 +42,7 @@ export function normalizeRevenueTasks(payload, nowMs = Date.now()) {
 
 export async function handleRevenueApi(request, env, ctx = null) {
   const url = new URL(request.url);
-  if (url.pathname !== '/api/revenue/channels' && url.pathname !== '/api/revenue/submissions' && url.pathname !== '/api/revenue/watch' && url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts' && url.pathname !== '/api/revenue/direct-work' && url.pathname !== '/api/revenue/taskmarket' && url.pathname !== '/api/revenue/taskmarket/legal-accept') return null;
+  if (url.pathname !== '/api/revenue/channels' && url.pathname !== '/api/revenue/submissions' && url.pathname !== '/api/revenue/watch' && url.pathname !== '/api/revenue/watch/install' && url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts' && url.pathname !== '/api/revenue/direct-work' && url.pathname !== '/api/revenue/taskmarket' && url.pathname !== '/api/revenue/taskmarket/legal-accept') return null;
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
   if (url.pathname === '/api/revenue/channels') {
@@ -84,6 +84,15 @@ export async function handleRevenueApi(request, env, ctx = null) {
     const { acceptTaskmarketLegal } = await import('../revenue/taskmarket-cloud.js');
     try { return json({ ok: true, ...(await acceptTaskmarketLegal(env)) }); }
     catch (error) { return json({ ok: false, code: String(error?.message || 'LEGAL_ACCEPT_FAILED').slice(0, 120) }, error?.status || 502); }
+  }
+  if (url.pathname === '/api/revenue/watch/install') {
+    if (request.method !== 'POST') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
+    if (typeof env?.DB?.prepare !== 'function') return json({ ok: false, code: 'WORK_DRAFT_DB_REQUIRED' }, 503);
+    const body = await request.json().catch(() => ({}));
+    try {
+      const waitUntil = typeof ctx?.waitUntil === 'function' ? ctx.waitUntil.bind(ctx) : null;
+      return json(body?.all === true ? await installAllRevenueSources(env, { waitUntil }) : await installRevenueSource(env, body?.url, { waitUntil }));
+    } catch (error) { return json({ ok: false, code: 'REVENUE_INSTALL_FAILED', detail: String(error?.code || error?.message || '').slice(0, 120) }, 503); }
   }
   if (url.pathname === '/api/revenue/watch') {
     if (request.method !== 'GET') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);

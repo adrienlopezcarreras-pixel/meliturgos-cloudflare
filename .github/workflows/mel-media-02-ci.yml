@@ -22,6 +22,8 @@ on:
       - 'scripts/verify-public-media-provider.mjs'
       - 'tests/fixtures/media/**'
       - 'src/api/*media*.js'
+      - 'src/search/image-search.js'
+      - 'tests/image-subject-resolution.test.mjs'
       - 'src/pages/chat-rich-renderer.js'
       - 'src/visual-final-entry.js'
       - '.github/workflows/workers-ai-zero-cost-proof-refresh.yml'
@@ -44,6 +46,8 @@ on:
       - 'scripts/verify-public-media-provider.mjs'
       - 'tests/fixtures/media/**'
       - 'src/api/*media*.js'
+      - 'src/search/image-search.js'
+      - 'tests/image-subject-resolution.test.mjs'
       - 'src/pages/chat-rich-renderer.js'
       - 'src/visual-final-entry.js'
       - '.github/workflows/workers-ai-zero-cost-proof-refresh.yml'
@@ -94,6 +98,7 @@ jobs:
           tests/creative-media-capabilities.test.mjs
           tests/release-launch-bootstrap.test.mjs
           tests/chat-audio-video-execution.test.mjs
+          tests/image-subject-resolution.test.mjs
           tests/chat-media-chain.test.mjs
           tests/chat-media-request-object.test.mjs
           tests/chat-media-understanding.test.mjs

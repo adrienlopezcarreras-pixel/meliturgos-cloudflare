@@ -126,7 +126,14 @@ export async function outcomeSummary(db) {
   try {
     await ensureTable(db);
     const rows = (await db.prepare('SELECT outcome, COUNT(*) AS n FROM mel_work_outcomes GROUP BY outcome').all())?.results || [];
-    return Object.fromEntries(rows.map(r => [r.outcome, Number(r.n)]));
+    const counts = Object.fromEntries(rows.map(r => [r.outcome, Number(r.n)]));
+    const won = (await db.prepare("SELECT reward FROM mel_work_outcomes WHERE outcome='WON'").all())?.results || [];
+    let micros = 0n;
+    for (const row of won) {
+      const raw = String(row.reward || '').trim();
+      if (/^[0-9]+$/.test(raw)) micros += BigInt(raw);
+    }
+    return { ...counts, earned_usdc: Number(micros) / 1e6 };
   } catch { return {}; }
 }
 

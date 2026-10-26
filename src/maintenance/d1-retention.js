@@ -4,7 +4,8 @@
 //   error, but drop their heavy plan/patch/result JSON (Teacher histories
 //   reached 500 KB per job);
 // - audit_logs rows older than 30 days are deleted;
-// - finished computer commands older than 14 days drop their result payload.
+// - finished computer commands older than 14 days drop their result payload;
+// - expired web sessions are deleted (MEL-AUDIT-05: expired tokens kept).
 // COMPLETED/DONE_VERIFIED work, memories, conversations and media are never read
 // or written here.
 
@@ -27,6 +28,7 @@ export async function runD1Retention(db, { now = Date.now(), dryRun = false } = 
     jobs: await count(db, `SELECT count(*) n FROM dev_jobs WHERE ${jobsWhere}`, jobsBefore),
     audit_logs: await count(db, 'SELECT count(*) n FROM audit_logs WHERE timestamp < ?', auditBefore),
     computer_commands: await count(db, `SELECT count(*) n FROM computer_commands WHERE ${commandsWhere}`, commandsBefore),
+    web_sessions: await count(db, 'SELECT count(*) n FROM web_sessions WHERE expires_at < ?', now),
   };
   if (dryRun) return { ok: true, status: 'RETENTION_DRY_RUN', plan };
   const compacted = JSON.stringify({ compacted: true, compacted_at: new Date(now).toISOString(), reason: 'WEEKLY_D1_RETENTION' });
@@ -36,6 +38,7 @@ export async function runD1Retention(db, { now = Date.now(), dryRun = false } = 
   const audit = await db.prepare(`DELETE FROM audit_logs WHERE rowid IN (SELECT rowid FROM audit_logs WHERE timestamp < ? LIMIT ${BATCH * 10})`).bind(auditBefore).run();
   const commands = await db.prepare(`UPDATE computer_commands SET result_json = ?
     WHERE rowid IN (SELECT rowid FROM computer_commands WHERE ${commandsWhere} LIMIT ${BATCH})`).bind(compacted, commandsBefore).run();
+  const sessions = await db.prepare('DELETE FROM web_sessions WHERE expires_at < ?').bind(now).run();
   return {
     ok: true,
     status: 'RETENTION_APPLIED',
@@ -44,6 +47,7 @@ export async function runD1Retention(db, { now = Date.now(), dryRun = false } = 
       jobs: Number(jobs?.meta?.changes || 0),
       audit_logs: Number(audit?.meta?.changes || 0),
       computer_commands: Number(commands?.meta?.changes || 0),
+      web_sessions: Number(sessions?.meta?.changes || 0),
     },
   };
 }

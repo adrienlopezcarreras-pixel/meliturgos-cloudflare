@@ -1,3 +1,4 @@
+import { withCouncilOperationalCatalog } from '../council/operational-catalog.js';
 import { port } from '../core/contracts.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { ParallelScheduler } from '../augmentio/parallel-scheduler.js';
@@ -458,10 +459,12 @@ export async function runModelCouncil({
   timeoutMs = DEFAULT_TIMEOUT_MS,
   governor = new ZeroEuroGovernor(),
   benchmarks = {},
+  operationalCatalog = null,
   signal,
 } = {}) {
   assertCouncilNotCancelled(signal);
   const normalizedRequest = normalizedInput(request);
+  const modelRequest = withCouncilOperationalCatalog(normalizedRequest,operationalCatalog);
   let providerPool = pool;
   if (!providerPool) {
     try {
@@ -488,7 +491,7 @@ export async function runModelCouncil({
     const approvedAdapterId = clean(provider.id);
     const startedAt = Date.now();
     const response = await provider.invoke({
-      input: normalizedRequest,
+      input: modelRequest,
       context: {
         purpose: 'model-council-independent-critique',
         independence_policy: 'ONE_CRITIQUE_PER_UNIQUE_PROVIDER_MODEL',
@@ -562,7 +565,7 @@ export async function runModelCouncil({
   const synthesis = await synthesizeCouncil({
     critiques,
     eligibleByIdentity,
-    request: normalizedRequest,
+    request: modelRequest,
     failures,
     consensus,
     benchmarkComparison,
@@ -574,6 +577,7 @@ export async function runModelCouncil({
   assertCouncilNotCancelled(signal);
   return {
     schema: 'mel.model-council',
+    ...(operationalCatalog ? { operational_catalog:operationalCatalog } : {}),
     version: 1,
     status: critiques.length >= 2 ? 'COMPLETE' : 'DEGRADED_SINGLE_MODEL',
     capability,

@@ -2,6 +2,7 @@ import app from './preview-auth-entry.js';
 import { rejectCrossSiteMutation } from './core/security.js';
 import { withStoredZeroCostProofs, requestZeroCostProofRefresh } from './augmentio/zero-cost-proof-store.js';
 import { withNeuronBudget } from './augmentio/neuron-budget.js';
+import { errorCodeOf, recordError } from './diagnostics/error-ledger.js';
 
 // Crons run MAX, mentor and watches: they get the background share only.
 const BACKGROUND_AI_BUDGET = Object.freeze({ background: true });
@@ -113,7 +114,14 @@ export default {
     // Canonical pages now own their visuals directly. Keep the exported
     // finalizer as a compatibility/audit helper, but do not parse and rebuild
     // every HTML response in the deployed hot path.
-    return hardenResponseHeaders(await app.fetch(request, env, ctx));
+    const response = await app.fetch(request, env, ctx);
+    // Golden rule: every server error is recorded, then repaired by MAX.
+    if (response.status >= 500 && env?.DB) {
+      const source = request.method + ' ' + new URL(request.url).pathname;
+      const work = errorCodeOf(response).then(code => recordError(env.DB, { source, code })).catch(() => null);
+      if (ctx?.waitUntil) ctx.waitUntil(work);
+    }
+    return hardenResponseHeaders(response);
   },
   async scheduled(controller, env, ctx) {
     env = await withStoredZeroCostProofs(env);

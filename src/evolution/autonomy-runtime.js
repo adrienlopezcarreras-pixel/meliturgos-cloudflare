@@ -1,6 +1,6 @@
 import { runAutonomyRuntimeTick as runCoreAutonomyRuntimeTick, autonomyTickAdvanced, currentAutonomyRepository } from './autonomy-runtime-core.js';
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
-import { getAutonomyControl } from './autonomy-control.js';
+import { getAutonomyControl, setOwnerMaxAutonomy } from './autonomy-control.js';
 import { AutonomySupervisor, selectActionableAutonomyJob, setRuntimeRoadmapRegressions } from './autonomy-supervisor.js';
 import { activeRoadmapRegressions } from '../roadmap/roadmap-regressions.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
@@ -15,10 +15,32 @@ import { reconcileRuntimeCompletions } from '../teachers/github-completion-recon
 import { recordAutonomyProgressWatchdog, resetAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
 import { readActivityListEpoch } from './autonomy-activity.js';
 import { backgroundNeuronBudgetExhausted } from '../augmentio/neuron-budget.js';
+import { bindLocalPcWorkersAi, localPcModelReady } from '../models/local-pc-model.js';
+import { readSurvivalState, shouldResumeForSurvival } from '../legacy/survival-mode.js';
 
 export * from './autonomy-runtime-core.js';
 
 const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
+// One GPU cannot run an unlimited pile of models. Four developments in the
+// same minute is the most that still finishes before the next heartbeat.
+export const PC_DEVELOPMENTS_PER_TICK = 4;
+
+export async function advanceMoreOnPc({ env, ready = localPcModelReady, run, seed, alreadyRan = 1, limit = PC_DEVELOPMENTS_PER_TICK } = {}) {
+  const local = await ready(env).catch(() => null);
+  if (!local?.ok || typeof run !== 'function') return { result: seed, ran: alreadyRan, job_ids: [] };
+  let result = seed;
+  let ran = alreadyRan;
+  const job_ids = [];
+  while (ran < limit) {
+    if (result?.progress?.work_remaining !== true || result?.progress?.waiting_external === true) break;
+    const next = await run();
+    ran += 1;
+    job_ids.push(next?.progress?.job_id || null);
+    result = next;
+    if (next?.progress?.advanced !== true && next?.advanced !== true) break;
+  }
+  return { result, ran, job_ids, device_id: local.device_id || null };
+}
 const ACTIONABLE_FAILURE_STATES = new Set(['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE', 'TEACHER_APPROVED']);
 const ACTIVE_RUNTIME_STATES = new Set([
   'QUEUED',
@@ -503,8 +525,16 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
   }
 
   if (!ownerMaxSweep.applied.length) {
+    const more = await advanceMoreOnPc({
+      env,
+      seed: first,
+      run: async () => {
+        bindLocalPcWorkersAi(env, options.runLocalPcModel);
+        return preservePreEnsureCreation(await runCoreResilient(env, coreOptions, repository), preEnsure);
+      },
+    });
     return {
-      ...first,
+      ...more.result,
       control,
       pre_ensure: preEnsure,
       queue_hygiene: queueHygiene,
@@ -513,12 +543,22 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
       owner_chat_teacher_mirror: ownerChatTeacherMirror,
       owner_max_applied: false,
       owner_max_sweep: ownerMaxSweep,
+      jobs_this_tick: more.ran,
     };
   }
 
   const second = preservePreEnsureCreation(await runCoreResilient(env, coreOptions, repository), preEnsure);
+  const more = await advanceMoreOnPc({
+    env,
+    seed: second,
+    alreadyRan: 2,
+    run: async () => {
+      bindLocalPcWorkersAi(env, options.runLocalPcModel);
+      return preservePreEnsureCreation(await runCoreResilient(env, coreOptions, repository), preEnsure);
+    },
+  });
   return {
-    ...second,
+    ...more.result,
     control,
     pre_ensure: preEnsure,
     queue_hygiene: queueHygiene,
@@ -529,6 +569,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     owner_max_sweep: ownerMaxSweep,
     owner_max_bypassed_stage: 'WAITING_TEACHER',
     production_release_allowed: control.max_autonomy === true,
+    jobs_this_tick: more.ran,
   };
 }
 
@@ -647,8 +688,18 @@ function augmentTickProgress(tick = {}) {
 
 export async function runAutonomyRuntimeTick(env, options = {}) {
   setRuntimeRoadmapRegressions(await activeRoadmapRegressions(env?.DB).catch(() => []));
-  const control = await getAutonomyControl(env?.DB, { memoryState: options.autonomyControlState || null });
+  let control = await getAutonomyControl(env?.DB, { memoryState: options.autonomyControlState || null });
   const repository = options.repository || (env?.DB ? new D1DevJobRepository(env.DB) : null);
+  const survival = await readSurvivalState(env?.DB).catch(() => ({ active: false }));
+  if (shouldResumeForSurvival(control, survival) && env?.DB) {
+    control = await setOwnerMaxAutonomy(env.DB, {
+      enabled: true,
+      paused: false,
+      source: 'survival-mode',
+      reason: 'owner-silent-one-year',
+      memoryState: options.autonomyControlState || null,
+    });
+  }
 
   if (control.paused) {
     const watchdog = await resetAutonomyProgressWatchdog(env?.DB || null, { status: 'PAUSED' }).catch(() => null);
@@ -672,14 +723,18 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   // Daily Workers AI share spent: wait for 00:00 UTC instead of burning
   // attempts on refused AI calls (missions went FAILED, 25/10).
   if (options.ignoreNeuronBudget !== true && await backgroundNeuronBudgetExhausted(env)) {
-    return {
-      status: 'AI_BUDGET_EXHAUSTED',
-      paused: false,
-      advanced: false,
-      progress: { advanced: false, events: [], work_remaining: null, waiting_external: true, block_reason: 'AI_DAILY_NEURON_BUDGET_EXHAUSTED' },
-      candidate_branch: env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
-      control,
-    };
+    const local = await localPcModelReady(env);
+    if (!local?.ok) {
+      return {
+        status: 'AI_BUDGET_EXHAUSTED',
+        paused: false,
+        advanced: false,
+        progress: { advanced: false, events: [], work_remaining: null, waiting_external: true, block_reason: 'AI_DAILY_NEURON_BUDGET_EXHAUSTED' },
+        candidate_branch: env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
+        control,
+      };
+    }
+    bindLocalPcWorkersAi(env, options.runLocalPcModel);
   }
 
   const epochMs = await readActivityListEpoch(env?.DB, { strict: true });

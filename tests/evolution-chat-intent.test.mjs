@@ -123,3 +123,13 @@ test('explanations and plans do not become code work because their subject menti
  }
  assert.equal(isEvolutionDevelopmentIntent('Explique le problème puis corrige le module'),true);
 });
+
+test('a future project followed by a visibility question is not a development command',async()=>{
+ const {shouldSemanticIntentCheck}=await import('../src/evolution/semantic-intent.js');
+ for(const text of ["on doit commencer à développer la mini et l'apk pour pouvoir les utiliser, tu les vois ?",'Il faudra corriger ces fichiers, tu y as accès ?','On doit développer le module, tu les voi s ?']){
+  assert.equal(isEvolutionDevelopmentIntent(text),false,text);assert.equal(shouldSemanticIntentCheck(text),false,text);
+  const request=new Request('https://mel.test/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text})});
+  const result=await injectEvolutionPreflightCapability(request);assert.equal((await result.json()).capability,undefined,text);
+ }
+ for(const text of ['Peux-tu développer le module, tu les vois ?', 'Développe la MINI et l’APK, tu les vois ?','Tu les vois ? Ensuite corrige le module','Corrige le module puis vérifie son contenu'])assert.equal(isEvolutionDevelopmentIntent(text),true,text);
+});

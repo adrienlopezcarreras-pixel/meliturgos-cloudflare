@@ -71,3 +71,16 @@ test('chat budget diagnostic is a bounded read of estimated usage, never a mutat
  const unavailable=await readChatBudgetEvidence({DB:{prepare(){throw Error('PRIVATE_CONNECTION');}}});
  assert.equal(unavailable.available,false);assert.equal(JSON.stringify(unavailable).includes('PRIVATE_CONNECTION'),false);
 });
+
+test('photo self-test requires actual media metadata and distinguishes unavailable synthesis',async()=>{
+ const run=async (media,entity='Q146')=>(await(await runChatSelftest({request,env:{MELITURGOS_PASSWORD:'pw'},cases:['photo'],handleChat:async()=>Response.json({ok:true,text:'Voici une photo.',media,tool_results:[{capability:'web.images.search',status:'SUCCEEDED',result:{subject_resolution:{entity}}}],model:'deterministic-media-evidence',analysis_available:false})})).json());
+ const success=await run([{type:'image',url:'https://upload.wikimedia.org/fixture.jpg'}]);
+ assert.equal(success.ok,true);assert.equal(success.results[0].media_counts.image,1);assert.equal(success.results[0].analysis_available,false);
+ assert.equal((await run([{type:'image',url:'https://upload.wikimedia.org/bird.jpg'}],'Q999')).ok,false,'another subject is not success');
+ assert.equal((await run([])).ok,false,'text claiming a photo is not a retrieved image');
+});
+
+test('self-test reads the actual completion envelope used by tool responses',async()=>{
+ const response=await runChatSelftest({request,env:{MELITURGOS_PASSWORD:'pw'},cases:['photo'],handleChat:async()=>ndjson([{type:'done',result:{ok:true,text:'Voici la photo.',tool_results:[{capability:'web.images.search',status:'SUCCEEDED',result:{subject_resolution:{entity:'Q146'}}}],model:'evidence',archive_saved:true,media:[{type:'image',url:'https://upload.wikimedia.org/fixture.jpg'}],analysis_available:false}}])});
+ const result=(await response.json()).results[0];assert.equal(result.ok,true);assert.equal(result.model,'evidence');assert.equal(result.archived,true);assert.equal(result.media_counts.image,1);
+});

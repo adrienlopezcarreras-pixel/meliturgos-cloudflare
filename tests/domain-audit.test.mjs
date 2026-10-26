@@ -49,3 +49,16 @@ test('one failing watch source no longer voids the whole pass', async () => {
   const allDown = await runCapabilityWatch({ now: NOW, intervalMs: 6 * H, targets, evaluator: async () => { throw new Error('OFFLINE'); }, force: true });
   assert.equal(allDown.status, 'FAILED');
 });
+
+test('core audit (MEL-AUDIT-05) flags recurring errors, unconsolidated memory, expired sessions and stale backups', async () => {
+  const { auditCore } = await import('../src/diagnostics/domain-audit.js');
+  const codes = auditCore({
+    errors: [{ path: '/api/chat', status: 500, error: 'boom', n: 12 }, { path: '/api/x', status: 500, error: 'rare', n: 2 }],
+    memory: { pending: 3571, pending_old: 3303 },
+    sessions: { expired: 7 },
+    lastBackupAt: NOW - 4 * 24 * H,
+  }, { now: NOW }).map(f => f.code);
+  assert.deepEqual(codes, ['CORE_RECURRING_ERROR', 'MEMORY_UNCONSOLIDATED', 'SECURITY_EXPIRED_SESSIONS_KEPT', 'BACKUP_STALE']);
+  assert.deepEqual(auditCore({ memory: { pending_old: 5 }, sessions: { expired: 0 }, lastBackupAt: NOW - H }, { now: NOW }), []);
+  assert.deepEqual(auditCore({}, { now: NOW }), [], 'an unmeasured backup table is not a finding');
+});

@@ -3,6 +3,9 @@
 // (≈ $70 in October 2026). Every env.AI.run() goes through this meter: once the
 // day's estimated neurons reach the cap, calls are refused until 00:00 UTC,
 // when Cloudflare resets the free allocation. Unreadable budget = refused.
+// Text the owner's PC can answer is not metered. The PC does not replace MEL.
+
+import { pcCanHandle } from '../models/pc-neuron-policy.js';
 
 export const DEFAULT_DAILY_NEURON_CAP = 9000;
 // Background work (crons: MAX, mentor, watches) may only use this share of the
@@ -19,6 +22,12 @@ const TEXT_RATES = {
   '@cf/qwen/qwen2.5-coder-32b-instruct': [60000, 90909],
   '@cf/meta/llama-3.1-8b-instruct-fast': [4119, 34868],
   '@cf/meta/llama-3.1-8b-instruct-fp8': [4119, 34868],
+  // Official rates (developers.cloudflare.com/workers-ai/platform/pricing,
+  // 26/10). Missing them charged MEL's main chat model at the unknown-model
+  // ceiling, ~6x its price: the cap was reached after ~20 calls a day.
+  '@cf/zai-org/glm-4.7-flash': [5500, 36400],
+  '@cf/google/gemma-4-26b-a4b-it': [9091, 27273],
+  '@cf/nvidia/nemotron-3-120b-a12b': [45455, 136364],
 };
 const UNKNOWN_TEXT_RATE = [60000, 204805];
 // Per call, for models not priced per token (images, speech, embeddings).
@@ -55,6 +64,33 @@ async function ensureSchema(db) {
   return schemaReady.get(db);
 }
 
+// Owner-granted reserve (26/10: "deux jours de neurones, exceptionnellement",
+// to develop MEL). Used only once the daily cap is reached, consumed by the
+// estimated cost of each call, and gone at expiry. Beyond the free allocation
+// these neurons are billed: the grant itself is the owner's authorization.
+const bonusReady = new WeakMap();
+function ensureBonusSchema(db) {
+  if (!bonusReady.has(db)) {
+    bonusReady.set(db, db.prepare('CREATE TABLE IF NOT EXISTS mel_ai_neuron_bonus (id TEXT PRIMARY KEY, granted REAL NOT NULL, remaining REAL NOT NULL, expires_at INTEGER NOT NULL, reason TEXT)').run()
+      .catch(error => { bonusReady.delete(db); throw error; }));
+  }
+  return bonusReady.get(db);
+}
+
+export async function readNeuronBonus(db, { now = Date.now() } = {}) {
+  try {
+    await ensureBonusSchema(db);
+    const row = await db.prepare('SELECT id, remaining FROM mel_ai_neuron_bonus WHERE remaining > 0 AND expires_at > ? ORDER BY expires_at LIMIT 1').bind(now).first();
+    return row ? { id: row.id, remaining: Number(row.remaining) } : null;
+  } catch { return null; }
+}
+
+export async function grantNeuronBonus(db, { id, neurons, expiresAt, reason = '' }) {
+  await ensureBonusSchema(db);
+  await db.prepare('INSERT OR IGNORE INTO mel_ai_neuron_bonus (id, granted, remaining, expires_at, reason) VALUES (?, ?, ?, ?, ?)')
+    .bind(String(id), Number(neurons), Number(neurons), Number(expiresAt), String(reason).slice(0, 300)).run();
+}
+
 function budgetError(code, detail) {
   return Object.assign(new Error(`${code}${detail ? ':' + detail : ''}`), { code, status: 429 });
 }
@@ -77,17 +113,29 @@ export async function backgroundNeuronBudgetExhausted(env, { now = Date.now() } 
   } catch { return true; }
 }
 
-export function withNeuronBudget(env, { now = () => Date.now(), background = false } = {}) {
+async function answerOnPc(env, inputs) {
+  const { runLocalPcModel } = await import('../models/local-pc-model.js');
+  const local = await runLocalPcModel({ env, messages: inputs.messages });
+  if (!local?.ok || !String(local.text || '').trim()) return null;
+  return { response: local.text, model: local.model || 'pc:qwen3:8b', local: true, provider: 'local-pc' };
+}
+
+export function withNeuronBudget(env, { now = () => Date.now(), background = false, localRun = answerOnPc } = {}) {
   const ai = env?.AI;
   if (!ai || ai.__melNeuronBudget || !env?.DB) return env;
   const db = env.DB;
   const dayCap = Number(env.MEL_AI_DAILY_NEURON_CAP) > 0 ? Number(env.MEL_AI_DAILY_NEURON_CAP) : DEFAULT_DAILY_NEURON_CAP;
   const cap = background ? Math.floor(dayCap * BACKGROUND_NEURON_SHARE) : dayCap;
   const run = async (model, inputs, options) => {
+    if (pcCanHandle(model, inputs)) {
+      const local = await localRun(env, inputs).catch(() => null);
+      if (local?.response) return local;
+    }
     let budget;
     try { budget = await readNeuronBudget(db, { now: now(), cap }); }
     catch { throw budgetError('WORKERS_AI_NEURON_BUDGET_UNAVAILABLE'); }
-    if (budget.neurons >= cap) {
+    const bonus = budget.neurons >= cap ? await readNeuronBonus(db, { now: now() }) : null;
+    if (budget.neurons >= cap && !bonus) {
       await db.prepare('UPDATE mel_ai_neuron_budget SET refused = refused + 1 WHERE day = ?').bind(budget.day).run().catch(() => null);
       throw budgetError('WORKERS_AI_DAILY_NEURON_BUDGET_EXHAUSTED', `${Math.round(budget.neurons)}/${cap}`);
     }
@@ -95,6 +143,7 @@ export function withNeuronBudget(env, { now = () => Date.now(), background = fal
     try { output = await ai.run(model, inputs, options); }
     finally {
       const spent = estimateNeurons(model, inputs, output);
+      if (bonus) await db.prepare('UPDATE mel_ai_neuron_bonus SET remaining = max(0, remaining - ?) WHERE id = ?').bind(spent, bonus.id).run().catch(() => null);
       await db.prepare('INSERT INTO mel_ai_neuron_budget (day, neurons, calls) VALUES (?, ?, 1) ON CONFLICT(day) DO UPDATE SET neurons = neurons + excluded.neurons, calls = calls + 1')
         .bind(budget.day, spent).run().catch(() => null);
     }

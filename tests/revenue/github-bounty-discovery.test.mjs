@@ -16,5 +16,5 @@ test('finds funded public issues, excludes unpaid and PRs, deduplicates', async 
 test('reports source failures without manufacturing offers', async () => {
   const result = await discoverGithubBounties({ fetchImpl: async () => ({ok:false,status:403}) });
   assert.deepEqual(result.opportunities, []);
-  assert.equal(result.errors.length, 2);
+  assert.ok(result.errors.length >= 5);
 });
