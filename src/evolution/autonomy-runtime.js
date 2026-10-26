@@ -22,8 +22,8 @@ export * from './autonomy-runtime-core.js';
 
 const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
 // One 8 GB GPU keeps a single coder loaded. Two developments run at the same
-// time against that model. Four is the most one tick may start.
-export const PC_DEVELOPMENTS_PER_TICK = 4;
+// time against that model. Cap a PC tick at two total developments.
+export const PC_DEVELOPMENTS_PER_TICK = 2;
 export const PC_PARALLEL_DEVELOPMENTS = 2;
 
 export async function advanceMoreOnPc({ env, ready = localPcModelReady, run, seed, alreadyRan = 1, limit = PC_DEVELOPMENTS_PER_TICK, selectJobs = null, width = PC_PARALLEL_DEVELOPMENTS } = {}) {
