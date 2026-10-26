@@ -361,12 +361,14 @@ async function deviceChat(request,env,auth) {
   }
   const text = safe(body.text ?? body.message,100000);
   if (!text) return json({ok:false,code:"MESSAGE_REQUIRED"},400);
-  const conversation = await answerOwnedDeviceConversation(text, env);
+  const inputSource = body.input_source === "voice-server-transcription" ? "voice-server-transcription" : "text";
+  const uiMode = safe(body.ui_mode,20).toLowerCase() === "complete" ? "complete" : "normal";
+  const conversation = await answerOwnedDeviceConversation(text, env, {
+    voice: (body.voice_reply === true || inputSource !== "text") && inputSource === "voice-server-transcription",
+  });
   if (conversation) {
     return json({ ...conversation, conversation_id: conversationId }, conversation.ok ? 200 : (conversation.status || 503));
   }
-  const inputSource = body.input_source === "voice-server-transcription" ? "voice-server-transcription" : "text";
-  const uiMode = safe(body.ui_mode,20).toLowerCase() === "complete" ? "complete" : "normal";
   const internal = new Request(new URL("/api/chat",request.url),{
     method:"POST",
     headers:{"content-type":"application/json"},

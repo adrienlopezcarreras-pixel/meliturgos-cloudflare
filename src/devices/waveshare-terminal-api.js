@@ -459,7 +459,11 @@ function deviceNeedsVisibleMedia(text) {
 // Phone and MINI talk. They do not code. A photo, a sound, a video or a page
 // still goes through the normal chat so the screen receives a real display.
 // An explicit PC action stays on the computer agent.
-export async function answerOwnedDeviceConversation(text, env) {
+// Typed chat stays on the normal chat too: that path archives the turn,
+// keeps the conversation, and can search the web. The short voice path is
+// only the spoken reply that used to skip the full runtime.
+export async function answerOwnedDeviceConversation(text, env, { voice = false } = {}) {
+  if (!voice) return null;
   if (inferComputerAgentGoal(text) || deviceNeedsVisibleMedia(text)) return null;
   const answer = await runMiniDirectVoice(text, env);
   return { ...answer, response_mode: "device-conversation" };
@@ -473,7 +477,7 @@ async function deviceChat(request, env, auth) {
     ? "voice-server-transcription"
     : "text";
   const voiceReply = body.voice_reply === true || body.voice_mode === true;
-  const conversation = await answerOwnedDeviceConversation(text, env);
+  const conversation = await answerOwnedDeviceConversation(text, env, { voice: voiceReply && inputSource === "voice-server-transcription" });
   if (conversation) return json(conversation, conversation.ok ? 200 : (conversation.status || 503));
 
   const internal = new Request(new URL("/api/chat", request.url), {

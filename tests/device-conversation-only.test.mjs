@@ -13,14 +13,15 @@ test('the phone and MINI get a short conversational answer, never a coding model
       },
     },
   };
-  const answer = await answerOwnedDeviceConversation('bonjour', env);
+  const answer = await answerOwnedDeviceConversation('bonjour', env, { voice: true });
   assert.equal(answer.ok, true);
   assert.equal(answer.response_mode, 'device-conversation');
   assert.equal(answer.text, 'Je suis là.');
   assert.equal(calls[0].model, '@cf/zai-org/glm-4.7-flash');
   assert.equal(calls[0].tokens, 120);
-  assert.equal(await answerOwnedDeviceConversation('va sur wikipedia.org', env), null);
-  assert.equal(await answerOwnedDeviceConversation('montre une photo du pape', env), null);
+  assert.equal(await answerOwnedDeviceConversation('va sur wikipedia.org', env, { voice: true }), null);
+  assert.equal(await answerOwnedDeviceConversation('montre une photo du pape', env, { voice: true }), null);
+  assert.equal(await answerOwnedDeviceConversation('bonjour', env), null);
   assert.equal(calls.length, 1);
 });
 
