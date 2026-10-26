@@ -11,6 +11,7 @@ import { D1DevJobRepository, isPreparedDevBridgeJob } from '../dev/d1-dev-job-re
 import { D1EvolutionLedger } from './evolution-ledger.js';
 import { getAutonomyControl } from './autonomy-control.js';
 import { readAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
+import { readSurvivalState } from '../legacy/survival-mode.js';
 import { flattenRoadmap, isClosedRoadmapStatus } from '../roadmap/master-roadmap.js';
 import { selectNextAutonomyItem } from './autonomy-supervisor.js';
 
@@ -410,5 +411,6 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
       const result = obj(row.result);
       return { at: row.updated_at, state: row.state, status: result.status || row.state, mission: clip(result.mission?.title || result.mission_title || result.task_id, 140), submission: result.submission || null };
     }),
+    survival: await readSurvivalState(db, { now }).catch(() => ({ active: false, status: 'UNKNOWN' })),
   };
 }
