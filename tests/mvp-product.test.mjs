@@ -41,7 +41,10 @@ test('normal MEL surface remains available and loads the external canonical cont
   assert.match(response.headers.get('cache-control') || '', /no-store/);
   assert.match(html, /<title>MEL<\/title>/);
   assert.match(html, /id="melAvatar"/);
-  assert.match(html, /id="full"/);
+  assert.match(html, /id="interrupt"/);
+  assert.match(html, /id="uncensored"/);
+  assert.match(NORMAL_RUNTIME_SOURCE, /lora_mode:/);
+  assert.match(NORMAL_RUNTIME_SOURCE, /melSetAvatarState\('speaking','reply'\)/);
   assert.match(html, /<script src="\/normal-runtime\.js\?v=9" defer><\/script>/);
   assert.doesNotMatch(html, /id="mel-normal-v3-runtime"/);
   assert.match(html, /data-mel-theme-choice="classic"/);
