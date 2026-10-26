@@ -167,6 +167,9 @@ test('Model Council is registered in the production CapabilityBus and executes t
   assert.equal(new Set(result.critiques.map(row => row.identity)).size, 2);
   assert.equal(result.synthesis.status, 'COMPLETE');
   assert.equal(calls.length, 3);
+  assert.equal(result.operational_catalog.source, 'LIVE_CAPABILITY_BUS');
+  assert.equal(result.operational_catalog.lora.training_tool_registered, false);
+  assert.ok(calls.every(row=>JSON.stringify(row.payload.messages).includes('LIVE_CAPABILITY_BUS')));
 });
 
 test('CapabilityBus Model Council remains fail-closed in production-like runtime without explicit zero-euro provenance', async () => {

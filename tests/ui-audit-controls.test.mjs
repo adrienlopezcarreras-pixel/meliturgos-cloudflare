@@ -27,9 +27,9 @@ test('Android pairing inputs are named without depending on disappearing placeho
 test('the canonical audit phase and professional chat phase coexist without duplicate identity or false certification',()=>{
  const payload=getRoadmapPayload();assert.equal(validateRoadmap().ok,true);
  const audit=payload.phases.find(p=>p.id==='P18'),chat=payload.phases.find(p=>p.id==='P19');
- assert.equal(audit.items.length,7);assert.equal(chat.items.length,8);
+ assert.equal(audit.items.length,7);assert.equal(chat.items.length,12);
  assert.ok(audit.items.every(i=>i.id.startsWith('MEL-UI-AUDIT-')&&i.status!=='DONE_VERIFIED'));
- assert.ok(chat.items.every(i=>i.id.startsWith('MEL-CHAT-')&&i.status!=='DONE_VERIFIED'));
+ assert.ok(chat.items.every(i=>(/^(?:MEL-CHAT-|MEL-COUNCIL-OPS-|MEL-LORA-(?:CHAT|MODE)-)/.test(i.id))&&i.status!=='DONE_VERIFIED'));
 });
 
 test('the public guest composer has a stable accessible name',()=>{
