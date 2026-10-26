@@ -1775,12 +1775,12 @@ class MainForm : Form
         cards.Resize+=delegate{ResizeCards();};
 
         var footer=Stack(2);
-        footer.RowStyles.Add(Abs(54f));
+        footer.RowStyles.Add(Abs(96f));
         footer.RowStyles.Add(new RowStyle(SizeType.Percent,100f));
         shell.Controls.Add(footer,0,5);
         var maintenance=new FlowLayoutPanel {
             Dock=DockStyle.Fill,FlowDirection=FlowDirection.LeftToRight,
-            WrapContents=false,AutoScroll=true,BackColor=Color.Transparent,
+            WrapContents=true,AutoScroll=true,BackColor=Color.Transparent,
             Margin=new Padding(0),Padding=new Padding(0,3,0,0)
         };
         footer.Controls.Add(maintenance);
@@ -2151,7 +2151,7 @@ class MainForm : Form
             return;
         }
         if(MessageBox.Show(
-            "Lancer le grand nettoyage MEL ? Une simulation liste d'abord ce qui serait supprimé et sauvegarde les branches ; rien n'est supprimé sans votre confirmation O dans la fenêtre. Nécessite GitHub CLI (gh auth login).",
+            "Lancer le diagnostic de grand nettoyage ? Il sauvegarde d'abord, puis liste ce qui pourrait etre retire. Il ne supprime rien : ni GitHub, ni la memoire, ni MAX, ni les preuves. Le rapport dit exactement ce qui est bloque.",
             "Grand nettoyage MEL",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
         try
         {
