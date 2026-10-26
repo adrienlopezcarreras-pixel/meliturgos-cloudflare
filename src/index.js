@@ -786,10 +786,14 @@ export default {
                 return null;
               })]
             : []),
-          (pcOpen
-            ? drainOpenPcCapabilityStress(env)
-            : runPersistentCapabilityStressResumeTick(env, { waitUntil: auditWaitUntil })).catch((error) => {
+          // Always one bounded resume of an already-started stress job. When the
+          // Windows Companion heartbeat is fresh, the same minute also drains it.
+          runPersistentCapabilityStressResumeTick(env, { waitUntil: auditWaitUntil }).catch((error) => {
             console.error('[MEL stress] scheduled D1 continuation failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          (pcOpen ? drainOpenPcCapabilityStress(env) : Promise.resolve(null)).catch((error) => {
+            console.error('[MEL stress] open-PC drain failed:', error?.code || error?.message || error);
             return null;
           }),
           runAutonomyRuntimeTick(env)
