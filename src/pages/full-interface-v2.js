@@ -1838,6 +1838,9 @@ async function testConnection(provider,connector,button){
   try{
     await jfetch(connectionApi(provider,'test'),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({connector_id:connector})});
     const ui=connectionUiMap[connector];if(ui)setConnectionBadge(ui.state,'TEST RÉEL OK','good');
+    // The Gmail test reads the mailbox profile through the Gmail API: access is
+    // proven, message reading is not; the note must not contradict the badge.
+    if(connector==='gmail'){const note=qs('#connNoteGmail');if(note)note.textContent='Test réel réussi : la boîte Gmail répond à MEL (profil lu par l’API Gmail).'}
   }catch(e){
     const ui=connectionUiMap[connector];if(ui)setConnectionBadge(ui.state,'TEST ÉCHOUÉ','bad');
     const banner=qs('#connectionBanner');if(banner){banner.hidden=false;banner.className='connection-banner bad';banner.textContent='Test '+connector+' : '+e.message}
@@ -1982,6 +1985,10 @@ loadOwnerRequests();setInterval(loadOwnerRequests,60000);
 async function loadNeuronBudget(){const chip=qs('#neuronBudget'),add=qs('#neuronAddDay');if(!chip)return;try{const d=await jfetch('/api/mel/neuron-budget');window.__melBudget=d;const bonus=d.bonus_remaining?' + bonus '+d.bonus_remaining:'';if(d.paused){const ms=Date.parse(d.reset_at)-Date.now();const h=Math.max(0,Math.floor(ms/3600000)),m=Math.max(0,Math.floor(ms%3600000/60000));chip.textContent='Pause budget · reprise dans '+h+' h '+String(m).padStart(2,'0');chip.className='tag bad'}else{chip.textContent='Neurones : '+d.remaining+' / '+d.cap+bonus;chip.className=d.remaining<d.cap*0.2?'tag warn':'tag good'}if(add)add.hidden=!(d.paused||d.remaining<d.cap*0.2)}catch{chip.textContent='Neurones : —'}}
 const neuronAdd=qs('#neuronAddDay');if(neuronAdd)neuronAdd.onclick=async()=>{neuronAdd.disabled=true;try{await jfetch('/api/mel/neuron-budget',{method:'POST'});await loadNeuronBudget()}finally{neuronAdd.disabled=false}};
 loadNeuronBudget();setInterval(loadNeuronBudget,60000);
+// Golden rule: interface errors also become MAX repair tasks (deduplicated server-side; at most 5 reports per page load).
+(()=>{let sent=0;const report=(code,detail)=>{if(sent++>=5)return;fetch('/api/mel/client-error',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({page:location.pathname,code:String(code||'UI_ERROR').slice(0,120),detail:String(detail||'').slice(0,300)})}).catch(()=>{})};
+window.addEventListener('error',e=>report('UI_JS_ERROR',(e.message||'')+' @'+(e.filename||'').split('/').pop()+':'+(e.lineno||0)));
+window.addEventListener('unhandledrejection',e=>report('UI_UNHANDLED_REJECTION',e.reason?.message||e.reason));})();
 // Chat height has one source of truth: responsive CSS #chatlog.
 // No JavaScript inline sizing: it overrides CSS and breaks the user's resize.
 const initialView=new URLSearchParams(location.search).get('view');

@@ -5,6 +5,7 @@ import { createConversationService } from './conversations/conversation-service.
 import { buildActivitySnapshot } from './activity/activity-snapshot.js';
 import { answerOwnerRequest, listOwnerRequests } from './evolution/owner-requests.js';
 import { DEFAULT_DAILY_NEURON_CAP, grantNeuronBonus, readNeuronBonus, readNeuronBudget } from './augmentio/neuron-budget.js';
+import { recordError } from './diagnostics/error-ledger.js';
 import { getEcosystemCapabilityWatchStatus, runEcosystemCapabilityWatch, applyEcosystemProposalDecision } from './evaluation/capability-watch-runtime.js';
 
 function json(value, status = 200) {
@@ -180,6 +181,15 @@ async function neuronBudgetResponse(request, env) {
   } catch (error) {
     return json({ ok: false, code: 'NEURON_BUDGET_UNAVAILABLE' }, 503);
   }
+async function clientErrorResponse(request, env) {
+  const auth = requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+  let body = {};
+  try { body = await request.clone().json(); } catch {}
+  const code = String(body?.code || body?.message || '').slice(0, 120);
+  if (!code) return json({ ok: false, code: 'CLIENT_ERROR_CODE_REQUIRED' }, 400);
+  await recordError(env.DB, { source: 'UI ' + String(body?.page || '/').slice(0, 80), code, detail: String(body?.detail || '').slice(0, 300) }).catch(() => null);
+  return json({ ok: true });
 }
 
 async function latestConversationResponse(request, env) {
@@ -224,6 +234,7 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/mel/capability-watch/test-all') return capabilityWatchTestAllResponse(request, env, ctx);
     if (request.method === 'POST' && url.pathname === '/api/mel/capability-watch/proposal') return capabilityWatchProposalActionResponse(request, env);
     if (url.pathname === '/api/mel/neuron-budget' && (request.method === 'GET' || request.method === 'POST')) return neuronBudgetResponse(request, env);
+    if (request.method === 'POST' && url.pathname === '/api/mel/client-error') return clientErrorResponse(request, env);
     if (url.pathname === '/api/mel/owner-requests' && (request.method === 'GET' || request.method === 'POST')) return ownerRequestsResponse(request, env);
     if (request.method === 'GET' && url.pathname === '/api/mel/conversations/latest') return latestConversationResponse(request, env);
     const response = await app.fetch(request, env, ctx);
