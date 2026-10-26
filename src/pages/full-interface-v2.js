@@ -402,7 +402,7 @@ function melCodeActivityTime(value){
   const n=Number(value);return Number.isFinite(n)&&n>0?new Date(n).toLocaleTimeString('fr-FR'):String(value||'');
 }
 async function melCodeRefreshActivity(){
-  if(melCodeActivityPolling||melChatRole!=='code'||document.hidden||qs('#melCodeLivePanel')?.hidden)return;
+  if(melCodeActivityPolling||melChatRole!=='code'||document.hidden||qs('#melCodeLivePanel')?.hidden||qs('#melCodeLivePanel')?.classList.contains('is-collapsed'))return;
   melCodeActivityPolling=true;
   try{
     const data=await jfetch('/api/gen2/autonomy/activity');
@@ -540,7 +540,7 @@ function melCodeSetupWindow(){
     // Full mode forbids DOM observers (tests/ui-release-fix): follow growth instead,
     // so a reader who scrolled up is not pulled down while nothing changes.
     let lastHeight=0;
-    setInterval(()=>{if(panel.scrollHeight!==lastHeight){lastHeight=panel.scrollHeight;scrollToLatest()}},800);
+    setInterval(()=>{if(document.hidden||panel.hidden||panel.classList.contains('is-collapsed'))return;if(panel.scrollHeight!==lastHeight){lastHeight=panel.scrollHeight;scrollToLatest()}},800);
     scrollToLatest();
   }
   if(melCodeActivityTimer===null){melCodeRefreshActivity();melCodeActivityTimer=setInterval(melCodeRefreshActivity,5000)}
@@ -549,7 +549,7 @@ function melCodeSetupWindow(){
     panel.classList.toggle('is-collapsed',collapsed);
     const open=!collapsed;
     const btn=qs('#melCodeLiveCollapse');btn.textContent=open?'Réduire':'Afficher';btn.setAttribute('aria-expanded',String(open));
-    if(open)requestAnimationFrame(()=>{panel.scrollTop=panel.scrollHeight;});
+    if(open){requestAnimationFrame(()=>{panel.scrollTop=panel.scrollHeight;});melCodeRefreshActivity()}
   };
   // Start compact on each page load; expand only upon explicit user action.
   applyCollapsed(true)
@@ -943,7 +943,10 @@ function renderAutonomy(state){
   const act=qs('#melFullActivity');if(act)act.title='Tout ce que MEL fait : travaux, étapes, journal, pont cloud, MEL WORK.';const watch=document.querySelector('.canonical-watch-link');if(watch)watch.title='Ce que la veille a trouvé et ce qu’elle propose de développer.';
   const mobilePause=qs('#mobilePauseAutonomy');if(mobilePause){mobilePause.textContent=releasePause?'Pause de mise en prod…':autonomyControl.paused===true?'Reprendre MEL':'Mettre MEL en pause';mobilePause.disabled=releasePause}
 }
+let autonomyRefreshFlight=null;
 async function loadAutonomy(){
+  if(autonomyRefreshFlight)return autonomyRefreshFlight;
+  autonomyRefreshFlight=(async()=>{
   try{
     const d=await jfetch('/api/gen2/autonomy/state');
     renderAutonomy(d);
@@ -962,7 +965,9 @@ async function loadAutonomy(){
   }catch(e){
     try{const d=await jfetch('/api/gen2/autonomy/control');renderAutonomy(d);return d}
     catch{qs('#autonomyNote').textContent='État autonomie indisponible : '+e.message;return null}
-  }
+  }finally{autonomyRefreshFlight=null}
+  })();
+  return autonomyRefreshFlight;
 }
 async function autonomyAction(button,url,body,label,feedback=qs('#mobileAutonomyFeedback')){
   if(!button)return null;
