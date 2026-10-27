@@ -97,6 +97,16 @@ test('a spent Workers AI neuron budget is reported immediately without trying ot
   assert.equal(calls[0].input.neuron_reserve, true, 'must bypass long PC fallback via budget wrapper');
 });
 
+test('Cloudflare free allocation error 3036 inside message is not retried', async () => {
+  let calls = 0;
+  const response = await answerOwnedDeviceConversation('Raconte une blague', {
+    AI: {run: async () => {calls++; throw new Error('Workers AI error 3036: you have used up your daily free allocation');}},
+  }, {voice:true});
+  assert.equal(response.code,'MINI_VOICE_DAILY_BUDGET_EXHAUSTED');
+  assert.equal(response.status,429);
+  assert.equal(calls,1);
+});
+
 test('budget D1 outage is reported rather than hidden as a provider model failure', async () => {
   let calls = 0;
   const result = await answerOwnedDeviceConversation('Bonjour tout le monde', {
