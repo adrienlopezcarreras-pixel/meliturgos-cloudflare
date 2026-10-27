@@ -306,6 +306,14 @@ export class AutonomySupervisor {
       if (!roadmapId) continue;
       failedAttemptsByRoadmap.set(roadmapId, (failedAttemptsByRoadmap.get(roadmapId) || 0) + 1);
     }
+    // The recent UI window omits old terminal failures. Use the complete D1
+    // counts for quarantine without duplicating failures present in this list.
+    if (typeof this.repository.failedAutonomyObjectiveCounts === 'function') {
+      const persisted = await this.repository.failedAutonomyObjectiveCounts();
+      for (const [id, count] of Object.entries(persisted || {})) {
+        failedAttemptsByRoadmap.set(id, Math.max(failedAttemptsByRoadmap.get(id) || 0, Number(count) || 0));
+      }
+    }
     const retryExhaustedIds = [...failedAttemptsByRoadmap.entries()]
       .filter(([, attempts]) => attempts >= MAX_AUTONOMOUS_ROADMAP_ATTEMPTS)
       .map(([roadmapId]) => roadmapId);
