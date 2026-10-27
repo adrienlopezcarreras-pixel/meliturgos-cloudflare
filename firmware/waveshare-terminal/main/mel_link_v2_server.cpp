@@ -25,6 +25,8 @@ extern "C" void ble_store_config_init(void);
 #include "services/gatt/ble_svc_gatt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
 
 static const char *TAG = "MEL_LINK_V2";
 
@@ -52,6 +54,33 @@ static void *g_state_ctx = nullptr;
 static SemaphoreHandle_t g_tx_mutex = nullptr;
 static SemaphoreHandle_t g_tx_done = nullptr;
 static std::atomic<bool> g_tx_failed{false};
+
+// Keep decoding, JSON parsing and PCM writes off nimble_host.
+// The bounded queue preserves frame order without blocking a GATT callback.
+struct LinkRxFrame {
+    uint32_t generation;
+    uint16_t length;
+    uint8_t data[512];
+};
+static QueueHandle_t g_rx_queue = nullptr;
+static TaskHandle_t g_rx_task = nullptr;
+static std::atomic<uint32_t> g_link_generation{0};
+static std::atomic<uint32_t> g_rx_dropped{0};
+static constexpr UBaseType_t RX_QUEUE_DEPTH = 12;
+
+static void link_rx_worker(void *) {
+    LinkRxFrame frame = {};
+    for (;;) {
+        if (xQueueReceive(g_rx_queue, &frame, portMAX_DELAY) != pdTRUE) continue;
+        // Reject packets left over from previous encrypted BLE connections.
+        if (frame.generation != g_link_generation.load()) continue;
+        if (g_rx_cb) g_rx_cb(frame.data, frame.length, g_rx_ctx);
+        const UBaseType_t free_bytes = uxTaskGetStackHighWaterMark(nullptr);
+        if (free_bytes < 1024) {
+            ESP_LOGW(TAG, "LINK RX STACK LOW: remaining_bytes=%u", (unsigned)free_bytes);
+        }
+    }
+}
 
 static int gap_event(struct ble_gap_event *event, void *arg);
 static void start_advertising();
@@ -84,21 +113,28 @@ static int access_cb(
         return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
     }
 
-    uint8_t frame[512];
-    if (os_mbuf_copydata(ctxt->om, 0, len, frame) != 0) {
+    if (!g_rx_queue) return BLE_ATT_ERR_UNLIKELY;
+    LinkRxFrame frame = {};
+    frame.generation = g_link_generation.load();
+    frame.length = len;
+    if (os_mbuf_copydata(ctxt->om, 0, len, frame.data) != 0) {
         return BLE_ATT_ERR_UNLIKELY;
     }
-    if (!frame_header_valid(frame, len)) {
+    if (!frame_header_valid(frame.data, len)) {
         ESP_LOGW(TAG, "Rejected malformed V2 frame len=%u", (unsigned)len);
         return BLE_ATT_ERR_UNLIKELY;
     }
-
-    if (g_rx_cb) g_rx_cb(frame, len, g_rx_ctx);
-    // A real device reported nimble_host stack overflow during Link V2 traffic.
-    // Monitor headroom after callbacks without logging on every BLE packet.
-    const UBaseType_t free_stack_words = uxTaskGetStackHighWaterMark(nullptr);
-    if (free_stack_words < 512) {
-        ESP_LOGW(TAG, "NIMBLE HOST LOW STACK: high_water_words=%u", (unsigned)free_stack_words);
+    // A full queue returns an error; never ACK traffic we cannot process.
+    if (xQueueSend(g_rx_queue, &frame, 0) != pdTRUE) {
+        const uint32_t count = g_rx_dropped.fetch_add(1) + 1;
+        if (count == 1 || (count % 64) == 0) {
+            ESP_LOGE(TAG, "LINK RX QUEUE FULL: dropped=%lu", (unsigned long)count);
+        }
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    const UBaseType_t free_bytes = uxTaskGetStackHighWaterMark(nullptr);
+    if (free_bytes < 1024) {
+        ESP_LOGW(TAG, "NIMBLE HOST STACK LOW: remaining_bytes=%u", (unsigned)free_bytes);
     }
     return 0;
 }
@@ -167,6 +203,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         case BLE_GAP_EVENT_CONNECT:
             if (event->connect.status == 0) {
                 g_conn = event->connect.conn_handle;
+                g_link_generation.fetch_add(1);
                 g_ready.store(false);
                 g_link_encrypted.store(false);
                 g_pairing_passkey_visible.store(false);
@@ -191,6 +228,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         case BLE_GAP_EVENT_DISCONNECT: {
             ESP_LOGW(TAG, "Android disconnected reason=%d", event->disconnect.reason);
             g_conn = BLE_HS_CONN_HANDLE_NONE;
+            g_link_generation.fetch_add(1);
             g_mtu = 23;
             g_link_encrypted.store(false);
             g_pairing_passkey_visible.store(false);
@@ -308,6 +346,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
 static void on_reset(int reason) {
     ESP_LOGW(TAG, "NimBLE reset reason=%d", reason);
     g_conn = BLE_HS_CONN_HANDLE_NONE;
+    g_link_generation.fetch_add(1);
     g_mtu = 23;
     g_event_subscribed = false;
     g_link_encrypted.store(false);
@@ -342,6 +381,14 @@ esp_err_t mel_link_v2_server_start(void) {
     g_tx_mutex = xSemaphoreCreateMutex();
     g_tx_done = xSemaphoreCreateBinary();
     if (!g_tx_mutex || !g_tx_done) {
+        g_started.store(false);
+        return ESP_ERR_NO_MEM;
+    }
+
+    g_rx_queue = xQueueCreate(RX_QUEUE_DEPTH, sizeof(LinkRxFrame));
+    if (!g_rx_queue || xTaskCreate(link_rx_worker, "mel_link_rx", 8192, nullptr, 5, &g_rx_task) != pdPASS) {
+        if (g_rx_queue) vQueueDelete(g_rx_queue);
+        g_rx_queue = nullptr;
         g_started.store(false);
         return ESP_ERR_NO_MEM;
     }
