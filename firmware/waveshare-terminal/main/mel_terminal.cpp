@@ -142,6 +142,10 @@ static volatile bool g_voice_job_active = false;
 static volatile bool g_voice_stop_requested = false;
 static volatile bool g_tts_stop_requested = false;
 
+// Keep headroom on the compact ES8311/small-speaker path. Playback at 100%
+// can overdrive the output stage, even with correctly decoded PCM16.
+static constexpr float MEL_TTS_SPEAKER_VOLUME = 75.0f;
+
 static bool speaker_output_enable(float volume) {
     if (!output_dev) return false;
     // Reassert DAC unmute before every playback. The ES8311 can keep its mute
@@ -1011,7 +1015,7 @@ static bool speak_text(const std::string &text) {
         ctx.started_us = esp_timer_get_time();
         int status = 0;
         const bool audioTaskReady = mobile_tts_start(&ctx);
-        const bool speakerReady = audioTaskReady && speaker_output_enable(100.0);
+        const bool speakerReady = audioTaskReady && speaker_output_enable(MEL_TTS_SPEAKER_VOLUME);
         esp_err_t err = (speakerReady)
             ? mel_link_v2_transport_request_stream(
                 HTTP_METHOD_POST,
@@ -1075,7 +1079,7 @@ static bool speak_text(const std::string &text) {
         ctx.started_us = esp_timer_get_time();
         int status = 0;
         const bool audioTaskReady = mobile_tts_start(&ctx);
-        const bool speakerReady = audioTaskReady && speaker_output_enable(100.0);
+        const bool speakerReady = audioTaskReady && speaker_output_enable(MEL_TTS_SPEAKER_VOLUME);
         esp_err_t err = (speakerReady)
             ? mel_mobile_bridge_request_stream(
                 HTTP_METHOD_POST,
@@ -1131,7 +1135,7 @@ static bool speak_text(const std::string &text) {
                 } else {
                     uint8_t *buffer = static_cast<uint8_t *>(heap_caps_malloc(4097, MALLOC_CAP_8BIT));
                     if (buffer) {
-                        speaker_output_enable(100.0);
+                        speaker_output_enable(MEL_TTS_SPEAKER_VOLUME);
                         ok = true;
                         bool have_carry = false;
                         uint8_t carry = 0;
