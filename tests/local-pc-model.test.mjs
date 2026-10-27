@@ -29,7 +29,8 @@ test('no Companion online or authorized: nothing is queued', async () => {
   await db.prepare("CREATE TABLE computer_commands(id TEXT PRIMARY KEY,device_id TEXT,session_id TEXT,plan_json TEXT,status TEXT,created_at INTEGER,claimed_at INTEGER,finished_at INTEGER,result_json TEXT,error_code TEXT)").run();
   await db.prepare("INSERT INTO computer_devices VALUES('pc','h','PC','windows','[]','[]',0,0,?,?)").bind(Date.now(), JSON.stringify({ remote_access_enabled: false, engine_heartbeat_at: Date.now() })).run();
   const result = await runLocalPcModel({ env: { DB: db }, messages: [{ role: 'user', content: 'x' }] });
-  assert.deepEqual(result, { ok: false, code: 'COMPANION_OFFLINE_OR_NOT_AUTHORIZED' });
+  assert.equal(result.code, 'COMPANION_OFFLINE_OR_NOT_AUTHORIZED');
+  assert.equal(result.reason, 'COMPANION_REMOTE_ACCESS_DISABLED');
   assert.equal((await db.prepare('SELECT COUNT(*) n FROM computer_commands').first()).n, 0);
 });
 

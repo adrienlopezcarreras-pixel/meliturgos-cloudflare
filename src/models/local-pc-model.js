@@ -9,7 +9,7 @@
 // texte utilisateur n'est interprété par PowerShell. La réponse revient en base64
 // UTF-8 pour garder les accents intacts.
 
-import { selectAgentDevice } from '../devices/computer-agent.js';
+import { selectAgentDevice, diagnoseAgentDevice } from '../devices/computer-agent.js';
 import { ProviderAdapter } from '../augmentio/provider-adapter.js';
 
 export const LOCAL_PC_MODEL = 'qwen3:8b';
@@ -88,8 +88,9 @@ export function localPcCommand({ model = LOCAL_PC_MODEL, messages }) {
 export async function runLocalPcModel({ env, messages, model = env?.MEL_LOCAL_PC_MODEL || LOCAL_PC_MODEL, sleep = ms => new Promise(r => setTimeout(r, ms)), now = () => Date.now() }) {
   const db = env?.DB;
   if (!db?.prepare) return { ok: false, code: 'LOCAL_DB_UNAVAILABLE' };
-  const device = await selectAgentDevice(db, now()).catch(() => null);
-  if (!device) return { ok: false, code: 'COMPANION_OFFLINE_OR_NOT_AUTHORIZED' };
+  const selection = await diagnoseAgentDevice(db, now()).catch(() => ({ device: null, code: 'COMPANION_DEVICE_LOOKUP_FAILED' }));
+  const device = selection.device;
+  if (!device) return { ok: false, code: 'COMPANION_OFFLINE_OR_NOT_AUTHORIZED', reason: selection.code };
   let step;
   try { step = localPcCommand({ model, messages }); } catch (error) { return { ok: false, code: error.message }; }
   const id = crypto.randomUUID();
@@ -116,13 +117,13 @@ export async function runLocalPcModel({ env, messages, model = env?.MEL_LOCAL_PC
 export async function localPcModelReady(env, now = Date.now()) {
   const db = env?.DB;
   if (!db?.prepare) return { ok: false, code: 'LOCAL_DB_UNAVAILABLE' };
-  const device = await selectAgentDevice(db, now).catch(() => null);
-  if (!device) return { ok: false, code: 'COMPANION_OFFLINE_OR_NOT_AUTHORIZED' };
-  const row = await db.prepare('SELECT metadata FROM computer_devices WHERE id=?').bind(device.id).first().catch(() => null);
+  const selection = await diagnoseAgentDevice(db, now).catch(() => ({ device: null, code: 'COMPANION_DEVICE_LOOKUP_FAILED' }));
+  if (!selection.device) return { ok: false, code: 'COMPANION_OFFLINE_OR_NOT_AUTHORIZED', reason: selection.code };
+  const row = await db.prepare('SELECT metadata FROM computer_devices WHERE id=?').bind(selection.device.id).first().catch(() => null);
   let metadata = {};
   try { metadata = JSON.parse(row?.metadata || '{}'); } catch { metadata = {}; }
   if (metadata.local_compute_enabled !== true) return { ok: false, code: 'LOCAL_COMPUTE_DISABLED' };
-  return { ok: true, device_id: device.id };
+  return { ok: true, device_id: selection.device.id };
 }
 
 // The PC answers first. If it cannot, the original cloud model is asked.
