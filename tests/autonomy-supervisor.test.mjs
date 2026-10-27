@@ -559,3 +559,15 @@ test('single-flight keeps oldest internal objective when a newer one is actionab
   assert.equal(selected.job.id, older.id);
   assert.equal((await repo.list()).length, 2, 'existing jobs must not be deleted');
 });
+
+
+test('repository atomically admits only one autonomous objective across competing supervisors', async () => {
+  const repo = isolatedRepo();
+  const results = await Promise.all([
+    repo.createIfAbsent({ id: 'mel-autonomy-work-race', requested_by: 'mel-autonomy', goal: 'Work', optional_context: { roadmap_id: 'MEL-WORK-01' } }),
+    repo.createIfAbsent({ id: 'mel-autonomy-gen-race', requested_by: 'mel-autonomy', goal: 'Evolution', optional_context: { roadmap_id: 'GEN2-17' } }),
+  ]);
+  assert.equal(results.filter(row => row.created).length, 1);
+  assert.equal(results[0].job.id, results[1].job.id);
+  assert.equal((await repo.list()).length, 1);
+});
