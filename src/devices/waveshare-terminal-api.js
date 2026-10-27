@@ -406,8 +406,8 @@ async function runMiniDirectVoice(text, env) {
   ];
 
   const attempts = [
-    { model: "@cf/zai-org/glm-4.7-flash", timeoutMs: 4500 },
-    { model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", timeoutMs: 4500 }
+    { model: "@cf/zai-org/glm-4.7-flash", timeoutMs: 10000 },
+    { model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", timeoutMs: 10000 }
   ];
 
   let lastError = null;
@@ -468,6 +468,9 @@ export async function answerOwnedDeviceConversation(text, env, { voice = false }
   if (!voice) return null;
   if (inferComputerAgentGoal(text) || deviceNeedsVisibleMedia(text)) return null;
   const answer = await runMiniDirectVoice(text, env);
+  // If the low-latency models fail, use the regular device chat instead of
+  // returning a permanent 503 to the MINI. The normal path keeps voice_reply.
+  if (!answer.ok) return null;
   return { ...answer, response_mode: "device-conversation" };
 }
 
