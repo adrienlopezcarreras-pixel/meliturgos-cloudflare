@@ -34,6 +34,7 @@ struct ActiveExchange {
     uint16_t expected_audio_seq = 0;
     size_t expected_audio_samples = 0;
     size_t received_audio_samples = 0;
+    uint32_t audio_input_rate = 48000;
     std::string body;
     mel_link_v2_chunk_cb cb = nullptr;
     void *cb_ctx = nullptr;
@@ -94,7 +95,8 @@ static void drain_semaphore(SemaphoreHandle_t sem) {
 
 static bool deliver_audio_48k_native(
     const int16_t *samples,
-    size_t sample_count
+    size_t sample_count,
+    uint32_t encoded_rate
 ) {
     if (!samples || sample_count == 0) return true;
     uint8_t out[480];
@@ -114,11 +116,23 @@ static bool deliver_audio_48k_native(
         return ok;
     };
 
-    for (size_t i = 0; i < sample_count; ++i) {
-        const uint16_t raw = static_cast<uint16_t>(samples[i]);
+    auto emit = [&](int16_t sample) -> bool {
         if (used + 2 > sizeof(out) && !flush()) return false;
+        const uint16_t raw = static_cast<uint16_t>(sample);
         out[used++] = static_cast<uint8_t>(raw & 0xff);
         out[used++] = static_cast<uint8_t>((raw >> 8) & 0xff);
+        return true;
+    };
+    for (size_t i = 0; i < sample_count; ++i) {
+        const int32_t current = samples[i];
+        if (!emit((int16_t)current)) return false;
+        if (encoded_rate == 16000) {
+            // Link V2 sends compact 16 kHz ADPCM to reduce BLE packets 6x.
+            // Convert to codec-native 48 kHz *without* changing playback clock.
+            const int32_t next = (i + 1 < sample_count) ? samples[i + 1] : current;
+            if (!emit((int16_t)((2 * current + next) / 3)) ||
+                !emit((int16_t)((current + 2 * next) / 3))) return false;
+        }
     }
     return flush();
 }
@@ -318,13 +332,13 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
         const bool valid =
             cJSON_IsString(codec) && codec->valuestring &&
             strcmp(codec->valuestring, "ima-adpcm") == 0 &&
-            cJSON_IsNumber(rate) && rate->valueint == 48000 &&
+            cJSON_IsNumber(rate) && (rate->valueint == 16000 || rate->valueint == 48000) &&
             cJSON_IsNumber(channels) && channels->valueint == 1 &&
             cJSON_IsNumber(block) && block->valueint >= 32 &&
             block->valueint <= MEL_IMA_ADPCM_BLOCK_SAMPLES &&
             cJSON_IsNumber(output_rate) && output_rate->valueint == 48000 &&
             cJSON_IsNumber(samples) && samples->valuedouble > 0 &&
-            samples->valuedouble <= 48000.0 * 120.0;
+            samples->valuedouble <= (double)rate->valueint * 120.0;
 
         if (!valid) {
             g_active.failed = true;
@@ -334,6 +348,9 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
         }
 
         g_active.audio_response = true;
+        g_active.audio_input_rate = (uint32_t)rate->valueint;
+        ESP_LOGI(TAG, "LINK V2 TTS format input_rate=%u codec_rate=48000 samples=%u",
+                 (unsigned)g_active.audio_input_rate, (unsigned)samples->valuedouble);
         g_active.status = 200;
         g_active.expected_audio_seq = 0;
         g_active.expected_audio_samples = static_cast<size_t>(samples->valuedouble);
@@ -371,7 +388,7 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
         }
 
         if (g_active.received_audio_samples + decoded_samples > g_active.expected_audio_samples ||
-            !deliver_audio_48k_native(decoded, decoded_samples)) {
+            !deliver_audio_48k_native(decoded, decoded_samples, g_active.audio_input_rate)) {
             g_active.failed = true;
             if (g_response_done) xSemaphoreGive(g_response_done);
             return;
