@@ -200,8 +200,10 @@ test('MINI simple spoken chat has a direct low-latency route before native-chat'
   );
   assert.match(source, /answerOwnedDeviceConversation/);
   assert.match(source, /@cf\/zai-org\/glm-4\.7-flash/);
-  assert.match(source, /timeoutMs: 10000/);
-  assert.match(source, /if \(!answer\.ok\) return null/);
+  assert.match(source, /Math\.min\(13000, attemptMs \* models\.length \+ 500\)/);
+  assert.match(source, /MINI_VOICE_MODELS_UNAVAILABLE/);
+  assert.match(source, /isMiniVoiceHearingCheck/);
+  assert.doesNotMatch(source, /if \(!answer\.ok\) return null/);
   assert.match(source, /response_mode: "device-conversation"/);
   assert.match(source, /Tu ne programmes pas/);
 });
