@@ -235,7 +235,7 @@ export function isSupervisedAutonomyJob(job) {
 }
 
 export class AutonomySupervisor {
-  constructor({ repository, roadmap = currentRoadmap(), evolutionLoader = null, epochMs = 0, onlyJobId = null } = {}) {
+  constructor({ repository, roadmap = currentRoadmap(), evolutionLoader = null, epochMs = 0, onlyJobId = null, singleFlight = false } = {}) {
     if (!repository || typeof repository.list !== 'function' || typeof repository.create !== 'function') {
       throw Object.assign(new Error('AUTONOMY_JOB_REPOSITORY_REQUIRED'), { code: 'AUTONOMY_JOB_REPOSITORY_REQUIRED' });
     }
@@ -243,6 +243,7 @@ export class AutonomySupervisor {
     this.roadmap = roadmap;
     this.epochMs = Number(epochMs) || 0;
     this.onlyJobId = onlyJobId ? String(onlyJobId) : null;
+    this.singleFlight = singleFlight === true;
     if (evolutionLoader !== null && typeof evolutionLoader !== 'function') throw new Error('EVOLUTION_QUEUE_INVALID_LOADER');
     this.evolutionLoader = evolutionLoader;
   }
@@ -337,7 +338,7 @@ export class AutonomySupervisor {
     const inFlightInternal = current.active
       .filter(job => job.requested_by === 'mel-autonomy')
       .sort(compareActiveJobs)[0] || null;
-    if (inFlightInternal) {
+    if (this.singleFlight && inFlightInternal) {
       return { created: false, job: inFlightInternal, next: current.next };
     }
 
