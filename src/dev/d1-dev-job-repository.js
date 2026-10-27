@@ -302,6 +302,16 @@ export class D1DevJobRepository {
       : [...this.memory.values()];
   }
 
+  // A UI list is capped at 100 rows; the scheduler must not lose an older
+  // active autonomy job behind that window while D1's admission fence still
+  // sees it. Return all active autonomy jobs with their complete state.
+  async listActiveAutonomyJobs() {
+    await this.init();
+    return this.db
+      ? ((await this.db.prepare("SELECT * FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + ACTIVE_JOB_SQL + " ORDER BY created_at ASC, id ASC").all()).results || []).map(row => this._row(row))
+      : [...this.memory.values()].filter(job => job.requested_by === 'mel-autonomy' && activeJob(job));
+  }
+
   async update(id, patch, { expected = null } = {}) {
     await this.init();
     // In-memory CAS must re-read and compare without an intervening await.
