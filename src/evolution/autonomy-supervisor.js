@@ -1,3 +1,4 @@
+import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { approvedEvolutionRoadmap } from '../roadmap/evolution-autonomy-queue.js';
 import { flattenRoadmap, ROADMAP_STATUSES, isClosedRoadmapStatus } from '../roadmap/master-roadmap.js';
 import { isClaimedPreparedDevBridgeJob } from '../dev/bridge-job-state.js';
@@ -101,7 +102,7 @@ function isPassiveRuntimeJob(job) {
   // [MEL-MANIFEST-06] Protection against stale QUEUED jobs from before activity epoch.
   if (status === 'QUEUED') {
     const activityEpoch = job?.result_json?.activity_epoch;
-    const jobCreatedAt = job?.created_at ? new Date(job.created_at).getTime() : 0;
+    const jobCreatedAt = jobActivityTimestamp(job);
     if (activityEpoch && jobCreatedAt < activityEpoch) return true;
   }
 
@@ -184,7 +185,7 @@ export function selectActionableAutonomyJobs(jobs = [], { epochMs = 0, roadmap =
     .filter(job => !closedIds.has(roadmapIdFromJob(job)))
     .filter((job) => !TERMINAL_JOB.has(String(job?.status || '').toUpperCase()))
     .filter((job) => !isPassiveRuntimeJob(job))
-    .filter((job) => !epoch || Number(job?.created_at || 0) >= epoch)
+    .filter((job) => !epoch || jobActivityTimestamp(job) >= epoch)
     .filter((job) => !excluded.has(job?.id))
     .sort(compareActiveJobs)
     .slice(0, Math.max(1, Math.min(4, Number(limit) || 1)));
@@ -253,7 +254,7 @@ export class AutonomySupervisor {
     // in the repository but cannot forge roadmap completion evidence.
     const supervisedJobs = jobs
       .filter(isSupervisedAutonomyJob)
-      .filter((job) => !this.epochMs || Number(job?.created_at || 0) >= this.epochMs);
+      .filter((job) => !this.epochMs || jobActivityTimestamp(job) >= this.epochMs);
     let evolutionItems = null;
     let evolution = { status: this.evolutionLoader ? 'NOT_CHECKED' : 'NOT_CONFIGURED', actionable_count: null, code: null };
     const readEvolution = async () => {
@@ -391,6 +392,9 @@ export class AutonomySupervisor {
 
     if (typeof this.repository.createIfAbsent === 'function') {
       const result = await this.repository.createIfAbsent(input);
+      if (result.job && this.epochMs && jobActivityTimestamp(result.job) < this.epochMs) {
+        return {created:false,job:null,next:null,complete:false,external_progress:{job_id:result.job.id,status:'ACTIVE_OBJECTIVE_OUTSIDE_CURRENT_EPOCH'}};
+      }
       return { created: result.created, job: result.job, next: item };
     }
 

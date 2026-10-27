@@ -23,7 +23,7 @@ test('the hourly watch stores a paid platform lead and skips a gift card', async
     askOwner: async (_db, lead) => { asked.push(lead.url); },
   });
   assert.equal(result.fresh, 1);
-  assert.deepEqual(installed, ['https://github.com/opire/opire']);
+  assert.deepEqual(installed, [], 'a repository description is not verified funding');
   assert.deepEqual(asked, []);
   const row = await db.prepare('SELECT status, data FROM revenue_watch WHERE url=?').bind('https://github.com/opire/opire').first();
   assert.equal(row.status, 'DISCOVERY_ONLY');
@@ -31,7 +31,7 @@ test('the hourly watch stores a paid platform lead and skips a gift card', async
   assert.equal(await db.prepare('SELECT url FROM revenue_watch WHERE url=?').bind('https://github.com/scam/cards').first(), null);
 });
 
-test('a platform that needs an account is both built and asked', async () => {
+test('an unfunded repository never asks the owner for credentials or starts development', async () => {
   const db = sqliteD1();
   const asked = [];
   const fetchImpl = async () => ({ ok: true, json: async () => ({ items: [
@@ -43,6 +43,6 @@ test('a platform that needs an account is both built and asked', async () => {
     install: async () => ({ status: 'INSTALL_QUEUED' }),
     askOwner: async (_db, lead) => { asked.push(lead.url); },
   });
-  assert.deepEqual(asked, ['https://github.com/algora/algora']);
+  assert.deepEqual(asked, []);
 });
 

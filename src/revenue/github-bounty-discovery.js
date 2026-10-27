@@ -26,7 +26,7 @@ export async function discoverGithubBounties({ fetchImpl = fetch, now = new Date
           name: clean(item.title).slice(0, 120), url: item.html_url,
           type: 'bounty', how_mel_earns: 'Prime annoncée dans une issue GitHub ; vérifier modalités et rémunération avant toute contribution.',
           automation: 'semi', requirements: description.slice(0, 300),
-          risk: 'moyen', score: 40, provider: 'github', verified_payment: false,
+          risk: 'moyen', score: 40, provider: 'github', verified_payment: false, funding_status: 'UNVERIFIED',
           status: 'DISCOVERY_ONLY', observed_at: now.toISOString(),
         });
       }

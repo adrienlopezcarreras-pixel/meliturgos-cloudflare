@@ -2,10 +2,16 @@ name: autonomy-control-readonly-evidence
 
 on:
   workflow_dispatch:
+    inputs:
+      reproduce_founder_failure:
+        description: "Replay the exact historic Founder result in memory; publish only a digest and outcome"
+        type: boolean
+        default: false
   pull_request:
     paths:
       - '.github/workflows/autonomy-control-readonly-evidence.yml'
       - 'scripts/read-autonomy-d1-evidence.mjs'
+      - 'scripts/reproduce-founder-runtime-failure.mjs'
       - 'tests/autonomy-d1-readonly-evidence.test.mjs'
 
 permissions:
@@ -43,11 +49,21 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           WRANGLER_SEND_METRICS: 'false'
         run: node scripts/read-autonomy-d1-evidence.mjs
+      - name: Reproduce historic Founder failure without production mutation or AI calls
+        if: ${{ inputs.reproduce_founder_failure }}
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          git fetch --no-tags --depth=1 origin 58fbda579223a3e1b47d18715a940110e3ed47da
+          node scripts/reproduce-founder-runtime-failure.mjs
       - name: Retain sanitized read-only evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: autonomy-d1-readonly-evidence-${{ github.run_id }}
-          path: autonomy-d1-readonly-evidence.json
+          path: |
+            autonomy-d1-readonly-evidence.json
+            founder-runtime-reproduction.json
           if-no-files-found: warn
           retention-days: 7

@@ -8,6 +8,7 @@ function repo() {
 }
 
 const roadmap = [
+  { id: 'GEN2-18', title: 'Independent objective', status: 'PLANNED', priority: 'P0', next: 'separate work' },
   { id: 'GEN2-17', title: 'Dev Agent', status: 'PLANNED', priority: 'P0', next: 'controlled self-development', phase_id: 'P06', phase: 'Evolution' },
 ];
 
@@ -77,7 +78,7 @@ test('shared actionable selector matches supervisor ordering for retry attributi
     id: 'approved-implementation',
     requested_by: 'mel-autonomy',
     goal: 'approved implementation',
-    optional_context: { roadmap_id: 'GEN2-17', source: 'autonomy-supervisor', priority: 'P0' },
+    optional_context: { roadmap_id: 'GEN2-18', source: 'autonomy-supervisor', priority: 'P0' },
   });
   await repository.update(approved.id, { status: 'TEACHER_APPROVED' });
 
@@ -116,7 +117,7 @@ test('REPAIR_REQUIRED approved work is actionable and outranks unrelated approve
     id: 'approved-newer',
     requested_by: 'mel-autonomy',
     goal: 'other approved work',
-    optional_context: { roadmap_id: 'GEN2-17', source: 'autonomy-supervisor', priority: 'P0' },
+    optional_context: { roadmap_id: 'GEN2-18', source: 'autonomy-supervisor', priority: 'P0' },
   });
   await repository.update(other.id, { status: 'TEACHER_APPROVED' });
 

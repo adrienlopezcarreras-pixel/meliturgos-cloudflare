@@ -1640,3 +1640,19 @@ test('owner stop before the final release snapshot cannot be reclassified as an 
   assert.equal((await response.json()).restore_skipped,true);
   assert.equal(writes,0);
 });
+
+
+test('authenticated GEN2 tick forwards only a validated existing mission selector without changing owner control', async () => {
+  let calls = 0;
+  for (const id of ['mel-autonomy-mel-founder-01-e1793099063810-1', '../invalid']) {
+    const response = await maybeHandleReleaseLaunchBootstrap(new Request('https://mel.test/api/internal/release-launch-bootstrap', {
+      method:'POST', headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+      body:JSON.stringify({phase:'gen2-42-runtime-tick',only_job_id:id}),
+    }), {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB:{}}, {
+      setControl:async()=>{throw Error('must not change control');},
+      runAutonomyTick:async(_env,options)=>{calls++;assert.equal(options.onlyJobId,id);return {ok:true,control:{paused:false,max_autonomy:true}};},
+    });
+    assert.equal(response.status,id.startsWith('../')?400:200);
+  }
+  assert.equal(calls,1);
+});

@@ -1,3 +1,6 @@
+import { MAX_ACTIVE_REVENUE_JOBS } from './revenue-queue-policy.js';
+export { MAX_ACTIVE_REVENUE_JOBS } from './revenue-queue-policy.js';
+import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 // MEL WORK — daily watch for NEW revenue sources (beyond Taskmarket).
 //
 // Every night MEL searches the web (web.research capability) on a rotating set
@@ -145,6 +148,24 @@ export async function runRevenueWatch(env, { now = new Date(), research = null, 
 const UNSAFE_RE = /\b(crypto|airdrop|nft|memecoin|gift ?card|carte cadeau)\b|\$[A-Za-z]{2,}\b|\bexchange\s+[\d,.]+\b/i;
 export const MAX_AUTO_INSTALLS_PER_RUN = 3;
 
+export function verifiedRepositoryFunding(o = {}, { now = Date.now() } = {}) {
+  let url;
+  try {url=new URL(o.url);} catch {return false;}
+  if (url.hostname !== 'github.com') return true;
+  // Extraction/model text and a dollar amount in an issue are not proof.
+  // Only a server-collected provider receipt for this exact offer is admitted.
+  const proof=o.funding_verification;
+  const hosts={algora:'algora.io',opire:'opire.dev',issuehunt:'issuehunt.io'};
+  let evidence;
+  try {evidence=new URL(proof?.evidence_url);} catch {return false;}
+  return proof?.status==='VERIFIED' && proof?.source==='provider-api'
+    && hosts[proof.provider]===evidence.hostname && evidence.protocol==='https:'
+    && proof.offer_url===o.url && Number.isFinite(proof.amount) && proof.amount>0
+    && /^[A-Z]{3}$/.test(String(proof.currency||''))
+    && Number.isFinite(Date.parse(proof.verified_at)) && Date.parse(proof.verified_at)<=now
+    && now-Date.parse(proof.verified_at)<=86400000;
+}
+
 export function isUnsafeRevenueSource(o = {}) {
   return UNSAFE_RE.test(String(o.title || o.name || '') + ' ' + String(o.summary || ''));
 }
@@ -164,8 +185,16 @@ export async function installRevenueSource(env, url, { enqueue = defaultEnqueue,
     await env.DB.prepare("UPDATE revenue_watch SET status='REJECTED_UNSAFE' WHERE url=?").bind(row.url).run();
     return { ok: false, status: 'REJECTED_UNSAFE', url };
   }
+  if (!verifiedRepositoryFunding({...o,url:row.url})) {
+    await env.DB.prepare("UPDATE revenue_watch SET status='FUNDING_UNVERIFIED' WHERE url=?").bind(row.url).run();
+    return {ok:false,status:'FUNDING_UNVERIFIED',url:row.url};
+  }
+  const repo=new D1DevJobRepository(env.DB);await repo.init();
+  const active=await env.DB.prepare("SELECT COUNT(*) AS n FROM dev_jobs WHERE status NOT IN ('CANCELLED','FAILED','COMPLETED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED') AND json_extract(optional_context,'$.source')='revenue-watch'").first();
+  if(Number(active?.n)>=MAX_ACTIVE_REVENUE_JOBS)return {ok:false,status:'QUEUE_FULL',url:row.url};
   const title = String(o.title || o.name || row.url).slice(0, 200);
-  const queued = await enqueue({
+  let queued;
+  try { queued = await enqueue({
     env,
     goal: `Intégrer à MEL WORK la source de revenus « ${title} » (${row.url}). Étudier ses conditions, puis écrire le connecteur qui permet à MEL de trouver, accepter, livrer et suivre ces tâches automatiquement, avec son test. Zéro dépense. Toute inscription, authentification, acceptation de conditions ou paiement passe par une demande au propriétaire (owner-requests) ; aucune exécution payée tant que le flux de bout en bout n’est pas vérifié.`,
     requestKey: 'revenue-source:' + row.url.slice(0, 160),
@@ -175,8 +204,12 @@ export async function installRevenueSource(env, url, { enqueue = defaultEnqueue,
     extensionKind: 'plugin',
     evidence: { url: row.url, title, summary: String(o.summary || '').slice(0, 500) },
     waitUntil,
-  });
+  }); } catch(error) {
+    if(error?.code==='REVENUE_WATCH_QUEUE_FULL')return {ok:false,status:'QUEUE_FULL',url:row.url};
+    throw error;
+  }
   const jobId = queued?.job_id || null;
+  if(!jobId)return {ok:false,status:'INSTALL_NOT_ENQUEUED',url:row.url};
   await env.DB.prepare("UPDATE revenue_watch SET status='INSTALL_QUEUED', data=? WHERE url=?")
     .bind(JSON.stringify({ ...o, install_job_id: jobId }), row.url).run();
   return { ok: true, status: 'INSTALL_QUEUED', url: row.url, job_id: jobId };

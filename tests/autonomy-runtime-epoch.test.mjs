@@ -279,3 +279,46 @@ test('a real runtime tick advances B while Mentor A remains durably deferred', a
     await releaseAutonomyRuntimeLease({db:f.DB,owner:'after-independent-tick'});
   } finally {f.DB.close();}
 });
+
+
+test('focused MAX pass never starts another mission or revives a cancelled target', async () => {
+  const f = await fixture({maxAutonomy:true});
+  try {
+    const target = await f.repository.create({id:'focused-target',requested_by:'mel-autonomy',goal:'target',optional_context:{roadmap_id:ROADMAP[0].id}});
+    const other = await f.repository.create({id:'unrelated',requested_by:'mel-autonomy',goal:'untouched',optional_context:{roadmap_id:'TEST-OTHER'}});
+    const before = await f.repository.get(other.id);
+    await f.tick({onlyJobId:target.id});
+    assert.deepEqual(await f.repository.get(other.id),before);
+    assert.equal((await f.repository.list()).length,2);
+    await f.repository.update(target.id,{status:'CANCELLED',error:'ACTIVITY_LIST_RESET'});
+    const cancelled=await f.repository.get(target.id);
+    await f.tick({onlyJobId:target.id});
+    assert.deepEqual(await f.repository.get(target.id),cancelled);
+    assert.deepEqual(await f.repository.get(other.id),before);
+    assert.equal((await f.repository.list()).length,2);
+  } finally {f.DB.close();}
+});
+
+
+test('a timed-out MAX pass reports its actual queued mission instead of a false IDLE watchdog', async () => {
+  const f = await fixture({maxAutonomy:true});
+  let release;
+  const gate = new Promise(resolve=>{release=resolve;});
+  const original = f.env.AI.run;
+  f.env.AI.run = async (...args)=>{await gate;return original(...args);};
+  try {
+    const job=await f.repository.create({id:'timeout-current',requested_by:'mel-autonomy',goal:'current objective',optional_context:{roadmap_id:ROADMAP[0].id}});
+    const tick=await f.tick({tickBudgetMs:10});
+    assert.equal(tick.status,'TICK_TIMEOUT');
+    assert.equal(tick.progress.work_remaining,true);
+    assert.equal(tick.progress.active_jobs,1);
+    assert.equal(tick.progress.job_id,job.id);
+    assert.equal(tick.watchdog.status,'NO_PROGRESS');
+    assert.equal(tick.watchdog.counters.blocked_ticks,1);
+  } finally {
+    release();
+    // Allow the uncancelled pre-existing callback to finish before closing D1.
+    await new Promise(resolve=>setTimeout(resolve,100));
+    f.DB.close();
+  }
+});

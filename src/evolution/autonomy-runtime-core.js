@@ -1,3 +1,4 @@
+import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { AutonomySupervisor, providerRetryContext, BRIDGE_MENTOR_ROUNDS } from './autonomy-supervisor.js';
@@ -23,7 +24,7 @@ export function currentAutonomyRepository(repository, epochMs = 0) {
   return new Proxy(repository, {
     get(target, key) {
       if (key === 'list') return async () => (await target.list()).filter(job =>
-        (!epoch || Number(job?.created_at || 0) >= epoch)
+        (!epoch || jobActivityTimestamp(job) >= epoch)
         && String(job?.status || '').toUpperCase() !== 'CANCELLED');
       const value = Reflect.get(target, key, target);
       return typeof value === 'function' ? value.bind(target) : value;
@@ -142,7 +143,7 @@ export function providerDeferral(code, now = Date.now()) {
     'WORKERS_AI_BINDING_UNAVAILABLE', 'NO_ZERO_COST_PROVIDER_AVAILABLE',
     'MENTOR_NO_ZERO_COST_CODE_PROVIDER', 'NO_ELIGIBLE_PROVIDER', 'MODEL_UNAVAILABLE',
     'MENTOR_PROVIDER_TIMEOUT', 'MENTOR_NO_VALID_CODE_PROPOSAL', 'MENTOR_JSON_INVALID', 'MENTOR_JSON_REQUIRED',
-    'COUNCIL_UNAVAILABLE', 'COUNCIL_NOT_ENOUGH_ZERO_COST_PROVIDERS', 'COUNCIL_NOT_ENOUGH_MEMBERS',
+    'CODE_INSPECTION_TIMEOUT', 'COUNCIL_UNAVAILABLE', 'COUNCIL_INSUFFICIENT_RESPONSES', 'COUNCIL_REVIEW_DEADLINE', 'COUNCIL_NOT_ENOUGH_ZERO_COST_PROVIDERS', 'COUNCIL_NOT_ENOUGH_MEMBERS',
     'COUNCIL_REQUIRED_ROLE_RESPONSES_MISSING', 'COUNCIL_MEL_SYNTHESIS_REQUIRED', 'COUNCIL_PROVIDER_NOT_FOUND',
   ]);
   return retryable.has(value.split(':')[0])
@@ -442,6 +443,23 @@ function requestedInspectionQueries(job) {
 }
 
 async function inspectCandidateCode(env, job, { fetchImpl = fetch, minimal = false } = {}) {
+  const configured=Number(env?.MEL_AUTONOMY_INSPECTION_BUDGET_MS ?? 45_000);
+  const budget=Number.isFinite(configured)&&configured>0?Math.min(configured,45_000):45_000;
+  const controller=new AbortController();
+  const error=Object.assign(new Error('CODE_INSPECTION_TIMEOUT'),{code:'CODE_INSPECTION_TIMEOUT',status:503});
+  const scopedFetch=(url,options={})=>controller.signal.aborted
+    ? Promise.reject(error)
+    : fetchImpl(url,{...options,signal:controller.signal});
+  let timer;
+  try {
+    return await Promise.race([
+      inspectCandidateCodeUnbounded(env,job,{fetchImpl:scopedFetch,minimal}),
+      new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort(error);reject(error);},budget);}),
+    ]);
+  } finally {clearTimeout(timer);}
+}
+
+async function inspectCandidateCodeUnbounded(env, job, { fetchImpl = fetch, minimal = false } = {}) {
   const { repository, branch } = codeConfig(env);
   const deployedSha = deployedInspectionSha(env);
   const inspectionRef = resolveAutonomyInspectionRef(env, branch);
@@ -560,6 +578,7 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
   if (!preflight) {
     // Council on the cloud models even when the PC writes the code.
     const councilEnv = env?.MEL_CLOUD_AI ? { ...env, AI: env.MEL_CLOUD_AI, MEL_INFERENCE: undefined } : env;
+    globalThis.__melTickStage = 'council-models';
     preflight = await prepareDevelopmentRequest({
       env: councilEnv,
       goal: current.goal,
@@ -581,6 +600,7 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
     current = await repository.update(current.id, { plan_json: plan, status: 'COUNCIL_COMPLETE' }, { expected: current });
   }
 
+  globalThis.__melTickStage = 'code-inspection';
   const inspection = await inspectCandidateCode(env, current, { fetchImpl, minimal: minimalInspection });
   const { repository: repoName, branch } = codeConfig(env);
   const request = createTeacherReviewRequest({
@@ -625,6 +645,7 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
     },
   });
 
+  globalThis.__melTickStage = 'teacher-request';
   return queueRuntimeTeacherRequest(repository, current.id, request, {
     runtime_generated: true,
     council_status: preflight.council?.status,
@@ -679,7 +700,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   }));
 
   globalThis.__melTickStage = 'candidate-ci';
-  const candidateCI = focused ? { ok: true, skipped: 'FOCUSED_JOB' } : await reconcileFailedCandidateRuns({ repository: currentRepository, env, fetchImpl });
+  const candidateCI = focused ? { ok: true, repaired: [], skipped: 'FOCUSED_JOB' } : await reconcileFailedCandidateRuns({ repository: currentRepository, env, fetchImpl });
 
   const evolutionLoader = !roadmap ? createRuntimeEvolutionLoader(env) : null;
   const supervisor = new AutonomySupervisor({
@@ -694,7 +715,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   const existing = await jobRepository.list();
   const epoch = Number(activityEpoch) || 0;
   for (const candidate of Array.isArray(existing) ? existing : []) {
-    if (epoch && Number(candidate?.created_at || 0) < epoch) continue;
+    if (epoch && jobActivityTimestamp(candidate) < epoch) continue;
     const by = String(candidate?.requested_by || '');
     if (by !== 'mel-autonomy' && !by.startsWith('owner-chat')) continue;
     const decision = unansweredExhaustedRepair(candidate);
@@ -1011,7 +1032,8 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   }
   const activeCount = Array.isArray(state?.active) ? state.active.length : 0;
   const workRemaining = autonomyWorkRemaining(state);
-  const waitingExternal = finalJobStatus === 'WAITING_TEACHER'
+  const waitingExternal = (teacher?.status === 'NOT_READY' && Boolean(providerDeferral(teacher.code)))
+    || finalJobStatus === 'WAITING_TEACHER'
     || bridgePreparation?.status === 'AWAITING_LIVE_EVIDENCE'
     || String(ensured?.external_progress?.status || '').length > 0;
   const blockReason = teacher?.status === 'NOT_READY' ? teacher.code : bridgePreparation?.status === 'NOT_READY'

@@ -298,7 +298,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'POST', 'cache-control': 'no-store' } });
   }
 
-  const phase = await requestPhase(request);
+  const phase = await requestPhase(request.clone());
   if (!phase) {
     return Response.json({ ok: false, code: 'BOOTSTRAP_PHASE_INVALID' }, { status: 400, headers: { 'cache-control': 'no-store' } });
   }
@@ -733,7 +733,12 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   }
 
   if (phase === 'gen2-42-runtime-tick') {
-    const tick = await runAutonomyTick(env, { ownerLeaseWaitMs: AUTONOMY_RUNTIME_LEASE_MS });
+    const payload = await request.json().catch(() => ({}));
+    const onlyJobId = payload?.only_job_id == null ? null : String(payload.only_job_id);
+    if (onlyJobId !== null && !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,179}$/.test(onlyJobId)) {
+      return Response.json({ ok: false, code: 'AUTONOMY_JOB_ID_INVALID' }, { status: 400 });
+    }
+    const tick = await runAutonomyTick(env, { ownerLeaseWaitMs: AUTONOMY_RUNTIME_LEASE_MS, ...(onlyJobId ? { onlyJobId } : {}) });
     const completions = tick?.completions || tick?.passive_completions || {};
     const completed = Array.isArray(completions?.completed) ? completions.completed : [];
     const rejected = Array.isArray(completions?.rejected) ? completions.rejected : [];

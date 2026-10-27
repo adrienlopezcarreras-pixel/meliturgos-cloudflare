@@ -1,7 +1,20 @@
+import { MAX_ACTIVE_REVENUE_JOBS } from '../revenue/revenue-queue-policy.js';
 import { MAINTENANCE_FENCE_ID } from '../maintenance/maintenance-gate.js';
 import { migrate } from '../persistence/migrations.js';
 import { createDevJobCheckpoint, verifyDevJobCheckpoint } from './dev-job-checkpoint.js';
 import { D1EvolutionLedger } from '../evolution/evolution-ledger.js';
+
+const ACTIVE_JOB_SQL = "status NOT IN ('CANCELLED','FAILED','COMPLETED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED')";
+const objectiveId = job => job?.requested_by === 'mel-autonomy' ? String(job?.optional_context?.roadmap_id || '').trim() : '';
+const activeJob = job => !['CANCELLED','FAILED','COMPLETED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED'].includes(String(job?.status||'').toUpperCase());
+function memoryAdmission(memory, job) {
+  const objective = objectiveId(job);
+  const duplicate = objective && [...memory.values()].find(row => activeJob(row) && objectiveId(row) === objective);
+  if (duplicate) throw Object.assign(new Error('AUTONOMY_OBJECTIVE_ALREADY_ACTIVE'), {code:'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE',job_id:duplicate.id});
+  if (job?.optional_context?.source === 'revenue-watch' && [...memory.values()].filter(row=>activeJob(row)&&row?.optional_context?.source==='revenue-watch').length >= MAX_ACTIVE_REVENUE_JOBS) {
+    throw Object.assign(new Error('REVENUE_WATCH_QUEUE_FULL'),{code:'REVENUE_WATCH_QUEUE_FULL'});
+  }
+}
 
 function buildJob(input = {}) {
   const j = {
@@ -135,6 +148,7 @@ export class D1DevJobRepository {
     await this.init();
     const j = buildJob(input);
     if (!this.db) {
+      memoryAdmission(this.memory, j);
       this.memory.set(j.id, j);
       await this.recordEvolution(j, 'JOB_CREATED', {
       goal: String(j.goal || '').slice(0, 4000),
@@ -147,10 +161,18 @@ export class D1DevJobRepository {
     return j;
     }
     // Same SQL statement as the insertion: a preflight read cannot close this race.
-    const admission = await this.db.prepare("INSERT INTO dev_jobs(id,created_at,updated_at,status,requested_by,goal,optional_context,plan_json,files_json,patch_json,tests_json,result_json,candidate_branch,approval_status,error) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED')")
-      .bind(j.id, j.created_at, j.updated_at, j.status, j.requested_by, j.goal, JSON.stringify(j.optional_context), null, '[]', null, '[]', null, null, j.approval_status, null, MAINTENANCE_FENCE_ID)
+    const admission = await this.db.prepare("INSERT INTO dev_jobs(id,created_at,updated_at,status,requested_by,goal,optional_context,plan_json,files_json,patch_json,tests_json,result_json,candidate_branch,approval_status,error) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED') AND (?='' OR NOT EXISTS (SELECT 1 FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + ACTIVE_JOB_SQL + " AND json_extract(optional_context,'$.roadmap_id')=?)) AND (?<> 'revenue-watch' OR (SELECT COUNT(*) FROM dev_jobs WHERE " + ACTIVE_JOB_SQL + " AND json_extract(optional_context,'$.source')='revenue-watch') < " + MAX_ACTIVE_REVENUE_JOBS + ")")
+      .bind(j.id, j.created_at, j.updated_at, j.status, j.requested_by, j.goal, JSON.stringify(j.optional_context), null, '[]', null, '[]', null, null, j.approval_status, null, MAINTENANCE_FENCE_ID, objectiveId(j), objectiveId(j), j.optional_context?.source || '')
       .run();
     if (Number(admission?.meta?.changes) !== 1) {
+      if (objectiveId(j)) {
+        const existing = await this.db.prepare("SELECT id FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + ACTIVE_JOB_SQL + " AND json_extract(optional_context,'$.roadmap_id')=? LIMIT 1").bind(objectiveId(j)).first();
+        if (existing) throw Object.assign(new Error('AUTONOMY_OBJECTIVE_ALREADY_ACTIVE'), {code:'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE',job_id:existing.id});
+      }
+      if (j.optional_context?.source === 'revenue-watch') {
+        const count = await this.db.prepare("SELECT COUNT(*) AS n FROM dev_jobs WHERE " + ACTIVE_JOB_SQL + " AND json_extract(optional_context,'$.source')='revenue-watch'").first();
+        if (Number(count?.n) >= MAX_ACTIVE_REVENUE_JOBS) throw Object.assign(new Error('REVENUE_WATCH_QUEUE_FULL'), {code:'REVENUE_WATCH_QUEUE_FULL'});
+      }
       throw Object.assign(new Error('MAINTENANCE_JOB_ADMISSION_BLOCKED'), {code:'MAINTENANCE_JOB_ADMISSION_BLOCKED',status:423});
     }
     await this.recordEvolution(j, 'JOB_CREATED', {
@@ -177,6 +199,10 @@ export class D1DevJobRepository {
       const existing = this.memory.get(input.id);
       if (existing) return { created: false, job: existing };
       const job = buildJob(input);
+      try { memoryAdmission(this.memory, job); } catch (error) {
+        if (error.code === 'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE') return {created:false,job:this.memory.get(error.job_id)};
+        throw error;
+      }
       this.memory.set(job.id, job);
       return { created: true, job };
     }
@@ -184,7 +210,7 @@ export class D1DevJobRepository {
       const job = await this.create(input);
       return { created: true, job };
     } catch (error) {
-      const existing = await this.get(input.id);
+      const existing = await this.get(error?.code === 'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE' ? error.job_id : input.id);
       if (existing) return { created: false, job: existing };
       throw error;
     }

@@ -1,3 +1,4 @@
+import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 // Detailed, read-only view of what MEL is doing, for the « Activité » panel.
 //
 // Everything comes from production D1: autonomy control and watchdog, every
@@ -365,7 +366,7 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
   const epoch = await readActivityListEpoch(db);
   const supervised = (Array.isArray(allJobs) ? allJobs : []).filter(job => {
     const by = String(job?.requested_by || '').toLowerCase();
-    return (by === 'mel-autonomy' || by.startsWith('owner-chat')) && atOrAfter(job?.created_at, epoch);
+    return (by === 'mel-autonomy' || by.startsWith('owner-chat')) && atOrAfter(jobActivityTimestamp(job), epoch);
   }).sort((a, b) => Number(b?.updated_at || 0) - Number(a?.updated_at || 0));
   const byStatus = {};
   for (const job of supervised) {
