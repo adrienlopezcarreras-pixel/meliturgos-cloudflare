@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import { CONTROL_SQL,readAutonomyD1Evidence,FOUNDER_SQL,readFounderD1Evidence } from '../scripts/read-autonomy-d1-evidence.mjs';
+import { CONTROL_SQL,readAutonomyD1Evidence,FOUNDER_SQL,readFounderD1Evidence,councilProviderEvidence } from '../scripts/read-autonomy-d1-evidence.mjs';
 const credentials={accountId:'a'.repeat(32),apiToken:'PRIVATE_TOKEN',databaseId:'12345678-1234-1234-1234-123456789012'};
 
 function queryFixture(metadata,status='PAUSED') {
@@ -77,4 +77,13 @@ test('founder read never accepts a response with writes or exposes transport sec
   for(const fetchImpl of [async()=>response([],{meta:{rows_written:1}}),async()=>{throw Error('PRIVATE_TOKEN');}]) {
     const proof=await readFounderD1Evidence({...credentials,fetchImpl});assert.equal(proof.ok,false);assert.doesNotMatch(JSON.stringify(proof),/PRIVATE_TOKEN/);
   }
+});
+
+
+test('Council diagnostic exposes only persisted per-model outcomes and excludes arbitrary provider response text',()=>{
+  const trace=councilProviderEvidence({council_model_attempts:JSON.stringify([{provider_id:'workers-ai',model_id:'@cf/openai/gpt-oss-120b',role:'ARCHITECTURE_REUSE',status:'TIMEOUT',duration_ms:15000,error:'COUNCIL_PROVIDER_TIMEOUT',response:'PRIVATE_OUTPUT'},{provider_id:'bad id with private text',error:'private provider error body',duration_ms:-1}]),council_model_exclusions:JSON.stringify([{id:'workers-ai',until:123}])});
+  assert.equal(trace.attempts[0].model_id,'@cf/openai/gpt-oss-120b');assert.equal(trace.attempts[0].error,'COUNCIL_PROVIDER_TIMEOUT');
+  assert.equal(trace.attempts[1].provider_id,null);assert.equal(trace.attempts[1].error,null);assert.equal(trace.attempts[1].duration_ms,null);
+  assert.equal(trace.exclusions[0].until,123);assert.doesNotMatch(JSON.stringify(trace),/PRIVATE_OUTPUT|private provider|private text/);
+  assert.deepEqual(councilProviderEvidence({council_model_attempts:'invalid json'}),{attempts:[],exclusions:[]});
 });
