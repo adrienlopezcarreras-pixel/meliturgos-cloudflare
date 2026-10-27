@@ -218,6 +218,14 @@ export class D1DevJobRepository {
     if (['CLAIMED', 'READY_FOR_REVIEW', 'WAITING_TEACHER'].includes(String(job.status || '').toUpperCase())) {
       return job;
     }
+    // A job still carrying an active Bridge or Teacher marker must not be
+    // closed just because its roadmap entry was marked verified elsewhere.
+    const bridgeStatus = String(job.result_json?.dev_bridge?.status || '').toUpperCase();
+    const teacherStatus = String(job.result_json?.teacher_bridge?.status || '').toUpperCase();
+    if (['RUNNING', 'IN_PROGRESS', 'CLAIMED', 'READY_FOR_REVIEW'].includes(bridgeStatus)
+        || ['WAITING_TEACHER', 'PENDING', 'REQUESTED'].includes(teacherStatus)) {
+      return job;
+    }
     return this.update(id, {
       status: 'DONE_VERIFIED',
       result_json: {
