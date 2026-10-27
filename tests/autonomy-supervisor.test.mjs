@@ -669,3 +669,21 @@ test('verified roadmap cannot auto-close a council-complete job pending delivery
   assert.equal(result.status, 'COUNCIL_COMPLETE');
   assert.equal((await repo.get(job.id)).status, 'COUNCIL_COMPLETE');
 });
+
+
+test('verified roadmap reconciliation preserves a prepared candidate branch', async () => {
+  const repo = isolatedRepo();
+  const job = await repo.create({
+    id: 'mel-autonomy-work-candidate',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] candidate awaiting delivery',
+    optional_context: { roadmap_id: 'MEL-WORK-01' },
+  });
+  await repo.update(job.id, {
+    status: 'TEACHER_APPROVED',
+    candidate_branch: 'candidate/mel-work-01',
+  });
+  const result = await repo.reconcileVerifiedAutonomyJob(job.id, { id: 'MEL-WORK-01', status: 'DONE_VERIFIED' });
+  assert.equal(result.status, 'TEACHER_APPROVED');
+  assert.equal((await repo.get(job.id)).candidate_branch, 'candidate/mel-work-01');
+});
