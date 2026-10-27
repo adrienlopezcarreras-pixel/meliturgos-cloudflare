@@ -110,6 +110,7 @@ static bool wifi_manual_mode = false;
 static TaskHandle_t wifi_scan_task_handle = nullptr;
 static TaskHandle_t wifi_connect_task_handle = nullptr;
 static volatile bool wifi_got_ip = false;
+static volatile bool wifi_stack_ready = false;
 static volatile int wifi_disconnect_reason = -1;
 static volatile bool wifi_auto_reconnect_enabled = false;
 static volatile bool media_wifi_active = false;
@@ -2295,7 +2296,7 @@ static void mobile_bridge_watch_task(void *) {
                 // BLE can disappear long after the one-shot boot selector has exited.
                 // Start the saved-Wi-Fi recovery path again so MINI never remains
                 // stranded offline merely because the phone link dropped later.
-                if (!wifi_got_ip && !wifi_connect_task_handle && !wifi_fallback_task_handle) {
+                if (wifi_stack_ready && !wifi_got_ip && !wifi_connect_task_handle && !wifi_fallback_task_handle) {
                     ESP_LOGW(TAG, "MEL MOBILE lost; scheduling persistent Wi-Fi fallback");
                     xTaskCreatePinnedToCore(
                         wifi_fallback_after_ble_task,
@@ -2490,6 +2491,7 @@ extern "C" void app_main(void) {
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     const esp_err_t wifi_start_result = mini_wifi_stack_init();
+    wifi_stack_ready = wifi_start_result == ESP_OK;
     if (wifi_start_result != ESP_OK) {
         // Wi-Fi is fallback only: do not reboot-loop and destroy the primary
         // authenticated BLE path when Wi-Fi's internal heap reserve fails.
