@@ -562,7 +562,7 @@ async function deviceChat(request, env, auth) {
   const pictureIntent = inferChatMediaCapability(text);
   if (pictureIntent?.id === "web.images.search") {
     try {
-      const runtime = createGen2Runtime(env);
+      const runtime = createGen2Runtime({ env });
       const result = await runtime.bus.execute("web.images.search", pictureIntent.input, {
         env, request, source: "waveshare-terminal", device_id: auth.deviceId,
       });
