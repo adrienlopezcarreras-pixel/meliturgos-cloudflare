@@ -640,3 +640,17 @@ test('verified roadmap reconciliation never closes repair-required work', async 
   assert.equal(result.status, 'REPAIR_REQUIRED');
   assert.equal((await repo.get(job.id)).result_json.dev_bridge.needs_repair, true);
 });
+
+
+test('administratively closed roadmap state never reconciles an active D1 job', async () => {
+  const repo = isolatedRepo();
+  const job = await repo.create({
+    id: 'mel-autonomy-work-closed-only',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] administrative closure only',
+    optional_context: { roadmap_id: 'MEL-WORK-01' },
+  });
+  const closedRoadmap = roadmap.map(item => item.id === 'MEL-WORK-01' ? { ...item, status: 'DONE' } : item);
+  await new AutonomySupervisor({ repository: repo, roadmap: closedRoadmap }).ensureNextJob();
+  assert.equal((await repo.get(job.id)).status, 'QUEUED');
+});
