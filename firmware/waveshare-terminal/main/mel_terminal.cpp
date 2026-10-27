@@ -1818,6 +1818,22 @@ static std::string record_and_transcribe() {
     return text;
 }
 
+// Only a request to show something (or a real display result) opens the
+// small-screen chat/media panel. Spoken conversation remains on the avatar.
+static bool spoken_visual_request(const std::string &spoken) {
+    std::string text = spoken;
+    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char ch) { return (char)std::tolower(ch); });
+    const auto has = [&](const char *needle) { return text.find(needle) != std::string::npos; };
+    const bool show = has("montre") || has("affiche") || has("ouvre") ||
+                      has("fais voir") || has("visualise") || has("regarde") ||
+                      has("envoie-moi") || has("envoie moi");
+    const bool visual = has("page") || has("site") || has("internet") || has("web") ||
+                        has("photo") || has("image") || has("vidéo") || has("video") ||
+                        has("média") || has("media") || has("document") || has("article") ||
+                        has("carte") || has("lien");
+    return show && (visual || has("montre") || has("affiche"));
+}
+
 static void voice_worker_task(void *) {
     ESP_LOGI(
         TAG,
@@ -1876,9 +1892,16 @@ static void voice_worker_task(void *) {
 
         g_runtime_state = MEL_TERMINAL_SPEAKING;
         ui_status("MEL PARLE");
-        std::string visible_answer = answer;
-        if (visible_answer.size() > 2000) visible_answer.resize(2000);
-        mini_ui_open_response_page(visible_answer.c_str());
+        // A spoken answer must not hide the avatar and its PARLER control.
+        // Display explicit page/photo/media requests in the rich response view.
+        const bool show_visual = !g_display_items.empty() || spoken_visual_request(text);
+        ESP_LOGI(TAG, "VOICE UI route=%s items=%u", show_visual ? "MEDIA" : "AVATAR",
+                 (unsigned)g_display_items.size());
+        if (show_visual) {
+            std::string visible_answer = answer;
+            if (visible_answer.size() > 2000) visible_answer.resize(2000);
+            mini_ui_open_response_page(visible_answer.c_str());
+        }
 
         const int64_t tts_started_us = esp_timer_get_time();
         const bool voice_enabled = g_voice_output_enabled;
@@ -1890,7 +1913,7 @@ static void voice_worker_task(void *) {
             vTaskDelay(pdMS_TO_TICKS(900));
         }
 
-        if (!g_display_items.empty()) {
+        if (show_visual && !g_display_items.empty()) {
             ui_show_display_source(0);
             if (mel_link_v2_transport_ready() || mel_mobile_bridge_ready()) render_display_item_card(0);
         } else {
@@ -1989,6 +2012,9 @@ void mel_terminal_request_voice(void) {
     g_voice_capture_requested = true;
     g_voice_job_active = true;
     g_runtime_state = MEL_TERMINAL_LISTENING;
+    // Beginning another voice turn always returns to the avatar. Any earlier
+    // web/media content can be opened again by a new explicit visual request.
+    mini_ui_close_response_page();
     ui_status("ECOUTE...");
     ui_answer("");
 
@@ -2610,17 +2636,19 @@ static bool handle_local_media_command(const std::string &spoken) {
          text.find("prendre") != std::string::npos ||
          text.find("capture") != std::string::npos);
 
+    // A request to SHOW a video/audio must not start a camera/microphone
+    // recording just because the medium name occurs in the sentence.
+    const bool capture_action = text.find("enregistre") != std::string::npos ||
+                                text.find("enregistrer") != std::string::npos ||
+                                text.find("capture") != std::string::npos;
     const bool video =
         text.find("filme") != std::string::npos ||
         text.find("filmer") != std::string::npos ||
-        text.find("video") != std::string::npos ||
-        text.find("vidéo") != std::string::npos;
-
-    const bool audio =
-        !photo && !video &&
-        (text.find("enregistre") != std::string::npos ||
-         text.find("dictaphone") != std::string::npos ||
-         text.find("audio") != std::string::npos);
+        (capture_action && (text.find("video") != std::string::npos ||
+                            text.find("vidéo") != std::string::npos));
+    const bool audio = !photo && !video &&
+        (capture_action || (text.find("lance") != std::string::npos &&
+                            text.find("dictaphone") != std::string::npos));
 
     if (!photo && !video && !audio) return false;
 
