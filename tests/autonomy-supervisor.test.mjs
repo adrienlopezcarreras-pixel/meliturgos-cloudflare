@@ -443,20 +443,35 @@ for (const status of ['DONE_VERIFIED', 'verified', ' accepted ']) {
       ] });
       const first = await supervisor.ensureNextJob();
       const second = await supervisor.ensureNextJob();
-      assert.equal(first.job.optional_context.roadmap_id, 'NEXT-ITEM');
-      assert.equal(second.job.id, first.job.id);
-      assert.deepEqual(await repository.get(job.id), before);
-      assert.equal((await repository.list()).length, 2);
+      if (jobStatus === 'CLAIMED') {
+        // Unknown Bridge ownership cannot be overwritten by roadmap closure.
+        // Admission stays locked pending explicit reconciliation.
+        assert.equal(first.created, false);
+        assert.equal(first.job, null);
+        assert.equal(first.external_progress?.status, 'ACTIVE_OBJECTIVE_REQUIRES_RECONCILIATION');
+        assert.equal(second.created, false);
+        assert.deepEqual(await repository.get(job.id), before);
+        assert.equal((await repository.list()).length, 1);
+      } else {
+        assert.equal(first.job.optional_context.roadmap_id, 'NEXT-ITEM');
+        assert.equal(second.job.id, first.job.id);
+        const historical = await repository.get(job.id);
+        assert.equal(historical.status, 'DONE_VERIFIED');
+        assert.equal(historical.result_json.roadmap_reconciliation.previous_status, before.status);
+        assert.equal((await repository.list()).length, 2);
+      }
     });
   }
 }
 
 test('durable accepted job defeats contradictory stale active job even before roadmap refresh', async () => {
   const repository = isolatedRepo();
-  for (const [id, status] of [['accepted', 'ACCEPTED'], ['stale', 'CLAIMED']]) {
-    await repository.create({ id, requested_by: 'mel-autonomy', goal: 'Same objective', optional_context: { roadmap_id: 'CLOSED-ITEM' } });
-    await repository.update(id, { status });
-  }
+  // Recreate a pre-existing contradictory D1 snapshot without creating two
+  // simultaneous active jobs through today's atomic admission fence.
+  const accepted = await repository.create({ id: 'accepted', requested_by: 'mel-autonomy', goal: 'Accepted objective', optional_context: { roadmap_id: 'CLOSED-ITEM' } });
+  await repository.update(accepted.id, { status: 'ACCEPTED' });
+  const stale = await repository.create({ id: 'stale', requested_by: 'mel-autonomy', goal: 'Legacy claimed objective', optional_context: { roadmap_id: 'CLOSED-ITEM' } });
+  await repository.update(stale.id, { status: 'CLAIMED' });
   const supervisor = new AutonomySupervisor({ repository, roadmap: [{ id: 'CLOSED-ITEM', status: 'PLANNED' }] });
   assert.deepEqual((await supervisor.state()).active, []);
   assert.equal((await supervisor.ensureNextJob()).created, false);
@@ -547,13 +562,17 @@ test('single-flight keeps oldest internal objective when a newer one is actionab
     status: 'WAITING_TEACHER',
     result_json: { teacher_bridge: { status: 'WAITING_TEACHER' } },
   });
-  const newer = await repo.create({
+  // Simulate legacy double-admission already persisted before the atomic fence.
+  const newer = { ...older,
     id: 'mel-autonomy-gen2-17-1',
-    requested_by: 'mel-autonomy',
+    job_id: 'mel-autonomy-gen2-17-1',
     goal: '[GEN2-17] Dev Agent',
+    status: 'TEACHER_APPROVED',
+    created_at: Number(older.created_at) + 1000,
+    updated_at: Number(older.updated_at) + 1000,
     optional_context: { roadmap_id: 'GEN2-17', source: 'autonomy-supervisor' },
-  });
-  await repo.update(newer.id, { status: 'TEACHER_APPROVED' });
+  };
+  repo.memory.set(newer.id, newer);
   const selected = await new AutonomySupervisor({ repository: repo, roadmap }).ensureNextJob();
   assert.equal(selected.created, false);
   assert.equal(selected.job.id, older.id);
