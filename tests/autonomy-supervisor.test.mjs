@@ -533,3 +533,29 @@ test('single-flight does not re-enter an externally owned prepared Bridge job', 
   assert.equal((await repo.list()).length, 1);
   assert.ok(selected.job === null || selected.job.id === job.id);
 });
+
+
+test('single-flight keeps oldest internal objective when a newer one is actionable', async () => {
+  const repo = isolatedRepo();
+  const older = await repo.create({
+    id: 'mel-autonomy-mel-work-01-1',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] Work Engine',
+    optional_context: { roadmap_id: 'MEL-WORK-01', source: 'autonomy-supervisor' },
+  });
+  await repo.update(older.id, {
+    status: 'WAITING_TEACHER',
+    result_json: { teacher_bridge: { status: 'WAITING_TEACHER' } },
+  });
+  const newer = await repo.create({
+    id: 'mel-autonomy-gen2-17-1',
+    requested_by: 'mel-autonomy',
+    goal: '[GEN2-17] Dev Agent',
+    optional_context: { roadmap_id: 'GEN2-17', source: 'autonomy-supervisor' },
+  });
+  await repo.update(newer.id, { status: 'TEACHER_APPROVED' });
+  const selected = await new AutonomySupervisor({ repository: repo, roadmap }).ensureNextJob();
+  assert.equal(selected.created, false);
+  assert.equal(selected.job.id, older.id);
+  assert.equal((await repo.list()).length, 2, 'existing jobs must not be deleted');
+});
