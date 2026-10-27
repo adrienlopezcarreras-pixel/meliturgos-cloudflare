@@ -130,6 +130,9 @@ export async function localPcModelReady(env, now = Date.now()) {
 export function bindLocalPcWorkersAi(env, run = runLocalPcModel) {
   const cloud = env.AI;
   const dbEnv = env;
+  // The Council keeps the cloud models: the PC answers one long prompt in
+  // minutes and the review's 5-7 parallel calls never finished (27/10).
+  if (!cloud?.__melLocalPc) env.MEL_CLOUD_AI = cloud;
   env.AI = {
     __melLocalPc: true,
     run: async (model, inputs = {}) => {
