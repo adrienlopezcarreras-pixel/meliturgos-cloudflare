@@ -146,7 +146,11 @@ for(const mode of ['conversation','code'])for(const type of ['image','audio','vi
  const prompt={image:'Montre-moi une photo de chat',audio:'Fais-moi écouter un son de pluie',video:'Montre-moi une vidéo de mer'}[type];
  const response=await worker.fetch(request(prompt,mode),environment);const data=await response.json();
  assert.equal(response.status,200,JSON.stringify(data));assert.equal(data.analysis_available,false);assert.equal(data.analysis_error,'CHAT_INFERENCE_FAILED');
- assert.equal(data.media.length,1);assert.equal(data.media[0].type,type);assert.match(data.text,/synthèse.*indisponible/i);
+ assert.equal(data.media.length,1);assert.equal(data.media[0].type,type);
+ if(type==='image'){
+  assert.match(data.text,/Voici une photo correspondant à ta demande\./);
+  assert.doesNotMatch(data.text,/synthèse.*indisponible|Média récupéré|PRIVATE_PROVIDER_BODY/i);
+ } else assert.match(data.text,/synthèse.*indisponible/i);
  assert.doesNotMatch(data.text,/PRIVATE_PROVIDER_BODY/);
  const {host}=browser(t,data.text,data);assert.equal(host.querySelectorAll(type==='image'?'img':type).length,1);
  const {ConversationService}=await import('../src/conversations/conversation-service.js');
@@ -192,6 +196,8 @@ test('Code mode displays the current pope photo even when the Vatican historical
   assert.doesNotMatch(data.text,/IMAGE_SEARCH_EMPTY/);
   assert.equal(data.media.length,1,JSON.stringify(data));
   assert.equal(data.media[0].url,'https://upload.wikimedia.org/leo14.jpg');
+  assert.match(data.text,/Voici une photo du pape Léon XIV\./);
+  assert.doesNotMatch(data.text,/File:Pope|synthèse du modèle est indisponible/i);
   assert.ok(calls.includes('https://www.vatican.va/holy_father/index_fr.htm'));
   const {host}=browser(t,data.text,data);
   assert.equal(host.querySelectorAll('img').length,1);
