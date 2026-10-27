@@ -586,6 +586,10 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
         ...(current.optional_context && typeof current.optional_context === 'object' ? current.optional_context : {}),
         job_id: current.id,
         origin: 'autonomy-runtime-cron',
+        council_excluded_providers: (Array.isArray(current.result_json?.council_model_exclusions)
+          ? current.result_json.council_model_exclusions : [])
+          .filter(row => row && typeof row.id === 'string' && Number(row.until) > Date.now())
+          .slice(0, 40),
         rule: 'AI_COUNCIL_BEFORE_CODE',
         teacher_revision: priorReview ? {
           previous_request_id: priorReview.request_id || null,
@@ -883,7 +887,34 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       if (!deferred) throw error;
       const latest = await jobRepository.get(job.id);
       if (latest && !['FAILED', 'CANCELLED', 'COMPLETED'].includes(String(latest.status))) {
-        await jobRepository.update(job.id, { result_json: { ...latest.result_json, autonomy_deferral: deferred } }, { expected: latest });
+        const existing = Array.isArray(latest.result_json?.council_model_exclusions)
+          ? latest.result_json.council_model_exclusions : [];
+        const now = Date.now();
+        const quarantine = new Map(existing
+          .filter(row => row && typeof row.id === 'string' && Number(row.until) > now)
+          .map(row => [row.id, { id: row.id, until: Number(row.until) }]));
+        for (const id of (Array.isArray(error?.council_model_exclusions) ? error.council_model_exclusions : [])) {
+          if (typeof id === 'string' && /^[a-zA-Z0-9_.:-]{1,100}$/.test(id) && !quarantine.has(id)) {
+            quarantine.set(id, { id, until: now + 10 * 60_000 });
+          }
+        }
+        const attempts = (Array.isArray(error?.council_model_attempts) ? error.council_model_attempts : [])
+          .slice(-80).map(row => ({
+            provider_id: String(row.provider_id || '').slice(0, 100),
+            model_id: String(row.model_id || '').slice(0, 100),
+            role: String(row.role || '').slice(0, 70),
+            status: String(row.status || '').slice(0, 20),
+            duration_ms: Math.max(0, Number(row.duration_ms) || 0),
+            error: row.error ? String(row.error).slice(0, 100) : null,
+          }));
+        await jobRepository.update(job.id, {
+          result_json: {
+            ...latest.result_json,
+            autonomy_deferral: deferred,
+            council_model_attempts: attempts,
+            council_model_exclusions: [...quarantine.values()].slice(0, 40),
+          },
+        }, { expected: latest });
       }
       teacher = { status: 'NOT_READY', code };
       job = null;
