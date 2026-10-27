@@ -12,7 +12,7 @@ const roadmap = [
   { id: 'GEN2-17', title: 'Dev Agent', status: 'PLANNED', priority: 'P0', phase_id: 'P06', phase: 'Evolution' },
 ];
 
-test('normal supervised mode keeps moving while a real internal Teacher request is pending', async () => {
+test('normal supervised mode retains the same mission while Teacher is pending', async () => {
   const repo = isolatedRepo();
   const first = await repo.create({
     id: 'mel-autonomy-mel-work-01-1',
@@ -33,12 +33,13 @@ test('normal supervised mode keeps moving while a real internal Teacher request 
   const supervisor = new AutonomySupervisor({ repository: repo, roadmap });
   const next = await supervisor.ensureNextJob();
 
-  assert.equal(next.created, true);
-  assert.equal(next.job.optional_context.roadmap_id, 'GEN2-17');
+  assert.equal(next.created, false);
+  assert.equal(next.job?.id, first.id);
+  assert.equal((await repo.list()).length, 1);
   assert.equal((await repo.get(first.id)).status, 'WAITING_TEACHER');
 });
 
-test('normal supervised mode keeps moving while an approved candidate awaits CI completion evidence', async () => {
+test('normal supervised mode retains the same approved candidate while CI evidence is pending', async () => {
   const repo = isolatedRepo();
   const first = await repo.create({
     id: 'mel-autonomy-mel-work-01-1',
@@ -63,8 +64,9 @@ test('normal supervised mode keeps moving while an approved candidate awaits CI 
   const supervisor = new AutonomySupervisor({ repository: repo, roadmap });
   const next = await supervisor.ensureNextJob();
 
-  assert.equal(next.created, true);
-  assert.equal(next.job.optional_context.roadmap_id, 'GEN2-17');
+  assert.equal(next.created, false);
+  assert.equal(next.job?.id, first.id);
+  assert.equal((await repo.list()).length, 1);
   assert.equal((await repo.get(first.id)).status, 'READY_FOR_REVIEW');
 });
 
