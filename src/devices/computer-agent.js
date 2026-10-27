@@ -22,16 +22,28 @@ function parseJson(text, fallback = null) {
   try { return JSON.parse(text); } catch { return fallback; }
 }
 
-export async function selectAgentDevice(db, now = Date.now()) {
+export async function diagnoseAgentDevice(db, now = Date.now()) {
   const rows = (await db.prepare("SELECT * FROM computer_devices WHERE platform='windows' AND halted=0 ORDER BY last_seen_at DESC LIMIT 5").all())?.results || [];
+  if (!rows.length) return { device: null, code: 'COMPANION_NO_ACTIVE_WINDOWS_DEVICE' };
+  let failure = 'COMPANION_HEARTBEAT_STALE';
   for (const row of rows) {
     const meta = parseJson(row.metadata, {}) || {};
-    const engineSeen = Number(meta.engine_heartbeat_at || 0);
-    if (meta.remote_access_enabled === true && engineSeen > 0 && now - engineSeen <= ENGINE_FRESH_MS) {
-      return { id: row.id, name: row.name, allowed_apps: parseJson(row.allowed_apps, []) || [], allowed_paths: Array.isArray(meta.allowed_paths) ? meta.allowed_paths : [], capabilities: parseJson(row.capabilities, []) || [], screen: meta.screen || null };
+    if (meta.remote_access_enabled !== true) {
+      failure = 'COMPANION_REMOTE_ACCESS_DISABLED';
+      continue;
     }
+    const engineSeen = Number(meta.engine_heartbeat_at || 0);
+    if (!Number.isFinite(engineSeen) || engineSeen <= 0 || engineSeen > now || now - engineSeen > ENGINE_FRESH_MS) {
+      failure = 'COMPANION_HEARTBEAT_STALE';
+      continue;
+    }
+    return { device: { id: row.id, name: row.name, allowed_apps: parseJson(row.allowed_apps, []) || [], allowed_paths: Array.isArray(meta.allowed_paths) ? meta.allowed_paths : [], capabilities: parseJson(row.capabilities, []) || [], screen: meta.screen || null }, code: 'READY' };
   }
-  return null;
+  return { device: null, code: failure };
+}
+
+export async function selectAgentDevice(db, now = Date.now()) {
+  return (await diagnoseAgentDevice(db, now)).device;
 }
 
 // Met une commande en file pour le Companion et attend son résultat.
