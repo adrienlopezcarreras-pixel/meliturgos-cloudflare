@@ -312,6 +312,18 @@ export class D1DevJobRepository {
       : [...this.memory.values()].filter(job => job.requested_by === 'mel-autonomy' && activeJob(job));
   }
 
+  // A completed/cancelled attempt can fall outside the 100-row UI list.
+  // Counting it in D1 prevents the next deterministic job ID from colliding
+  // with historical records and silently reusing a terminal job.
+  async countAutonomyObjectiveAttempts(roadmapId) {
+    const id = String(roadmapId || '').trim();
+    if (!id) return 0;
+    await this.init();
+    if (!this.db) return [...this.memory.values()].filter(job => objectiveId(job) === id).length;
+    const row = await this.db.prepare("SELECT COUNT(*) AS attempts FROM dev_jobs WHERE requested_by='mel-autonomy' AND json_extract(optional_context,'$.roadmap_id')=?").bind(id).first();
+    return Number(row?.attempts || 0);
+  }
+
   async update(id, patch, { expected = null } = {}) {
     await this.init();
     // In-memory CAS must re-read and compare without an intervening await.
