@@ -6,6 +6,7 @@
 
 #include "esp_log.h"
 #include "esp_random.h"
+#include "esp_heap_caps.h"
 #include "host/ble_att.h"
 #include "host/ble_gap.h"
 #include "host/ble_sm.h"
@@ -385,13 +386,37 @@ esp_err_t mel_link_v2_server_start(void) {
         return ESP_ERR_NO_MEM;
     }
 
-    g_rx_queue = xQueueCreate(RX_QUEUE_DEPTH, sizeof(LinkRxFrame));
-    if (!g_rx_queue || xTaskCreate(link_rx_worker, "mel_link_rx", 8192, nullptr, 5, &g_rx_task) != pdPASS) {
-        if (g_rx_queue) vQueueDelete(g_rx_queue);
+    // The Wi-Fi driver needs contiguous internal RAM later in app_main().
+    // The original #2773 worker reserved an 8 KiB internal stack plus ~6 KiB
+    // of internal queue storage before esp_wifi_init(), starving Wi-Fi.
+    // This Link V2 worker handles RAM-based session, audio and JSON frames;
+    // firmware/flash operations must NOT be executed on its PSRAM stack.
+    const size_t internal_before = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const size_t largest_before = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    g_rx_queue = xQueueCreateWithCaps(
+        RX_QUEUE_DEPTH, sizeof(LinkRxFrame), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
+    );
+    const BaseType_t worker_created = g_rx_queue
+        ? xTaskCreateWithCaps(
+            link_rx_worker, "mel_link_rx", 8192, nullptr, 5, &g_rx_task,
+            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
+          )
+        : pdFAIL;
+    if (worker_created != pdPASS) {
+        const bool queue_was_reserved = g_rx_queue != nullptr;
+        if (g_rx_queue) vQueueDeleteWithCaps(g_rx_queue);
         g_rx_queue = nullptr;
+        ESP_LOGE(TAG, "LINK RX PSRAM reservation failed queue=%d worker=%d",
+                 queue_was_reserved ? 1 : 0, worker_created == pdPASS ? 1 : 0);
         g_started.store(false);
         return ESP_ERR_NO_MEM;
     }
+    ESP_LOGI(TAG,
+             "LINK RX PSRAM RESERVED queue_bytes=%u stack_bytes=8192 internal_before=%u largest_before=%u internal_after=%u largest_after=%u",
+             (unsigned)(RX_QUEUE_DEPTH * sizeof(LinkRxFrame)),
+             (unsigned)internal_before, (unsigned)largest_before,
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
 
     esp_err_t err = nimble_port_init();
     if (err != ESP_OK) {
