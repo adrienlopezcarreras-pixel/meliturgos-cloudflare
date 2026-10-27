@@ -98,14 +98,22 @@ test('Council revalidates each provider at invocation time and falls back withou
     list() { return [a, b]; },
   };
 
-  const report = await runAugmentioStateOfPlay({ env: {}, goal: 'prove Council zero-euro TOCTOU closure', pool, minResponses: 2 });
-  assert.equal(report.status, 'COMPLETE');
-  assert.equal(report.synthesis.provider_id, 'a');
-  assert.equal(externalCalls.some((row) => row.id === 'b'), false, 'provider b must fail authorization before external invocation');
-  const security = report.responses.find((row) => row.answer?.role === 'SECURITY_GOVERNANCE');
-  assert.ok(security);
-  assert.equal(security.answer.assigned_provider_id, 'b');
-  assert.equal(security.answer.provider_id, 'a');
-  assert.equal(security.answer.provider_fallback_used, true);
-  assert.deepEqual(security.answer.provider_attempts, ['b', 'a']);
+  await assert.rejects(
+    () => runAugmentioStateOfPlay({ env: {}, goal: 'prove Council zero-euro TOCTOU closure', pool, minResponses: 2 }),
+    error => {
+      // Every mandatory role may fall back to a, but a single valid provider
+      // is NOT evidence of two independent Council models.
+      assert.equal(error.code, 'COUNCIL_INSUFFICIENT_RESPONSES');
+      assert.equal(error.responses, 1);
+      assert.ok(error.council_model_exclusions.includes('b'));
+      assert.ok(error.council_model_attempts.some(row =>
+        row.provider_id === 'b' && row.status === 'FAILED' && row.error === 'ZERO_EURO_BUDGET_EXCEEDED'
+        && row.duration_ms >= 0
+      ));
+      assert.ok(error.council_model_attempts.some(row => row.provider_id === 'a' && row.status === 'OK'));
+      return true;
+    }
+  );
+  assert.equal(externalCalls.some((row) => row.id === 'b'), false,
+    'provider b must fail authorization before external invocation');
 });

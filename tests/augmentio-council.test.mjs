@@ -274,3 +274,56 @@ test('MEL synthesis shares the role review deadline and cannot restart the provi
   }), { code: 'COUNCIL_MEL_SYNTHESIS_REQUIRED' });
   assert.deepEqual(calls, ['a'], 'expired synthesis must not start another provider');
 });
+
+
+test('Council records every model outcome, drops a silent adapter, and proves two independent model responses under 60 seconds', async () => {
+  const calls = [];
+  const dead = {
+    ...provider('a', 0, calls),
+    invoke: async () => new Promise(() => {}),
+  };
+  const pool = new ProviderPool([
+    dead, provider('b', 0, calls), provider('c', 0, calls),
+  ]);
+  const started = Date.now();
+  const report = await runAugmentioStateOfPlay({
+    env: { MEL_COUNCIL_REVIEW_BUDGET_MS: 400, MEL_COUNCIL_PROVIDER_TIMEOUT_MS: 20 },
+    goal: 'prove the quorum without reusing the silent model',
+    pool,
+  });
+  assert.ok(Date.now() - started < 1000);
+  assert.equal(report.quorum_under_60s, true);
+  assert.ok(report.council_elapsed_ms < 60_000);
+  assert.ok(report.responding_model_count >= 2);
+  assert.deepEqual(new Set(report.providers_succeeded), new Set(['b', 'c']));
+  assert.ok(report.council_model_exclusions.includes('a'));
+  assert.equal(report.all_required_roles_satisfied, true);
+  const failures = report.council_model_attempts.filter(row => row.provider_id === 'a');
+  assert.ok(failures.length >= 1);
+  assert.ok(failures.every(row => row.status === 'TIMEOUT' && row.duration_ms >= 0 && row.error));
+  assert.ok(report.council_model_attempts.some(row => row.provider_id === 'b' && row.status === 'OK' && row.error === null));
+  assert.ok(report.council_model_attempts.some(row => row.provider_id === 'c' && row.status === 'OK' && row.error === null));
+  assert.ok(!calls.some(row => row.id === 'a' && row.purpose === 'mel-council-synthesis'));
+});
+
+test('Council rejects false quorum and retains bounded model errors on failure', async () => {
+  const calls = [];
+  const bad = ['a', 'b'].map(id => ({
+    ...provider(id, 0, calls),
+    invoke: async () => { throw Object.assign(new Error('MODEL_UNAVAILABLE'), { code: 'MODEL_UNAVAILABLE' }); },
+  }));
+  await assert.rejects(
+    () => runAugmentioStateOfPlay({
+      env: { MEL_COUNCIL_REVIEW_BUDGET_MS: 250, MEL_COUNCIL_PROVIDER_TIMEOUT_MS: 20 },
+      goal: 'do not treat provider errors as responses',
+      pool: new ProviderPool(bad),
+    }),
+    error => {
+      assert.equal(error.code, 'COUNCIL_INSUFFICIENT_RESPONSES');
+      assert.ok(Array.isArray(error.council_model_attempts) && error.council_model_attempts.length >= 2);
+      assert.ok(error.council_model_attempts.every(row => row.status === 'FAILED' && row.error === 'MODEL_UNAVAILABLE'));
+      assert.deepEqual(new Set(error.council_model_exclusions), new Set(['a', 'b']));
+      return true;
+    },
+  );
+});
