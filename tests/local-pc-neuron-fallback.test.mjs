@@ -59,3 +59,19 @@ test('an exhausted neuron share continues on the PC instead of stopping MAX', as
   assert.match(source, /bindLocalPcWorkersAi\(env, options\.runLocalPcModel\)/);
   assert.match(source, /status: 'AI_BUDGET_EXHAUSTED'/);
 });
+
+test('Companion readiness diagnoses stale heartbeat and disabled remote authorization', async () => {
+  const { diagnoseAgentDevice } = await import('../src/devices/computer-agent.js');
+  const db = sqliteD1();
+  const now = Date.now();
+  await device(db, { remote_access_enabled: false, engine_heartbeat_at: now, local_compute_enabled: true }, now);
+  assert.equal((await diagnoseAgentDevice(db, now)).code, 'COMPANION_REMOTE_ACCESS_DISABLED');
+  await db.prepare('UPDATE computer_devices SET metadata=? WHERE id=?')
+    .bind(JSON.stringify({ remote_access_enabled: true, engine_heartbeat_at: now - 25000, local_compute_enabled: true }), 'pc-1').run();
+  assert.equal((await diagnoseAgentDevice(db, now)).code, 'COMPANION_HEARTBEAT_STALE');
+  const ready = await localPcModelReady({ DB: db }, now);
+  assert.equal(ready.reason, 'COMPANION_HEARTBEAT_STALE');
+  await db.prepare('UPDATE computer_devices SET metadata=? WHERE id=?')
+    .bind(JSON.stringify({ remote_access_enabled: true, engine_heartbeat_at: now, local_compute_enabled: true }), 'pc-1').run();
+  assert.equal((await diagnoseAgentDevice(db, now)).code, 'READY');
+});
