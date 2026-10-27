@@ -978,12 +978,25 @@ static std::string voice_tts_text(const std::string &text) {
     return out;
 }
 
+static void mini_tts_memory_snapshot(const char *stage) {
+    ESP_LOGI(TAG, "MINI MEM %s internal_free=%u internal_largest=%u psram_free=%u psram_largest=%u",
+             stage,
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+}
+
 static bool speak_text(const std::string &text) {
+    mini_tts_memory_snapshot("tts-before");
     if (!g_voice_output_enabled) {
         ESP_LOGI(TAG, "TTS skipped: voice output disabled");
         return true;
     }
-    if (!g_audio_ok || !output_dev || text.empty()) return false;
+    if (!g_audio_ok || !output_dev || text.empty()) {
+        mini_tts_memory_snapshot("tts-unavailable");
+        return false;
+    }
     g_tts_stop_requested = false;
 
     const std::string spoken_text = voice_tts_text(text);

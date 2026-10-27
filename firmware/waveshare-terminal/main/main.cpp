@@ -153,7 +153,18 @@ static void web_card_touch_cb(lv_event_t *e);
 static void wifi_fallback_after_ble_task(void *);
 static void ui_stress_task(void *);
 
+static void mini_memory_snapshot(const char *stage) {
+    const size_t internal_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const size_t internal_largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const size_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    const size_t psram_largest = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    ESP_LOGI(TAG, "MINI MEM %s internal_free=%u internal_largest=%u psram_free=%u psram_largest=%u",
+             stage, (unsigned)internal_free, (unsigned)internal_largest,
+             (unsigned)psram_free, (unsigned)psram_largest);
+}
+
 static void microphone_boot_probe_task(void *) {
+    mini_memory_snapshot("micro-before");
     // Capture a short raw sample after boot to prove the microphone path
     // returns real PCM data, not merely that the ES8311 codec initialized.
     vTaskDelay(pdMS_TO_TICKS(6500));
@@ -167,6 +178,7 @@ static void microphone_boot_probe_task(void *) {
     constexpr size_t byte_count = sample_count * sizeof(int16_t);
     auto *pcm = static_cast<int16_t *>(malloc(byte_count));
     if (!pcm) {
+        mini_memory_snapshot("micro-allocation-failed");
         ESP_LOGE(TAG, "SELFTEST MICRO FAIL: allocation");
         vTaskDelete(nullptr);
         return;
@@ -205,6 +217,7 @@ static void microphone_boot_probe_task(void *) {
              (unsigned)sample_count, (int)min_sample, (int)max_sample, (long)span,
              (unsigned)mean_abs, (unsigned)transitions, varying_signal ? "YES" : "FLAT");
     free(pcm);
+    mini_memory_snapshot("micro-after");
     vTaskDelete(nullptr);
 }
 
@@ -1177,6 +1190,7 @@ static bool settings_camera_show_preview(const camera_fb_t *fb) {
 }
 
 static void settings_camera_test_task(void *) {
+    mini_memory_snapshot("camera-before");
     if (!camera_test_mutex) camera_test_mutex = xSemaphoreCreateMutex();
     if (!camera_test_mutex || xSemaphoreTake(camera_test_mutex, pdMS_TO_TICKS(1500)) != pdTRUE) {
         settings_set_status("CAMERA : test deja actif.");
