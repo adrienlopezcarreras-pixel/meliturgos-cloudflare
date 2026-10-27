@@ -74,9 +74,21 @@ export const FOUNDER_SQL = `SELECT id,status,updated_at,candidate_branch,
   json_extract(result_json,'$.autonomy_completion.ci.head_sha') AS ci_head_sha,
   json_extract(result_json,'$.autonomy_completion.ci.run_id') AS ci_run_id,
   json_extract(result_json,'$.autonomy_completion.ci.conclusion') AS ci_conclusion,
-  json_extract(result_json,'$.autonomy_completion.ci.verified') AS ci_verified
+  json_extract(result_json,'$.autonomy_completion.ci.verified') AS ci_verified,
+  json_extract(result_json,'$.council_model_attempts') AS council_model_attempts,
+  json_extract(result_json,'$.council_model_exclusions') AS council_model_exclusions
 FROM dev_jobs WHERE id LIKE 'mel-autonomy-mel-founder-01-%'
 ORDER BY created_at DESC LIMIT 3`;
+export function councilProviderEvidence(row={}) {
+  const array=value=>{try{const parsed=typeof value==='string'?JSON.parse(value):value;return Array.isArray(parsed)?parsed:[];}catch{return [];}};
+  const id=value=>/^[A-Za-z0-9@/_.:-]{1,120}$/.test(String(value||''))?value:null;
+  const code=value=>/^[A-Z][A-Z0-9_:-]{0,99}$/.test(String(value||''))?value:null;
+  return {
+    attempts:array(row.council_model_attempts).slice(-80).map(item=>({provider_id:id(item?.provider_id),model_id:id(item?.model_id),role:code(item?.role),status:['OK','FAILED','TIMEOUT'].includes(item?.status)?item.status:null,duration_ms:Number.isFinite(item?.duration_ms)&&item.duration_ms>=0?item.duration_ms:null,error:code(item?.error)})),
+    exclusions:array(row.council_model_exclusions).slice(0,40).map(item=>({id:id(item?.id),until:Number.isSafeInteger(item?.until)&&item.until>0?item.until:null})),
+  };
+}
+
 export async function readFounderD1Evidence({accountId,apiToken,databaseId,fetchImpl=fetch}={}) {
   if (!/^[a-f0-9]{32}$/i.test(String(accountId||'')) || !apiToken || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(String(databaseId||''))) return fail('D1_READ_CREDENTIALS_OR_BINDING_UNAVAILABLE');
   try {
@@ -88,6 +100,7 @@ export async function readFounderD1Evidence({accountId,apiToken,databaseId,fetch
     if (body?.success!==true || result?.success!==true || result?.meta?.rows_written!==0 || !Array.isArray(result.results)) return fail('D1_FOUNDER_READ_UNPROVEN');
     const code = value => /^[A-Z0-9_:.-]{1,180}$/.test(String(value||'')) ? value : null;
     return {ok:true,rows_written:0,observed_at:new Date().toISOString(),jobs:result.results.slice(0,3).map(row=>({
+      council:councilProviderEvidence(row),
       id:/^mel-autonomy-mel-founder-01-[a-z0-9-]{1,100}$/.test(String(row.id||''))?row.id:null,
       status:code(row.status),updated_at:version(row.updated_at),lease_expires_at:version(row.lease_expires_at),runtime_attempts:Number.isSafeInteger(row.runtime_attempts)?row.runtime_attempts:null,
       deferred_code:code(row.deferred_code),implementation_code:code(row.implementation_code),bridge_code:code(row.bridge_code),revision_code:code(row.revision_code),bridge_diagnostic:code(row.bridge_diagnostic),teacher_verdict:code(row.teacher_verdict),
