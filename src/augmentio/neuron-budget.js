@@ -85,6 +85,14 @@ export async function readNeuronBonus(db, { now = Date.now() } = {}) {
   } catch { return null; }
 }
 
+export async function readNeuronBonusTotal(db, { now = Date.now() } = {}) {
+  await ensureBonusSchema(db);
+  const row = await db.prepare(
+    'SELECT COALESCE(SUM(remaining), 0) AS total FROM mel_ai_neuron_bonus WHERE remaining > 0 AND expires_at > ?'
+  ).bind(now).first();
+  return Math.max(0, Number(row?.total || 0));
+}
+
 export async function grantNeuronBonus(db, { id, neurons, expiresAt, reason = '' }) {
   await ensureBonusSchema(db);
   await db.prepare('INSERT OR IGNORE INTO mel_ai_neuron_bonus (id, granted, remaining, expires_at, reason) VALUES (?, ?, ?, ?, ?)')
