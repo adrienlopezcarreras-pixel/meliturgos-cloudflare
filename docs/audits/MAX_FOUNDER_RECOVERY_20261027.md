@@ -15,6 +15,10 @@ Base inspectée : f560d7fc8dbe21086c2843bbd0570bc04023baeb. Production observée
 - 40 tests Council/runtime/attente verts après ajouts : fournisseurs silencieux, synthèse silencieuse, report persistant de la même mission. Tous les fournisseurs sont simulés, aucune inférence Cloud.
 - Suite complète et syntaxe : résultats à lire dans les journaux de validation, pas encore revendiqués ici.
 
+## Watchdog après timeout
+
+Le timeout renvoyait une progression sans inventaire : le watchdog la normalisait en `work_remaining:false` et affichait IDLE malgré la file active. Il relit maintenant l’inventaire courant sans mutation et conserve le motif timeout. Une régression avec fournisseur bloqué prouve mission QUEUED, compteur bloqué incrémenté et NO_PROGRESS, sans prétendre annuler le callback déjà engagé.
+
 ## Diagnostic et passage ciblé
 
 Le diagnostic manuel protégé existant lit maintenant les trois missions FOUNDER-01 les plus récentes et l’expiration du bail par SELECT constant, sans code, courrier ou texte propriétaire. 11 tests de lecture seule/sanitation passent.

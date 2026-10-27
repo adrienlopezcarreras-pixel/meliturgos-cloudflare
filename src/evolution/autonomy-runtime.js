@@ -903,6 +903,8 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
       new Promise(resolve => { timer = setTimeout(() => resolve({ ok: false, status: 'TICK_TIMEOUT', advanced: false, progress: { advanced: false, block_reason: 'AUTONOMY_TICK_TIMEOUT' } }), tickBudgetMs); }),
     ]).finally(() => clearTimeout(timer));
     if (raw?.status === 'TICK_TIMEOUT') {
+      const snapshot = repository ? await autonomyProgressSnapshot(repository, options.roadmap || null, epochMs) : {};
+      raw.progress = { ...raw.progress, ...snapshot };
       await import('../diagnostics/error-ledger.js')
         .then(({ recordError }) => recordError(env?.DB, { source: 'max/autonomy-tick', code: 'AUTONOMY_TICK_TIMEOUT', detail: `tick > ${tickBudgetMs} ms, étape : ${globalThis.__melTickStage || 'avant-core'}` }))
         .catch(() => null);
