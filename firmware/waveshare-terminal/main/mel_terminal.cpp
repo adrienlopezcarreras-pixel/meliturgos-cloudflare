@@ -1022,8 +1022,16 @@ static bool speak_text(const std::string &text) {
             return true;
         }
         if (!ok) {
-            ESP_LOGW(TAG, "LINK V2 TTS failed err=%s status=%d first_audio=%d; trying fallback",
+            ESP_LOGW(TAG, "LINK V2 TTS failed err=%s status=%d first_audio=%d",
                      esp_err_to_name(err), status, ctx.first_audio ? 1 : 0);
+            // If BLE sent any audio, replaying from the beginning over Wi-Fi
+            // or legacy mobile transport repeats the same reply in the speaker.
+            // Fail this utterance once, rather than double-speak.
+            if (!ctx.first_audio) {
+                ESP_LOGW(TAG, "TTS partial audio already played; suppressing duplicate fallback");
+                ui_status("VOIX INTERROMPUE");
+                return false;
+            }
             if (status > 0) {
                 char diag[32] = {};
                 snprintf(diag, sizeof(diag), "TTS HTTP %d", status);
