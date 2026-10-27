@@ -49,7 +49,7 @@ test('every unavailable AI model fails bounded on direct voice rather than falli
   const result = await answerOwnedDeviceConversation('Pourquoi le haut-parleur grésille ?', env, { voice: true });
   assert.equal(result.ok, false);
   assert.equal(result.status, 503);
-  assert.equal(result.code, 'MINI_VOICE_MODELS_UNAVAILABLE');
+  assert.equal(result.code, 'MINI_VOICE_PROVIDER_TIMEOUT');
   assert.equal(result.response_mode, 'device-conversation');
   assert.equal(calls.length, 3);
   assert.ok(Date.now() - started < 1000, 'test-only 10ms limit should cap total delay');
@@ -71,6 +71,41 @@ test('ordinary speech survives model errors and French possessive "son"', async 
   assert.equal(reply.text, 'Le haut-parleur a été réglé.');
   assert.equal(calls.length, 2);
   assert.equal(await answerOwnedDeviceConversation('montre une photo du pape', env, { voice: true }), null);
+});
+
+
+test('a spent Workers AI neuron budget is reported immediately without trying other models', async () => {
+  const calls = [];
+  const env = {
+    AI: {
+      async run(model, input) {
+        calls.push({model, input});
+        throw Object.assign(new Error('WORKERS_AI_DAILY_NEURON_BUDGET_EXHAUSTED:9000/9000'), {
+          code: 'WORKERS_AI_DAILY_NEURON_BUDGET_EXHAUSTED',
+          status: 429
+        });
+      },
+    },
+  };
+  const answer = await answerOwnedDeviceConversation('Raconte-moi une histoire courte', env, { voice: true });
+  assert.equal(answer.ok, false);
+  assert.equal(answer.code, 'MINI_VOICE_DAILY_BUDGET_EXHAUSTED');
+  assert.equal(answer.status, 429);
+  assert.equal(answer.detail, 'WORKERS_AI_DAILY_NEURON_BUDGET_EXHAUSTED');
+  assert.match(answer.retry_after_utc, /^\d{4}-\d{2}-\d{2}T00:00:00\.000Z$/);
+  assert.equal(calls.length, 1, 'account-wide quota is not retried on alternate models');
+  assert.equal(calls[0].input.neuron_reserve, true, 'must bypass long PC fallback via budget wrapper');
+});
+
+test('budget D1 outage is reported rather than hidden as a provider model failure', async () => {
+  let calls = 0;
+  const result = await answerOwnedDeviceConversation('Bonjour tout le monde', {
+    AI: {run: async () => { calls++; throw Object.assign(new Error('database unavailable'), {code:'WORKERS_AI_NEURON_BUDGET_UNAVAILABLE'}); }},
+  }, {voice:true});
+  assert.equal(result.code, 'MINI_VOICE_BUDGET_CHECK_UNAVAILABLE');
+  assert.equal(result.detail, 'WORKERS_AI_NEURON_BUDGET_UNAVAILABLE');
+  assert.equal(result.status, 503);
+  assert.equal(calls, 1);
 });
 
 test('MINI shows a photo before the web page, and the phone renders it', async () => {
