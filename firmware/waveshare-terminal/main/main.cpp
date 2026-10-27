@@ -2485,8 +2485,21 @@ extern "C" void app_main(void) {
     ESP_LOGI(TAG, "STEP 5.5 OK: MEL MOBILE SCANNING");
 
     ESP_LOGI(TAG, "STEP 6: WIFI STACK (FALLBACK READY, NOT CONNECTED)");
-    ESP_ERROR_CHECK(mini_wifi_stack_init());
-    ESP_LOGI(TAG, "STEP 6 OK: STA-ONLY WIFI STACK READY (FR channels 1-13)");
+    ESP_LOGI(TAG, "WIFI BOOT HEAP before: free_internal=%u largest_internal=%u free_psram=%u",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    const esp_err_t wifi_start_result = mini_wifi_stack_init();
+    if (wifi_start_result != ESP_OK) {
+        // Wi-Fi is fallback only: do not reboot-loop and destroy the primary
+        // authenticated BLE path when Wi-Fi's internal heap reserve fails.
+        ESP_LOGE(TAG, "WIFI FALLBACK UNAVAILABLE err=%s free_internal=%u largest_internal=%u",
+                 esp_err_to_name(wifi_start_result),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    } else {
+        ESP_LOGI(TAG, "STEP 6 OK: STA-ONLY WIFI STACK READY (FR channels 1-13)");
+    }
 
     if (lvgl_port_lock(0)) {
         mini_smoke_ui();
@@ -2494,17 +2507,19 @@ extern "C" void app_main(void) {
     }
 
 
-    // Do not auto-connect Wi-Fi at boot. MEL Mobile gets priority; only if the
-    // phone is absent/unusable do we fall back to saved Wi-Fi credentials.
-    xTaskCreatePinnedToCore(
-        wifi_fallback_after_ble_task,
-        "mini_transport_select",
-        4096,
-        nullptr,
-        3,
-        &wifi_fallback_task_handle,
-        0
-    );
+    // Do not create Wi-Fi fallback workers when Wi-Fi initialization failed.
+    // The authenticated BLE path remains available even with Wi-Fi disabled.
+    if (wifi_start_result == ESP_OK) {
+        xTaskCreatePinnedToCore(
+            wifi_fallback_after_ble_task,
+            "mini_transport_select",
+            4096,
+            nullptr,
+            3,
+            &wifi_fallback_task_handle,
+            0
+        );
+    }
 
     ESP_LOGI(TAG, "MINI INTEGRATED RUNTIME READY");
     xTaskCreatePinnedToCore(microphone_boot_probe_task, "mini_micro_probe", 4096, nullptr, 2, nullptr, 0);
