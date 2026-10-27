@@ -1,7 +1,7 @@
 // Hourly, no model: find paid-work places other than Taskmarket.
 // A README or an issue is a lead, not money. Nothing is submitted or paid here.
 import { discoverGithubBounties } from './github-bounty-discovery.js';
-import { isUnsafeRevenueSource } from './revenue-watch.js';
+import { isUnsafeRevenueSource,verifiedRepositoryFunding } from './revenue-watch.js';
 
 const SEARCH = 'https://api.github.com/search/repositories';
 const QUERIES = Object.freeze([
@@ -59,7 +59,7 @@ export async function watchPaidAlternatives(env, { fetchImpl = fetch, now = new 
   const asked = [];
   let handed = 0;
   for (const lead of leads.values()) {
-    if (handed >= MAX_CONNECTORS_PER_RUN || lead.type !== 'marketplace') continue;
+    if (handed >= MAX_CONNECTORS_PER_RUN || lead.type !== 'marketplace' || !verifiedRepositoryFunding(lead,{now:now.getTime()})) continue;
     const row = await env.DB.prepare('SELECT status FROM revenue_watch WHERE url=?').bind(lead.url).first();
     if (!row || !['NEW', 'DISCOVERY_ONLY'].includes(row.status)) continue;
     handed += 1;

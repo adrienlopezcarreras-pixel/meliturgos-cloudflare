@@ -40,7 +40,7 @@ test('nightly watch researches rotating themes, stores opportunities and flags o
   assert.equal(list.length, 2);
   assert.equal(list.find(o => o.name === 'Algora').first_seen, '2026-10-17');
   // Found sources are handed to MAX for a connector; nothing becomes payable.
-  assert.ok(list.every(o => o.status === 'INSTALL_QUEUED' && o.execution_eligible === false && o.paid === false));
+  assert.ok(list.every(o => o.status === 'DISCOVERY_ONLY' && o.execution_eligible === false && o.paid === false));
   db.close();
 });
 
@@ -81,7 +81,7 @@ test('model outage does not invent web work or discard independently discovered 
     });
     assert.equal(result.found, 1);
     const [lead] = await readRevenueWatch(db);
-    assert.equal(lead.status, 'DISCOVERY_ONLY');
+    assert.equal(lead.status, 'FUNDING_UNVERIFIED');
     assert.equal(lead.execution_eligible, false);
     assert.equal(lead.payment_verified, false);
     assert.equal(lead.paid, false);

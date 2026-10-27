@@ -1,0 +1,57 @@
+name: Founder owner recovery
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact successfully deployed SHA
+        required: true
+        type: string
+      approval:
+        description: Type RESTORE_FOUNDER_01_AND_REMOVE_DUPLICATE
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  recover:
+    if: ${{ github.ref == 'refs/heads/main' && github.actor == 'adrienlopezcarreras-pixel' }}
+    concurrency:
+      group: mel-launch-bootstrap-token
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Require explicit owner scope and successful exact release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_PRODUCTION_SHA: ${{ inputs.expected_sha }}
+          OWNER_RECOVERY_APPROVAL: ${{ inputs.approval }}
+        run: |
+          test "$OWNER_RECOVERY_APPROVAL" = RESTORE_FOUNDER_01_AND_REMOVE_DUPLICATE
+          [[ "$EXPECTED_PRODUCTION_SHA" =~ ^[a-f0-9]{40}$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/deploy-cloudflare-release.yml/runs?status=success&head_sha=$EXPECTED_PRODUCTION_SHA&per_page=5" > founder-release-verification.json
+          node -e "const x=require('./founder-release-verification.json');if(!x.workflow_runs?.some(r=>r.head_sha===process.env.EXPECTED_PRODUCTION_SHA&&r.conclusion==='success'))process.exit(1)"
+      - name: Back up, restore original mission, remove exact duplicate and exclude unverified repository work
+        env:
+          EXPECTED_PRODUCTION_SHA: ${{ inputs.expected_sha }}
+          OWNER_RECOVERY_APPROVAL: ${{ inputs.approval }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node scripts/recover-founder-owner.mjs
+      - name: Retain sanitized recovery receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: founder-owner-recovery-${{ github.run_id }}
+          path: founder-owner-recovery.json
+          if-no-files-found: warn
+          retention-days: 7

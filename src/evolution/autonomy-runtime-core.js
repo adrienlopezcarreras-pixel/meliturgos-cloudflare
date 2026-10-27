@@ -1,3 +1,4 @@
+import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { AutonomySupervisor, providerRetryContext, BRIDGE_MENTOR_ROUNDS } from './autonomy-supervisor.js';
@@ -23,7 +24,7 @@ export function currentAutonomyRepository(repository, epochMs = 0) {
   return new Proxy(repository, {
     get(target, key) {
       if (key === 'list') return async () => (await target.list()).filter(job =>
-        (!epoch || Number(job?.created_at || 0) >= epoch)
+        (!epoch || jobActivityTimestamp(job) >= epoch)
         && String(job?.status || '').toUpperCase() !== 'CANCELLED');
       const value = Reflect.get(target, key, target);
       return typeof value === 'function' ? value.bind(target) : value;
@@ -694,7 +695,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   const existing = await jobRepository.list();
   const epoch = Number(activityEpoch) || 0;
   for (const candidate of Array.isArray(existing) ? existing : []) {
-    if (epoch && Number(candidate?.created_at || 0) < epoch) continue;
+    if (epoch && jobActivityTimestamp(candidate) < epoch) continue;
     const by = String(candidate?.requested_by || '');
     if (by !== 'mel-autonomy' && !by.startsWith('owner-chat')) continue;
     const decision = unansweredExhaustedRepair(candidate);

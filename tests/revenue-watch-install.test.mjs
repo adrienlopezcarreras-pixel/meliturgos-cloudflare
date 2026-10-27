@@ -37,7 +37,7 @@ test('installing a source hands MAX one connector mission, once', async () => {
 test('the nightly watch installs what it finds, bounded per run', async () => {
   const db = sqliteD1();
   const calls = [];
-  const opportunities = Array.from({ length: 5 }, (_, i) => ({ url: 'https://github.com/o/r/issues/' + i, title: 'Bounty ' + i, automation: 'auto' }));
+  const opportunities = Array.from({ length: 5 }, (_, i) => ({ url: 'https://funded-platform.example/tasks/' + i, title: 'Bounty ' + i, automation: 'auto' }));
   const result = await runRevenueWatch({ DB: db }, { research: async () => ({ sources: [] }), githubDiscovery: async () => ({ opportunities }), install: async o => { calls.push(o); return { job_id: 'j' }; } });
   assert.equal(result.installs.length, 3);
   assert.equal(calls.length, 3);
@@ -48,4 +48,31 @@ test('WORK shows one "Tout installer" button and the install state', async () =>
   assert.match(page, /id="installAllRevenue"/);
   assert.match(page, /Installation par MAX/);
   assert.match(await readFile('src/api/revenue-worker-api.js', 'utf8'), /\/api\/revenue\/watch\/install/);
+});
+
+
+test('GitHub repositories and issue reward text without provider funding receipts never create missions',async()=>{
+  const db=sqliteD1();
+  try {
+    const url='https://github.com/owner/unfunded';
+    await seed(db,[[url,'Bounty $1000 proposed, unfunded','DISCOVERY_ONLY']]);
+    const result=await installRevenueSource({DB:db},url,{enqueue:()=>{throw Error('unfunded repository must not enqueue');}});
+    assert.equal(result.status,'FUNDING_UNVERIFIED');
+  } finally {db.close();}
+});
+
+test('global revenue queue bound applies across runs and frees a slot only after terminal work',async()=>{
+  const db=sqliteD1();
+  try {
+    const {D1DevJobRepository}=await import('../src/dev/d1-dev-job-repository.js');
+    const repo=new D1DevJobRepository(db);
+    for(let i=0;i<3;i++)await repo.create({id:'already-'+i,goal:'existing source',requested_by:'mel-autonomy',optional_context:{source:'revenue-watch'}});
+    const url='https://funded.example/offer';await seed(db,[[url,'paid task','DISCOVERY_ONLY']]);
+    let calls=0;const enqueue=async()=>{calls++;return {job_id:'new'};};
+    assert.equal((await installRevenueSource({DB:db},url,{enqueue})).status,'QUEUE_FULL');
+    assert.equal(calls,0);
+    await repo.update('already-0',{status:'COMPLETED'});
+    assert.equal((await installRevenueSource({DB:db},url,{enqueue})).status,'INSTALL_QUEUED');
+    assert.equal(calls,1);
+  } finally {db.close();}
 });

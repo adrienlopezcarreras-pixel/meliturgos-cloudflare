@@ -67,7 +67,14 @@ export const FOUNDER_SQL = `SELECT id,status,updated_at,candidate_branch,
   json_extract(result_json,'$.autonomy_deferral.code') AS deferred_code,
   json_extract(result_json,'$.implementation_planning_diagnostic.code') AS implementation_code,
   json_extract(result_json,'$.bridge_preparation.code') AS bridge_code,
-  json_extract(plan_json,'$.revision.reason') AS revision_code
+  json_extract(plan_json,'$.revision.reason') AS revision_code,
+  json_extract(result_json,'$.bridge_preparation_diagnostic.code') AS bridge_diagnostic,
+  json_extract(result_json,'$.teacher_bridge.review.verdict') AS teacher_verdict,
+  json_extract(result_json,'$.autonomy_completion.candidate_sha') AS completion_sha,
+  json_extract(result_json,'$.autonomy_completion.ci.head_sha') AS ci_head_sha,
+  json_extract(result_json,'$.autonomy_completion.ci.run_id') AS ci_run_id,
+  json_extract(result_json,'$.autonomy_completion.ci.conclusion') AS ci_conclusion,
+  json_extract(result_json,'$.autonomy_completion.ci.verified') AS ci_verified
 FROM dev_jobs WHERE id LIKE 'mel-autonomy-mel-founder-01-%'
 ORDER BY created_at DESC LIMIT 3`;
 export async function readFounderD1Evidence({accountId,apiToken,databaseId,fetchImpl=fetch}={}) {
@@ -83,7 +90,11 @@ export async function readFounderD1Evidence({accountId,apiToken,databaseId,fetch
     return {ok:true,rows_written:0,observed_at:new Date().toISOString(),jobs:result.results.slice(0,3).map(row=>({
       id:/^mel-autonomy-mel-founder-01-[a-z0-9-]{1,100}$/.test(String(row.id||''))?row.id:null,
       status:code(row.status),updated_at:version(row.updated_at),lease_expires_at:version(row.lease_expires_at),runtime_attempts:Number.isSafeInteger(row.runtime_attempts)?row.runtime_attempts:null,
-      deferred_code:code(row.deferred_code),implementation_code:code(row.implementation_code),bridge_code:code(row.bridge_code),revision_code:code(row.revision_code),
+      deferred_code:code(row.deferred_code),implementation_code:code(row.implementation_code),bridge_code:code(row.bridge_code),revision_code:code(row.revision_code),bridge_diagnostic:code(row.bridge_diagnostic),teacher_verdict:code(row.teacher_verdict),
+      completion_sha:/^[a-f0-9]{40}$/.test(String(row.completion_sha||''))?row.completion_sha:null,
+      ci_head_sha:/^[a-f0-9]{40}$/.test(String(row.ci_head_sha||''))?row.ci_head_sha:null,
+      ci_run_id:Number.isSafeInteger(row.ci_run_id)&&row.ci_run_id>0?row.ci_run_id:null,
+      ci_conclusion:['success','failure','cancelled'].includes(row.ci_conclusion)?row.ci_conclusion:null,ci_verified:row.ci_verified===1,
     }))};
   } catch {return fail('D1_FOUNDER_READ_TRANSPORT_FAILED');}
 }

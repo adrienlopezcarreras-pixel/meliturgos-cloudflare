@@ -1,3 +1,4 @@
+import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { runAutonomyRuntimeTick as runCoreAutonomyRuntimeTick, autonomyTickAdvanced, currentAutonomyRepository } from './autonomy-runtime-core.js';
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
 import { getAutonomyControl, setOwnerMaxAutonomy } from './autonomy-control.js';
@@ -210,7 +211,7 @@ async function hasActiveRuntimeWork(repository, epochMs = 0) {
   const jobs = await repository.list();
   const epoch = Number(epochMs) || 0;
   return jobs.some((job) => supervised(job)
-    && (!epoch || Number(job?.created_at || 0) >= epoch)
+    && (!epoch || jobActivityTimestamp(job) >= epoch)
     && ACTIVE_RUNTIME_STATES.has(String(job?.status || '').toUpperCase()));
 }
 
