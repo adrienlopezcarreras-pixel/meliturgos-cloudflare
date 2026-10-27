@@ -484,7 +484,8 @@ async function runMiniDirectVoice(text, env) {
       const code = String(error?.code || error?.message || "MINI_VOICE_FAILED").slice(0, 120);
       lastFailure = code;
       lastStatus = Number(error?.status) || 503;
-      if (code === "WORKERS_AI_DAILY_NEURON_BUDGET_EXHAUSTED" || code.startsWith("WORKERS_AI_DAILY_NEURON_BUDGET_EXHAUSTED:") || code === "3036") {
+      const providerFailure = (String(error?.code || "") + " " + String(error?.message || "")).slice(0, 300);
+      if (/WORKERS_AI_DAILY_NEURON_BUDGET_EXHAUSTED|\\b3036\\b|daily free allocation/i.test(providerFailure)) {
         console.warn("[mini-voice] daily neuron budget exhausted; aborting inference cascade", {
           model, code, elapsed_ms: Date.now() - startedAt,
         });
