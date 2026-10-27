@@ -493,7 +493,7 @@ test('MAX single-flight retains a healthy WAITING_TEACHER mission instead of mat
   assert.equal((await repo.list()).length, 1);
 });
 
-test('normal mode may still schedule the next roadmap objective while Teacher progresses externally', async () => {
+test('normal mode also retains the current roadmap mission while Teacher progresses externally', async () => {
   const repo = isolatedRepo();
   const first = await repo.create({
     id: 'mel-autonomy-mel-work-01-1',
@@ -507,6 +507,7 @@ test('normal mode may still schedule the next roadmap objective while Teacher pr
   });
   const supervisor = new AutonomySupervisor({ repository: repo, roadmap });
   const selected = await supervisor.ensureNextJob();
-  assert.equal(selected.created, true);
-  assert.equal(selected.job.optional_context.roadmap_id, 'GEN2-17');
+  assert.equal(selected.created, false);
+  assert.equal(selected.job.id, first.id);
+  assert.equal((await repo.list()).length, 1);
 });
