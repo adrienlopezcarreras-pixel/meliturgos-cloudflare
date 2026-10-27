@@ -215,7 +215,7 @@ export class D1DevJobRepository {
     if (!activeJob(job)) return job;
     // Do not interrupt an external Bridge execution or live review. Such
     // jobs require their own completion/rollback reconciliation.
-    if (['CLAIMED', 'READY_FOR_REVIEW', 'WAITING_TEACHER'].includes(String(job.status || '').toUpperCase())) {
+    if (['CLAIMED', 'READY_FOR_REVIEW', 'WAITING_TEACHER', 'REPAIR_REQUIRED'].includes(String(job.status || '').toUpperCase())) {
       return job;
     }
     // A job still carrying an active Bridge or Teacher marker must not be
