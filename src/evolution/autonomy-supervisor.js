@@ -328,7 +328,7 @@ export class AutonomySupervisor {
     // explicitly marks their objective verified. Never delete history or
     // interrupt Teacher, Bridge or review lanes.
     if (typeof this.repository.reconcileVerifiedAutonomyJob === 'function') {
-      const verified = new Map(this.roadmap.filter(isVerifiedRoadmap).map(item => [item.id, item]));
+      const verified = new Map(this.roadmap.filter(item => ['DONE_VERIFIED', 'VERIFIED', 'ACCEPTED'].includes(String(item?.status || '').trim().toUpperCase())).map(item => [item.id, item]));
       if (verified.size) {
         for (const job of await this.repository.list()) {
           const item = job?.requested_by === 'mel-autonomy' ? verified.get(roadmapIdFromJob(job)) : null;
