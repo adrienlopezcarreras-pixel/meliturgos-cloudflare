@@ -566,7 +566,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
         bindLocalPcWorkersAi(env, options.runLocalPcModel);
         return preservePreEnsureCreation(await runCoreResilient(env, { ...coreOptions, onlyJobId: onlyJobId || null }, repository), preEnsure);
       },
-      selectJobs: (count) => selectablePcJobs(currentRepository, epochMs, options.roadmap, count),
+      selectJobs: (count) => selectablePcJobs(currentRepository, epochMs, options.roadmap, count, control.max_autonomy === true),
     });
     return {
       ...more.result,
@@ -592,7 +592,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
       bindLocalPcWorkersAi(env, options.runLocalPcModel);
       return preservePreEnsureCreation(await runCoreResilient(env, { ...coreOptions, onlyJobId: onlyJobId || null }, repository), preEnsure);
     },
-    selectJobs: (count) => selectablePcJobs(currentRepository, epochMs, options.roadmap, count),
+    selectJobs: (count) => selectablePcJobs(currentRepository, epochMs, options.roadmap, count, control.max_autonomy === true),
   });
   return {
     ...more.result,
