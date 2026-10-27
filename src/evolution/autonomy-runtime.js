@@ -473,7 +473,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
   };
   try {
     if (!options.onlyJobId && !(await hasActiveRuntimeWork(repository, epochMs))) {
-      preEnsure = await ensureNextRuntimeJob(repository, options.roadmap || null, epochMs, control.max_autonomy === true);
+      preEnsure = await ensureNextRuntimeJob(repository, options.roadmap || null, epochMs, true);
     }
   } catch (error) {
     preEnsure = {
