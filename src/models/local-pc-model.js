@@ -17,7 +17,8 @@ export const LOCAL_PC_MODEL = 'qwen3:8b';
 export const LOCAL_PC_CODER_MODEL = 'qwen2.5-coder:7b';
 export const ONLINE_CODER_MODEL = '@cf/qwen/qwen2.5-coder-32b-instruct';
 const POLL_MS = 700;
-const TIMEOUT_MS = 600_000;
+// Bound PC inference below MAX's 240s tick, leaving time for an online fallback.
+const TIMEOUT_MS = 210_000;
 const COMMAND_LIMIT = 8_000;
 
 function toBase64Utf8(text) {
@@ -74,7 +75,7 @@ export function localPcCommand({ model = LOCAL_PC_MODEL, messages }) {
       "$body=[Convert]::FromBase64String('" + payload + "')",
       "$pref=Join-Path $env:LOCALAPPDATA 'MEL\\" + (String(model).includes('coder') ? 'local-coder.txt' : 'local-model.txt') + "'",
       "if(Test-Path -LiteralPath $pref){$n=(Get-Content -LiteralPath $pref -Raw).Trim();if($n -match '^[A-Za-z0-9_.:/-]{1,80}$'){$o=[Text.Encoding]::UTF8.GetString($body)|ConvertFrom-Json;$o.model=$n;$body=[Text.Encoding]::UTF8.GetBytes(($o|ConvertTo-Json -Compress -Depth 8))}}",
-      "$r=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/chat' -Method Post -ContentType 'application/json; charset=utf-8' -Body $body -TimeoutSec 580",
+      "$r=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/chat' -Method Post -ContentType 'application/json; charset=utf-8' -Body $body -TimeoutSec 200",
       "$t=[string]$r.message.content",
       "[ordered]@{action='local.model.chat';model=[string]$r.model;text_b64=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($t));eval_count=$r.eval_count}|ConvertTo-Json -Compress",
     ].join('\n');
@@ -94,10 +95,11 @@ export async function runLocalPcModel({ env, messages, model = env?.MEL_LOCAL_PC
   let step;
   try { step = localPcCommand({ model, messages }); } catch (error) { return { ok: false, code: error.message }; }
   const id = crypto.randomUUID();
-  const plan = { schema: 'mel.devices.pc-control.v1', owner_authorized: true, steps: [{ id: 'pc-control-1', action: 'system.exec', payload: step }] };
+  const issuedAt = now();
+  const deadline = issuedAt + TIMEOUT_MS;
+  const plan = { schema: 'mel.devices.pc-control.v1', owner_authorized: true, expires_at: deadline, steps: [{ id: 'pc-control-1', action: 'system.exec', payload: step }] };
   await db.prepare('INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)')
-    .bind(id, device.id, 'local-model-' + id, JSON.stringify(plan), 'PENDING', now()).run();
-  const deadline = now() + TIMEOUT_MS;
+    .bind(id, device.id, 'local-model-' + id, JSON.stringify(plan), 'PENDING', issuedAt).run();
   while (now() < deadline) {
     await sleep(POLL_MS);
     const row = await db.prepare('SELECT status,result_json,error_code FROM computer_commands WHERE id=?').bind(id).first();
@@ -108,7 +110,7 @@ export async function runLocalPcModel({ env, messages, model = env?.MEL_LOCAL_PC
     const text = out?.text_b64 ? fromBase64Utf8(out.text_b64).replace(/<think>[\s\S]*?<\/think>/g, '').trim() : '';
     return text ? { ok: true, text, model: 'pc:' + (out.model || model) } : { ok: false, code: 'LOCAL_MODEL_EMPTY' };
   }
-  await db.prepare("UPDATE computer_commands SET status='FAILED',error_code=? WHERE id=? AND status IN ('PENDING','RUNNING')").bind('LOCAL_MODEL_TIMEOUT', id).run().catch(() => {});
+  await db.prepare("UPDATE computer_commands SET status='FAILED',finished_at=?,error_code=? WHERE id=? AND status IN ('PENDING','RUNNING')").bind(now(), 'LOCAL_MODEL_TIMEOUT', id).run().catch(() => {});
   return { ok: false, code: 'LOCAL_MODEL_TIMEOUT' };
 }
 
