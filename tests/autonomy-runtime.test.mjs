@@ -655,3 +655,17 @@ test('insufficient Council responses defer the same mission without consuming ru
   assert.equal(pending.result_json.autonomy_deferral.code, 'COUNCIL_INSUFFICIENT_RESPONSES');
   assert.ok(pending.result_json.autonomy_deferral.retry_after > Date.now());
 });
+
+
+test('a stalled GitHub inspection is aborted and cannot enqueue a late Teacher request',async()=>{
+  const fixture=runtimeFixture();
+  const first=await runAutonomyRuntimeTick(fixture.env,{fetchImpl:fixture.fetchImpl,repository:fixture.repository});
+  const previous=await fixture.repository.get(first.job.id);
+  const job=await fixture.repository.create({id:'inspection-timeout',requested_by:'owner-chat',goal:'inspect existing code'});
+  await fixture.repository.update(job.id,{plan_json:{preflight:previous.plan_json.preflight}});
+  fixture.env.MEL_AUTONOMY_INSPECTION_BUDGET_MS=20;
+  let calls=0,signal;
+  await assert.rejects(prepareAutonomyTeacherRequest({env:fixture.env,repository:fixture.repository,job,fetchImpl:async(_url,options)=>{calls++;signal=options.signal;return new Promise(()=>{});}}),{code:'CODE_INSPECTION_TIMEOUT'});
+  assert.equal(calls,1);assert.equal(signal.aborted,true);
+  assert.equal((await fixture.repository.get(job.id)).result_json?.teacher_bridge,undefined);
+});

@@ -45,3 +45,10 @@ XP MEL : NON — règles de preuves exactes, report et distinction déploiement/
 - 118 tests étendus initiaux verts ; 31 tests admission/lecture/revenus verts ; 13 tests propriétaire/rejeu/veille verts. CI complète du lot final, reproduction D1, release et preuve CI du vrai job encore à obtenir.
 
 Le relancement MAX après release verte est désormais explicitement autorisé par le propriétaire. Aucune allocation supplémentaire de neurones n’est autorisée par ce lot.
+
+
+## Inspection GitHub après le Council
+
+Le segment historique `council-teacher` englobait aussi l’inspection GitHub. Son reader n’avait aucun timeout HTTP. Le lot borne désormais l’inspection entière (entêtes et corps compris) à 45 s, annule les requêtes via AbortController et interdit de lancer les suivantes après l’expiration ; une lecture silencieuse ne peut pas produire un Teacher tardif. `CODE_INSPECTION_TIMEOUT` utilise le report persistant, pas une validation partielle. Marqueurs distincts : council-models, code-inspection, teacher-request. 50 tests runtime/reprise/vérification passent, avec un transport GitHub qui ne répond jamais.
+
+Baseline de production authentifiée en lecture seule : run40504033560 SUCCESS, trois échantillons ; doublon QUEUED/COUNCIL_INSUFFICIENT_RESPONSES, original CANCELLED/REPAIR_REQUIRED conservé, deux baux successifs observés. Le marqueur historique seul ne permet pas d’attribuer l’abandon de 11:15 à un modèle spécifique.
