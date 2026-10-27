@@ -49,3 +49,26 @@ test('online authorized Companion: the queued command result is decoded (accents
   const result = await runLocalPcModel({ env: { DB: db }, messages: [{ role: 'user', content: 'x' }], sleep });
   assert.deepEqual(result, { ok: true, text: 'Été à Paris', model: 'pc:qwen3:8b' });
 });
+
+test('local model requests expire below the MAX tick and record a terminal failure', async () => {
+  const db = sqliteD1();
+  let clock = 1_800_000_000_000;
+  try {
+    await db.prepare("CREATE TABLE computer_devices(id TEXT PRIMARY KEY,token_hash TEXT,name TEXT,platform TEXT,capabilities TEXT,allowed_apps TEXT,halted INTEGER DEFAULT 0,created_at INTEGER,last_seen_at INTEGER,metadata TEXT)").run();
+    await db.prepare("CREATE TABLE computer_commands(id TEXT PRIMARY KEY,device_id TEXT,session_id TEXT,plan_json TEXT,status TEXT,created_at INTEGER,claimed_at INTEGER,finished_at INTEGER,result_json TEXT,error_code TEXT)").run();
+    await db.prepare("INSERT INTO computer_devices VALUES('pc','h','PC','windows','[]','[]',0,0,?,?)")
+      .bind(clock, JSON.stringify({ remote_access_enabled: true, local_compute_enabled: true, engine_heartbeat_at: clock })).run();
+    const answer = await runLocalPcModel({
+      env: { DB: db }, messages: [{ role: 'user', content: 'Write code' }],
+      now: () => clock,
+      sleep: async () => { clock += 211_000; },
+    });
+    assert.equal(answer.code, 'LOCAL_MODEL_TIMEOUT');
+    const command = await db.prepare('SELECT * FROM computer_commands').first();
+    assert.equal(command.status, 'FAILED');
+    assert.equal(command.error_code, 'LOCAL_MODEL_TIMEOUT');
+    const plan = JSON.parse(command.plan_json);
+    assert.equal(plan.expires_at - command.created_at, 210_000);
+    assert.equal(plan.steps[0].payload.timeout_ms, 210_000);
+  } finally { db.close(); }
+});
