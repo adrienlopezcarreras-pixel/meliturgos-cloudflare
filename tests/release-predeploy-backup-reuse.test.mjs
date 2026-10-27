@@ -199,7 +199,15 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
     assert.match(runner, /exportD1\(sidecar, sidecarJson/);
   }
   assert.match(runner, /createVerifiedBackupService/);
-  assert.match(runner, /createBackupEncryptionCodec/);
+  assert.match(runner, /writeVerifiedEncryptedBackupFile/);
+  assert.match(runner, /BACKUP_STREAM_CRYPTOSYSTEM_ROUNDTRIP_REQUIRED/);
+  const streamingWriter = await readFile(new URL('../release-tools/predeploy-backup-refresh/stream-encrypted-envelope.mjs', import.meta.url), 'utf8');
+  assert.match(streamingWriter, /createCipheriv\('aes-256-gcm'/);
+  assert.match(streamingWriter, /createDecipheriv\('aes-256-gcm'/);
+  assert.match(streamingWriter, /plaintextDigest\.digest\('hex'\)/);
+  assert.match(streamingWriter, /ciphertextDigest\.digest\('hex'\)/);
+  assert.match(streamingWriter, /BACKUP_ENCRYPTED_FILE_CIPHERTEXT_HASH_MISMATCH/);
+  assert.match(streamingWriter, /BACKUP_ENCRYPTED_FILE_PLAINTEXT_HASH_MISMATCH/);
   assert.match(runner, /inspectRestoreCandidate/);
   assert.match(runner, /attempts = 12/);
   assert.match(runner, /Math\.min\(2000, 500 \* attempt\)/);
