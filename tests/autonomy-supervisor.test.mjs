@@ -622,3 +622,21 @@ test('verified roadmap reconciliation refuses unverified or mismatched objective
   await assert.rejects(() => repo.reconcileVerifiedAutonomyJob(job.id, { id: 'GEN2-17', status: 'DONE_VERIFIED' }), { code: 'AUTONOMY_OBJECTIVE_MISMATCH' });
   assert.equal((await repo.get(job.id)).status, 'QUEUED');
 });
+
+
+test('verified roadmap reconciliation never closes repair-required work', async () => {
+  const repo = isolatedRepo();
+  const job = await repo.create({
+    id: 'mel-autonomy-work-repair',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] repair required',
+    optional_context: { roadmap_id: 'MEL-WORK-01' },
+  });
+  await repo.update(job.id, {
+    status: 'REPAIR_REQUIRED',
+    result_json: { dev_bridge: { needs_repair: true } },
+  });
+  const result = await repo.reconcileVerifiedAutonomyJob(job.id, { id: 'MEL-WORK-01', status: 'DONE_VERIFIED' });
+  assert.equal(result.status, 'REPAIR_REQUIRED');
+  assert.equal((await repo.get(job.id)).result_json.dev_bridge.needs_repair, true);
+});
