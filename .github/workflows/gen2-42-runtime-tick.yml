@@ -5,6 +5,11 @@ on:
     - cron: '17 * * * *'
   workflow_dispatch:
     inputs:
+      only_job_id:
+        description: "Optional existing mission ID; one scoped pass, no automatic continuation"
+        required: false
+        default: ""
+        type: string
       chain_depth:
         description: "Bounded event-driven autonomy chain depth"
         required: false
@@ -68,6 +73,8 @@ jobs:
       - name: Install exact lockfile
         run: npm ci
       - name: Run bounded GEN2-42 action with GitHub Actions OIDC
+        env:
+          ONLY_JOB_ID: ${{ inputs.only_job_id || '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -90,10 +97,10 @@ jobs:
           OIDC_TOKEN="$(printf '%s' "$RESPONSE" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);if(!j.value)process.exit(2);process.stdout.write(j.value)})')"
           echo "::add-mask::${OIDC_TOKEN}"
 
-          printf '{"phase":"%s"}' "$PHASE" > tick-request.json
+          PHASE="$PHASE" node -e "process.stdout.write(JSON.stringify({phase:process.env.PHASE,...(process.env.ONLY_JOB_ID?{only_job_id:process.env.ONLY_JOB_ID}:{})}))" > tick-request.json
           ATTEMPT=1
           while true; do
-            CODE="$(curl -sS --max-time 180 \
+            CODE="$(curl -sS --max-time 420 \
               -o tick-response.raw.json \
               -w '%{http_code}' \
               -X POST "$BASE_URL/api/internal/release-launch-bootstrap" \
@@ -156,8 +163,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CHAIN_DEPTH: ${{ inputs.chain_depth || '0' }}
+          ONLY_JOB_ID: ${{ inputs.only_job_id || '' }}
         run: |
           set -euo pipefail
+          if [ -n "$ONLY_JOB_ID" ]; then echo "FOCUSED_TICK_NO_AUTOMATIC_CHAIN"; exit 0; fi
           READY="$(node -p "JSON.parse(require('fs').readFileSync('gen2-42-runtime-tick-proof.json','utf8')).bridge_preparation_ready===true?'true':'false'")"
           JOB_ID="$(node -p "JSON.parse(require('fs').readFileSync('gen2-42-runtime-tick-proof.json','utf8')).bridge_job?.job_id||''")"
           # CODEX: local presence must never delay an approved cloud package.
@@ -185,6 +194,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CHAIN_DEPTH: ${{ inputs.chain_depth || '0' }}
+          ONLY_JOB_ID: ${{ inputs.only_job_id || '' }}
         run: |
           set -euo pipefail
           ADVANCED="$(node -p "JSON.parse(require('fs').readFileSync('gen2-42-runtime-tick-proof.json','utf8')).advanced===true?'true':'false'")"

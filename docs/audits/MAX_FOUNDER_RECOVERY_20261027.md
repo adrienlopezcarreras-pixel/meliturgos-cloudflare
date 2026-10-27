@@ -15,6 +15,14 @@ Base inspectée : f560d7fc8dbe21086c2843bbd0570bc04023baeb. Production observée
 - 40 tests Council/runtime/attente verts après ajouts : fournisseurs silencieux, synthèse silencieuse, report persistant de la même mission. Tous les fournisseurs sont simulés, aucune inférence Cloud.
 - Suite complète et syntaxe : résultats à lire dans les journaux de validation, pas encore revendiqués ici.
 
+## Diagnostic et passage ciblé
+
+Le diagnostic manuel protégé existant lit maintenant les trois missions FOUNDER-01 les plus récentes et l’expiration du bail par SELECT constant, sans code, courrier ou texte propriétaire. 11 tests de lecture seule/sanitation passent.
+
+Le workflow GEN2-42 accepte `only_job_id` transmis comme JSON, validé après authentification. Ce mode conserve pause/approbation/lease, ne crée pas de nouvelle mission, limite l’approbation MAX à cette mission et désactive les développements supplémentaires ainsi que les dispatchs automatiques. Il produit un reçu pour inspection avant l’étape suivante. La durée HTTP passe à 420 secondes pour couvrir l’attente de bail (90 s) et le tick (240 s). 59 tests bootstrap, générations d’activité et lease-contract passent ; annulation et mission indépendante restent intactes.
+
+La suite locale initiale a terminé avec 950 fichiers réussis, zéro échec ; les ajouts suivants disposent des tests ciblés ci-dessus et exigent la CI du SHA final.
+
 ## Limites et prochaine preuve
 
 Aucune modification D1, aucun nettoyage, aucune reprise MAX ni mission déclenchée par ce passage. Le journal propriétaire montre un ancien paquet syntaxiquement valide mais avec deux fichiers de tests en échec ; les refus historiques Council portent sur de vraies preuves manquantes Gmail/Agenda/Drive, présentation sans JSON et absence de doublon. Un succès technique du pipeline ne remplace pas ces critères.

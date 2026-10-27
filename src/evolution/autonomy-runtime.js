@@ -251,9 +251,9 @@ function preservePreEnsureCreation(result, preEnsure) {
   };
 }
 
-async function recordCoreRuntimeFailure(repository, error, { maxAttempts = 3, epochMs = 0, roadmap, evolutionLoader = null } = {}) {
+async function recordCoreRuntimeFailure(repository, error, { maxAttempts = 3, epochMs = 0, roadmap, evolutionLoader = null, onlyJobId = null } = {}) {
   const supervisor = new AutonomySupervisor({ repository: currentAutonomyRepository(repository, epochMs), epochMs, ...(roadmap ? { roadmap } : {}), evolutionLoader });
-  const jobs = (await supervisor.state()).active;
+  const jobs = (await supervisor.state()).active.filter(job => !onlyJobId || job.id === onlyJobId);
   const schedulerSelected = selectActionableAutonomyJob(
     jobs.filter(job => ACTIONABLE_FAILURE_STATES.has(String(job?.status || '').toUpperCase())),
     { epochMs, ...(roadmap ? { roadmap } : {}) },
@@ -328,7 +328,7 @@ async function runCoreResilient(env, coreOptions, repository) {
       };
     }
 
-    const failure = await recordCoreRuntimeFailure(repository, error, { epochMs: coreOptions.epochMs, roadmap: coreOptions.roadmap, evolutionLoader: coreOptions.roadmap ? null : createRuntimeEvolutionLoader(env) }).catch(() => ({
+    const failure = await recordCoreRuntimeFailure(repository, error, { epochMs: coreOptions.epochMs, roadmap: coreOptions.roadmap, onlyJobId: coreOptions.onlyJobId, evolutionLoader: coreOptions.roadmap ? null : createRuntimeEvolutionLoader(env) }).catch(() => ({
       job_id: null,
       attempts: 0,
       quarantined: false,
@@ -406,12 +406,12 @@ export async function mirrorAllWaitingInternalTeachers({ env = {}, repository, f
   return { attempted: waiting.length, mirrored, failed };
 }
 
-export async function approveAllWaitingTeachersUnderOwnerMax(repository, { source = 'owner-max-runtime', limit = 50 } = {}) {
+export async function approveAllWaitingTeachersUnderOwnerMax(repository, { source = 'owner-max-runtime', limit = 50, onlyJobId = null } = {}) {
   if (!repository || typeof repository.list !== 'function') {
     throw Object.assign(new Error('OWNER_MAX_REPOSITORY_REQUIRED'), { code: 'OWNER_MAX_REPOSITORY_REQUIRED' });
   }
   const jobs = await repository.list();
-  const waiting = jobs.filter(waitingTeacher).slice(0, Math.max(1, Math.min(100, Number(limit) || 50)));
+  const waiting = jobs.filter(job => !onlyJobId || job.id === onlyJobId).filter(waitingTeacher).slice(0, Math.max(1, Math.min(100, Number(limit) || 50)));
   const applied = [];
   const failed = [];
 
@@ -463,7 +463,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     complete: false,
   };
   try {
-    if (!(await hasActiveRuntimeWork(repository, epochMs))) {
+    if (!options.onlyJobId && !(await hasActiveRuntimeWork(repository, epochMs))) {
       preEnsure = await ensureNextRuntimeJob(repository, options.roadmap || null, epochMs);
     }
   } catch (error) {
@@ -538,7 +538,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
 
   let ownerMaxSweep;
   try {
-    ownerMaxSweep = await approveAllWaitingTeachersUnderOwnerMax(currentRepository, { source: 'owner-max-runtime' });
+    ownerMaxSweep = await approveAllWaitingTeachersUnderOwnerMax(currentRepository, { source: 'owner-max-runtime', onlyJobId: options.onlyJobId || null });
   } catch (error) {
     return {
       ...first,
@@ -557,6 +557,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     const more = await advanceMoreOnPc({
       env,
       seed: first,
+      limit: options.onlyJobId ? 1 : PC_DEVELOPMENTS_PER_TICK,
       run: async ({ onlyJobId } = {}) => {
         bindLocalPcWorkersAi(env, options.runLocalPcModel);
         return preservePreEnsureCreation(await runCoreResilient(env, { ...coreOptions, onlyJobId: onlyJobId || null }, repository), preEnsure);
@@ -582,6 +583,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     env,
     seed: second,
     alreadyRan: 2,
+    limit: options.onlyJobId ? 2 : PC_DEVELOPMENTS_PER_TICK,
     run: async ({ onlyJobId } = {}) => {
       bindLocalPcWorkersAi(env, options.runLocalPcModel);
       return preservePreEnsureCreation(await runCoreResilient(env, { ...coreOptions, onlyJobId: onlyJobId || null }, repository), preEnsure);

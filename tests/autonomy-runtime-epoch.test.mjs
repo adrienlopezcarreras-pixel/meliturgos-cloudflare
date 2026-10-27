@@ -279,3 +279,22 @@ test('a real runtime tick advances B while Mentor A remains durably deferred', a
     await releaseAutonomyRuntimeLease({db:f.DB,owner:'after-independent-tick'});
   } finally {f.DB.close();}
 });
+
+
+test('focused MAX pass never starts another mission or revives a cancelled target', async () => {
+  const f = await fixture({maxAutonomy:true});
+  try {
+    const target = await f.repository.create({id:'focused-target',requested_by:'mel-autonomy',goal:'target',optional_context:{roadmap_id:ROADMAP[0].id}});
+    const other = await f.repository.create({id:'unrelated',requested_by:'mel-autonomy',goal:'untouched',optional_context:{roadmap_id:'TEST-OTHER'}});
+    const before = await f.repository.get(other.id);
+    await f.tick({onlyJobId:target.id});
+    assert.deepEqual(await f.repository.get(other.id),before);
+    assert.equal((await f.repository.list()).length,2);
+    await f.repository.update(target.id,{status:'CANCELLED',error:'ACTIVITY_LIST_RESET'});
+    const cancelled=await f.repository.get(target.id);
+    await f.tick({onlyJobId:target.id});
+    assert.deepEqual(await f.repository.get(target.id),cancelled);
+    assert.deepEqual(await f.repository.get(other.id),before);
+    assert.equal((await f.repository.list()).length,2);
+  } finally {f.DB.close();}
+});
