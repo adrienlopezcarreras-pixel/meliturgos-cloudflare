@@ -94,5 +94,7 @@ test('closed persistent evolution objective cannot be resurrected by a stale que
  const next=await s.ensureNextJob();
  assert.equal(next.job.optional_context.roadmap_id,'BASE');
  assert.ok(!(await s.state()).active.some(row=>row.id===job.id));
- assert.equal((await r.get(job.id)).status,'QUEUED');
+ const historical=await r.get(job.id);
+ assert.equal(historical.status,'DONE_VERIFIED');
+ assert.equal(historical.result_json.roadmap_reconciliation.roadmap_id,'EVOLUTION-NEW-4');
 });
