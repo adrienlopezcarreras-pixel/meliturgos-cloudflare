@@ -339,6 +339,20 @@ export class AutonomySupervisor {
       .filter(job => job.requested_by === 'mel-autonomy')
       .sort(compareActiveJobs)[0] || null;
     if (this.singleFlight && inFlightInternal) {
+      // A Bridge-owned prepared CLAIMED job or a deferred provider must not
+      // be re-entered by the generic runtime while its external lane owns it.
+      if (isClaimedPreparedDevBridgeJob(inFlightInternal) || providerDeferred(inFlightInternal)) {
+        return {
+          created: false,
+          job: null,
+          next: current.next,
+          complete: false,
+          external_progress: {
+            job_id: inFlightInternal.id,
+            status: providerDeferred(inFlightInternal) ? 'DEFERRED_PROVIDER_RETRY_PENDING' : 'BRIDGE_EXECUTION_IN_PROGRESS',
+          },
+        };
+      }
       return { created: false, job: inFlightInternal, next: current.next };
     }
 
