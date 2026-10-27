@@ -815,3 +815,28 @@ test('COMMITTED work keeps the atomic mission fence until verified delivery', as
   assert.equal((await repo.list()).length, 1);
   assert.equal((await repo.get(job.id)).status, 'COMMITTED');
 });
+
+
+test('failed autonomy attempts remain quarantined beyond the last 100 UI rows', async () => {
+  const repository = isolatedRepo();
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const job = await repository.create({
+      id: 'old-failed-attempt-' + attempt,
+      requested_by: 'mel-autonomy',
+      goal: '[MEL-WORK-01] failed implementation',
+      optional_context: { roadmap_id: 'MEL-WORK-01' },
+    });
+    await repository.update(job.id, { status: 'FAILED', error: 'REAL_ATTEMPT_FAILED' });
+  }
+  for (let i = 0; i < 105; i += 1) {
+    await repository.create({ id: 'history-failure-' + i, requested_by: 'professor', goal: 'Unrelated history' });
+  }
+  const fullList = repository.list.bind(repository);
+  repository.list = async () => (await fullList()).slice(-100);
+  const supervisor = new AutonomySupervisor({ repository, roadmap });
+  const state = await supervisor.state();
+  assert.equal(state.failedAttemptsByRoadmap['MEL-WORK-01'], 3);
+  assert.equal(state.retryExhaustedIds.includes('MEL-WORK-01'), true);
+  const next = await supervisor.ensureNextJob();
+  assert.equal(next.job?.optional_context?.roadmap_id, 'GEN2-17');
+});
