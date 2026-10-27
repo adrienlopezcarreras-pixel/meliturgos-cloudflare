@@ -561,7 +561,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     const more = await advanceMoreOnPc({
       env,
       seed: first,
-      limit: options.onlyJobId ? 1 : PC_DEVELOPMENTS_PER_TICK,
+      limit: options.onlyJobId || control.max_autonomy === true ? 1 : PC_DEVELOPMENTS_PER_TICK,
       run: async ({ onlyJobId } = {}) => {
         bindLocalPcWorkersAi(env, options.runLocalPcModel);
         return preservePreEnsureCreation(await runCoreResilient(env, { ...coreOptions, onlyJobId: onlyJobId || null }, repository), preEnsure);
@@ -587,7 +587,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     env,
     seed: second,
     alreadyRan: 2,
-    limit: options.onlyJobId ? 2 : PC_DEVELOPMENTS_PER_TICK,
+    limit: options.onlyJobId || control.max_autonomy === true ? 2 : PC_DEVELOPMENTS_PER_TICK,
     run: async ({ onlyJobId } = {}) => {
       bindLocalPcWorkersAi(env, options.runLocalPcModel);
       return preservePreEnsureCreation(await runCoreResilient(env, { ...coreOptions, onlyJobId: onlyJobId || null }, repository), preEnsure);
