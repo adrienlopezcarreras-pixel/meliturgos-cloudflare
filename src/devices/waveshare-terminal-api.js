@@ -2,6 +2,7 @@ import { requireAuth } from "../core/security.js";
 import { createGen2Runtime } from "../core/orchestrator/gen2-runtime.js";
 import { handleNativeChat } from "../api/native-chat.js";
 import { handleVoiceTranscription } from "../api/voice-transcribe.js";
+import { inferChatMediaCapability } from "../api/chat-media-intent.js";
 
 import { inferComputerAgentGoal } from "./computer-agent-intent.js";
 import {readLinkedAndroidActivity} from "./mini-linked-android-phase.js";
@@ -554,6 +555,56 @@ async function deviceChat(request, env, auth) {
   const voiceReply = body.voice_reply === true || body.voice_mode === true;
   const conversation = await answerOwnedDeviceConversation(text, env, { voice: voiceReply && inputSource === "voice-server-transcription" });
   if (conversation) return json(conversation, conversation.ok ? 200 : (conversation.status || 503));
+
+  // An explicit public picture lookup is retrieval, not free-form chat inference.
+  // Returning verified provider images directly avoids the old /api/chat voice
+  // model cascade (CHAT 504) without changing ordinary speech or private media.
+  const pictureIntent = inferChatMediaCapability(text);
+  if (pictureIntent?.id === "web.images.search") {
+    try {
+      const runtime = createGen2Runtime({ env });
+      const result = await runtime.bus.execute("web.images.search", pictureIntent.input, {
+        env, request, source: "waveshare-terminal", device_id: auth.deviceId,
+      });
+      const images = Array.isArray(result?.images) ? result.images : [];
+      const items = images.filter(item => {
+        try {
+          const source = new URL(String(item?.source_url || ""));
+          const picture = new URL(String(item?.url || ""));
+          return source.protocol === "https:" && picture.protocol === "https:"
+            && !source.username && !source.password && !picture.username && !picture.password
+            && !/\\.svg(?:$|[?#])/i.test(picture.href);
+        } catch { return false; }
+      }).slice(0, 5).map((item, i) => ({
+        url: item.source_url,
+        image_url: item.url,
+        title: String(item.title || `Photo ${i + 1}`).slice(0, 180),
+        snippet: String(item.attribution || "").slice(0, 220),
+      }));
+      if (items.length) {
+        return json({
+          ok: true,
+          text: items.length === 1 ? "Voici la photo demandée." : "Voici les photos demandées.",
+          model: "deterministic-image-retrieval", provider: "mel",
+          response_mode: "device-image-search",
+          display: { title: "Photos", items },
+        });
+      }
+      return json({
+        ok: false, code: "MINI_IMAGE_SEARCH_EMPTY",
+        text: "Je n'ai pas trouvé de photo affichable pour cette demande.",
+        response_mode: "device-image-search",
+      }, 404);
+    } catch (error) {
+      console.warn("[mini-image-search] failed", String(error?.code || error?.message || "IMAGE_SEARCH_FAILED"));
+      return json({
+        ok: false, code: "MINI_IMAGE_SEARCH_FAILED",
+        detail: String(error?.code || "IMAGE_SEARCH_FAILED").slice(0, 100),
+        text: "La recherche d'images est indisponible pour le moment.",
+        response_mode: "device-image-search",
+      }, 503);
+    }
+  }
 
   const internal = new Request(new URL("/api/chat", request.url), {
     method: "POST",

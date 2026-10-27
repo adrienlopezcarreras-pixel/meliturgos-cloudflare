@@ -132,3 +132,15 @@ test('MINI shows a photo before the web page, and the phone renders it', async (
   assert.match(phone, /testTag\("media-video"\)/);
   assert.match(phone, /testTag\("media-page"\)/);
 });
+
+test('MINI public-photo requests have a dedicated sourced display path before native chat', async () => {
+  const source = await readFile(new URL('../src/devices/waveshare-terminal-api.js', import.meta.url), 'utf8');
+  const handler = source.slice(source.indexOf('async function deviceChat('), source.indexOf('async function deviceVoice('));
+  assert.match(handler, /inferChatMediaCapability\(text\)/);
+  assert.match(handler, /pictureIntent\?\.id === "web\.images\.search"/);
+  assert.match(handler, /runtime\.bus\.execute\("web\.images\.search"/);
+  assert.match(handler, /display: \{ title: "Photos", items \}/);
+  assert.ok(handler.indexOf('pictureIntent?.id') < handler.indexOf('handleNativeChat('),
+    'photo search must finish before the legacy chat inference route');
+  assert.match(handler, /MINI_IMAGE_SEARCH_FAILED/);
+});
