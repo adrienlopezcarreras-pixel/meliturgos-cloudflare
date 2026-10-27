@@ -472,3 +472,41 @@ test('explicit REGRESSED state permits a new attempt after historical completion
   assert.notEqual(result.job.id, 'old-completed');
   assert.equal((await repository.get('old-completed')).status, 'COMPLETED');
 });
+
+
+test('MAX single-flight retains a healthy WAITING_TEACHER mission instead of materializing another roadmap job', async () => {
+  const repo = isolatedRepo();
+  const first = await repo.create({
+    id: 'mel-autonomy-mel-work-01-1',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] Work Engine',
+    optional_context: { roadmap_id: 'MEL-WORK-01', source: 'autonomy-supervisor' },
+  });
+  await repo.update(first.id, {
+    status: 'WAITING_TEACHER',
+    result_json: { teacher_bridge: { status: 'WAITING_TEACHER' } },
+  });
+  const supervisor = new AutonomySupervisor({ repository: repo, roadmap, singleFlight: true });
+  const selected = await supervisor.ensureNextJob();
+  assert.equal(selected.created, false);
+  assert.equal(selected.job.id, first.id);
+  assert.equal((await repo.list()).length, 1);
+});
+
+test('normal mode may still schedule the next roadmap objective while Teacher progresses externally', async () => {
+  const repo = isolatedRepo();
+  const first = await repo.create({
+    id: 'mel-autonomy-mel-work-01-1',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] Work Engine',
+    optional_context: { roadmap_id: 'MEL-WORK-01', source: 'autonomy-supervisor' },
+  });
+  await repo.update(first.id, {
+    status: 'WAITING_TEACHER',
+    result_json: { teacher_bridge: { status: 'WAITING_TEACHER' } },
+  });
+  const supervisor = new AutonomySupervisor({ repository: repo, roadmap });
+  const selected = await supervisor.ensureNextJob();
+  assert.equal(selected.created, true);
+  assert.equal(selected.job.optional_context.roadmap_id, 'GEN2-17');
+});
