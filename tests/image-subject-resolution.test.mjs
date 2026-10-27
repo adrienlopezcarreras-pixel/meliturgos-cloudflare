@@ -45,3 +45,48 @@ test('a current pope photo keeps the latest name and rejects another Léon', asy
 test('audio and video retain their canonical provider and do not run image resolution',async()=>{
  for(const type of ['audio','video']){const s=fixture();await searchPublicMedia(s,{query:'piano',type});assert.equal(s.calls.length,1);assert.equal(s.calls[0].hostname,'commons.wikimedia.org');}
 });
+
+
+test('truncated Vatican table resolves the current pontiff from the compact official index, then finds a matching photo',async()=>{
+  const calls=[];
+  const shortIndex='https://www.vatican.va/holy_father/index_fr.htm';
+  const service={
+    async research(){
+      // The public table has 267 entries: the 50k read can stop before the final row.
+      return {sources:[{url:'https://www.vatican.va/content/vatican/fr/holy-father.html',
+        title:'Pontifes',content:'<table><tr><td>266</td><td>François</td><td>21.IV.2025</td></tr></table>'}]};
+    },
+    async fetchPage(raw){
+      calls.push(String(raw));
+      const u=new URL(raw);
+      if(raw===shortIndex)return {url:raw,content:'<nav><a href="/">Saint-Père</a></nav><a href="/leo">Léon XIV</a><a href="/francois">François</a>'};
+      if(u.hostname==='fr.wikipedia.org')return {content:JSON.stringify({query:{pages:{'-1':{missing:''}}}})};
+      if(u.hostname!=='commons.wikimedia.org')throw Error('Unexpected URL '+raw);
+      const search=u.searchParams.get('gsrsearch');
+      if(search==='Léon XIV filetype:bitmap')return {content:JSON.stringify({query:{pages:{}}}),source_id:'fixture',timestamp:1};
+      assert.equal(search,'Pope Leo XIV filetype:bitmap');
+      return {content:JSON.stringify({query:{pages:{
+        1:{index:1,title:'File:Leo XIII image.jpg',imageinfo:[{thumburl:'https://upload.wikimedia.org/leo13.jpg',descriptionurl:'https://commons.wikimedia.org/wiki/File:Leo_XIII',mime:'image/jpeg'}]},
+        2:{index:2,title:'File:Pope Leo XIV portrait.jpg',imageinfo:[{thumburl:'https://upload.wikimedia.org/leo14.jpg',descriptionurl:'https://commons.wikimedia.org/wiki/File:Leo_XIV',mime:'image/jpeg'}]},
+      }}}),source_id:'fixture',timestamp:1};
+    },
+  };
+  const result=await searchImages(service,{query:'montre moi une photo du pape',max_images:3});
+  assert.equal(result.code,null);
+  assert.equal(result.official_identity,'Léon XIV');
+  assert.equal(result.images.length,1);
+  assert.equal(result.images[0].url,'https://upload.wikimedia.org/leo14.jpg');
+  assert.ok(calls.includes(shortIndex));
+  assert.ok(calls.some(url=>url.includes('commons.wikimedia.org')));
+});
+
+test('a failed compact Vatican index does not guess a serving pope or invent a picture',async()=>{
+  const service={
+    async research(){return {sources:[{url:'https://www.vatican.va/content/vatican/fr/holy-father.html',
+      content:'<table><tr><td>266</td><td>François</td></tr></table>'}]};},
+    async fetchPage(){throw Error('official index unavailable');},
+  };
+  const result=await searchImages(service,{query:'montre moi une photo du pape'});
+  assert.equal(result.code,'IMAGE_SEARCH_EMPTY');
+  assert.equal(result.images.length,0);
+});

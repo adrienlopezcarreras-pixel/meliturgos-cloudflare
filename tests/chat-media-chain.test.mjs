@@ -162,3 +162,37 @@ for(const result of [
  const response=await worker.fetch(request('Génère une vidéo de mer'),environment);const data=await response.json();
  assert.equal(response.status,503);assert.equal(data.code,'CHAT_INFERENCE_FAILED');assert.ok(!data.media?.length);
 });
+
+
+test('Code mode displays the current pope photo even when the Vatican historical table is truncated',async t=>{
+  const calls=[];
+  const environment={
+    MELITURGOS_USER:'test',MELITURGOS_PASSWORD:'test-only',MEL_WEB_MIN_INTERVAL_MS:0,
+    MEL_WEB_FETCH:async url=>{
+      const raw=String(url);calls.push(raw);
+      if(raw==='https://www.vatican.va/content/vatican/fr/holy-father.html')
+        return new Response('<html><head><title>Pontifes</title></head><body><table><tr><td>266</td><td>François</td><td>21.IV.2025</td></tr></table></body></html>',{headers:{'content-type':'text/html'}});
+      if(raw==='https://www.vatican.va/holy_father/index_fr.htm')
+        return new Response('<html><a href="/leo">Léon XIV</a><a href="/francois">François</a><a href="/benoit">Benoît XVI</a></html>',{headers:{'content-type':'text/html'}});
+      if(raw.startsWith('https://fr.wikipedia.org/'))return Response.json({query:{pages:{'-1':{missing:''}}}});
+      if(raw.startsWith('https://commons.wikimedia.org/'))return Response.json({query:{pages:{
+        1:{index:1,title:'File:Pope Leo XIV portrait.jpg',imageinfo:[{
+          thumburl:'https://upload.wikimedia.org/leo14.jpg',
+          descriptionurl:'https://commons.wikimedia.org/wiki/File:Pope_Leo_XIV_portrait.jpg',
+          mime:'image/jpeg',
+        }]},
+      }}});
+      throw Error('Unexpected fetch '+raw);
+    },
+    AI:{async run(){return {response:'Photo trouvée.'};}},
+  };
+  const response=await worker.fetch(request('montre moi une photo du pape','code'),environment);
+  const data=await response.json();
+  assert.equal(response.status,200,JSON.stringify(data));
+  assert.doesNotMatch(data.text,/IMAGE_SEARCH_EMPTY/);
+  assert.equal(data.media.length,1,JSON.stringify(data));
+  assert.equal(data.media[0].url,'https://upload.wikimedia.org/leo14.jpg');
+  assert.ok(calls.includes('https://www.vatican.va/holy_father/index_fr.htm'));
+  const {host}=browser(t,data.text,data);
+  assert.equal(host.querySelectorAll('img').length,1);
+});
