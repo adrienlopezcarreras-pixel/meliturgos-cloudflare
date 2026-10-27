@@ -729,3 +729,26 @@ test('a verified old D1 job is reconciled even when absent from the UI window', 
   assert.equal(result.created, true);
   assert.equal(result.job.optional_context.roadmap_id, 'GEN2-17');
 });
+
+
+test('the next attempt ID cannot reuse a terminal job hidden by the 100-row D1 window', async () => {
+  const repo = isolatedRepo();
+  const previous = await repo.create({
+    id: 'mel-autonomy-mel-work-01-1',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] old attempt',
+    optional_context: { roadmap_id: 'MEL-WORK-01', attempt: 1 },
+  });
+  await repo.update(previous.id, { status: 'CANCELLED' });
+  for (let i = 0; i < 105; i += 1) {
+    await repo.create({ id: 'unrelated-attempt-' + i, requested_by: 'professor', goal: 'Other work' });
+  }
+  const fullList = repo.list.bind(repo);
+  repo.list = async () => (await fullList()).slice(-100);
+  const result = await new AutonomySupervisor({ repository: repo, roadmap }).ensureNextJob();
+  assert.equal(result.created, true);
+  assert.equal(result.job.id, 'mel-autonomy-mel-work-01-2');
+  assert.equal(result.job.optional_context.attempt, 2);
+  assert.equal((await repo.get(previous.id)).status, 'CANCELLED');
+  assert.equal(await repo.countAutonomyObjectiveAttempts('MEL-WORK-01'), 2);
+});
