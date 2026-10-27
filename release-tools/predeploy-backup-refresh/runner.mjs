@@ -7,9 +7,9 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createVerifiedBackupService } from '../../src/backup/backup-service.js';
 import {
-  createBackupEncryptionCodec,
   decodeBackupEncryptionKey,
 } from '../../src/backup/encrypted-backup-storage.js';
+import { writeVerifiedEncryptedBackupFile } from './stream-encrypted-envelope.mjs';
 import { inspectRestoreCandidate } from '../../src/backup/restore-service.js';
 import { APP_VERSION, DB_SCHEMA_VERSION } from '../../src/core/config.js';
 import { exportD1 } from './d1-export.mjs';
@@ -265,10 +265,7 @@ async function createBackup() {
   if (!sourceBranch.startsWith('release/')) throw new Error('SOURCE_BRANCH_INVALID');
 
   const sidecar = { baseUrl: inventoryUrl, token: inventoryToken };
-  const encryptionCodec = createBackupEncryptionCodec({
-    keyId,
-    keyBytes: decodeBackupEncryptionKey(keyB64),
-  });
+  const backupKeyBytes = decodeBackupEncryptionKey(keyB64);
   const now = new Date().toISOString();
   const id = `system-${now.replace(/[^0-9]/g, '').slice(0, 17)}`;
   const workdir = await mkdtemp(join(tmpdir(), 'mel-predeploy-backup-'));
@@ -320,14 +317,17 @@ async function createBackup() {
       const sqliteRestoreProof = await proveD1SnapshotRestore(snapshot.exports.database);
       reportProgress('isolated-sqlite-restore:complete', `tables=${sqliteRestoreProof.table_count} rows=${sqliteRestoreProof.row_count}`);
 
-      const envelope = await encryptionCodec.seal(snapshot);
       const objectKey = `${SYSTEM_BACKUP_PREFIX}${snapshot.id}.enc.json`;
       const uploadPath = join(workdir, 'backup.enc.json');
       const verifyPath = join(workdir, 'backup.verify.enc.json');
-      const payload = JSON.stringify(envelope);
-      await writeFile(uploadPath, payload, 'utf8');
-
-      const payloadBytes = Buffer.byteLength(payload, 'utf8');
+      const encryptedFile = await writeVerifiedEncryptedBackupFile({
+        snapshot, keyBytes: backupKeyBytes, keyId, filePath: uploadPath,
+      });
+      if (encryptedFile.verification?.authenticated !== true) {
+        throw new Error('BACKUP_STREAM_CRYPTOSYSTEM_ROUNDTRIP_REQUIRED');
+      }
+      reportProgress('encrypted-local-roundtrip:complete', `bytes=${encryptedFile.bytes}`);
+      const payloadBytes = encryptedFile.bytes;
       reportProgress('encrypted-r2-upload:start', `bytes=${payloadBytes} multipart=true`);
       const multipart = await uploadEncryptedBackupMultipart(sidecar, {
         objectKey, uploadPath, expectedBytes: payloadBytes,
@@ -354,9 +354,9 @@ async function createBackup() {
           sourceCount: snapshot.sourceCount,
           verified: true,
           encrypted: true,
-          encryptionSchema: encryptionCodec.schema,
-          encryptionAlgorithm: encryptionCodec.algorithm,
-          encryptionKeyId: encryptionCodec.key_id,
+          encryptionSchema: 'MEL_ENCRYPTED_BACKUP_V1',
+          encryptionAlgorithm: 'AES-GCM-256',
+          encryptionKeyId: keyId,
           restoreVerified: true,
           restoreCode: restoreProof.code || 'RESTORE_CANDIDATE_VERIFIED',
           restoreIntegritySha256: snapshot.integritySha256,
@@ -379,7 +379,7 @@ async function createBackup() {
           objectKey,
           restoreProof,
           sqliteRestoreProof,
-          bytes: Number(registration.backup_object_bytes || Buffer.byteLength(payload)),
+          bytes: Number(registration.backup_object_bytes || payloadBytes),
         };
       } catch (error) {
         try {
