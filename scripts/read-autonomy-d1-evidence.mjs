@@ -60,13 +60,43 @@ export async function readAutonomyD1Evidence({accountId,apiToken,databaseId,fetc
     rows_written:0,observed_at:new Date().toISOString()};
 }
 
+// Fixed mission/lease diagnostic: no arbitrary SQL, owner text, code or mail content.
+export const FOUNDER_SQL = `SELECT id,status,updated_at,candidate_branch,
+  (SELECT last_seen FROM dev_bridge_state WHERE bridge_id='runtime-lease:autonomy-heartbeat') AS lease_expires_at,
+  json_extract(result_json,'$.runtime_retry.attempts') AS runtime_attempts,
+  json_extract(result_json,'$.autonomy_deferral.code') AS deferred_code,
+  json_extract(result_json,'$.implementation_planning_diagnostic.code') AS implementation_code,
+  json_extract(result_json,'$.bridge_preparation.code') AS bridge_code,
+  json_extract(plan_json,'$.revision.reason') AS revision_code
+FROM dev_jobs WHERE id LIKE 'mel-autonomy-mel-founder-01-%'
+ORDER BY created_at DESC LIMIT 3`;
+export async function readFounderD1Evidence({accountId,apiToken,databaseId,fetchImpl=fetch}={}) {
+  if (!/^[a-f0-9]{32}$/i.test(String(accountId||'')) || !apiToken || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(String(databaseId||''))) return fail('D1_READ_CREDENTIALS_OR_BINDING_UNAVAILABLE');
+  try {
+    const res = await fetchImpl(`https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${databaseId}/query`, {
+      method:'POST',redirect:'error',signal:AbortSignal.timeout(30000),headers:{authorization:'Bearer '+apiToken,'content-type':'application/json'},body:JSON.stringify({sql:FOUNDER_SQL,params:[]}),
+    });
+    if (!res.ok) return fail('D1_FOUNDER_READ_HTTP_FAILED',{http_status:res.status});
+    const body = await res.json(); const result = body?.result?.[0];
+    if (body?.success!==true || result?.success!==true || result?.meta?.rows_written!==0 || !Array.isArray(result.results)) return fail('D1_FOUNDER_READ_UNPROVEN');
+    const code = value => /^[A-Z0-9_:.-]{1,180}$/.test(String(value||'')) ? value : null;
+    return {ok:true,rows_written:0,observed_at:new Date().toISOString(),jobs:result.results.slice(0,3).map(row=>({
+      id:/^mel-autonomy-mel-founder-01-[a-z0-9-]{1,100}$/.test(String(row.id||''))?row.id:null,
+      status:code(row.status),updated_at:version(row.updated_at),lease_expires_at:version(row.lease_expires_at),runtime_attempts:Number.isSafeInteger(row.runtime_attempts)?row.runtime_attempts:null,
+      deferred_code:code(row.deferred_code),implementation_code:code(row.implementation_code),bridge_code:code(row.bridge_code),revision_code:code(row.revision_code),
+    }))};
+  } catch {return fail('D1_FOUNDER_READ_TRANSPORT_FAILED');}
+}
+
 async function main() {
   let proof;
   try {
     const {unstable_readConfig}=await import('wrangler');
     const config=unstable_readConfig({config:'wrangler.jsonc'});
     const databaseId=config.d1_databases?.find(row=>row.binding==='DB')?.database_id;
-    proof=await readAutonomyD1Evidence({accountId:process.env.CLOUDFLARE_ACCOUNT_ID,apiToken:process.env.CLOUDFLARE_API_TOKEN,databaseId});
+    const access={accountId:process.env.CLOUDFLARE_ACCOUNT_ID,apiToken:process.env.CLOUDFLARE_API_TOKEN,databaseId};
+    proof=await readAutonomyD1Evidence(access);
+    if(proof.ok)proof.founder=await readFounderD1Evidence(access);
   } catch {proof=fail('D1_READ_CONFIGURATION_UNAVAILABLE');}
   await writeFile('autonomy-d1-readonly-evidence.json',JSON.stringify(proof,null,2)+'\n');
   console.log(JSON.stringify(proof));

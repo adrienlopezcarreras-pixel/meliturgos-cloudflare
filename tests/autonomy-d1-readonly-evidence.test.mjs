@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import { CONTROL_SQL,readAutonomyD1Evidence } from '../scripts/read-autonomy-d1-evidence.mjs';
+import { CONTROL_SQL,readAutonomyD1Evidence,FOUNDER_SQL,readFounderD1Evidence } from '../scripts/read-autonomy-d1-evidence.mjs';
 const credentials={accountId:'a'.repeat(32),apiToken:'PRIVATE_TOKEN',databaseId:'12345678-1234-1234-1234-123456789012'};
 
 function queryFixture(metadata,status='PAUSED') {
@@ -54,4 +54,27 @@ test('no SQL or production mutation input is exposed and live credentials are co
   const workflow=readFileSync(new URL('../.github/workflows/autonomy-control-readonly-evidence.yml',import.meta.url),'utf8');
   assert.match(workflow,/github\.event_name == 'workflow_dispatch'.*github\.ref == 'refs\/heads\/main'.*github\.actor == 'adrienlopezcarreras-pixel'/);
   assert.match(workflow,/needs: contract/);assert.doesNotMatch(workflow,/wrangler (?:deploy|publish|d1)|actions: write|contents: write|schedule:/);
+});
+
+
+test('fixed founder diagnostic selects newest mission statuses without owner text or mutation', async () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    db.exec("CREATE TABLE dev_bridge_state(bridge_id TEXT,last_seen INTEGER); INSERT INTO dev_bridge_state VALUES('runtime-lease:autonomy-heartbeat',200)");
+    db.exec('CREATE TABLE dev_jobs(id TEXT,status TEXT,updated_at INTEGER,created_at INTEGER,candidate_branch TEXT,result_json TEXT,plan_json TEXT)');
+    db.prepare('INSERT INTO dev_jobs VALUES (?,?,?,?,?,?,?)').run('mel-autonomy-mel-founder-01-e123-1','QUEUED',100,90,'candidate/mel-clean-autonomy',JSON.stringify({runtime_retry:{attempts:2},autonomy_deferral:{code:'COUNCIL_INSUFFICIENT_RESPONSES'},private:'PRIVATE_MAIL'}),'{}');
+    const rows=db.prepare(FOUNDER_SQL).all();
+    const proof=await readFounderD1Evidence({...credentials,fetchImpl:async(url,options)=>{
+      assert.equal(JSON.parse(options.body).sql,FOUNDER_SQL);return response(rows);
+    }});
+    assert.equal(proof.ok,true);assert.equal(proof.jobs[0].lease_expires_at,200);assert.equal(proof.jobs[0].runtime_attempts,2);assert.equal(proof.jobs[0].deferred_code,'COUNCIL_INSUFFICIENT_RESPONSES');
+    assert.doesNotMatch(JSON.stringify(proof),/PRIVATE_MAIL|PRIVATE_TOKEN/);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM dev_jobs').get().n,1);
+    assert.doesNotMatch(FOUNDER_SQL,/\b(?:INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|ATTACH|REPLACE|PRAGMA)\b|;/i);
+  } finally {db.close();}
+});
+test('founder read never accepts a response with writes or exposes transport secrets',async()=>{
+  for(const fetchImpl of [async()=>response([],{meta:{rows_written:1}}),async()=>{throw Error('PRIVATE_TOKEN');}]) {
+    const proof=await readFounderD1Evidence({...credentials,fetchImpl});assert.equal(proof.ok,false);assert.doesNotMatch(JSON.stringify(proof),/PRIVATE_TOKEN/);
+  }
 });
