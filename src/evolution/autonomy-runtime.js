@@ -27,7 +27,7 @@ const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
 export const PC_DEVELOPMENTS_PER_TICK = 4;
 export const PC_PARALLEL_DEVELOPMENTS = 2;
 
-export async function advanceMoreOnPc({ env, ready = localPcModelReady, run, seed, alreadyRan = 1, limit = PC_DEVELOPMENTS_PER_TICK, selectJobs = null, width = PC_PARALLEL_DEVELOPMENTS } = {}) {
+export async function advanceMoreOnPc({ env, ready = localPcModelReady, run, seed, alreadyRan = 1, limit = PC_DEVELOPMENTS_PER_TICK, selectJobs = null, width = PC_PARALLEL_DEVELOPMENTS, resumeSameJob = false } = {}) {
   const local = await ready(env).catch(() => null);
   if (!local?.ok || typeof run !== 'function') return { result: seed, ran: alreadyRan, job_ids: [] };
   const room = Math.max(0, limit - alreadyRan);
@@ -52,13 +52,19 @@ export async function advanceMoreOnPc({ env, ready = localPcModelReady, run, see
   let result = seed;
   let ran = alreadyRan;
   const job_ids = [];
+  const pinnedJobId = resumeSameJob
+    ? (seed?.progress?.job_id || seed?.job?.id || ids[0] || null)
+    : null;
   const skip = new Set(ids);
   while (ran < limit) {
     if (result?.progress?.work_remaining !== true || result?.progress?.waiting_external === true) break;
-    const next = await run({ skipJobIds: [...skip] });
+    const next = pinnedJobId
+      ? await run({ onlyJobId: pinnedJobId })
+      : await run({ skipJobIds: [...skip] });
     ran += 1;
     const jobId = next?.progress?.job_id || next?.job?.id || null;
     job_ids.push(jobId);
+    if (pinnedJobId && jobId && jobId !== pinnedJobId) break;
     if (jobId) skip.add(jobId);
     result = next;
     if (next?.progress?.advanced !== true && next?.advanced !== true && !jobId) break;
@@ -70,8 +76,7 @@ async function selectablePcJobs(repository, epochMs, roadmap, count, singleFligh
   const supervisor = new AutonomySupervisor({ repository, epochMs, ...(roadmap ? { roadmap } : {}) });
   const state = await supervisor.state();
   const jobs = selectActionableAutonomyJobs(state.active, { epochMs, limit: count, ...(roadmap ? { roadmap } : {}) });
-  // MAX never runs separate development objectives in parallel on the PC.
-  // The normal mode retains its existing parallel capacity.
+  // Both autonomy modes pin one objective; independent tests inside that objective may parallelize elsewhere.
   return (singleFlight ? jobs.slice(0, 1) : jobs).map(job => job.id);
 }
 const ACTIONABLE_FAILURE_STATES = new Set(['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE', 'TEACHER_APPROVED']);
@@ -561,7 +566,8 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     const more = await advanceMoreOnPc({
       env,
       seed: first,
-      limit: 1,
+      limit: options.onlyJobId ? 1 : PC_DEVELOPMENTS_PER_TICK,
+      resumeSameJob: true,
       run: async ({ onlyJobId } = {}) => {
         bindLocalPcWorkersAi(env, options.runLocalPcModel);
         return preservePreEnsureCreation(await runCoreResilient(env, { ...coreOptions, onlyJobId: onlyJobId || null }, repository), preEnsure);
@@ -587,7 +593,8 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     env,
     seed: second,
     alreadyRan: 2,
-    limit: 2,
+    limit: options.onlyJobId ? 2 : PC_DEVELOPMENTS_PER_TICK,
+    resumeSameJob: true,
     run: async ({ onlyJobId } = {}) => {
       bindLocalPcWorkersAi(env, options.runLocalPcModel);
       return preservePreEnsureCreation(await runCoreResilient(env, { ...coreOptions, onlyJobId: onlyJobId || null }, repository), preEnsure);
