@@ -455,7 +455,13 @@ async function runMiniDirectVoice(text, env) {
 
 function deviceNeedsVisibleMedia(text) {
   const value = String(text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  return /\b(?:photo|image|portrait|video|son|audio|musique|page|site|montre|affiche)\b/.test(value);
+  // "son" is also the French possessive adjective ("son haut-parleur").
+  // Treating every occurrence as a media request bypasses the fast voice
+  // route and can produce VOICE_CHAT_TIMEOUT for ordinary device questions.
+  if (/\b(?:photo|image|portrait|video|musique|page|site|montre|affiche)\b/.test(value)) return true;
+  // Route actual sound-generation/playback requests to the rich media path;
+  // questions about audio quality and the speaker remain conversational.
+  return /\b(?:joue|lance|diffuse|cree|genere|produis|envoie|ecoute|mets)\b.{0,100}\b(?:son|audio)\b/.test(value);
 }
 
 // Phone and MINI talk. They do not code. A photo, a sound, a video or a page
