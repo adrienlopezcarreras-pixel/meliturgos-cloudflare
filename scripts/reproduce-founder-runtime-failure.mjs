@@ -41,7 +41,7 @@ async function main(){
   try {
     await writeFile(temporary,source);
     const module=await import(temporary.href);
-    try{await replayFounderSnapshot(row,module.runAutonomyRuntimeTick);}catch(error){before={name:error.name,message:error.message,location:String(error.stack||'').split('\n').find(line=>line.includes('.founder-before-'))?.trim()||null};}
+    try{await replayFounderSnapshot(row,module.runAutonomyRuntimeTick);}catch(error){before={name:['TypeError','SyntaxError','Error'].includes(error.name)?error.name:'Error',message:error.message==="Cannot read properties of undefined (reading 'length')"?error.message:'UNEXPECTED_REPLAY_ERROR',location:String(error.stack||'').split('\n').find(line=>line.includes('.founder-before-'))?.trim()||null};}
   }finally{await unlink(temporary).catch(()=>{});}
   const fixed=await replayFounderSnapshot(row,runFixed);
   const proof={schema:'mel.founder-runtime-reproduction/v1',job_id:row.id,before_source_sha:BEFORE_SHA,result_json_sha256:createHash('sha256').update(row.result_json).digest('hex'),result_json_bytes:Buffer.byteLength(row.result_json),production_rows_written:0,replay_status:'TEACHER_APPROVED',replay_scope:'real-result-json-with-local-mocked-dependencies',before,after:{ok:fixed.ok===true,job_id:fixed.job?.id||null,progress_returned:Boolean(fixed.progress),candidate_ci_repaired_array:Array.isArray(fixed.candidate_ci?.repaired)},external_inference_calls:0};
