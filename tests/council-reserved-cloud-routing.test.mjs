@@ -19,7 +19,7 @@ test('real Council through the deployed budget wrapper uses distinct cloud bindi
     assert.equal(budgetLocal.length,0,'budget wrapper must never send independent Council votes to the PC');
     assert.equal(coderLocal.length,0,'Council must bypass the coding wrapper');
     assert.ok(new Set(cloud.map(row=>row.model)).size>=2,'actual mocked cloud bindings, not provider labels, supply the distinct votes');
-    assert.ok(cloud.every(row=>row.inputs.neuron_reserve===true));
+    assert.ok(cloud.every(row=>!Object.hasOwn(row.inputs,'neuron_reserve')),'internal routing marker is consumed by the meter before Cloudflare');
     assert.equal((await readNeuronBudget(DB)).calls,cloud.length,'cloud Council calls still pass through the budget meter');
     const before=cloud.length;
     assert.equal((await env.AI.run('@cf/qwen/qwen2.5-coder-32b-instruct',{messages:[{role:'user',content:'write the approved function'}]})).local,true);
