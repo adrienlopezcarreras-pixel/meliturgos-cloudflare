@@ -774,3 +774,25 @@ test('D1 admission fence never hands an old verified-but-active candidate to the
   assert.equal((await repo.get(old.id)).status, 'TEACHER_APPROVED');
   assert.equal((await repo.list()).length, 1);
 });
+
+
+test('COMMITTED work keeps the atomic mission fence until verified delivery', async () => {
+  const repo = isolatedRepo();
+  const job = await repo.create({
+    id: 'mel-autonomy-mel-work-01-committed',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] candidate committed without live delivery',
+    optional_context: { roadmap_id: 'MEL-WORK-01' },
+  });
+  await repo.update(job.id, { status: 'COMMITTED', result_json: { commit: 'candidate-sha' } });
+  const supervisor = new AutonomySupervisor({ repository: repo, roadmap });
+  const state = await supervisor.state();
+  assert.equal(state.completedIds.includes('MEL-WORK-01'), false);
+  assert.equal(state.active.some(row => row.id === job.id), true);
+  const result = await supervisor.ensureNextJob();
+  assert.equal(result.created, false);
+  assert.equal(result.job, null);
+  assert.equal(result.external_progress?.status, 'DELIVERY_VERIFICATION_PENDING');
+  assert.equal((await repo.list()).length, 1);
+  assert.equal((await repo.get(job.id)).status, 'COMMITTED');
+});
