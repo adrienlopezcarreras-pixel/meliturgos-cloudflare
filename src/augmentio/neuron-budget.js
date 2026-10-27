@@ -135,6 +135,11 @@ export function withNeuronBudget(env, { now = () => Date.now(), background = fal
   const dayCap = Number(env.MEL_AI_DAILY_NEURON_CAP) > 0 ? Number(env.MEL_AI_DAILY_NEURON_CAP) : DEFAULT_DAILY_NEURON_CAP;
   const cap = background ? Math.floor(dayCap * BACKGROUND_NEURON_SHARE) : dayCap;
   const run = async (model, inputs, options) => {
+    // neuron_reserve is MEL-internal: realtime voice requests must not start
+    // 210-second PC inference jobs. Strip this marker before calling Cloudflare.
+    const requestInputs = inputs?.neuron_reserve === true
+      ? (({ neuron_reserve, ...providerInput }) => providerInput)(inputs)
+      : inputs;
     if (pcCanHandle(model, inputs)) {
       const local = await localRun(env, inputs).catch(() => null);
       if (local?.response) return local;
@@ -148,9 +153,9 @@ export function withNeuronBudget(env, { now = () => Date.now(), background = fal
       throw budgetError('WORKERS_AI_DAILY_NEURON_BUDGET_EXHAUSTED', `${Math.round(budget.neurons)}/${cap}`);
     }
     let output;
-    try { output = await ai.run(model, inputs, options); }
+    try { output = await ai.run(model, requestInputs, options); }
     finally {
-      const spent = estimateNeurons(model, inputs, output);
+      const spent = estimateNeurons(model, requestInputs, output);
       if (bonus) await db.prepare('UPDATE mel_ai_neuron_bonus SET remaining = max(0, remaining - ?) WHERE id = ?').bind(spent, bonus.id).run().catch(() => null);
       await db.prepare('INSERT INTO mel_ai_neuron_budget (day, neurons, calls) VALUES (?, ?, 1) ON CONFLICT(day) DO UPDATE SET neurons = neurons + excluded.neurons, calls = calls + 1')
         .bind(budget.day, spent).run().catch(() => null);
