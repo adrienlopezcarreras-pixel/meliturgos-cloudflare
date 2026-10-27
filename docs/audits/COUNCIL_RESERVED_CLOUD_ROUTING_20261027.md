@@ -4,7 +4,7 @@ Base : fb2f7630de1dfb47cff70fab15c8cb99a32e5149. Worker observé : 07b2c5272da35
 
 ## Preuves de production
 
-La lecture D1 protégée40544038754 rapporte cinq modèles Cloud coupés à12000ms, avec neuf tentatives et aucune exclusion persistée. Le propriétaire a fourni la commande909cf6a4-ef77-49a9-bed8-427dccc77702, PENDING sur DESKTOP-3029QK1-f94a77fd à16:49:38UTC. Son JSON base64 utilise qwen3:8b et contient un avis du Council technique, rôle TESTS_EVIDENCE, pour MEL-FOUNDER-05. Cette commande prouve le mauvais routage ; des IDs Cloud dans un rapport ne prouvaient pas les modèles réellement exécutés.
+La lecture D1 protégée40544038754 rapporte cinq identifiants Cloud annoncés, coupés à12000ms, avec neuf tentatives et aucune exclusion persistée. Le propriétaire a fourni la commande909cf6a4-ef77-49a9-bed8-427dccc77702, PENDING sur le PC appairé à16:49:38UTC. Son JSON base64 utilise qwen3:8b et contient un avis du Council technique, rôle TESTS_EVIDENCE, pour MEL-FOUNDER-05. Cette commande prouve le mauvais routage ; des IDs Cloud dans un rapport ne prouvaient pas les modèles réellement exécutés.
 
 ## Cause et correction
 
