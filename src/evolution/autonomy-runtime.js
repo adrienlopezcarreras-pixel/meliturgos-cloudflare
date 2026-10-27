@@ -66,7 +66,7 @@ export async function advanceMoreOnPc({ env, ready = localPcModelReady, run, see
   return { result, ran, job_ids, device_id: local.device_id || null };
 }
 
-async function selectablePcJobs(repository, epochMs, roadmap, count, singleFlight = false) {
+async function selectablePcJobs(repository, epochMs, roadmap, count, singleFlight = true) {
   const supervisor = new AutonomySupervisor({ repository, epochMs, ...(roadmap ? { roadmap } : {}) });
   const state = await supervisor.state();
   const jobs = selectActionableAutonomyJobs(state.active, { epochMs, limit: count, ...(roadmap ? { roadmap } : {}) });
@@ -218,7 +218,7 @@ async function hasActiveRuntimeWork(repository, epochMs = 0) {
     && ACTIVE_RUNTIME_STATES.has(String(job?.status || '').toUpperCase()));
 }
 
-async function ensureNextRuntimeJob(repository, roadmap = null, epochMs = 0, singleFlight = false) {
+async function ensureNextRuntimeJob(repository, roadmap = null, epochMs = 0, singleFlight = true) {
   try {
     const supervisor = new AutonomySupervisor({ repository, epochMs, singleFlight, ...(roadmap ? { roadmap } : {}) });
     const ensured = await supervisor.ensureNextJob();
@@ -561,12 +561,12 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     const more = await advanceMoreOnPc({
       env,
       seed: first,
-      limit: options.onlyJobId || control.max_autonomy === true ? 1 : PC_DEVELOPMENTS_PER_TICK,
+      limit: 1,
       run: async ({ onlyJobId } = {}) => {
         bindLocalPcWorkersAi(env, options.runLocalPcModel);
         return preservePreEnsureCreation(await runCoreResilient(env, { ...coreOptions, onlyJobId: onlyJobId || null }, repository), preEnsure);
       },
-      selectJobs: (count) => selectablePcJobs(currentRepository, epochMs, options.roadmap, count, control.max_autonomy === true),
+      selectJobs: (count) => selectablePcJobs(currentRepository, epochMs, options.roadmap, count, true),
     });
     return {
       ...more.result,
@@ -587,12 +587,12 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     env,
     seed: second,
     alreadyRan: 2,
-    limit: options.onlyJobId || control.max_autonomy === true ? 2 : PC_DEVELOPMENTS_PER_TICK,
+    limit: 2,
     run: async ({ onlyJobId } = {}) => {
       bindLocalPcWorkersAi(env, options.runLocalPcModel);
       return preservePreEnsureCreation(await runCoreResilient(env, { ...coreOptions, onlyJobId: onlyJobId || null }, repository), preEnsure);
     },
-    selectJobs: (count) => selectablePcJobs(currentRepository, epochMs, options.roadmap, count, control.max_autonomy === true),
+    selectJobs: (count) => selectablePcJobs(currentRepository, epochMs, options.roadmap, count, true),
   });
   return {
     ...more.result,
