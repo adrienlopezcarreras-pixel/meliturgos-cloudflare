@@ -88,16 +88,18 @@ test('a claimed correlated Teacher-approved Bridge package remains recognizable 
   assert.equal(isClaimedPreparedDevBridgeJob(broken), false);
 });
 
-test('claimed Bridge execution is passive and does not block creation of the next roadmap job', async () => {
+test('claimed Bridge execution holds the single-flight mission until external delivery completes', async () => {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
   const claimed = await createClaimedPreparedJob(repository, ROADMAP_A.id);
   const supervisor = new AutonomySupervisor({ repository, roadmap: [ROADMAP_A, ROADMAP_B] });
 
   const ensured = await supervisor.ensureNextJob();
 
-  assert.equal(ensured.created, true);
-  assert.equal(ensured.job?.optional_context?.roadmap_id, ROADMAP_B.id);
-  assert.equal(ensured.job?.status, 'QUEUED');
+  assert.equal(ensured.created, false);
+  assert.equal(ensured.job, null);
+  assert.equal(ensured.external_progress?.job_id, claimed.id);
+  assert.equal(ensured.external_progress?.status, 'BRIDGE_EXECUTION_IN_PROGRESS');
+  assert.equal((await repository.list()).length, 1, 'Bridge-owned work cannot start another objective');
 
   const stillClaimed = await repository.get(claimed.id);
   assert.equal(stillClaimed?.status, 'CLAIMED');
