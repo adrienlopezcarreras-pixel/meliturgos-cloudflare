@@ -127,7 +127,7 @@ for (const invalid of ['stale', 'wrong-base', 'wrong-package']) test(`local fall
   assert.equal((await repository.get(job.id)).status, 'TEACHER_APPROVED');
 });
 
-test('a provider-deferred job persists across MAX restart without starving independent work', async t => {
+test('a provider-deferred job persists across MAX restart without spawning independent work', async t => {
   const { repository, job } = await fixture(t);
   await repository.update(job.id, { result_json: {
     ...job.result_json, autonomy_deferral: { code: 'COUNCIL_UNAVAILABLE', retry_after: Date.now() + 60_000 },
@@ -138,12 +138,13 @@ test('a provider-deferred job persists across MAX restart without starving indep
   ];
   const restarted = new AutonomySupervisor({ repository, roadmap });
   const next = await restarted.ensureNextJob();
-  assert.notEqual(next.job?.id, job.id);
-  assert.equal(next.job?.optional_context?.roadmap_id, 'GEN2-17');
+  assert.equal(next.created, false);
+  assert.equal(next.external_progress?.job_id || next.job?.id, job.id);
+  assert.equal((await repository.list()).filter(row => row.requested_by === 'mel-autonomy').length, 1);
   assert.equal((await repository.get(job.id)).status, 'TEACHER_APPROVED');
   const firstCount = (await repository.list()).length;
   await new AutonomySupervisor({ repository, roadmap }).ensureNextJob();
-  assert.equal((await repository.list()).length, firstCount, 'MAX restart does not duplicate the independent job');
+  assert.equal((await repository.list()).length, firstCount, 'MAX restart does not create another objective');
   const latest = await repository.get(job.id);
   await repository.update(job.id, { result_json: { ...latest.result_json, autonomy_deferral: { code: 'COUNCIL_UNAVAILABLE', retry_after: Date.now() - 1 } } });
   assert.equal((await new AutonomySupervisor({ repository, roadmap }).ensureNextJob()).job.id, job.id, 'expired delay resumes the same nonterminal job');
