@@ -215,9 +215,9 @@ async function hasActiveRuntimeWork(repository, epochMs = 0) {
     && ACTIVE_RUNTIME_STATES.has(String(job?.status || '').toUpperCase()));
 }
 
-async function ensureNextRuntimeJob(repository, roadmap = null, epochMs = 0) {
+async function ensureNextRuntimeJob(repository, roadmap = null, epochMs = 0, singleFlight = false) {
   try {
-    const supervisor = new AutonomySupervisor({ repository, epochMs, ...(roadmap ? { roadmap } : {}) });
+    const supervisor = new AutonomySupervisor({ repository, epochMs, singleFlight, ...(roadmap ? { roadmap } : {}) });
     const ensured = await supervisor.ensureNextJob();
     return {
       created: ensured?.created === true,
@@ -465,7 +465,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
   };
   try {
     if (!options.onlyJobId && !(await hasActiveRuntimeWork(repository, epochMs))) {
-      preEnsure = await ensureNextRuntimeJob(repository, options.roadmap || null, epochMs);
+      preEnsure = await ensureNextRuntimeJob(repository, options.roadmap || null, epochMs, control.max_autonomy === true);
     }
   } catch (error) {
     preEnsure = {
