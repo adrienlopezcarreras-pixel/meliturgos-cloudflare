@@ -573,7 +573,7 @@ test('repository atomically admits only one autonomous objective across competin
 });
 
 
-test('verified roadmap closure releases stale nonterminal job without erasing its history', async () => {
+test('verified roadmap closure cannot bypass atomic admission until legacy job is reconciled', async () => {
   const repo = isolatedRepo();
   const stale = await repo.create({
     id: 'mel-autonomy-mel-work-01-legacy',
@@ -584,7 +584,7 @@ test('verified roadmap closure releases stale nonterminal job without erasing it
   await repo.update(stale.id, { status: 'TEACHER_APPROVED' });
   const closedRoadmap = roadmap.map(item => item.id === 'MEL-WORK-01' ? { ...item, status: 'DONE_VERIFIED' } : item);
   const result = await new AutonomySupervisor({ repository: repo, roadmap: closedRoadmap }).ensureNextJob();
-  assert.equal(result.created, true);
-  assert.equal(result.job.optional_context.roadmap_id, 'GEN2-17');
+  assert.equal(result.created, false, 'atomic admission must not bypass an unreconciled active legacy job');
+  assert.equal(result.job.id, stale.id);
   assert.equal((await repo.get(stale.id)).status, 'TEACHER_APPROVED', 'historical job must not be rewritten');
 });
