@@ -31,7 +31,7 @@ function Unprotect-Text([string]$value) {
 $Token = Unprotect-Text $config.token_protected
 $Server = ([string]$config.server_url).TrimEnd("/")
 $ComputerId = [string]$config.computer_id
-$Version = "1.5.2"
+$Version = "1.5.3"
 $Headless = $env:MEL_COMPANION_HEADLESS -eq "1"
 $ParentPid = 0
 [void][int]::TryParse([string]$env:MEL_COMPANION_PARENT_PID,[ref]$ParentPid)
@@ -250,18 +250,19 @@ function Invoke-MelJson {
   param(
     [Parameter(Mandatory=$true)][string]$Path,
     [ValidateSet("GET","POST")][string]$Method = "GET",
-    $Body = $null
+    $Body = $null,
+    [ValidateRange(1,20)][int]$TimeoutSec = 20
   )
   $uri = "$Server$Path"
   $h = Headers
   if ($null -eq $Body) {
-    return Invoke-RestMethod -Uri $uri -Method $Method -Headers $h -TimeoutSec 20
+    return Invoke-RestMethod -Uri $uri -Method $Method -Headers $h -TimeoutSec $TimeoutSec
   }
   # Windows PowerShell 5.1 otherwise uses a legacy request encoding. Keep
   # accents and emoji from model/tool results intact on their way to MEL.
   $json = $Body | ConvertTo-Json -Depth 12 -Compress
   $payloadBytes = [Text.Encoding]::UTF8.GetBytes($json)
-  return Invoke-RestMethod -Uri $uri -Method $Method -Headers $h -ContentType "application/json; charset=utf-8" -Body $payloadBytes -TimeoutSec 20
+  return Invoke-RestMethod -Uri $uri -Method $Method -Headers $h -ContentType "application/json; charset=utf-8" -Body $payloadBytes -TimeoutSec $TimeoutSec
 }
 
 function Active-Window {
@@ -482,6 +483,7 @@ function Publish-DevExecutorView {
   } catch { }
 }
 function Send-Heartbeat {
+  param([ValidateRange(1,20)][int]$TimeoutSec = 20)
   # Advertise the currently persisted owner switch, not its startup value.
   $remoteEnabled = $false
   try { Assert-LocalRemoteAccess; $remoteEnabled = $true } catch {}
@@ -522,7 +524,7 @@ function Send-Heartbeat {
   $body.heartbeat_diag = $diag
   $started = Get-Date
   try {
-    $ack = Invoke-MelJson -Path "/api/computer/v1/heartbeat" -Method "POST" -Body $body
+    $ack = Invoke-MelJson -Path "/api/computer/v1/heartbeat" -Method "POST" -Body $body -TimeoutSec $TimeoutSec
     if ($ack.ok -ne $true -or -not $ack.server_time) { throw 'COMPANION_HEARTBEAT_UNCONFIRMED' }
     $script:CompanionConfirmedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
     $script:GithubRelay = $ack.github_relay
@@ -535,6 +537,24 @@ function Send-Heartbeat {
     $script:HeartbeatLastError = $name
   }
   $script:HeartbeatHttpMs = [int]((Get-Date) - $started).TotalMilliseconds
+}
+
+# One liveness publisher, used by the idle loop and while waiting for a child.
+# A running command is not a dead Companion. Never claim/execute another cloud
+# command here; its terminal result still belongs to Process-Command.
+function Update-CompanionSupervision([switch]$DuringCommand, [switch]$SkipNetworkHeartbeat) {
+  if (-not $Headless) { [System.Windows.Forms.Application]::DoEvents() }
+  Receive-DevExecutorControl
+  Publish-DevExecutorView
+  if (-not $SkipNetworkHeartbeat -and ((Get-Date) - $script:SupervisionHeartbeatAt).TotalSeconds -ge 10) {
+    if (-not $DuringCommand) {
+      try { Ensure-DevExecutor } catch { $script:DevExecutorCode = "SUPERVISION_FAILED" }
+    }
+    $heartbeatTimeout = if ($DuringCommand) { 5 } else { 20 }
+    Send-Heartbeat -TimeoutSec $heartbeatTimeout
+    $script:SupervisionHeartbeatAt = Get-Date
+    Publish-DevExecutorView
+  }
 }
 
 function Capture-PngBytes([System.Drawing.Rectangle]$bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen) {
@@ -2554,7 +2574,18 @@ function PcControl-SystemExec($payload) {
   # command whose output exceeds the pipe buffer (~4 KB) until the timeout.
   $outTask = $p.StandardOutput.ReadToEndAsync()
   $errTask = $p.StandardError.ReadToEndAsync()
-  if (-not $p.WaitForExit($timeoutMs)) { try { $p.Kill() } catch {}; throw "SYSTEM_EXEC_TIMEOUT" }
+  $executionClock = [Diagnostics.Stopwatch]::StartNew()
+  try {
+    while (-not $p.HasExited) {
+      $remainingMs = $timeoutMs - $executionClock.ElapsedMilliseconds
+      if ($remainingMs -le 0) { throw "SYSTEM_EXEC_TIMEOUT" }
+      if ($p.WaitForExit([int][Math]::Min(250,$remainingMs))) { break }
+      Update-CompanionSupervision -DuringCommand -SkipNetworkHeartbeat:($remainingMs -lt 6000)
+    }
+  } catch {
+    try { if (-not $p.HasExited) { $p.Kill(); [void]$p.WaitForExit(3000) } } catch {}
+    throw
+  } finally { $executionClock.Stop() }
   $p.WaitForExit()
   $out = $outTask.Result
   $err = $errTask.Result
@@ -3500,19 +3531,12 @@ function Start-HiddenImageEngine {
 
 try { Start-HiddenImageEngine } catch {}
 if (-not $Headless) { $trayResources = New-MelTrayIcon }
-$lastHeartbeat = Get-Date "2000-01-01"
+$script:SupervisionHeartbeatAt = Get-Date "2000-01-01"
 try {
 while (-not $script:MelExitRequested) {
   if ($Headless -and $ParentPid -gt 0 -and -not (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) { break }
-  if (-not $Headless) { [System.Windows.Forms.Application]::DoEvents() }
-  Receive-DevExecutorControl
-  Publish-DevExecutorView
   try {
-    if (((Get-Date) - $lastHeartbeat).TotalSeconds -ge 10) {
-      try { Ensure-DevExecutor } catch { $script:DevExecutorCode = "SUPERVISION_FAILED" }
-      Send-Heartbeat
-      $lastHeartbeat = Get-Date
-    }
+    Update-CompanionSupervision
     # Do not claim another action while a completed action has no receipt.
     if (-not (Flush-CommandResult)) { Start-Sleep -Seconds 2; continue }
     $reply = Invoke-MelJson -Path "/api/computer/v1/commands" -Method "GET"

@@ -81,7 +81,7 @@ const MIN_SOVEREIGN_AI_ENGINE_VERSION="1.4.1";
 // the PC is told to refresh itself (engine_update_required). Bump it together
 // with $Version in assets/MEL-Computer-Companion.ps1 whenever the engine changes,
 // otherwise installed Companions keep the old engine forever.
-export const CURRENT_COMPANION_ENGINE_VERSION="1.5.2";
+export const CURRENT_COMPANION_ENGINE_VERSION="1.5.3";
 
 function versionAtLeast(actual,required){
  const a=String(actual||"").match(/^\d+(?:\.\d+){0,3}/)?.[0]?.split(".").map(Number)||[];

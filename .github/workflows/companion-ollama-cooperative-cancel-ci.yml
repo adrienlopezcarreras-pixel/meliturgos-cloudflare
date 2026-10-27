@@ -7,6 +7,7 @@ on:
       - 'src/portability/companion-sovereignty-executor.js'
       - 'tests/gen2/companion-ollama-cooperative-cancel.test.mjs'
       - 'tests/windows/companion-ollama-http-cancel-smoke.ps1'
+      - 'tests/windows/companion-system-exec-liveness-smoke.ps1'
       - '.github/workflows/companion-ollama-cooperative-cancel-ci.yml'
 permissions:
   contents: read
@@ -29,3 +30,7 @@ jobs:
       - name: Check real cooperative HTTP transport against local fake server
         shell: powershell
         run: .\tests\windows\companion-ollama-http-cancel-smoke.ps1
+
+      - name: Long system command retains truthful heartbeat and executor view
+        shell: powershell
+        run: .\tests\windows\companion-system-exec-liveness-smoke.ps1
