@@ -144,7 +144,7 @@ static volatile bool g_tts_stop_requested = false;
 
 // Keep headroom on the compact ES8311/small-speaker path. Playback at 100%
 // can overdrive the output stage, even with correctly decoded PCM16.
-static constexpr float MEL_TTS_SPEAKER_VOLUME = 75.0f;
+static constexpr float MEL_TTS_SPEAKER_VOLUME = 80.0f;
 
 static bool speaker_output_enable(float volume) {
     if (!output_dev) return false;
