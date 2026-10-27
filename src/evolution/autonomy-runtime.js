@@ -893,7 +893,8 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   try {
     // A tick that never answers must not hold MAX (26/10: every tick hung for
     // minutes, the job stayed QUEUED): give up after the budget and free the lease.
-    const tickBudgetMs = Number(options.tickBudgetMs ?? env?.MEL_AUTONOMY_TICK_BUDGET_MS ?? 50_000);
+    // 27/10: 50 s cut every Council plan review (438 timeouts at council-teacher).
+    const tickBudgetMs = Number(options.tickBudgetMs ?? env?.MEL_AUTONOMY_TICK_BUDGET_MS ?? 240_000);
     let timer;
     const raw = await Promise.race([
       (globalThis.__melTickStage = 'pre-ensure', runAutonomyRuntimeTickUnlocked)(env, { ...options, epochMs, repository: repository || options.repository }, control),
