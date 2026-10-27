@@ -1,5 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { writeVerifiedEncryptedBackupFile } from '../release-tools/predeploy-backup-refresh/stream-encrypted-envelope.mjs';
 
 import { createVerifiedBackupService } from '../src/backup/backup-service.js';
 import { createRestoreService } from '../src/backup/restore-service.js';
@@ -305,5 +309,67 @@ test('Workers fallback encodes binary across 3-byte-aligned bounded base64 chunk
   } finally {
     globalThis.Buffer=oldBuffer;
     globalThis.btoa=oldBtoa;
+  }
+});
+
+test('streamed MEL backup envelope matches AES-GCM codec and exact JSON snapshot', async () => {
+  const directory=await mkdtemp(join(tmpdir(),'mel-stream-envelope-'));
+  const filePath=join(directory,'backup.enc.json');
+  try {
+    const snapshot={
+      id:'unicode-stream',
+      schema:'MEL_VERIFIED_SNAPSHOT_V1',
+      integritySha256:'a'.repeat(64),
+      createdAt:'2026-10-27T18:15:00.000Z',
+      exports:{
+        database:{tables:[{rows:[{name:'résumé 🔒',code:'a'.repeat(80_000)},{name:'é',code:'b'.repeat(80_001)}]}]},
+        r2_inventory:{objects:[]},
+      },
+      items:[null,1,undefined,Infinity],
+    };
+    const result=await writeVerifiedEncryptedBackupFile({
+      snapshot,keyBytes:key(),keyId:'stream-key-1',filePath,iv:deterministicIv(),
+    });
+    assert.equal(result.verification.authenticated,true);
+    assert.equal(result.bytes,(await stat(filePath)).size);
+    const envelope=JSON.parse(await readFile(filePath,'utf8'));
+    assert.equal(envelope.schema,ENCRYPTED_BACKUP_SCHEMA);
+    assert.equal(envelope.ciphertext_sha256,result.ciphertext_sha256);
+    const codec=createBackupEncryptionCodec({keyBytes:key(),keyId:'stream-key-1'});
+    assert.deepEqual(await codec.open(envelope),JSON.parse(JSON.stringify(snapshot)));
+    const corrupted={...envelope,plaintext_sha256:'f'.repeat(64)};
+    await assert.rejects(()=>codec.open(corrupted),error=>error.code==='BACKUP_ENCRYPTED_PLAINTEXT_INTEGRITY_MISMATCH');
+  } finally {
+    await rm(directory,{recursive:true,force:true});
+  }
+});
+
+test('streamed writer avoids JSON.stringify of entire multi-MiB backup and single huge Base64 string', async () => {
+  const directory=await mkdtemp(join(tmpdir(),'mel-stream-big-'));
+  const filePath=join(directory,'backup.enc.json');
+  const snapshot={
+    id:'large-stream',
+    schema:'MEL_VERIFIED_SNAPSHOT_V1',
+    integritySha256:'b'.repeat(64),
+    exports:{database:{tables:[{rows:Array.from({length:32_768},(_,index)=>({
+      id:index,text:'1abc0123'.repeat(128),
+    }))}]}},
+  };
+  const oldStringify=JSON.stringify;
+  JSON.stringify=(value,...args)=>{
+    if(value===snapshot || value?.ciphertext_b64)throw new Error('GIANT_JSON_STRING_DISALLOWED');
+    return oldStringify(value,...args);
+  };
+  try {
+    const result=await writeVerifiedEncryptedBackupFile({
+      snapshot,keyBytes:key(2),keyId:'large-stream-key',filePath,
+    });
+    assert.equal(result.verification.ok,true);
+    assert.ok(result.bytes>32*1024*1024);
+    assert.equal(result.plaintext_sha256.length,64);
+    assert.equal(result.ciphertext_sha256.length,64);
+  } finally {
+    JSON.stringify=oldStringify;
+    await rm(directory,{recursive:true,force:true});
   }
 });

@@ -77,7 +77,7 @@ async function importAesKey(keyBytes) {
   return crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM', length: 256 }, false, ['encrypt','decrypt']);
 }
 
-function aadRecord(snapshot, keyId) {
+export function backupEnvelopeAAD(snapshot, keyId) {
   return {
     schema: ENCRYPTED_BACKUP_SCHEMA,
     algorithm: ENCRYPTED_BACKUP_ALGORITHM,
@@ -144,7 +144,7 @@ export function createBackupEncryptionCodec({
         throw encryptionError('BACKUP_ENCRYPTION_IV_INVALID');
       }
 
-      const aad = aadRecord(snapshot, normalizedKeyId);
+      const aad = backupEnvelopeAAD(snapshot, normalizedKeyId);
       const aadBytes = new TextEncoder().encode(stableStringify(aad));
       const encrypted = await crypto.subtle.encrypt({
         name: 'AES-GCM',
