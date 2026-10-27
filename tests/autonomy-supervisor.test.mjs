@@ -687,3 +687,45 @@ test('verified roadmap reconciliation preserves a prepared candidate branch', as
   assert.equal(result.status, 'TEACHER_APPROVED');
   assert.equal((await repo.get(job.id)).candidate_branch, 'candidate/mel-work-01');
 });
+
+
+test('single-flight finds an active D1 objective older than the 100-row UI window', async () => {
+  const repo = isolatedRepo();
+  const old = await repo.create({
+    id: 'mel-autonomy-work-old-active',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] old in-progress work',
+    optional_context: { roadmap_id: 'MEL-WORK-01' },
+  });
+  await repo.update(old.id, { status: 'TEACHER_APPROVED' });
+  for (let i = 0; i < 105; i += 1) {
+    await repo.create({ id: 'unrelated-' + i, requested_by: 'professor', goal: 'Other work' });
+  }
+  const list = repo.list.bind(repo);
+  repo.list = async () => (await list()).slice(-100);
+  const result = await new AutonomySupervisor({ repository: repo, roadmap }).ensureNextJob();
+  assert.equal(result.created, false);
+  assert.equal(result.job?.id, old.id);
+  assert.equal((await repo.listActiveAutonomyJobs()).some(job => job.id === old.id), true);
+});
+
+test('a verified old D1 job is reconciled even when absent from the UI window', async () => {
+  const repo = isolatedRepo();
+  const old = await repo.create({
+    id: 'mel-autonomy-work-old-verified',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] stale old queue entry',
+    optional_context: { roadmap_id: 'MEL-WORK-01' },
+  });
+  for (let i = 0; i < 105; i += 1) {
+    await repo.create({ id: 'history-' + i, requested_by: 'professor', goal: 'Historical job' });
+  }
+  const list = repo.list.bind(repo);
+  repo.list = async () => (await list()).slice(-100);
+  const verifiedRoadmap = roadmap.map(item =>
+    item.id === 'MEL-WORK-01' ? { ...item, status: 'DONE_VERIFIED' } : item);
+  const result = await new AutonomySupervisor({ repository: repo, roadmap: verifiedRoadmap }).ensureNextJob();
+  assert.equal((await repo.get(old.id)).status, 'DONE_VERIFIED');
+  assert.equal(result.created, true);
+  assert.equal(result.job.optional_context.roadmap_id, 'GEN2-17');
+});
