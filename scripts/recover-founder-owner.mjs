@@ -29,6 +29,10 @@ export async function recoverFounderOwner(db,{expectedSha,now=Date.now,sleep=ms=
   if(!['CANCELLED','QUEUED','REPAIR_REQUIRED','TEACHER_APPROVED'].includes(prior.status))throw Error('ORIGINAL_IS_BUSY_OR_TERMINAL');
   if(!duplicate||!['QUEUED','CANCELLED'].includes(duplicate.status)||parse(duplicate.optional_context).roadmap_id!=='MEL-FOUNDER-01')throw Error('DUPLICATE_STATE_UNSAFE');
   if(!alreadyResumed && (actualPrior?.updated_at!==prior.updated_at||actualPrior?.status!==prior.status))throw Error('ORIGINAL_CHANGED_SINCE_BACKUP');
+  const currentReplacements=(await db.prepare("SELECT * FROM dev_jobs WHERE id NOT IN (?,?) AND requested_by='mel-autonomy' AND json_extract(optional_context,'$.roadmap_id')='MEL-FOUNDER-01' AND status NOT IN ('CANCELLED','FAILED','COMPLETED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED')").bind(ORIGINAL,DUPLICATE).all()).results||[];
+  const replacements=archived?.replacements||currentReplacements;
+  if(currentReplacements.some(row=>!replacements.some(saved=>saved.id===row.id)))throw Error('UNBACKED_ACTIVE_REPLACEMENT');
+  if(replacements.some(row=>!['QUEUED','WAITING_TEACHER','COUNCIL_COMPLETE','TEACHER_APPROVED','REPAIR_REQUIRED'].includes(row.status)))throw Error('ACTIVE_REPLACEMENT_BUSY');
   const revenue=archived?.revenue||(await db.prepare("SELECT j.*,w.data AS revenue_data FROM dev_jobs j LEFT JOIN revenue_watch w ON json_extract(w.data,'$.install_job_id')=j.id WHERE j.status='QUEUED' AND json_extract(j.optional_context,'$.source')='revenue-watch'").all()).results||[];
   const fence=await db.prepare("SELECT status,metadata_json FROM dev_bridge_state WHERE bridge_id='mel-global-maintenance-fence'").first();
   if(alreadyResumed&&!actualDuplicate&&fence?.status!=='PAUSED')return {ok:true,status:'ALREADY_RECOVERED',job_id:ORIGINAL,ci_verified:false};
@@ -36,7 +40,7 @@ export async function recoverFounderOwner(db,{expectedSha,now=Date.now,sleep=ms=
     if(!archived?.maintenance_lease_id||parse(fence.metadata_json).lease_id!==archived.maintenance_lease_id)throw Error('MAINTENANCE_ALREADY_PAUSED_OR_RECOVERY_REQUIRED');
     leaseId=archived.maintenance_lease_id;
   }
-  const snapshot=saved?.metadata_json||JSON.stringify({original:prior,duplicate,revenue,maintenance_lease_id:leaseId,authorized_scope:'owner-founder-20261027',expected_sha:expectedSha});
+  const snapshot=saved?.metadata_json||JSON.stringify({original:prior,duplicate,replacements,revenue,maintenance_lease_id:leaseId,authorized_scope:'owner-founder-20261027',expected_sha:expectedSha});
   const snapshotHash=createHash('sha256').update(snapshot).digest('hex');
   if(fence?.status!=='PAUSED')await startMaintenanceLease(db,{leaseId,now:now(),ttlMs:20*60000});
   // Failure deliberately retains the existing maintenance fence for recovery.
@@ -58,6 +62,13 @@ export async function recoverFounderOwner(db,{expectedSha,now=Date.now,sleep=ms=
   delete result.autonomy_blocked;
   delete result.autonomy_block_reason;
   if(result.runtime_retry?.last_error==="Cannot read properties of undefined (reading 'length')")delete result.runtime_retry;
+  for(const replacement of replacements){
+    const stopped=await db.prepare("UPDATE dev_jobs SET status='CANCELLED',updated_at=?,error='SUPERSEDED_BY_OWNER_ORIGINAL_RESTORE' WHERE id=? AND updated_at=? AND status=?").bind(now(),replacement.id,replacement.updated_at,replacement.status).run();
+    if(changes(stopped)!==1){
+      const state=await db.prepare('SELECT status,error FROM dev_jobs WHERE id=?').bind(replacement.id).first();
+      if(state?.status!=='CANCELLED'||state.error!=='SUPERSEDED_BY_OWNER_ORIGINAL_RESTORE')throw Error('REPLACEMENT_CANCEL_CONFLICT');
+    }
+  }
   const deleted=actualDuplicate?await db.prepare('DELETE FROM dev_jobs WHERE id=? AND updated_at=? AND status=?').bind(DUPLICATE,duplicate.updated_at,duplicate.status).run():{meta:{changes:archived?1:0}};
   if(changes(deleted)!==1)throw Error('DUPLICATE_DELETE_CONFLICT');
   const restored=alreadyResumed?{meta:{changes:1}}:await db.prepare("UPDATE dev_jobs SET status='QUEUED',updated_at=?,error=NULL,result_json=? WHERE id=? AND updated_at=? AND status=?").bind(now(),JSON.stringify(result),ORIGINAL,prior.updated_at,prior.status).run();
@@ -75,7 +86,7 @@ export async function recoverFounderOwner(db,{expectedSha,now=Date.now,sleep=ms=
   const active=await db.prepare("SELECT COUNT(*) AS n FROM dev_jobs WHERE requested_by='mel-autonomy' AND status NOT IN ('CANCELLED','FAILED','COMPLETED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED') AND json_extract(optional_context,'$.roadmap_id')='MEL-FOUNDER-01'").first();
   if(absent||Number(active?.n)!==1||actual?.status!=='QUEUED'||actual.created_at!==prior.created_at||actual.tests_json!==prior.tests_json||actual.patch_json!==prior.patch_json||actual.goal!==prior.goal||parse(actual.result_json).owner_resume?.release_sha!==expectedSha)throw Error('FOUNDER_RECOVERY_VERIFICATION_FAILED');
   await finishMaintenanceLease(db,{leaseId,reconciled:true,now:now()});
-  return {ok:true,status:'RECOVERED',job_id:ORIGINAL,removed_duplicate:DUPLICATE,original_creation_preserved:true,tests_and_patch_preserved:true,backup_key:BACKUP,backup_sha256:snapshotHash,unfunded_revenue_cancelled:excludedRevenue,ci_verified:false};
+  return {ok:true,status:'RECOVERED',job_id:ORIGINAL,removed_duplicate:DUPLICATE,original_creation_preserved:true,tests_and_patch_preserved:true,backup_key:BACKUP,backup_sha256:snapshotHash,unfunded_revenue_cancelled:excludedRevenue,superseded_replacements:replacements.map(row=>row.id),ci_verified:false};
 }
 
 export async function d1FromEnvironment(){

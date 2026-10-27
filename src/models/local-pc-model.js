@@ -139,6 +139,13 @@ export function bindLocalPcWorkersAi(env, run = runLocalPcModel) {
   env.AI = {
     __melLocalPc: true,
     run: async (model, inputs = {}) => {
+      if (inputs.neuron_reserve === true) {
+        const reservedCloud = env.MEL_CLOUD_AI || cloud;
+        if (typeof reservedCloud?.run !== 'function' || reservedCloud.__melLocalPc) {
+          throw Object.assign(new Error('RESERVED_CLOUD_BINDING_UNAVAILABLE'), {code:'RESERVED_CLOUD_BINDING_UNAVAILABLE'});
+        }
+        return reservedCloud.run(model, inputs);
+      }
       const messages = Array.isArray(inputs.messages) && inputs.messages.length
         ? inputs.messages
         : (inputs.prompt ? [{ role: 'user', content: String(inputs.prompt) }] : null);

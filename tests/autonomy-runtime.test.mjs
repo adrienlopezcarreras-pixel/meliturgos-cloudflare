@@ -669,3 +669,15 @@ test('a stalled GitHub inspection is aborted and cannot enqueue a late Teacher r
   assert.equal(calls,1);assert.equal(signal.aborted,true);
   assert.equal((await fixture.repository.get(job.id)).result_json?.teacher_bridge,undefined);
 });
+
+
+test('real Workers AI model identifiers survive persistent Council quarantine validation',async()=>{
+  const fixture=runtimeFixture();
+  fixture.env.AI.run=async()=>{throw Object.assign(new Error('fixture unavailable'),{code:'COUNCIL_PROVIDER_TIMEOUT'});};
+  const {runAutonomyRuntimeTick:runCore}=await import('../src/evolution/autonomy-runtime-core.js');
+  await runCore(fixture.env,{fetchImpl:fixture.fetchImpl,repository:fixture.repository,roadmap:TEST_ROADMAP});
+  const [job]=await fixture.repository.list();
+  assert.ok(job.result_json.council_model_attempts.length>0);
+  assert.ok(job.result_json.council_model_exclusions.some(row=>row.id==='workers-ai:@cf/openai/gpt-oss-120b'));
+  assert.ok(job.result_json.council_model_exclusions.every(row=>row.until>Date.now()));
+});

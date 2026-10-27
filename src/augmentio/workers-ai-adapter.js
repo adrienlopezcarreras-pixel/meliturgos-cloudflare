@@ -44,9 +44,14 @@ const COUNCIL_NON_REASONING_MODELS = new Set([
   '@cf/nvidia/nemotron-3-120b-a12b',
 ]);
 
-const NON_REASONING_PURPOSES = new Set([
+const RESERVED_COUNCIL_PURPOSES = new Set([
   'model-council-independent-critique',
   'model-council-synthesis',
+  'state-of-play-before-development',
+  'mel-council-synthesis',
+]);
+const NON_REASONING_PURPOSES = new Set([
+  ...RESERVED_COUNCIL_PURPOSES,
   'mel-autonomous-development',
   'mel-autonomous-development-structured-repair',
 ]);
@@ -56,6 +61,7 @@ function inferenceOptions(context = {}, modelId = '') {
     ? context.inference_settings
     : null;
   const out = {};
+  if (RESERVED_COUNCIL_PURPOSES.has(String(context?.purpose || '').trim())) out.neuron_reserve = true;
   if (settings) {
     const temperature = boundedNumber(settings.temperature, 0, 5);
     const topP = boundedNumber(settings.top_p, 0.001, 1);
@@ -111,6 +117,9 @@ export function createWorkersAIAdapter({
       const messages = normalizeMessages(input, context);
       const options = inferenceOptions(context, modelId);
       const result = await env.AI.run(modelId, { messages, ...options });
+      if (options.neuron_reserve === true && (result?.local === true || result?.provider === 'local-pc' || String(result?.model || '').startsWith('pc:'))) {
+        throw Object.assign(new Error('COUNCIL_LOCAL_SUBSTITUTE_REFUSED'), {code:'COUNCIL_LOCAL_SUBSTITUTE_REFUSED'});
+      }
       const text = extractText(result);
       if (!text || !String(text).trim()) {
         const error = new Error('EMPTY_WORKERS_AI_RESPONSE');

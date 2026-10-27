@@ -894,7 +894,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
           .filter(row => row && typeof row.id === 'string' && Number(row.until) > now)
           .map(row => [row.id, { id: row.id, until: Number(row.until) }]));
         for (const id of (Array.isArray(error?.council_model_exclusions) ? error.council_model_exclusions : [])) {
-          if (typeof id === 'string' && /^[a-zA-Z0-9_.:-]{1,100}$/.test(id) && !quarantine.has(id)) {
+          if (typeof id === 'string' && /^[a-zA-Z0-9_.:@/\-]{1,160}$/.test(id) && !quarantine.has(id)) {
             quarantine.set(id, { id, until: now + 10 * 60_000 });
           }
         }
