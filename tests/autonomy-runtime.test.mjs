@@ -646,6 +646,7 @@ test('insufficient Council responses defer the same mission without consuming ru
   const { runAutonomyRuntimeTick: runCore } = await import('../src/evolution/autonomy-runtime-core.js');
   const tick = await runCore(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository, roadmap: TEST_ROADMAP });
   assert.equal(tick.progress.block_reason, 'COUNCIL_INSUFFICIENT_RESPONSES');
+  assert.equal(tick.progress.waiting_external, true, 'do not hot-chain or count an explicit provider wait as stalled work');
   const jobs = await fixture.repository.list();
   assert.equal(jobs.length, 1);
   const pending = jobs[0];

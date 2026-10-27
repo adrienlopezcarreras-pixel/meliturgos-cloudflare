@@ -1011,7 +1011,8 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   }
   const activeCount = Array.isArray(state?.active) ? state.active.length : 0;
   const workRemaining = autonomyWorkRemaining(state);
-  const waitingExternal = finalJobStatus === 'WAITING_TEACHER'
+  const waitingExternal = (teacher?.status === 'NOT_READY' && Boolean(providerDeferral(teacher.code)))
+    || finalJobStatus === 'WAITING_TEACHER'
     || bridgePreparation?.status === 'AWAITING_LIVE_EVIDENCE'
     || String(ensured?.external_progress?.status || '').length > 0;
   const blockReason = teacher?.status === 'NOT_READY' ? teacher.code : bridgePreparation?.status === 'NOT_READY'
