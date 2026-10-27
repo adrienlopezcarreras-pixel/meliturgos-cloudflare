@@ -328,6 +328,32 @@ export class AutonomySupervisor {
       const wanted = current.active.find(job => job.id === this.onlyJobId) || null;
       return { created: false, job: wanted, next: current.next };
     }
+    // Single-flight MAX: a persisted autonomous objective retains ownership
+    // through Teacher, Bridge, review, and deferred provider phases. Keep the
+    // roadmap as the pending list; never materialize a second autonomous job
+    // merely because the current one is waiting externally.
+    const inFlight = current.active
+      .filter(job => job.requested_by === 'mel-autonomy')
+      .sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0) || String(a.id).localeCompare(String(b.id)));
+    if (inFlight.length) {
+      const job = inFlight[0];
+      if (isPassiveRuntimeJob(job)) {
+        return {
+          created: false,
+          job: null,
+          next: null,
+          complete: false,
+          external_progress: {
+            job_id: job.id,
+            status: providerDeferred(job) ? 'DEFERRED_PROVIDER_RETRY_PENDING'
+              : isClaimedPreparedDevBridgeJob(job) ? 'BRIDGE_EXECUTION_IN_PROGRESS'
+              : String(job.status || 'WAITING_EXTERNAL'),
+          },
+        };
+      }
+      return { created: false, job, next: current.next };
+    }
+
     const actionable = selectActionableAutonomyJob(current.active, { epochMs: this.epochMs, roadmap: this.roadmap });
     if (actionable) return { created: false, job: actionable, next: current.next };
 
