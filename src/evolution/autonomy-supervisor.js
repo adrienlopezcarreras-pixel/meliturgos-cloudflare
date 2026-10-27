@@ -324,6 +324,23 @@ export class AutonomySupervisor {
   }
 
   async ensureNextJob() {
+    // Release stale non-executing D1 jobs only when the canonical roadmap
+    // explicitly marks their objective verified. Never delete history or
+    // interrupt Teacher, Bridge or review lanes.
+    if (typeof this.repository.reconcileVerifiedAutonomyJob === 'function') {
+      const verified = new Map(this.roadmap.filter(isVerifiedRoadmap).map(item => [item.id, item]));
+      if (verified.size) {
+        for (const job of await this.repository.list()) {
+          const item = job?.requested_by === 'mel-autonomy' ? verified.get(roadmapIdFromJob(job)) : null;
+          if (!item || TERMINAL_JOB.has(String(job.status || '').toUpperCase())) continue;
+          try {
+            await this.repository.reconcileVerifiedAutonomyJob(job.id, item);
+          } catch (error) {
+            if (error?.code !== 'JOB_UPDATE_CONFLICT') throw error;
+          }
+        }
+      }
+    }
     const current = await this.state();
     if (this.onlyJobId) {
       const wanted = current.active.find(job => job.id === this.onlyJobId) || null;
