@@ -66,10 +66,13 @@ export async function advanceMoreOnPc({ env, ready = localPcModelReady, run, see
   return { result, ran, job_ids, device_id: local.device_id || null };
 }
 
-async function selectablePcJobs(repository, epochMs, roadmap, count) {
+async function selectablePcJobs(repository, epochMs, roadmap, count, singleFlight = false) {
   const supervisor = new AutonomySupervisor({ repository, epochMs, ...(roadmap ? { roadmap } : {}) });
   const state = await supervisor.state();
-  return selectActionableAutonomyJobs(state.active, { epochMs, limit: count, ...(roadmap ? { roadmap } : {}) }).map(job => job.id);
+  const jobs = selectActionableAutonomyJobs(state.active, { epochMs, limit: count, ...(roadmap ? { roadmap } : {}) });
+  // MAX never runs separate development objectives in parallel on the PC.
+  // The normal mode retains its existing parallel capacity.
+  return (singleFlight ? jobs.slice(0, 1) : jobs).map(job => job.id);
 }
 const ACTIONABLE_FAILURE_STATES = new Set(['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE', 'TEACHER_APPROVED']);
 const ACTIVE_RUNTIME_STATES = new Set([
