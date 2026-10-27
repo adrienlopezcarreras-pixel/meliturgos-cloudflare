@@ -21,6 +21,7 @@ import { MINI_FLASH_CONFIRMATION, readPublishedMiniFirmware, createDeviceFileTic
 import { ANDROID_UPDATE_CONFIRMATION, readPublishedAndroidApk, validateAndroidUpdateInput, androidUpdateCommand } from "./android-update-companion.js";
 import { taskmarketReadonlyPcCommand } from "./taskmarket-readonly-companion.js";
 import { COMPUTER_COMMAND_STATUS } from "./computer-command-status.js";
+import { expireQueuedLocalModelCommand } from "./local-model-queue-expiry.js";
 import { androidMaintenancePcCommand } from "./android-maintenance-companion.js";
 import { androidStagePcCommand } from "./android-apk-stage-companion.js";
 import { readAndroidTriadActivityForCompanion } from "./triad-activity-readonly.js";
@@ -786,6 +787,9 @@ async function claim(env,a){
  const r=await env.DB.prepare("SELECT * FROM computer_commands WHERE device_id=? AND status=? ORDER BY created_at ASC LIMIT 1").bind(a.device.id,"PENDING").first();
  if(!r)return json({ok:true,halted:false,command:null});
  const plan=parse(r.plan_json,{});
+ if(await expireQueuedLocalModelCommand(env.DB, r, Date.now())) {
+  return json({ok:true,halted:false,command:null,blocked_command:{id:r.id,code:"LOCAL_MODEL_REQUEST_EXPIRED"}});
+ }
  // A queued GUI action must never be handed to a device after its owner has
  // disabled remote control, even if it was approved before the opt-out.
  // The Windows agent also checks the local switch before each real step.
