@@ -168,14 +168,19 @@
     "physicalPlaybackRateHz": 48000,
     "microphoneCaptureRateHz": 48000,
     "sttInputRateHz": 16000,
-    "resampling": "FIR low-pass and decimation 48 kHz -> 16 kHz for STT",
+    "resampling": "Microphone STT: FIR decimation 48 kHz to 16 kHz; Android TTS over BLE: FIR decimation 48 kHz to 16 kHz and MINI linear expansion to physical 48 kHz",
     "speechReplyCodec": "ima-adpcm",
     "imaAdpcmMaximumBlockSamples": 256,
     "imaAdpcmMaximumEncodedBytes": 132,
-    "androidTtsBlockSamples": 128,
-    "audioMetadataRateHz": 48000,
+    "androidTtsBlockSamples": 256,
+    "audioMetadataRateHz": 16000,
     "minimumMtuCalculation": "132 encoded bytes + 13-byte Link V2 header + 3-byte ATT overhead = 148 bytes",
-    "pcmBitsPerSample": 16
+    "pcmBitsPerSample": 16,
+    "audioOutputMetadataRateHz": 48000,
+    "compatibleInputRatesHz": [
+      16000,
+      48000
+    ]
   },
   "transfer": {
     "dataFramesAreSequenced": true,
@@ -186,7 +191,7 @@
   },
   "componentRoles": {
     "mini": "BLE GATT peripheral/server; validates encrypted Link V2 session and emits SESSION_OK only after session validation",
-    "android": "BLE GATT central/client; negotiates MTU, validates GATT properties, checks SESSION_OK, resamples local French TTS to 48 kHz and sends bounded credit-controlled audio",
+    "android": "BLE GATT central/client; negotiates MTU, validates GATT properties, checks SESSION_OK, synthesizes local French PCM 48 kHz then decimates to 16 kHz compact ADPCM in 256-sample blocks for MINI",
     "windows": "Protocol-neutral desktop Companion; does not implement BLE Link V2 framing and must use authenticated backend triad/companion state instead of asserting MINI session readiness itself"
   },
   "evidence": {
