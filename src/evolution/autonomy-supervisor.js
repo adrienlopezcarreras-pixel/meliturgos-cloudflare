@@ -3,7 +3,7 @@ import { approvedEvolutionRoadmap } from '../roadmap/evolution-autonomy-queue.js
 import { flattenRoadmap, ROADMAP_STATUSES, isClosedRoadmapStatus } from '../roadmap/master-roadmap.js';
 import { isClaimedPreparedDevBridgeJob } from '../dev/bridge-job-state.js';
 
-const TERMINAL_JOB = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED', 'DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED']);
+const TERMINAL_JOB = new Set(['COMPLETED', 'CANCELLED', 'FAILED', 'DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED']);
 const BLOCKED_ROADMAP = new Set([ROADMAP_STATUSES.BLOCKED_HUMAN, ROADMAP_STATUSES.BLOCKED_EXTERNAL]);
 function isVerifiedRoadmap(item) { return isClosedRoadmapStatus(item?.status); }
 const PRIORITY_WEIGHT = Object.freeze({ P0: 0, P1: 10, P2: 20, P3: 30 });
@@ -287,7 +287,7 @@ export class AutonomySupervisor {
     const reopenedIds = new Set(this.roadmap.filter(item => String(item.status).toUpperCase() === 'REGRESSED').map(item => item.id));
     for (const item of evolutionItems || []) if (item.status === 'REGRESSED') reopenedIds.add('EVOLUTION-' + item.id);
     const completedIds = supervisedJobs
-      .filter(job => ['COMPLETED', 'COMMITTED'].includes(String(job.status).toUpperCase()) || isClosedRoadmapStatus(job.status))
+      .filter(job => ['COMPLETED'].includes(String(job.status).toUpperCase()) || isClosedRoadmapStatus(job.status))
       .map(roadmapIdFromJob).filter(id => id && !reopenedIds.has(id));
     const completedSet = new Set(completedIds);
     const active = supervisedJobs.filter(job => !TERMINAL_JOB.has(String(job.status || '').toUpperCase()))
@@ -366,6 +366,18 @@ export class AutonomySupervisor {
       .sort((left, right) => Number(left?.created_at || 0) - Number(right?.created_at || 0)
         || String(left?.id || '').localeCompare(String(right?.id || '')))[0] || null;
     if (this.singleFlight && activeInternal && actionable?.requested_by !== 'owner-chat') {
+      // COMMITTED means the candidate was committed, not necessarily that the
+      // release passed live verification. D1's admission fence still sees this
+      // state as active; never run a second mission or re-enter COMMITTED.
+      if (String(activeInternal.status || '').toUpperCase() === 'COMMITTED') {
+        return {
+          created: false, job: null, next: current.next, complete: false,
+          external_progress: {
+            job_id: activeInternal.id,
+            status: 'DELIVERY_VERIFICATION_PENDING',
+          },
+        };
+      }
       if (isClaimedPreparedDevBridgeJob(activeInternal) || providerDeferred(activeInternal)) {
         return {
           created: false, job: null, next: current.next, complete: false,
@@ -386,6 +398,10 @@ export class AutonomySupervisor {
       .filter(job => job.requested_by === 'mel-autonomy')
       .sort(compareActiveJobs)[0] || null;
     if (this.singleFlight && inFlightInternal) {
+      if (String(inFlightInternal.status || '').toUpperCase() === 'COMMITTED') {
+        return { created: false, job: null, next: current.next, complete: false,
+          external_progress: { job_id: inFlightInternal.id, status: 'DELIVERY_VERIFICATION_PENDING' } };
+      }
       // A Bridge-owned prepared CLAIMED job or a deferred provider must not
       // be re-entered by the generic runtime while its external lane owns it.
       if (isClaimedPreparedDevBridgeJob(inFlightInternal) || providerDeferred(inFlightInternal)) {
