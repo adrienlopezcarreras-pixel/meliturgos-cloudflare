@@ -27,6 +27,34 @@ test('Workers AI calls stop at the daily neuron cap and resume the next UTC day'
   assert.equal(calls.length, 4);
 });
 
+test('realtime voice bypasses multi-minute PC jobs and never sends internal routing marker to Cloudflare', async () => {
+  const db = sqliteD1();
+  const cloud = [];
+  let pcCalls = 0;
+  const env = withNeuronBudget({
+    DB: db,
+    AI: {run: async (_model, payload) => {
+      cloud.push(payload);
+      return {response:'Voix disponible',usage:{prompt_tokens:5,completion_tokens:5}};
+    }},
+  }, {
+    localRun: async () => {pcCalls++; return {response:'réponse lente du pc'};},
+  });
+  const payload = {
+    neuron_reserve: true,
+    messages: [{role:'user',content:'Bonjour MEL'}],
+    max_tokens:120
+  };
+  const answer = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', payload);
+  assert.equal(answer.response, 'Voix disponible');
+  assert.equal(pcCalls, 0);
+  assert.equal(cloud.length, 1);
+  assert.equal(cloud[0].neuron_reserve, undefined);
+  assert.deepEqual(cloud[0].messages, payload.messages);
+  assert.equal(cloud[0].max_tokens, 120);
+  assert.equal(payload.neuron_reserve, true, 'do not mutate caller-owned data');
+});
+
 test('an unreadable budget refuses instead of spending', async () => {
   const calls = [];
   const env = withNeuronBudget({ DB: { prepare() { throw new Error('D1 down'); } }, AI: aiFake(calls) });
