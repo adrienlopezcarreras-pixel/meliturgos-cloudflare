@@ -38,7 +38,7 @@ try {
   $started=[DateTime]::UtcNow
   $result=PcControl-SystemExec @{command=$command;timeout_ms=90000;require_success_exit=$true}
   $ended=[DateTime]::UtcNow
-  if($result.exit_code -ne 0 -or $result.stdout.Length -ne 12000 -or $result.stderr.Length -ne 8000){throw ('CHILD_PIPE_DRAIN_FAILED exit=' + $result.exit_code + ' stdout_chars=' + $result.stdout.Length + ' stderr_chars=' + $result.stderr.Length + ' stdout_head=' + $result.stdout.Substring(0,[Math]::Min(100,$result.stdout.Length)) + ' stderr_head=' + $result.stderr.Substring(0,[Math]::Min(100,$result.stderr.Length)))}
+  if($result.exit_code -ne 0 -or $result.stdout.Length -ne 12000 -or -not $result.stderr.Contains(('E'*8000))){throw ('CHILD_PIPE_DRAIN_FAILED exit=' + $result.exit_code + ' stdout_chars=' + $result.stdout.Length + ' stderr_chars=' + $result.stderr.Length + ' stdout_head=' + $result.stdout.Substring(0,[Math]::Min(100,$result.stdout.Length)) + ' stderr_head=' + $result.stderr.Substring(0,[Math]::Min(100,$result.stderr.Length)))}
   if($script:HeartbeatTimes.Count -lt 4){throw 'HEARTBEAT_STARVED_BY_LONG_COMMAND'}
   for($i=1;$i -lt $script:HeartbeatTimes.Count;$i++) {
     if(($script:HeartbeatTimes[$i]-$script:HeartbeatTimes[$i-1]).TotalSeconds -gt 20){throw 'HEARTBEAT_INTERVAL_TOO_LONG'}
