@@ -16,17 +16,47 @@ function asText(value, max = 240) {
 }
 
 function bytesToBase64(bytes) {
-  let binary = '';
-  for (let index = 0; index < bytes.length; index += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(index, Math.min(bytes.length, index + 0x8000)));
+  // Production backups can exceed hundreds of MiB. btoa() on one binary JS
+  // string crashes V8 in Node even when the encrypted Uint8Array is valid.
+  if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
+    return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64');
   }
-  return btoa(binary);
+
+  // Workers do not expose Node Buffer: encode complete three-byte groups in
+  // bounded chunks so no btoa() call receives a huge binary string.
+  const chunks = [];
+  const chunkBytes = 0xc000; // divisible by 3; only the final chunk may pad
+  for (let start = 0; start < bytes.length; start += chunkBytes) {
+    const end = Math.min(bytes.length, start + chunkBytes);
+    let binary = '';
+    for (let index = start; index < end; index += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(index, Math.min(end, index + 0x8000)));
+    }
+    chunks.push(btoa(binary));
+  }
+  return chunks.join('');
 }
 
 function base64ToBytes(value, code = 'BACKUP_ENCRYPTION_BASE64_INVALID') {
   try {
-    const binary = atob(String(value || ''));
-    // Avoid materializing one JS iterator element per byte for large backups.
+    const encoded = String(value || '');
+    if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
+      // Unlike atob(), Node's Buffer decoder silently accepts malformed data.
+      // Preserve the original fail-closed decoding contract.
+      const normalized = encoded.replace(/[\t\n\f\r ]/g, '');
+      const paddingAt = normalized.indexOf('=');
+      if (/[^A-Za-z0-9+/=]/.test(normalized)
+        || normalized.length % 4 === 1
+        || (paddingAt !== -1 && (normalized.length % 4 !== 0
+          || normalized.length - paddingAt > 2
+          || /[^=]/.test(normalized.slice(paddingAt))))) {
+        throw new Error('INVALID_BASE64');
+      }
+      const decoded = Buffer.from(normalized, 'base64');
+      return new Uint8Array(decoded.buffer, decoded.byteOffset, decoded.byteLength);
+    }
+
+    const binary = atob(encoded);
     const bytes = new Uint8Array(binary.length);
     for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
     return bytes;

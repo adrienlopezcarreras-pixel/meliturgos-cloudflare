@@ -253,3 +253,57 @@ test('large encrypted snapshot roundtrip stays within bounded Node heap', async 
   assert.equal(child.status,0,`bounded codec subprocess failed: status=${child.status}, signal=${child.signal}`);
   assert.equal(child.stdout.trim(),'ROUNDTRIP_OK');
 });
+
+test('Node backup encoding bypasses monolithic btoa for multi-megabyte ciphertext', async () => {
+  const oldBtoa=globalThis.btoa;
+  globalThis.btoa=()=>{throw new Error('MONOLITHIC_BTOA_MUST_NOT_RUN_IN_NODE');};
+  try {
+    const codec=createBackupEncryptionCodec({
+      keyBytes:key(),
+      keyId:'large-node-backup',
+      randomBytes:deterministicIv,
+    });
+    const snapshot={
+      id:'multi-mib-backup',
+      schema:'MEL_VERIFIED_SNAPSHOT_V1',
+      integritySha256:'d'.repeat(64),
+      exports:{database:'0123456789abcdef'.repeat(512 * 1024)},
+    };
+    const sealed=await codec.seal(snapshot);
+    assert.ok(sealed.ciphertext_b64.length > 8 * 1024 * 1024);
+    assert.deepEqual(await codec.open(sealed),snapshot);
+  } finally {
+    globalThis.btoa=oldBtoa;
+  }
+});
+
+test('Workers fallback encodes binary across 3-byte-aligned bounded base64 chunks', async () => {
+  const oldBuffer=globalThis.Buffer;
+  const oldBtoa=globalThis.btoa;
+  const observed=[];
+  globalThis.Buffer=undefined;
+  globalThis.btoa=(binary)=>{
+    observed.push(binary.length);
+    assert.ok(binary.length <= 0xc000, 'must never call btoa with a giant binary string');
+    return oldBtoa(binary);
+  };
+  try {
+    const codec=createBackupEncryptionCodec({
+      keyBytes:key(),
+      keyId:'workers-chunk-backup',
+      randomBytes:deterministicIv,
+    });
+    const snapshot={
+      id:'multi-chunk-backup',
+      schema:'MEL_VERIFIED_SNAPSHOT_V1',
+      integritySha256:'e'.repeat(64),
+      exports:{database:'abc'.repeat(80_000) + 'z'},
+    };
+    const sealed=await codec.seal(snapshot);
+    assert.ok(observed.length >= 4);
+    assert.deepEqual(await codec.open(sealed),snapshot);
+  } finally {
+    globalThis.Buffer=oldBuffer;
+    globalThis.btoa=oldBtoa;
+  }
+});
