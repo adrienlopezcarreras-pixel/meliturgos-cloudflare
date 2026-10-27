@@ -511,3 +511,25 @@ test('normal mode also retains the current roadmap mission while Teacher progres
   assert.equal(selected.job.id, first.id);
   assert.equal((await repo.list()).length, 1);
 });
+
+
+test('single-flight does not re-enter an externally owned prepared Bridge job', async () => {
+  const repo = isolatedRepo();
+  const job = await repo.create({
+    id: 'mel-autonomy-mel-work-01-1',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] Work Engine',
+    optional_context: { roadmap_id: 'MEL-WORK-01', source: 'autonomy-supervisor' },
+  });
+  await repo.update(job.id, {
+    status: 'CLAIMED',
+    plan_json: { steps: ['Implement the feature'] },
+    patch_json: { files: [] },
+    tests_json: { passed: true },
+  });
+  const supervisor = new AutonomySupervisor({ repository: repo, roadmap });
+  const selected = await supervisor.ensureNextJob();
+  assert.equal(selected.created, false);
+  assert.equal((await repo.list()).length, 1);
+  assert.ok(selected.job === null || selected.job.id === job.id);
+});
