@@ -44,9 +44,18 @@ async function fixture({ maxAutonomy = false, roadmap = ROADMAP } = {}) {
       ON CONFLICT(bridge_id) DO UPDATE SET last_seen=excluded.last_seen`).bind('activity-list-epoch', epoch).run();
   }
   async function oldJob(id, status = 'QUEUED', extra = {}) {
-    await repository.create({ id, requested_by: 'mel-autonomy', goal: id, optional_context: { roadmap_id: 'OLD-' + id } });
-    await repository.update(id, { status, ...extra });
-    await DB.prepare('UPDATE dev_jobs SET created_at=?,updated_at=? WHERE id=?').bind(epoch - 2000, epoch - 1000, id).run();
+    // Simulate an immutable legacy D1 row predating today's atomic admission.
+    // Inserting two simultaneously active objectives through repository.create()
+    // is correctly refused now; tests must not disable the production fence.
+    await repository.init();
+    await DB.prepare(`INSERT INTO dev_jobs(id,created_at,updated_at,status,requested_by,goal,optional_context,plan_json,files_json,patch_json,tests_json,result_json,candidate_branch,approval_status,error)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(id, epoch - 2000, epoch - 1000, status, 'mel-autonomy', id,
+        JSON.stringify({ roadmap_id: 'OLD-' + id }),
+        JSON.stringify(extra.plan_json ?? null), JSON.stringify(extra.files_json ?? []),
+        JSON.stringify(extra.patch_json ?? null), JSON.stringify(extra.tests_json ?? []),
+        JSON.stringify(extra.result_json ?? null), extra.candidate_branch ?? null,
+        extra.approval_status ?? 'PENDING', extra.error ?? null).run();
     return repository.get(id);
   }
   const tick = (options = {}) => runAutonomyRuntimeTick(env, { repository, fetchImpl, roadmap, ...options });
@@ -54,15 +63,15 @@ async function fixture({ maxAutonomy = false, roadmap = ROADMAP } = {}) {
   return { DB, repository, env, tick, oldJob, saveEpoch, get epoch() { return epoch; }, get providerCalls() { return providerCalls; }, get forbiddenSearches() { return forbiddenSearches; }, setReplies(value) { replies = value; } };
 }
 
-test('the real runtime ignores old approved/queued work and preserves its journal', async () => {
+test('old active D1 work cannot be bypassed by resetting the UI activity epoch', async () => {
   const f = await fixture();
   try {
     const before = [await f.oldJob('old-approved', 'TEACHER_APPROVED'), await f.oldJob('old-queued')];
     const result = await f.tick();
-    assert.equal(result.ok, true);
-    assert.equal(result.job.roadmap_id, ROADMAP[0].id);
-    assert.equal(result.job.status, 'WAITING_TEACHER');
+    assert.equal((await f.repository.list()).some(job => job?.optional_context?.roadmap_id === ROADMAP[0].id), false,
+      'a reset cannot bypass an earlier active mission still stored in D1');
     assert.deepEqual(await Promise.all(before.map(job => f.repository.get(job.id))), before);
+    assert.notEqual(result.job?.roadmap_id, ROADMAP[0].id);
   } finally { f.DB.close(); }
 });
 
@@ -152,14 +161,15 @@ test('a busy lease reports only current work without selecting or changing histo
     assert.equal(result.progress.next_roadmap_id, ROADMAP[0].id);
     assert.deepEqual(await f.repository.get(old.id), old);
     await releaseAutonomyRuntimeLease({ db: f.DB, owner: 'holder' });
-    assert.equal((await f.tick()).job.roadmap_id, ROADMAP[0].id);
+    await f.tick();
+    assert.deepEqual(await f.repository.get(old.id), old, 'lease release cannot bypass active historical D1 work');
   } finally { f.DB.close(); }
 });
 
 test('a transient core failure is attributed to the current job, then resumes it after the lease is released', async () => {
   const f = await fixture();
   try {
-    const old = await f.oldJob('old-approved', 'TEACHER_APPROVED');
+    const old = await f.oldJob('old-approved', 'CANCELLED');
     const current = await f.repository.create({ id: 'current-queued', requested_by: 'mel-autonomy', goal: 'current work', optional_context: { roadmap_id: ROADMAP[0].id } });
     let reads = 0;
     const repository = Object.create(f.repository);
@@ -262,7 +272,7 @@ test('an unreadable activity epoch cannot make historical jobs actionable', asyn
 });
 
 
-test('a real runtime tick advances B while Mentor A remains durably deferred', async () => {
+test('a real runtime tick retains Mentor A while deferred instead of starting B', async () => {
   const f=await fixture({roadmap:[...ROADMAP,{id:'TEST-EPOCH-02',title:'Independent B',status:'PLANNED',priority:'P0'}]});
   try {
     const first=await f.tick();
@@ -271,8 +281,9 @@ test('a real runtime tick advances B while Mentor A remains durably deferred', a
     const a=await f.repository.get(first.job.id);
     assert.equal(a.result_json.autonomy_deferral.code,'MENTOR_NO_VALID_CODE_PROPOSAL');
     const next=await f.tick();
-    assert.equal(next.job.roadmap_id,'TEST-EPOCH-02');
-    assert.equal(next.job.status,'WAITING_TEACHER');
+    assert.equal(next.job, null);
+    assert.equal(next.progress?.waiting_external, true);
+    assert.equal((await f.repository.list()).length, 1);
     assert.deepEqual(await f.repository.get(a.id),a);
     const lease=await tryAcquireAutonomyRuntimeLease({db:f.DB,owner:'after-independent-tick'});
     assert.equal(lease.acquired,true);
@@ -285,7 +296,7 @@ test('focused MAX pass never starts another mission or revives a cancelled targe
   const f = await fixture({maxAutonomy:true});
   try {
     const target = await f.repository.create({id:'focused-target',requested_by:'mel-autonomy',goal:'target',optional_context:{roadmap_id:ROADMAP[0].id}});
-    const other = await f.repository.create({id:'unrelated',requested_by:'mel-autonomy',goal:'untouched',optional_context:{roadmap_id:'TEST-OTHER'}});
+    const other = await f.oldJob('unrelated', 'TEACHER_APPROVED');
     const before = await f.repository.get(other.id);
     await f.tick({onlyJobId:target.id});
     assert.deepEqual(await f.repository.get(other.id),before);
