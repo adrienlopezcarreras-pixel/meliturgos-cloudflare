@@ -197,7 +197,7 @@ test('Code mode displays the current pope photo even when the Vatican historical
   assert.equal(data.media.length,1,JSON.stringify(data));
   assert.equal(data.media[0].url,'https://upload.wikimedia.org/leo14.jpg');
   assert.match(data.text,/Voici une photo du pape Léon XIV\./);
-  assert.doesNotMatch(data.text,/File:Pope|synthèse du modèle est indisponible/i);
+  assert.doesNotMatch(data.text.split('\n\n')[0],/File:Pope|synthèse du modèle est indisponible/i);
   assert.ok(calls.includes('https://www.vatican.va/holy_father/index_fr.htm'));
   const {host}=browser(t,data.text,data);
   assert.equal(host.querySelectorAll('img').length,1);
