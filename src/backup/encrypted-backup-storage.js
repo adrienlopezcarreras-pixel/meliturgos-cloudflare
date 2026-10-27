@@ -43,7 +43,7 @@ function base64ToBytes(value, code = 'BACKUP_ENCRYPTION_BASE64_INVALID') {
     if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
       // Unlike atob(), Node's Buffer decoder silently accepts malformed data.
       // Preserve the original fail-closed decoding contract.
-      const normalized = encoded.replace(/[\\t\\n\\f\\r ]/g, '');
+      const normalized = encoded.replace(/[\t\n\f\r ]/g, '');
       const paddingAt = normalized.indexOf('=');
       if (/[^A-Za-z0-9+/=]/.test(normalized)
         || normalized.length % 4 === 1
