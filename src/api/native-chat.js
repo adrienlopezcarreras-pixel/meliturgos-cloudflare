@@ -731,7 +731,19 @@ function withOfficialVisual(responseText, userText, toolResults) {
   const explanation=wantsExplanation?stripLeakedToolCalls(responseText).replace(/!\[[^\]]*\]\([^)]*\)/g,'').replace(/\[([^\]]*)\]\([^)]*\)/g,'$1').replace(/https?:\/\/\S+/g,'').trim().slice(0,6000):'';
   // A provider title is evidence metadata, not conversation text.
   // Preserve each link but answer with a natural, source-backed caption.
-  const identity=String(evidence.result?.official_identity||'').replace(/[\[\]<>\x60*_{}()#!~|]/g,'').trim().slice(0,80);
+  // When the official Vatican page supplies the portrait itself, its exact
+  // matching title can identify the sitter without guessing from a URL.
+  const officialPortraitSource=(Array.isArray(evidence.result?.sources)?evidence.result.sources:[]).find(source=>{
+    try {
+      const url=new URL(String(source?.url||''));
+      return (url.hostname==='vatican.va'||url.hostname.endsWith('.vatican.va'))
+        && String(source?.image_url||'')===String(images[0]?.url||'');
+    } catch { return false; }
+  });
+  const officialTitleName=String(officialPortraitSource?.title||'')
+    .match(/\b(?:L[ée]on|Leo|Fran[çc]ois|Beno[iî]t|Jean-Paul|Pie)\s+[IVX]{1,6}\b/i)?.[0]||'';
+  const identity=String(evidence.result?.official_identity||officialTitleName)
+    .replace(/[\[\]<>\x60*_{}()#!~|]/g,'').trim().slice(0,80);
   const intro=identity
     ? 'Voici '+(images.length===1?'une photo':'des photos')+' du pape '+identity+'.'
     : 'Voici '+(images.length===1?'une photo':'des photos')+' correspondant à ta demande.';
