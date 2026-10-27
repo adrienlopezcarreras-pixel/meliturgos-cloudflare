@@ -393,35 +393,68 @@ async function serveSetupScript(request, env) {
 }
 
 
+// A successful transcription is sufficient to answer a microphone/relay
+// check truthfully. Do not send a transport health-check through multiple AI
+// models and eventually mislabel a healthy microphone as CHAT 504.
+function isMiniVoiceHearingCheck(text) {
+  const value = String(text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/[’]/g, "'").trim();
+  return /^(?:(?:bonjour|bonsoir|salut)[\s,!.?]*)?(?:mel[\s,!.?]*)?(?:est[\s-]+ce[\s-]+que[\s,!.?]*)?(?:tu[\s]+m'entends|m'entends[\s-]+tu|tu[\s]+me[\s]+recois|tu[\s]+m'ecoutes)[\s,!.?]*$/.test(value);
+}
+
+// MINI voice must remain independent of /api/chat's long-form agentic
+// pipeline. Each failed provider consumes part of a single, short budget.
 async function runMiniDirectVoice(text, env) {
+  if (isMiniVoiceHearingCheck(text)) {
+    return {
+      ok: true,
+      text: "Oui, je t'entends. Ta voix a bien été transcrite et reçue par MEL.",
+      model: "mini-transcription-health",
+      provider: "mel",
+      response_mode: "mini-voice-fast",
+    };
+  }
+
   if (!env?.AI || typeof env.AI.run !== "function") {
     return { ok: false, code: "AI_BINDING_MISSING", status: 503 };
   }
+
   const messages = [
     {
       role: "system",
-      content: "Tu es MEL, en conversation avec Adrien. Tu tutoies. Réponds en français, en 1 à 3 phrases, sans liste, sans markdown et sans code. Tu ne programmes pas. Si on te demande de coder, de modifier MEL ou d'utiliser un outil, dis que cela se fait sur le site, pas depuis le téléphone ni la MINI."
+      content: "Tu es MEL, en conversation vocale avec Adrien. Tu tutoies. Réponds en français, en 1 à 3 phrases, sans liste, sans markdown et sans code. Tu ne programmes pas. Si on te demande de coder, de modifier MEL ou d'utiliser un outil, dis que cela se fait sur le site, pas depuis le téléphone ni la MINI."
     },
     { role: "user", content: String(text || "").slice(0, 4000) }
   ];
 
-  const attempts = [
-    { model: "@cf/zai-org/glm-4.7-flash", timeoutMs: 10000 },
-    { model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", timeoutMs: 10000 }
+  // These models are all available as Workers AI chat models. The 8B fast
+  // path is intentionally first: simple spoken dialogue does not need 70B.
+  const models = [
+    "@cf/meta/llama-3.1-8b-instruct-fast",
+    "@cf/zai-org/glm-4.7-flash",
+    "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
   ];
+  const configuredAttemptMs = Number(env.MEL_MINI_VOICE_ATTEMPT_TIMEOUT_MS);
+  const attemptMs = Number.isFinite(configuredAttemptMs) && configuredAttemptMs > 0
+    ? Math.min(4000, Math.max(10, Math.trunc(configuredAttemptMs)))
+    : 4000;
+  const deadlineAt = Date.now() + Math.min(13000, attemptMs * models.length + 500);
+  let lastFailure = "MINI_VOICE_EMPTY";
+  const startedAt = Date.now();
 
-  let lastError = null;
-  for (const attempt of attempts) {
-    let timer = null;
+  for (const model of models) {
+    const remainingMs = deadlineAt - Date.now();
+    if (remainingMs <= 0) break;
+    const timeoutMs = Math.min(attemptMs, remainingMs);
+    let timer;
+    const attemptStartedAt = Date.now();
     try {
       const result = await Promise.race([
-        env.AI.run(attempt.model, { messages, max_tokens: 120, temperature: 0.3 }),
+        env.AI.run(model, { messages, max_tokens: 120, temperature: 0.3 }),
         new Promise((_, reject) => {
-          timer = setTimeout(() => {
-            const error = new Error("MINI_VOICE_MODEL_TIMEOUT");
-            error.code = "MINI_VOICE_MODEL_TIMEOUT";
-            reject(error);
-          }, attempt.timeoutMs);
+          timer = setTimeout(() => reject(Object.assign(
+            new Error("MINI_VOICE_MODEL_TIMEOUT"), { code: "MINI_VOICE_MODEL_TIMEOUT" }
+          )), timeoutMs);
         })
       ]);
       const reply = typeof result === "string"
@@ -429,48 +462,55 @@ async function runMiniDirectVoice(text, env) {
         : result?.response ?? result?.text ?? result?.message?.content
           ?? result?.choices?.[0]?.message?.content ?? result?.choices?.[0]?.text ?? "";
       if (String(reply || "").trim()) {
+        console.info("[mini-voice] inference succeeded", {
+          model, elapsed_ms: Date.now() - startedAt,
+        });
         return {
           ok: true,
           text: String(reply).trim().slice(0, 700),
-          model: attempt.model,
+          model,
           provider: "workers-ai",
           response_mode: "mini-voice-fast"
         };
       }
-      lastError = new Error("MINI_VOICE_EMPTY");
+      lastFailure = "MINI_VOICE_EMPTY";
     } catch (error) {
-      lastError = error;
+      lastFailure = String(error?.code || error?.message || "MINI_VOICE_FAILED").slice(0, 120);
     } finally {
-      if (timer) clearTimeout(timer);
+      clearTimeout(timer);
     }
+    console.warn("[mini-voice] bounded model attempt failed", {
+      model, code: lastFailure, elapsed_ms: Date.now() - attemptStartedAt,
+    });
   }
-
+  console.error("[mini-voice] models unavailable; not delegating to /api/chat", {
+    code: lastFailure, elapsed_ms: Date.now() - startedAt,
+  });
   return {
     ok: false,
-    code: "MINI_VOICE_FAST_FAILED",
-    detail: String(lastError?.code || lastError?.message || "UNKNOWN").slice(0, 120),
-    status: 503
+    code: "MINI_VOICE_MODELS_UNAVAILABLE",
+    detail: lastFailure,
+    status: 503,
   };
 }
 
 function deviceNeedsVisibleMedia(text) {
   const value = String(text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  return /\b(?:photo|image|portrait|video|son|audio|musique|page|site|montre|affiche)\b/.test(value);
+  // "son" can mean "his/her/its" in French ("son haut-parleur").
+  // Only *requests to show/play* content should enter the richer media path.
+  return /\b(?:montre|affiche|ouvre|visualise|regarde|voir|joue|diffuse|lance|ecoute)\b/.test(value) &&
+         /\b(?:photo|image|portrait|video|son|audio|musique|page|site|internet|web|document|article|carte|lien)\b/.test(value);
 }
 
-// Phone and MINI talk. They do not code. A photo, a sound, a video or a page
-// still goes through the normal chat so the screen receives a real display.
-// An explicit PC action stays on the computer agent.
-// Typed chat stays on the normal chat too: that path archives the turn,
-// keeps the conversation, and can search the web. The short voice path is
-// only the spoken reply that used to skip the full runtime.
+// Phone and MINI talk. They do not code. Explicit requests to display media
+// continue through the richer chat so display.items can be populated.
 export async function answerOwnedDeviceConversation(text, env, { voice = false } = {}) {
   if (!voice) return null;
   if (inferComputerAgentGoal(text) || deviceNeedsVisibleMedia(text)) return null;
   const answer = await runMiniDirectVoice(text, env);
-  // If the low-latency models fail, use the regular device chat instead of
-  // returning a permanent 503 to the MINI. The normal path keeps voice_reply.
-  if (!answer.ok) return null;
+  // Failures stay on the bounded direct voice route. Falling through to
+  // /api/chat previously added two more model attempts after 20 seconds and
+  // made a simple "bonjour" produce VOICE_CHAT_TIMEOUT / HTTP 504.
   return { ...answer, response_mode: "device-conversation" };
 }
 
