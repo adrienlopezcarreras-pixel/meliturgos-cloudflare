@@ -654,3 +654,18 @@ test('administratively closed roadmap state never reconciles an active D1 job', 
   await new AutonomySupervisor({ repository: repo, roadmap: closedRoadmap }).ensureNextJob();
   assert.equal((await repo.get(job.id)).status, 'QUEUED');
 });
+
+
+test('verified roadmap cannot auto-close a council-complete job pending delivery evidence', async () => {
+  const repo = isolatedRepo();
+  const job = await repo.create({
+    id: 'mel-autonomy-work-council',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] council complete',
+    optional_context: { roadmap_id: 'MEL-WORK-01' },
+  });
+  await repo.update(job.id, { status: 'COUNCIL_COMPLETE' });
+  const result = await repo.reconcileVerifiedAutonomyJob(job.id, { id: 'MEL-WORK-01', status: 'DONE_VERIFIED' });
+  assert.equal(result.status, 'COUNCIL_COMPLETE');
+  assert.equal((await repo.get(job.id)).status, 'COUNCIL_COMPLETE');
+});
