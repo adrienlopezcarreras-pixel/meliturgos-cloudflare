@@ -215,7 +215,9 @@ export class D1DevJobRepository {
     if (!activeJob(job)) return job;
     // Do not interrupt an external Bridge execution or live review. Such
     // jobs require their own completion/rollback reconciliation.
-    if (['CLAIMED', 'READY_FOR_REVIEW', 'WAITING_TEACHER', 'REPAIR_REQUIRED'].includes(String(job.status || '').toUpperCase())) {
+    // Reconcile only inert legacy queue states. Unknown, executing, review,
+    // repair and committed states require their own delivery evidence.
+    if (!['QUEUED', 'TEACHER_APPROVED'].includes(String(job.status || '').toUpperCase())) {
       return job;
     }
     // A job still carrying an active Bridge or Teacher marker must not be
