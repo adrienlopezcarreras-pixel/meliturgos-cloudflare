@@ -222,6 +222,12 @@ export class D1DevJobRepository {
     }
     // A job still carrying an active Bridge or Teacher marker must not be
     // closed just because its roadmap entry was marked verified elsewhere.
+    // Candidate artifacts or a pending approval are not stale queue entries:
+    // preserve them until the normal Council/CI/delivery path resolves.
+    if (job.candidate_branch || job.patch_json || (Array.isArray(job.files_json) && job.files_json.length > 0)
+        || (Array.isArray(job.tests_json) && job.tests_json.length > 0)) {
+      return job;
+    }
     const bridgeStatus = String(job.result_json?.dev_bridge?.status || '').toUpperCase();
     const teacherStatus = String(job.result_json?.teacher_bridge?.status || '').toUpperCase();
     if (['RUNNING', 'IN_PROGRESS', 'CLAIMED', 'READY_FOR_REVIEW'].includes(bridgeStatus)
