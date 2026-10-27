@@ -59,3 +59,19 @@ test('the real fixed core accepts the captured repair result shape without the f
   const result=await replayFounderSnapshot(row,runAutonomyRuntimeTick);
   assert.equal(result.ok,true);assert.ok(result.progress);assert.deepEqual(result.candidate_ci.repaired,[]);
 });
+
+
+test('explicit original recovery archives and supersedes a newer active generation without deleting its journal',async()=>{
+  const {db,repo}=await fixture();
+  try {
+    await repo.update(DUPLICATE,{status:'CANCELLED',error:'ACTIVITY_LIST_RESET'});
+    const newer=await repo.create({id:'new-current-generation',requested_by:'mel-autonomy',goal:'same original objective',optional_context:{roadmap_id:'MEL-FOUNDER-01'}});
+    const proof=await recoverFounderOwner(db,{expectedSha:SHA});
+    assert.equal(proof.ok,true);assert.deepEqual(proof.superseded_replacements,[newer.id]);
+    assert.equal((await repo.get(newer.id)).status,'CANCELLED');
+    assert.equal((await repo.get(newer.id)).error,'SUPERSEDED_BY_OWNER_ORIGINAL_RESTORE');
+    const archive=await db.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?').bind(proof.backup_key).first();
+    assert.equal(JSON.parse(archive.metadata_json).replacements[0].id,newer.id);
+    assert.equal((await repo.get(ORIGINAL)).status,'QUEUED');assert.equal(await repo.get(DUPLICATE),null);
+  }finally{db.close();}
+});

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { createWorkersAIAdapter, inferenceOptions } from '../src/augmentio/workers-ai-adapter.js';
 
 const councilPurposes = [
+  'state-of-play-before-development',
+  'mel-council-synthesis',
   'model-council-independent-critique',
   'model-council-synthesis',
 ];
