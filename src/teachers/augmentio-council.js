@@ -171,9 +171,12 @@ function councilErrorCode(error) {
   return /^[A-Z][A-Z0-9_:-]{0,95}$/.test(value) ? value : 'COUNCIL_PROVIDER_FAILED';
 }
 
-async function invokeMeasured(provider, args, { deadline, callTimeoutMs, attempts, excluded, role }) {
+async function invokeMeasured(provider, args, { deadline, callTimeoutMs, attempts, excluded, role, governor }) {
   const started = Date.now();
   try {
+    // Revalidate the exact cost authorization immediately before calling a model.
+    // Authorization failures must be measured and quarantined just like network failures.
+    governor.assertAllowed(provider);
     const response = await invokeBounded(provider, args, deadline, callTimeoutMs);
     // An empty or non-text response is not a valid independent Council opinion.
     const text = boundedText(typeof response === 'string' ? response : response?.text ?? response?.response, 12000);
@@ -218,11 +221,10 @@ async function invokeRoleWithFallback({ assignment, eligible, input, governor, d
     if (excluded.has(provider.id)) continue;
     attempted.push(provider.id);
     try {
-      governor.assertAllowed(provider);
       const result = await invokeMeasured(provider, {
         input,
         context: { purpose: 'state-of-play-before-development', council_role: assignment.role.id }
-      }, { deadline, callTimeoutMs, attempts, excluded, role: assignment.role.id });
+      }, { deadline, callTimeoutMs, attempts, excluded, role: assignment.role.id, governor });
       return {
         content: result?.text ?? String(result || ''),
         role: assignment.role.id,
@@ -277,11 +279,10 @@ async function synthesizeWithFallback({ eligible, goal, context, report, governo
     if (excluded.has(provider.id)) continue;
     attempted.push(provider.id);
     try {
-      governor.assertAllowed(provider);
       const result = await invokeMeasured(provider, {
         input,
         context: { purpose: 'mel-council-synthesis', coordinator: 'MEL' }
-      }, { deadline, callTimeoutMs, attempts, excluded, role: 'MEL_SYNTHESIS' });
+      }, { deadline, callTimeoutMs, attempts, excluded, role: 'MEL_SYNTHESIS', governor });
       const text = boundedText(result?.text ?? result?.response ?? result, 12000);
       if (!text) continue;
       return {
