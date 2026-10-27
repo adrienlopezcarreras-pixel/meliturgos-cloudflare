@@ -200,6 +200,38 @@ export class D1DevJobRepository {
    * check and insertion without an intervening await so concurrent callers
    * cannot create two logical copies of the same deterministic job.
    */
+  // Reconcile an already-verified roadmap objective without deleting its job
+  // or inventing Teacher/CI evidence. The caller must supply a verified
+  // roadmap record; CAS prevents overwriting a concurrently advancing job.
+  async reconcileVerifiedAutonomyJob(id, roadmapItem) {
+    const verified = new Set(['DONE_VERIFIED', 'VERIFIED', 'ACCEPTED']);
+    if (!roadmapItem?.id || !verified.has(String(roadmapItem.status || '').trim().toUpperCase())) {
+      throw Object.assign(new Error('ROADMAP_VERIFICATION_REQUIRED'), { code: 'ROADMAP_VERIFICATION_REQUIRED' });
+    }
+    const job = await this.get(id);
+    if (!job || job.requested_by !== 'mel-autonomy' || objectiveId(job) !== roadmapItem.id) {
+      throw Object.assign(new Error('AUTONOMY_OBJECTIVE_MISMATCH'), { code: 'AUTONOMY_OBJECTIVE_MISMATCH' });
+    }
+    if (!activeJob(job)) return job;
+    // Do not interrupt an external Bridge execution or live review. Such
+    // jobs require their own completion/rollback reconciliation.
+    if (['CLAIMED', 'READY_FOR_REVIEW', 'WAITING_TEACHER'].includes(String(job.status || '').toUpperCase())) {
+      return job;
+    }
+    return this.update(id, {
+      status: 'DONE_VERIFIED',
+      result_json: {
+        ...(job.result_json || {}),
+        roadmap_reconciliation: {
+          roadmap_id: roadmapItem.id,
+          verified_status: String(roadmapItem.status).trim().toUpperCase(),
+          previous_status: job.status,
+          reconciled_at: Date.now(),
+        },
+      },
+    }, { expected: job });
+  }
+
   async createIfAbsent(input) {
     if (!input?.id) throw Object.assign(new Error('ID_REQUIRED'), { code: 'ID_REQUIRED' });
     await this.init();
