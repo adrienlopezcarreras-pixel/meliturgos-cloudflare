@@ -335,6 +335,7 @@ export class AutonomySupervisor {
     // owner-chat requests retain their established priority.
     const activeInternal = current.active
       .filter(job => job.requested_by === 'mel-autonomy')
+      .filter(job => !this.roadmap.some(item => item.id === roadmapIdFromJob(job) && isVerifiedRoadmap(item)))
       .sort((left, right) => Number(left?.created_at || 0) - Number(right?.created_at || 0)
         || String(left?.id || '').localeCompare(String(right?.id || '')))[0] || null;
     if (this.singleFlight && activeInternal && actionable?.requested_by !== 'owner-chat') {
