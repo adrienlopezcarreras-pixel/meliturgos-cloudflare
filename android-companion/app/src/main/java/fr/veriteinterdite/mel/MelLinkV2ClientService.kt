@@ -1036,7 +1036,7 @@ class MelLinkV2ClientService : Service() {
         // same credit-based flow control already used by the MINI uplink.
         // This prevents long spoken replies from overrunning Android's GATT
         // write queue while text/chat traffic still appears healthy.
-        val audioBlockSamples = 128
+        val audioBlockSamples = MelImaAdpcm.BLOCK_SAMPLES
         val credits = beginOutboundTransfer(streamId)
         requestBlePriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH, intendedGatt)
         try {
@@ -1046,7 +1046,7 @@ class MelLinkV2ClientService : Service() {
                 .put("ch", 1)
                 .put("samples", pcm16.size)
                 .put("block", audioBlockSamples)
-                .put("output_rate", outputRate)
+                .put("output_rate", 48_000)
                 .toString()
                 .toByteArray(Charsets.UTF_8)
 
@@ -1176,9 +1176,14 @@ class MelLinkV2ClientService : Service() {
                         Log.i(TAG, "MINI local TTS discarded after remote cancel stream=" + request.streamId)
                         return
                     }
-                    Log.i(TAG, "MINI local fr-FR TTS -> PCM48 samples=" + pcm.size)
+                    // Compress at 16 kHz before BLE. The MINI expands to 48 kHz
+                    // for its ES8311, preserving speech speed and pitch.
+                    val compactPcm = MelImaAdpcm.decimate48kTo16k(pcm)
+                    Log.i(TAG, "MINI local fr-FR TTS samples48=" + pcm.size +
+                        " samples16=" + compactPcm.size + " BLE frames=" +
+                        ((compactPcm.size + MelImaAdpcm.BLOCK_SAMPLES - 1) / MelImaAdpcm.BLOCK_SAMPLES))
                     state.value = "MINI V2 · VOIX FR LOCALE"
-                    val sent = sendAudioResponse(request.streamId, pcm, outputRate = 48_000, expectedGatt = request.sessionGatt)
+                    val sent = sendAudioResponse(request.streamId, compactPcm, outputRate = 16_000, expectedGatt = request.sessionGatt)
                     if (!sent && !outboundCancelled(request.streamId)) {
                         lastError.value = "TTS_LOCAL_BLE_SEND"
                         sendError(request.streamId, "TTS_LOCAL_BLE_SEND")

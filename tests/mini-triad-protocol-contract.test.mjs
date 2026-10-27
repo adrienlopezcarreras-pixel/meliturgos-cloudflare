@@ -53,13 +53,16 @@ test('canonical Link V2 audio, timing, credit and cancellation values agree with
   assert.match(miniAudio, new RegExp('sample_rate != ' + contract.audio.physicalPlaybackRateHz));
   assert.match(miniAudio, new RegExp('bits_per_sample != ' + contract.audio.pcmBitsPerSample));
   assert.match(miniTransport, new RegExp('rate->valueint == ' + contract.audio.audioMetadataRateHz));
-  assert.match(miniTransport, new RegExp('output_rate->valueint == ' + contract.audio.audioMetadataRateHz));
+  assert.match(miniTransport, new RegExp('output_rate->valueint == ' + contract.audio.audioOutputMetadataRateHz));
+  assert.deepEqual(contract.audio.compatibleInputRatesHz, [16000, 48000]);
+  assert.equal(contract.audio.androidTtsBlockSamples, contract.audio.imaAdpcmMaximumBlockSamples);
   assert.match(androidSynth, /OUTPUT_RATE = 48_000/);
   assert.match(miniAdpcm, new RegExp('MEL_IMA_ADPCM_BLOCK_SAMPLES\\s+' + contract.audio.imaAdpcmMaximumBlockSamples));
   assert.match(androidAdpcm, new RegExp('BLOCK_SAMPLES = ' + contract.audio.imaAdpcmMaximumBlockSamples));
   assert.match(miniAdpcm, new RegExp('MEL_IMA_ADPCM_MAX_ENCODED_BYTES\\s+' + contract.audio.imaAdpcmMaximumEncodedBytes));
   assert.match(androidAdpcm, new RegExp('MAX_ENCODED_BYTES = ' + contract.audio.imaAdpcmMaximumEncodedBytes));
-  assert.match(androidClient, new RegExp('audioBlockSamples = ' + contract.audio.androidTtsBlockSamples));
+  assert.match(androidClient, /audioBlockSamples = MelImaAdpcm\.BLOCK_SAMPLES/);
+  assert.match(androidClient, /MelImaAdpcm\.decimate48kTo16k\(pcm\)/);
   assert.match(androidClient, /sessionAckTimeoutArmed[\s\S]*?10_000L/);
   assert.match(androidClient, /BLE_HANDSHAKE_TIMEOUT[\s\S]*?90_000L/);
   assert.match(androidClient, /outboundTransferActive\(streamId, credits, intendedGatt\)/);
