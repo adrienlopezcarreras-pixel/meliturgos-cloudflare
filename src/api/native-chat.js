@@ -729,7 +729,13 @@ function withOfficialVisual(responseText, userText, toolResults) {
   // media or citations here. A generated URL is not retrieval evidence.
   const wantsExplanation=/\b(?:explique|expliquer|compare|comparer|d[ée]cris|d[ée]crire|r[ée]sume|r[ée]sumer|pr[ée]sente|pr[ée]senter)\b/i.test(userText);
   const explanation=wantsExplanation?stripLeakedToolCalls(responseText).replace(/!\[[^\]]*\]\([^)]*\)/g,'').replace(/\[([^\]]*)\]\([^)]*\)/g,'$1').replace(/https?:\/\/\S+/g,'').trim().slice(0,6000):'';
-  return (explanation?explanation+'\n\n':'')+(evidence.result?.sources?.[0]?.title ? String(evidence.result.sources[0].title).replace(/[\[\]<>`*_{}()#!~|]/g,'').slice(0,180)+'\n\n' : '')+images.map((image,index)=>'![Photo '+(index+1)+']('+image.url+')\n\n[Source '+(index+1)+']('+image.source_url+')').join('\n\n');
+  // A provider title is evidence metadata, not conversation text.
+  // Preserve each link but answer with a natural, source-backed caption.
+  const identity=String(evidence.result?.official_identity||'').replace(/[\[\]<>\x60*_{}()#!~|]/g,'').trim().slice(0,80);
+  const intro=identity
+    ? 'Voici '+(images.length===1?'une photo':'des photos')+' du pape '+identity+'.'
+    : 'Voici '+(images.length===1?'une photo':'des photos')+' correspondant à ta demande.';
+  return (explanation?explanation+'\n\n':'')+intro+'\n\n'+images.map((image,index)=>'![Photo '+(index+1)+']('+image.url+')\n\n[Source '+(index+1)+']('+image.source_url+')').join('\n\n');
 }
 
 function responseAdmitsUncertainty(value) {
@@ -2887,7 +2893,14 @@ export async function handleNativeChat(request, env, options = {}) {
   if(mediaEvidence?.status==='FAILED')responseText='Le média demandé n’a pas été obtenu : '+String(mediaEvidence.error||'MEDIA_FAILED')+'. Aucun résultat terminé n’est disponible.';
   else if(mediaEvidence?.result?.code==='MEDIA_SEARCH_EMPTY')responseText='Aucun son ou vidéo correspondant n’a été trouvé dans la bibliothèque libre. Précise le sujet ou essaie une autre recherche.';
   else if(mediaEvidence?.result?.provider==='mel-dsp')responseText='Création audio synthétique procédurale (sans fournisseur IA payant).\n\n'+responseText;
-  if(ai.inference_unavailable)responseText='La synthèse du modèle est indisponible pour ce tour. Les résultats ci-dessous proviennent des outils réellement exécutés.\n\n'+responseText;
+  const simplePhotoEvidence = mediaEvidence?.status==='SUCCEEDED'
+    && Array.isArray(mediaEvidence.result?.images) && mediaEvidence.result.images.length>0
+    && inferPublicImageLookup(activeTaskText)
+    && !/\b(?:explique|expliquer|compare|comparer|analyse|analyser|d[ée]cris|d[ée]crire|r[ée]sume|r[ée]sumer|pourquoi|comment)\b/i.test(activeTaskText);
+  // A photo-only request is fulfilled by verified retrieval. Optional
+  // inference failure remains visible in analysis_available:false metadata.
+  if(ai.inference_unavailable && !simplePhotoEvidence)
+    responseText='La synthèse du modèle est indisponible pour ce tour. Les résultats ci-dessous proviennent des outils réellement exécutés.\n\n'+responseText;
   if (inferPublicImageLookup(activeTaskText) && !releaseSmoke) {
     const delivered = hasVisibleImage(responseText, validatedPictureUrl(toolResults));
     toolResults.push({
