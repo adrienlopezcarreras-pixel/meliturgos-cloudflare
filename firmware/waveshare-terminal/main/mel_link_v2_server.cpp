@@ -403,10 +403,11 @@ esp_err_t mel_link_v2_server_start(void) {
           )
         : pdFAIL;
     if (worker_created != pdPASS) {
+        const bool queue_was_reserved = g_rx_queue != nullptr;
         if (g_rx_queue) vQueueDeleteWithCaps(g_rx_queue);
         g_rx_queue = nullptr;
         ESP_LOGE(TAG, "LINK RX PSRAM reservation failed queue=%d worker=%d",
-                 g_rx_queue ? 1 : 0, worker_created == pdPASS ? 1 : 0);
+                 queue_was_reserved ? 1 : 0, worker_created == pdPASS ? 1 : 0);
         g_started.store(false);
         return ESP_ERR_NO_MEM;
     }
