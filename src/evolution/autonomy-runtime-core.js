@@ -558,8 +558,10 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
   const priorReview = current.result_json?.last_teacher_review || null;
   let preflight = current.plan_json?.preflight || null;
   if (!preflight) {
+    // Council on the cloud models even when the PC writes the code.
+    const councilEnv = env?.MEL_CLOUD_AI ? { ...env, AI: env.MEL_CLOUD_AI, MEL_INFERENCE: undefined } : env;
     preflight = await prepareDevelopmentRequest({
-      env,
+      env: councilEnv,
       goal: current.goal,
       context: {
         ...(current.optional_context && typeof current.optional_context === 'object' ? current.optional_context : {}),
