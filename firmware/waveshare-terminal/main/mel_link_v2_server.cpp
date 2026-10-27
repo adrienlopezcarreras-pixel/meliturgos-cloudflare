@@ -94,6 +94,12 @@ static int access_cb(
     }
 
     if (g_rx_cb) g_rx_cb(frame, len, g_rx_ctx);
+    // A real device reported nimble_host stack overflow during Link V2 traffic.
+    // Monitor headroom after callbacks without logging on every BLE packet.
+    const UBaseType_t free_stack_words = uxTaskGetStackHighWaterMark(nullptr);
+    if (free_stack_words < 512) {
+        ESP_LOGW(TAG, "NIMBLE HOST LOW STACK: high_water_words=%u", (unsigned)free_stack_words);
+    }
     return 0;
 }
 
