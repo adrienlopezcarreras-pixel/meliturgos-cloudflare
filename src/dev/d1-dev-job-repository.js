@@ -324,6 +324,23 @@ export class D1DevJobRepository {
     return Number(row?.attempts || 0);
   }
 
+  // Retry limits must include failed attempts outside the UI's most recent
+  // 100 rows. Otherwise an old objective can escape its safety quarantine.
+  async failedAutonomyObjectiveCounts() {
+    await this.init();
+    if (!this.db) {
+      const counts = {};
+      for (const job of this.memory.values()) {
+        if (job.requested_by !== 'mel-autonomy' || String(job.status || '').toUpperCase() !== 'FAILED') continue;
+        const id = objectiveId(job);
+        if (id) counts[id] = (counts[id] || 0) + 1;
+      }
+      return counts;
+    }
+    const rows = (await this.db.prepare("SELECT json_extract(optional_context,'$.roadmap_id') AS objective, COUNT(*) AS failures FROM dev_jobs WHERE requested_by='mel-autonomy' AND status='FAILED' AND json_valid(optional_context) GROUP BY json_extract(optional_context,'$.roadmap_id')").all()).results || [];
+    return Object.fromEntries(rows.filter(row => row.objective).map(row => [row.objective, Number(row.failures || 0)]));
+  }
+
   async update(id, patch, { expected = null } = {}) {
     await this.init();
     // In-memory CAS must re-read and compare without an intervening await.
