@@ -330,6 +330,25 @@ export class AutonomySupervisor {
       return { created: false, job: wanted, next: current.next };
     }
     const actionable = selectActionableAutonomyJob(current.active, { epochMs: this.epochMs, roadmap: this.roadmap });
+    // Single-flight must not switch to a different internal objective just
+    // because an older one is waiting for Teacher, Bridge or CI. Explicit
+    // owner-chat requests retain their established priority.
+    const activeInternal = current.active
+      .filter(job => job.requested_by === 'mel-autonomy')
+      .sort((left, right) => Number(left?.created_at || 0) - Number(right?.created_at || 0)
+        || String(left?.id || '').localeCompare(String(right?.id || '')))[0] || null;
+    if (this.singleFlight && activeInternal && actionable?.requested_by !== 'owner-chat') {
+      if (isClaimedPreparedDevBridgeJob(activeInternal) || providerDeferred(activeInternal)) {
+        return {
+          created: false, job: null, next: current.next, complete: false,
+          external_progress: {
+            job_id: activeInternal.id,
+            status: providerDeferred(activeInternal) ? 'DEFERRED_PROVIDER_RETRY_PENDING' : 'BRIDGE_EXECUTION_IN_PROGRESS',
+          },
+        };
+      }
+      return { created: false, job: activeInternal, next: current.next };
+    }
     if (actionable) return { created: false, job: actionable, next: current.next };
 
     // Never materialize another roadmap job while an existing internal
