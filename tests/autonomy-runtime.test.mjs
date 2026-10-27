@@ -623,3 +623,34 @@ test('[Codex] runtime reports an unavailable CI lookup instead of inventing a mi
   assert.equal(stored.files_json.length, 0);
   assert.equal(result.progress.waiting_external, true);
 });
+
+
+test('focused runtime returns progress after Teacher preparation without a missing candidate CI array', async () => {
+  const fixture = runtimeFixture();
+  const first = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
+  const { runAutonomyRuntimeTick: runFocused } = await import('../src/evolution/autonomy-runtime-core.js');
+  const focused = await runFocused(fixture.env, {
+    fetchImpl: fixture.fetchImpl, repository: fixture.repository, roadmap: TEST_ROADMAP, onlyJobId: first.job.id,
+  });
+  assert.equal(focused.candidate_ci.skipped, 'FOCUSED_JOB');
+  assert.deepEqual(focused.candidate_ci.repaired, []);
+  assert.equal(focused.job.id, first.job.id);
+  assert.equal(focused.job.status, 'WAITING_TEACHER');
+  assert.ok(Array.isArray(focused.progress.events));
+});
+
+
+test('insufficient Council responses defer the same mission without consuming runtime failure retries', async () => {
+  const fixture = runtimeFixture();
+  fixture.env.AI.run = async () => { throw new Error('provider offline fixture'); };
+  const { runAutonomyRuntimeTick: runCore } = await import('../src/evolution/autonomy-runtime-core.js');
+  const tick = await runCore(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository, roadmap: TEST_ROADMAP });
+  assert.equal(tick.progress.block_reason, 'COUNCIL_INSUFFICIENT_RESPONSES');
+  const jobs = await fixture.repository.list();
+  assert.equal(jobs.length, 1);
+  const pending = jobs[0];
+  assert.equal(pending.status, 'QUEUED');
+  assert.equal(pending.result_json.runtime_retry, undefined);
+  assert.equal(pending.result_json.autonomy_deferral.code, 'COUNCIL_INSUFFICIENT_RESPONSES');
+  assert.ok(pending.result_json.autonomy_deferral.retry_after > Date.now());
+});

@@ -142,7 +142,7 @@ export function providerDeferral(code, now = Date.now()) {
     'WORKERS_AI_BINDING_UNAVAILABLE', 'NO_ZERO_COST_PROVIDER_AVAILABLE',
     'MENTOR_NO_ZERO_COST_CODE_PROVIDER', 'NO_ELIGIBLE_PROVIDER', 'MODEL_UNAVAILABLE',
     'MENTOR_PROVIDER_TIMEOUT', 'MENTOR_NO_VALID_CODE_PROPOSAL', 'MENTOR_JSON_INVALID', 'MENTOR_JSON_REQUIRED',
-    'COUNCIL_UNAVAILABLE', 'COUNCIL_NOT_ENOUGH_ZERO_COST_PROVIDERS', 'COUNCIL_NOT_ENOUGH_MEMBERS',
+    'COUNCIL_UNAVAILABLE', 'COUNCIL_INSUFFICIENT_RESPONSES', 'COUNCIL_REVIEW_DEADLINE', 'COUNCIL_NOT_ENOUGH_ZERO_COST_PROVIDERS', 'COUNCIL_NOT_ENOUGH_MEMBERS',
     'COUNCIL_REQUIRED_ROLE_RESPONSES_MISSING', 'COUNCIL_MEL_SYNTHESIS_REQUIRED', 'COUNCIL_PROVIDER_NOT_FOUND',
   ]);
   return retryable.has(value.split(':')[0])
@@ -679,7 +679,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   }));
 
   globalThis.__melTickStage = 'candidate-ci';
-  const candidateCI = focused ? { ok: true, skipped: 'FOCUSED_JOB' } : await reconcileFailedCandidateRuns({ repository: currentRepository, env, fetchImpl });
+  const candidateCI = focused ? { ok: true, repaired: [], skipped: 'FOCUSED_JOB' } : await reconcileFailedCandidateRuns({ repository: currentRepository, env, fetchImpl });
 
   const evolutionLoader = !roadmap ? createRuntimeEvolutionLoader(env) : null;
   const supervisor = new AutonomySupervisor({

@@ -242,3 +242,35 @@ test('Council provenance records fallback critics without pretending the assigne
     new Set(['a', 'b']),
   );
 });
+
+
+test('shared Council deadline stops hung provider fallbacks without approving incomplete evidence', async () => {
+  const calls = [];
+  const members = ['a', 'b', 'c', 'd'].map(id => ({ ...provider(id, 0, []), invoke: async () => {
+    calls.push(id);
+    return new Promise(() => {});
+  } }));
+  const started = Date.now();
+  await assert.rejects(runAugmentioStateOfPlay({
+    env: { MEL_COUNCIL_REVIEW_BUDGET_MS: 30 }, goal: 'bounded review', pool: new ProviderPool(members),
+  }), { code: 'COUNCIL_INSUFFICIENT_RESPONSES' });
+  assert.equal(calls.length, 4, 'each role starts once; deadline prohibits new fallback calls');
+  assert.ok(Date.now() - started < 1500, 'shared deadline must bound the full fallback sequence');
+});
+
+
+test('MEL synthesis shares the role review deadline and cannot restart the provider budget', async () => {
+  const calls = [];
+  const members = ['a', 'b', 'c', 'd'].map(id => {
+    const base = provider(id, 0, []);
+    return { ...base, invoke: async args => {
+      if (args.context.purpose !== 'mel-council-synthesis') return base.invoke(args);
+      calls.push(id);
+      return new Promise(() => {});
+    } };
+  });
+  await assert.rejects(runAugmentioStateOfPlay({
+    env: { MEL_COUNCIL_REVIEW_BUDGET_MS: 30 }, goal: 'bounded synthesis', pool: new ProviderPool(members),
+  }), { code: 'COUNCIL_MEL_SYNTHESIS_REQUIRED' });
+  assert.deepEqual(calls, ['a'], 'expired synthesis must not start another provider');
+});

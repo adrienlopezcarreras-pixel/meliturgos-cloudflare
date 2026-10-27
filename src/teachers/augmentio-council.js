@@ -164,25 +164,28 @@ function zeroCostProvenance(provider) {
 // review past 240 s (456 tick timeouts at council-teacher). Each call is
 // bounded; a timeout falls back to the next provider like any other error.
 const PROVIDER_CALL_TIMEOUT_MS = 45_000;
-function invokeBounded(provider, args) {
+function invokeBounded(provider, args, deadline) {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return Promise.reject(Object.assign(new Error('COUNCIL_REVIEW_DEADLINE'), { code: 'COUNCIL_REVIEW_DEADLINE' }));
   let timer;
   return Promise.race([
     provider.invoke(args),
-    new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error('COUNCIL_PROVIDER_TIMEOUT'), { code: 'COUNCIL_PROVIDER_TIMEOUT' })), PROVIDER_CALL_TIMEOUT_MS); }),
+    new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error('COUNCIL_PROVIDER_TIMEOUT'), { code: 'COUNCIL_PROVIDER_TIMEOUT' })), Math.min(PROVIDER_CALL_TIMEOUT_MS, remaining)); }),
   ]).finally(() => clearTimeout(timer));
 }
 
-async function invokeRoleWithFallback({ assignment, eligible, input, governor }) {
+async function invokeRoleWithFallback({ assignment, eligible, input, governor, deadline }) {
   const attempted = [];
   let lastError = null;
   for (const provider of fallbackOrder(assignment.provider, eligible)) {
+    if (Date.now() >= deadline) break;
     attempted.push(provider.id);
     try {
       governor.assertAllowed(provider);
       const result = await invokeBounded(provider, {
         input,
         context: { purpose: 'state-of-play-before-development', council_role: assignment.role.id }
-      });
+      }, deadline);
       return {
         content: result?.text ?? String(result || ''),
         role: assignment.role.id,
@@ -227,18 +230,19 @@ function synthesisPrompt({ goal, context, report }) {
   };
 }
 
-async function synthesizeWithFallback({ eligible, goal, context, report, governor }) {
+async function synthesizeWithFallback({ eligible, goal, context, report, governor, deadline }) {
   const attempted = [];
   const prompt = synthesisPrompt({ goal, context, report });
   const input = prompt.text;
   for (const provider of eligible) {
+    if (Date.now() >= deadline) break;
     attempted.push(provider.id);
     try {
       governor.assertAllowed(provider);
       const result = await invokeBounded(provider, {
         input,
         context: { purpose: 'mel-council-synthesis', coordinator: 'MEL' }
-      });
+      }, deadline);
       const text = boundedText(result?.text ?? result?.response ?? result, 12000);
       if (!text) continue;
       return {
@@ -266,6 +270,10 @@ async function synthesizeWithFallback({ eligible, goal, context, report, governo
 }
 
 export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResponses = 2, capability = 'GENERAL', pool } = {}) {
+  // One shared deadline includes fallback attempts and MEL synthesis. A timeout
+  // stops scheduling new calls; it does not claim to cancel provider compute.
+  const configuredBudget = Number(env?.MEL_COUNCIL_REVIEW_BUDGET_MS ?? 180_000);
+  const deadline = Date.now() + (Number.isFinite(configuredBudget) && configuredBudget > 0 ? Math.min(configuredBudget, 180_000) : 180_000);
   const providerPool = pool || createDefaultAugmentioPool(env);
   await providerPool.refreshHealth();
   const governor = new ZeroEuroGovernor();
@@ -318,6 +326,7 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
         eligible,
         input: promptFor(member, brief, assignment.role),
         governor,
+        deadline,
       });
     }
   });
@@ -334,7 +343,7 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
   }
 
   const critique_provenance = critiqueEvidence(report);
-  const synthesis = await synthesizeWithFallback({ eligible, goal, context: councilContext, report, governor });
+  const synthesis = await synthesizeWithFallback({ eligible, goal, context: councilContext, report, governor, deadline });
   if (synthesis.status !== 'COMPLETE' || !boundedText(synthesis.text, 12000)) {
     const error = new Error('COUNCIL_MEL_SYNTHESIS_REQUIRED');
     error.code = 'COUNCIL_MEL_SYNTHESIS_REQUIRED';

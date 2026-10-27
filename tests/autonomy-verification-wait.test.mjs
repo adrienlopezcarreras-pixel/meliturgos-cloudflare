@@ -94,7 +94,7 @@ for (const decision of ['COUNCIL_UNAVAILABLE', 'INSUFFICIENT_REVIEWERS']) test(`
 test('retryable Mentor provider failures receive a persistent bounded deferral', async () => {
   const { providerDeferral } = await import('../src/evolution/autonomy-runtime-core.js');
   const now = 1792749000000;
-  for (const code of ['MENTOR_PROVIDER_TIMEOUT','MENTOR_NO_VALID_CODE_PROPOSAL','MENTOR_JSON_INVALID','MENTOR_JSON_REQUIRED']) {
+  for (const code of ['MENTOR_PROVIDER_TIMEOUT','MENTOR_NO_VALID_CODE_PROPOSAL','MENTOR_JSON_INVALID','MENTOR_JSON_REQUIRED','COUNCIL_INSUFFICIENT_RESPONSES','COUNCIL_REVIEW_DEADLINE']) {
     const result = providerDeferral(code, now);
     assert.equal(result.code, code);
     assert.equal(result.retry_after, now + 300000);
