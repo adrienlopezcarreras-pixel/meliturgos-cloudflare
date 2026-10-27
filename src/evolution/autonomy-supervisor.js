@@ -443,7 +443,11 @@ export class AutonomySupervisor {
     }
 
     const item = current.next;
-    const attempts = current.supervisedJobs.filter((job) => roadmapIdFromJob(job) === item.id).length;
+    const listedAttempts = current.supervisedJobs.filter((job) => roadmapIdFromJob(job) === item.id).length;
+    const persistedAttempts = typeof this.repository.countAutonomyObjectiveAttempts === 'function'
+      ? await this.repository.countAutonomyObjectiveAttempts(item.id)
+      : listedAttempts;
+    const attempts = Math.max(listedAttempts, persistedAttempts);
     const deterministicId = jobAttemptId(item.id, attempts + 1, this.epochMs);
     const goal = `[${item.id}] ${item.title}${item.next ? ` — ${item.next}` : ''} | OBJECTIF ${manifestObjective(this.roadmap)}`;
     const input = {
