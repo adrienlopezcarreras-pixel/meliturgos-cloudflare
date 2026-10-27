@@ -170,7 +170,10 @@ function invokeBounded(provider, args, deadline) {
   let timer;
   return Promise.race([
     provider.invoke(args),
-    new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error('COUNCIL_PROVIDER_TIMEOUT'), { code: 'COUNCIL_PROVIDER_TIMEOUT' })), Math.min(PROVIDER_CALL_TIMEOUT_MS, remaining)); }),
+    new Promise((_, reject) => {
+      const code = remaining <= PROVIDER_CALL_TIMEOUT_MS ? 'COUNCIL_REVIEW_DEADLINE' : 'COUNCIL_PROVIDER_TIMEOUT';
+      timer = setTimeout(() => reject(Object.assign(new Error(code), { code })), Math.min(PROVIDER_CALL_TIMEOUT_MS, remaining));
+    }),
   ]).finally(() => clearTimeout(timer));
 }
 
@@ -200,6 +203,7 @@ async function invokeRoleWithFallback({ assignment, eligible, input, governor, d
       };
     } catch (error) {
       lastError = error;
+      if (error?.code === 'COUNCIL_REVIEW_DEADLINE') break;
     }
   }
   const error = new Error('COUNCIL_ROLE_ALL_ZERO_COST_PROVIDERS_FAILED');
@@ -254,7 +258,8 @@ async function synthesizeWithFallback({ eligible, goal, context, report, governo
         attempted,
         input_digest: prompt.inputDigest,
       };
-    } catch {
+    } catch (error) {
+      if (error?.code === 'COUNCIL_REVIEW_DEADLINE') break;
       // Try the next provider only if it still passes the same zero-euro gate.
     }
   }
