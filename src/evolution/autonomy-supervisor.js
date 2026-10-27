@@ -248,8 +248,18 @@ export class AutonomySupervisor {
     this.evolutionLoader = evolutionLoader;
   }
 
+  async listSchedulerJobs() {
+    const recent = await this.repository.list();
+    if (typeof this.repository.listActiveAutonomyJobs !== 'function') return recent;
+    const active = await this.repository.listActiveAutonomyJobs();
+    const byId = new Map(recent.map(job => [job.id, job]));
+    // Active full rows take precedence over trimmed UI rows.
+    for (const job of active) byId.set(job.id, job);
+    return [...byId.values()];
+  }
+
   async state() {
-    const jobs = await this.repository.list();
+    const jobs = await this.listSchedulerJobs();
     // Only jobs created by the supervised autonomy channels may advance, block
     // or consume roadmap attempts. Legacy/manual Professor jobs remain visible
     // in the repository but cannot forge roadmap completion evidence.
@@ -330,7 +340,7 @@ export class AutonomySupervisor {
     if (typeof this.repository.reconcileVerifiedAutonomyJob === 'function') {
       const verified = new Map(this.roadmap.filter(item => ['DONE_VERIFIED', 'VERIFIED', 'ACCEPTED'].includes(String(item?.status || '').trim().toUpperCase())).map(item => [item.id, item]));
       if (verified.size) {
-        for (const job of await this.repository.list()) {
+        for (const job of await this.listSchedulerJobs()) {
           const item = job?.requested_by === 'mel-autonomy' ? verified.get(roadmapIdFromJob(job)) : null;
           if (!item || TERMINAL_JOB.has(String(job.status || '').toUpperCase())) continue;
           try {
