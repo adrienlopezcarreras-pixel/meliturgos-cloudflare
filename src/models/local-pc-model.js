@@ -88,8 +88,9 @@ export function localPcCommand({ model = LOCAL_PC_MODEL, messages }) {
 export async function runLocalPcModel({ env, messages, model = env?.MEL_LOCAL_PC_MODEL || LOCAL_PC_MODEL, sleep = ms => new Promise(r => setTimeout(r, ms)), now = () => Date.now() }) {
   const db = env?.DB;
   if (!db?.prepare) return { ok: false, code: 'LOCAL_DB_UNAVAILABLE' };
-  const device = await selectAgentDevice(db, now()).catch(() => null);
-  if (!device) return { ok: false, code: 'COMPANION_OFFLINE_OR_NOT_AUTHORIZED' };
+  const selection = await diagnoseAgentDevice(db, now()).catch(() => ({ device: null, code: 'COMPANION_DEVICE_LOOKUP_FAILED' }));
+  const device = selection.device;
+  if (!device) return { ok: false, code: 'COMPANION_OFFLINE_OR_NOT_AUTHORIZED', reason: selection.code };
   let step;
   try { step = localPcCommand({ model, messages }); } catch (error) { return { ok: false, code: error.message }; }
   const id = crypto.randomUUID();
