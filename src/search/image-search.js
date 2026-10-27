@@ -4,6 +4,26 @@ import { inferChatMediaCapability } from '../api/chat-media-intent.js';
 
 const REIGN_NAME = /\b(L[ée]on|Leo|Fran[çc]ois|Beno[iî]t|Jean-Paul|Pie)\s+[IVX]{1,6}\b/i;
 
+const SHORT_OFFICIAL_PONTIFF_INDEX = 'https://www.vatican.va/holy_father/index_fr.htm';
+
+// The full Vatican pontiff table can exceed the bounded HTML read limit.
+// The compact Vatican index lists the serving pope first, followed by predecessors.
+export function currentPontiffFromShortIndex(sources) {
+  const source = (Array.isArray(sources) ? sources : []).find(row =>
+    String(row?.url || '') === SHORT_OFFICIAL_PONTIFF_INDEX);
+  if (!source) return '';
+  const html = String(source.content || '');
+  const names = [...html.matchAll(/<a\b[^>]*>([\s\S]*?)<\/a>/gi)].map(([, label]) => {
+    const plain = label.replace(/<[^>]*>/g, ' ').replace(/&(?:nbsp|#160);/gi, ' ')
+      .replace(/&eacute;/gi, 'é').replace(/&ccedil;/gi, 'ç')
+      .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+      .replace(/\s+/g, ' ').trim();
+    return plain.match(REIGN_NAME)?.[0] || (/^(?:François|Francis)$/i.test(plain) ? plain : '');
+  }).filter(Boolean);
+  return names.length >= 2 && names[0].toLowerCase() !== names[1].toLowerCase() ? names[0] : '';
+}
+
+
 export function verifiedPontiffName(sources) {
   const text = (Array.isArray(sources) ? sources : []).map(source => [source?.title, source?.snippet, source?.content].filter(Boolean).join('\n')).join('\n');
   const cells = [...text.matchAll(/<t[dh][^>]*>([\s\S]{1,80}?)<\/t[dh]>/gi)].map(match => match[1].replace(/<[^>]+>/g, '').trim());
@@ -68,18 +88,29 @@ export async function searchImages(service,{query,max_images=3,language='fr'}={}
     const result=await service.research(query,policy.preferred_domains,2,policy.official_seed_urls);
     let images=normalizeImageResults(result.sources.map(source=>({url:source.image_url,source_url:source.url,title:source.title})),limit);
     if(!images.length) {
-      const name=verifiedPontiffName(result.sources);
-      if(name) {
+      let name=verifiedPontiffName(result.sources);
+      if(!name && typeof service.fetchPage==='function') {
         try {
-          const commons=await searchPublicMedia(service,{query:name,type:'image',max_results:limit,language:'fr'});
-          images=(Array.isArray(commons.images)?commons.images:[]).filter(image => depictsNamedPerson(image.title, name));
-          if(images.length) {
-            const raw=(result.sources||[]).map(source=>String(source.content||source.snippet||'')).join('\n').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ');
-            const at=raw.toLowerCase().indexOf(String(name).toLowerCase());
-            const identity_evidence=at>=0?raw.slice(Math.max(0,at-80),at+400):raw.slice(-800);
-            return {...commons,images,media:images,official_identity:name,identity_evidence,official_source:result.sources?.[0]?.url||'',code:null,provider:'wikimedia-commons'};
-          }
-        } catch { /* confirmed name, no readable public photo */ }
+          const page=await service.fetchPage(SHORT_OFFICIAL_PONTIFF_INDEX);
+          const source={url:page?.url||SHORT_OFFICIAL_PONTIFF_INDEX,content:page?.content||'',title:'Saint-Père',source_kind:'OFFICIAL_SEED'};
+          name=currentPontiffFromShortIndex([source]);
+          if(name) result.sources.push(source);
+        } catch { /* Official confirmation unavailable: fail closed. */ }
+      }
+      if(name) {
+        const english=name.replace(/^L[ée]on\b/i,'Leo').replace(/^Fran[çc]ois\b/i,'Francis').replace(/^Beno[iî]t\b/i,'Benedict');
+        for(const candidate of [...new Set([name,'Pope '+english])]) {
+          try {
+            const commons=await searchPublicMedia(service,{query:candidate,type:'image',max_results:6,language:'fr'});
+            images=(Array.isArray(commons.images)?commons.images:[]).filter(image => depictsNamedPerson(image.title, name)).slice(0,limit);
+            if(images.length) {
+              const raw=(result.sources||[]).map(source=>String(source.content||source.snippet||'')).join('\n').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ');
+              const at=raw.toLowerCase().indexOf(String(name).toLowerCase());
+              const identity_evidence=at>=0?raw.slice(Math.max(0,at-80),at+400):raw.slice(-800);
+              return {...commons,images,media:images,official_identity:name,identity_evidence,official_source:result.sources?.[0]?.url||'',code:null,provider:'wikimedia-commons'};
+            }
+          } catch { /* Try the alternate verified name only. */ }
+        }
       }
     }
     return {...result,images,media:images,references:result.sources.map(source=>({url:source.url,title:source.title})),
