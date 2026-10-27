@@ -163,32 +163,66 @@ function zeroCostProvenance(provider) {
 // 27/10 production: one provider that never answered held every Council
 // review past 240 s (456 tick timeouts at council-teacher). Each call is
 // bounded; a timeout falls back to the next provider like any other error.
-const PROVIDER_CALL_TIMEOUT_MS = 45_000;
-function invokeBounded(provider, args, deadline) {
+// A single silent provider must not exhaust the Council's full minute.
+const PROVIDER_CALL_TIMEOUT_MS = 12_000;
+const COUNCIL_REVIEW_MAX_MS = 58_000;
+function councilErrorCode(error) {
+  const value = String(error?.code || error?.message || 'COUNCIL_PROVIDER_FAILED');
+  return /^[A-Z][A-Z0-9_:-]{0,95}$/.test(value) ? value : 'COUNCIL_PROVIDER_FAILED';
+}
+
+async function invokeMeasured(provider, args, { deadline, callTimeoutMs, attempts, excluded, role }) {
+  const started = Date.now();
+  try {
+    const response = await invokeBounded(provider, args, deadline, callTimeoutMs);
+    // An empty or non-text response is not a valid independent Council opinion.
+    const text = boundedText(typeof response === 'string' ? response : response?.text ?? response?.response, 12000);
+    if (!text) throw Object.assign(new Error('COUNCIL_EMPTY_RESPONSE'), { code: 'COUNCIL_EMPTY_RESPONSE' });
+    attempts.push({
+      provider_id: provider.id, model_id: provider.modelId, role,
+      status: 'OK', duration_ms: Date.now() - started, error: null,
+    });
+    return { ...((response && typeof response === 'object') ? response : {}), text };
+  } catch (error) {
+    const code = councilErrorCode(error);
+    attempts.push({
+      provider_id: provider.id, model_id: provider.modelId, role,
+      status: code.includes('TIMEOUT') || code === 'COUNCIL_REVIEW_DEADLINE' ? 'TIMEOUT' : 'FAILED',
+      duration_ms: Date.now() - started, error: code,
+    });
+    // Quarantine this adapter for the remainder of this review: never hot-loop
+    // the same unhealthy model via another role or synthesis fallback.
+    excluded.add(provider.id);
+    throw error;
+  }
+}
+
+function invokeBounded(provider, args, deadline, callTimeoutMs = PROVIDER_CALL_TIMEOUT_MS) {
   const remaining = deadline - Date.now();
   if (remaining <= 0) return Promise.reject(Object.assign(new Error('COUNCIL_REVIEW_DEADLINE'), { code: 'COUNCIL_REVIEW_DEADLINE' }));
   let timer;
   return Promise.race([
     provider.invoke(args),
     new Promise((_, reject) => {
-      const code = remaining <= PROVIDER_CALL_TIMEOUT_MS ? 'COUNCIL_REVIEW_DEADLINE' : 'COUNCIL_PROVIDER_TIMEOUT';
-      timer = setTimeout(() => reject(Object.assign(new Error(code), { code })), Math.min(PROVIDER_CALL_TIMEOUT_MS, remaining));
+      const code = remaining <= callTimeoutMs ? 'COUNCIL_REVIEW_DEADLINE' : 'COUNCIL_PROVIDER_TIMEOUT';
+      timer = setTimeout(() => reject(Object.assign(new Error(code), { code })), Math.min(callTimeoutMs, remaining));
     }),
   ]).finally(() => clearTimeout(timer));
 }
 
-async function invokeRoleWithFallback({ assignment, eligible, input, governor, deadline }) {
+async function invokeRoleWithFallback({ assignment, eligible, input, governor, deadline, callTimeoutMs, attempts, excluded }) {
   const attempted = [];
   let lastError = null;
   for (const provider of fallbackOrder(assignment.provider, eligible)) {
     if (Date.now() >= deadline) break;
+    if (excluded.has(provider.id)) continue;
     attempted.push(provider.id);
     try {
       governor.assertAllowed(provider);
-      const result = await invokeBounded(provider, {
+      const result = await invokeMeasured(provider, {
         input,
         context: { purpose: 'state-of-play-before-development', council_role: assignment.role.id }
-      }, deadline);
+      }, { deadline, callTimeoutMs, attempts, excluded, role: assignment.role.id });
       return {
         content: result?.text ?? String(result || ''),
         role: assignment.role.id,
@@ -234,19 +268,20 @@ function synthesisPrompt({ goal, context, report }) {
   };
 }
 
-async function synthesizeWithFallback({ eligible, goal, context, report, governor, deadline }) {
+async function synthesizeWithFallback({ eligible, goal, context, report, governor, deadline, callTimeoutMs, attempts, excluded }) {
   const attempted = [];
   const prompt = synthesisPrompt({ goal, context, report });
   const input = prompt.text;
   for (const provider of eligible) {
     if (Date.now() >= deadline) break;
+    if (excluded.has(provider.id)) continue;
     attempted.push(provider.id);
     try {
       governor.assertAllowed(provider);
-      const result = await invokeBounded(provider, {
+      const result = await invokeMeasured(provider, {
         input,
         context: { purpose: 'mel-council-synthesis', coordinator: 'MEL' }
-      }, deadline);
+      }, { deadline, callTimeoutMs, attempts, excluded, role: 'MEL_SYNTHESIS' });
       const text = boundedText(result?.text ?? result?.response ?? result, 12000);
       if (!text) continue;
       return {
@@ -277,12 +312,31 @@ async function synthesizeWithFallback({ eligible, goal, context, report, governo
 export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResponses = 2, capability = 'GENERAL', pool } = {}) {
   // One shared deadline includes fallback attempts and MEL synthesis. A timeout
   // stops scheduling new calls; it does not claim to cancel provider compute.
-  const configuredBudget = Number(env?.MEL_COUNCIL_REVIEW_BUDGET_MS ?? 180_000);
-  const deadline = Date.now() + (Number.isFinite(configuredBudget) && configuredBudget > 0 ? Math.min(configuredBudget, 180_000) : 180_000);
+  const configuredBudget = Number(env?.MEL_COUNCIL_REVIEW_BUDGET_MS ?? COUNCIL_REVIEW_MAX_MS);
+  const budgetMs = Number.isFinite(configuredBudget) && configuredBudget > 0 ? Math.min(configuredBudget, COUNCIL_REVIEW_MAX_MS) : COUNCIL_REVIEW_MAX_MS;
+  const deadline = Date.now() + budgetMs;
+  const configuredCallTimeout = Number(env?.MEL_COUNCIL_PROVIDER_TIMEOUT_MS ?? PROVIDER_CALL_TIMEOUT_MS);
+  const callTimeoutMs = Number.isFinite(configuredCallTimeout) && configuredCallTimeout > 0 ? Math.max(10, Math.min(configuredCallTimeout, PROVIDER_CALL_TIMEOUT_MS)) : PROVIDER_CALL_TIMEOUT_MS;
+  const attempts = [];
+  const now = Date.now();
+  const excluded = new Set((Array.isArray(context?.council_excluded_providers) ? context.council_excluded_providers : [])
+    .filter(row => row && Number(row.until) > now && typeof row.id === 'string')
+    .map(row => row.id));
+  const attachDiagnostics = error => {
+    error.council_model_attempts = attempts.slice(-80);
+    error.council_model_exclusions = [...excluded].slice(0, 40);
+    return error;
+  };
   const providerPool = pool || createDefaultAugmentioPool(env);
   await providerPool.refreshHealth();
   const governor = new ZeroEuroGovernor();
-  const eligible = providerPool.list({ capability }).filter(provider => governor.allows(provider));
+  const authorized = providerPool.list({ capability }).filter(provider => governor.allows(provider));
+  const eligible = authorized.filter(provider => !excluded.has(provider.id));
+  if (authorized.length >= minResponses && eligible.length < minResponses) {
+    throw attachDiagnostics(Object.assign(new Error('COUNCIL_INSUFFICIENT_RESPONSES'), {
+      code: 'COUNCIL_INSUFFICIENT_RESPONSES', status: 503, responses: 0, required: minResponses,
+    }));
+  }
   if (eligible.length < minResponses) {
     const error = new Error('COUNCIL_NOT_ENOUGH_ZERO_COST_PROVIDERS');
     error.code = 'COUNCIL_NOT_ENOUGH_ZERO_COST_PROVIDERS';
@@ -332,11 +386,21 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
         input: promptFor(member, brief, assignment.role),
         governor,
         deadline,
+        callTimeoutMs,
+        attempts,
+        excluded,
       });
     }
-  });
+  }).catch(error => { throw attachDiagnostics(error); });
 
   const succeededProviders = new Set((report.responses || []).map(row => row.answer?.provider_id).filter(Boolean));
+  // Four role replies by one model do not establish two independent models.
+  if (succeededProviders.size < 2) {
+    throw attachDiagnostics(Object.assign(new Error('COUNCIL_INSUFFICIENT_RESPONSES'), {
+      code: 'COUNCIL_INSUFFICIENT_RESPONSES', status: 503,
+      responses: succeededProviders.size, required: 2,
+    }));
+  }
   const succeededRoles = new Set((report.responses || []).map(row => row.answer?.role).filter(Boolean));
   const missingRequiredRoles = REQUIRED_COUNCIL_ROLE_IDS.filter(roleId => !succeededRoles.has(roleId));
   if (missingRequiredRoles.length) {
@@ -344,21 +408,29 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
     error.code = 'COUNCIL_REQUIRED_ROLE_RESPONSES_MISSING';
     error.status = 503;
     error.missing_roles = missingRequiredRoles;
-    throw error;
+    throw attachDiagnostics(error);
   }
 
   const critique_provenance = critiqueEvidence(report);
-  const synthesis = await synthesizeWithFallback({ eligible, goal, context: councilContext, report, governor, deadline });
+  const synthesis = await synthesizeWithFallback({
+    eligible, goal, context: councilContext, report, governor, deadline,
+    callTimeoutMs, attempts, excluded,
+  });
   if (synthesis.status !== 'COMPLETE' || !boundedText(synthesis.text, 12000)) {
     const error = new Error('COUNCIL_MEL_SYNTHESIS_REQUIRED');
     error.code = 'COUNCIL_MEL_SYNTHESIS_REQUIRED';
     error.status = 503;
     error.attempted = synthesis.attempted || [];
-    throw error;
+    throw attachDiagnostics(error);
   }
 
   return {
     ...report,
+    council_model_attempts: attempts.slice(-80),
+    council_model_exclusions: [...excluded],
+    council_elapsed_ms: budgetMs - Math.max(0, deadline - Date.now()),
+    responding_model_count: succeededProviders.size,
+    quorum_under_60s: succeededProviders.size >= 2 && Date.now() <= deadline,
     development_allowed: false,
     budget_policy: BUDGET_POLICY,
     zero_cost_provenance: eligible.map(zeroCostProvenance),
