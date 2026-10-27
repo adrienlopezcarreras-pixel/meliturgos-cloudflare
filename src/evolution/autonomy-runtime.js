@@ -15,7 +15,7 @@ import { createZeroCostBenchmarkEvaluator } from '../learning/operator-actions.j
 import { reconcileRuntimeCompletions } from '../teachers/github-completion-reconciler.js';
 import { recordAutonomyProgressWatchdog, resetAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
 import { readActivityListEpoch } from './autonomy-activity.js';
-import { backgroundNeuronBudgetExhausted } from '../augmentio/neuron-budget.js';
+import { backgroundNeuronBudgetExhausted, readNeuronBonusTotal } from '../augmentio/neuron-budget.js';
 import { bindLocalPcWorkersAi, localPcModelReady } from '../models/local-pc-model.js';
 import { readSurvivalState, shouldResumeForSurvival } from '../legacy/survival-mode.js';
 
@@ -760,16 +760,26 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   const local = typeof options.localPcReady === 'function'
     ? await options.localPcReady(env)
     : await localPcModelReady(env).catch(() => ({ ok: false, code: 'LOCAL_CHECK_FAILED' }));
-  if (options.ignoreNeuronBudget !== true && await backgroundNeuronBudgetExhausted(env) && !local?.ok) {
-    return {
-      status: 'AI_BUDGET_EXHAUSTED',
-      paused: false,
-      advanced: false,
-      progress: { advanced: false, events: [], work_remaining: null, waiting_external: true, block_reason: 'AI_DAILY_NEURON_BUDGET_EXHAUSTED' },
-      local_pc: local?.code || 'LOCAL_UNAVAILABLE',
-      candidate_branch: env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
-      control,
-    };
+  if (options.ignoreNeuronBudget !== true && !local?.ok && await backgroundNeuronBudgetExhausted(env)) {
+    // The daily background share can be exhausted while the owner has already
+    // authorized additional neurons. Keep the gate closed if the reserve cannot
+    // be read, but do not silently strand a valid owner grant.
+    const bonus = env?.DB ? await readNeuronBonusTotal(env.DB).catch(() => 0) : 0;
+    if (bonus <= 0) {
+      const base = {
+        status: 'AI_BUDGET_EXHAUSTED',
+        paused: false,
+        advanced: false,
+        progress: { advanced: false, events: [], work_remaining: null, waiting_external: true, block_reason: 'AI_DAILY_NEURON_BUDGET_EXHAUSTED' },
+        local_pc: local?.code || 'LOCAL_UNAVAILABLE',
+        candidate_branch: env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
+        control,
+      };
+      const watchdog = await recordAutonomyProgressWatchdog(env?.DB || null, base, {
+        maxAutonomy: control.max_autonomy === true,
+      }).catch(() => null);
+      return { ...base, watchdog };
+    }
   }
   if (local?.ok) bindLocalPcWorkersAi(env, options.runLocalPcModel);
 
