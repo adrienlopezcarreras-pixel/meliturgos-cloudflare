@@ -440,6 +440,8 @@ async function runMiniDirectVoice(text, env) {
     : 4000;
   const deadlineAt = Date.now() + Math.min(13000, attemptMs * models.length + 500);
   let lastFailure = "MINI_VOICE_EMPTY";
+  let lastStatus = 503;
+  const failureCodes = [];
   const startedAt = Date.now();
 
   for (const model of models) {
@@ -450,7 +452,9 @@ async function runMiniDirectVoice(text, env) {
     const attemptStartedAt = Date.now();
     try {
       const result = await Promise.race([
-        env.AI.run(model, { messages, max_tokens: 120, temperature: 0.3 }),
+        // Marker is consumed and stripped by withNeuronBudget. Do not queue
+        // a 210-second Companion/PC job behind this 4-second voice deadline.
+        env.AI.run(model, { messages, max_tokens: 120, temperature: 0.3, neuron_reserve: true }),
         new Promise((_, reject) => {
           timer = setTimeout(() => reject(Object.assign(
             new Error("MINI_VOICE_MODEL_TIMEOUT"), { code: "MINI_VOICE_MODEL_TIMEOUT" }
@@ -475,22 +479,48 @@ async function runMiniDirectVoice(text, env) {
       }
       lastFailure = "MINI_VOICE_EMPTY";
     } catch (error) {
-      lastFailure = String(error?.code || error?.message || "MINI_VOICE_FAILED").slice(0, 120);
+      // Budget exhaustion applies to the whole account. Retrying two more
+      // cloud models cannot help and would only add latency or extra cost.
+      const code = String(error?.code || error?.message || "MINI_VOICE_FAILED").slice(0, 120);
+      lastFailure = code;
+      lastStatus = Number(error?.status) || 503;
+      const providerFailure = (String(error?.code || "") + " " + String(error?.message || "")).slice(0, 300);
+      if (/WORKERS_AI_DAILY_NEURON_BUDGET_EXHAUSTED|\b3036\b|daily free allocation/i.test(providerFailure)) {
+        console.warn("[mini-voice] daily neuron budget exhausted; aborting inference cascade", {
+          model, code, elapsed_ms: Date.now() - startedAt,
+        });
+        return {
+          ok: false,
+          code: "MINI_VOICE_DAILY_BUDGET_EXHAUSTED",
+          detail: "WORKERS_AI_DAILY_NEURON_BUDGET_EXHAUSTED",
+          status: 429,
+          retry_after_utc: new Date(Math.floor(Date.now() / 86400000) * 86400000 + 86400000).toISOString(),
+        };
+      }
+      if (code === "WORKERS_AI_NEURON_BUDGET_UNAVAILABLE") {
+        return {
+          ok: false, code: "MINI_VOICE_BUDGET_CHECK_UNAVAILABLE",
+          detail: code, status: 503,
+        };
+      }
     } finally {
       clearTimeout(timer);
     }
+    failureCodes.push({ model, code: lastFailure, status: lastStatus });
     console.warn("[mini-voice] bounded model attempt failed", {
-      model, code: lastFailure, elapsed_ms: Date.now() - attemptStartedAt,
+      model, code: lastFailure, status: lastStatus, elapsed_ms: Date.now() - attemptStartedAt,
     });
   }
-  console.error("[mini-voice] models unavailable; not delegating to /api/chat", {
-    code: lastFailure, elapsed_ms: Date.now() - startedAt,
+  const timeoutsOnly = failureCodes.length > 0 && failureCodes.every(row => row.code === "MINI_VOICE_MODEL_TIMEOUT");
+  console.error("[mini-voice] bounded inference failed; not delegating to /api/chat", {
+    code: lastFailure, failures: failureCodes, elapsed_ms: Date.now() - startedAt,
   });
   return {
     ok: false,
-    code: "MINI_VOICE_MODELS_UNAVAILABLE",
+    code: timeoutsOnly ? "MINI_VOICE_PROVIDER_TIMEOUT" : "MINI_VOICE_MODELS_UNAVAILABLE",
     detail: lastFailure,
     status: 503,
+    failure_codes: failureCodes.map(row => ({ model: row.model, code: row.code })),
   };
 }
 
