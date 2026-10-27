@@ -160,6 +160,18 @@ function zeroCostProvenance(provider) {
   };
 }
 
+// 27/10 production: one provider that never answered held every Council
+// review past 240 s (456 tick timeouts at council-teacher). Each call is
+// bounded; a timeout falls back to the next provider like any other error.
+const PROVIDER_CALL_TIMEOUT_MS = 45_000;
+function invokeBounded(provider, args) {
+  let timer;
+  return Promise.race([
+    provider.invoke(args),
+    new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error('COUNCIL_PROVIDER_TIMEOUT'), { code: 'COUNCIL_PROVIDER_TIMEOUT' })), PROVIDER_CALL_TIMEOUT_MS); }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 async function invokeRoleWithFallback({ assignment, eligible, input, governor }) {
   const attempted = [];
   let lastError = null;
@@ -167,7 +179,7 @@ async function invokeRoleWithFallback({ assignment, eligible, input, governor })
     attempted.push(provider.id);
     try {
       governor.assertAllowed(provider);
-      const result = await provider.invoke({
+      const result = await invokeBounded(provider, {
         input,
         context: { purpose: 'state-of-play-before-development', council_role: assignment.role.id }
       });
@@ -223,7 +235,7 @@ async function synthesizeWithFallback({ eligible, goal, context, report, governo
     attempted.push(provider.id);
     try {
       governor.assertAllowed(provider);
-      const result = await provider.invoke({
+      const result = await invokeBounded(provider, {
         input,
         context: { purpose: 'mel-council-synthesis', coordinator: 'MEL' }
       });
