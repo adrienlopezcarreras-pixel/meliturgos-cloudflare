@@ -338,7 +338,23 @@ export class AutonomySupervisor {
     // explicitly marks their objective verified. Never delete history or
     // interrupt Teacher, Bridge or review lanes.
     if (typeof this.repository.reconcileVerifiedAutonomyJob === 'function') {
-      const verified = new Map(this.roadmap.filter(item => ['DONE_VERIFIED', 'VERIFIED', 'ACCEPTED'].includes(String(item?.status || '').trim().toUpperCase())).map(item => [item.id, item]));
+      const verifiedStatuses = new Set(['DONE_VERIFIED', 'VERIFIED', 'ACCEPTED']);
+      const explicitlyVerified = item => verifiedStatuses.has(String(item?.status || '').trim().toUpperCase());
+      const verified = new Map(this.roadmap.filter(explicitlyVerified).map(item => [item.id, item]));
+      // The persistent evolution backlog is separate from the base roadmap.
+      // Only its explicitly verified entries may release an old D1 admission
+      // fence, and a loader failure must never certify completion.
+      if (this.evolutionLoader) {
+        try {
+          for (const item of await this.evolutionLoader()) {
+            const id = String(item?.id || '');
+            if (!/^[A-Z0-9-]+$/.test(id) || !explicitlyVerified(item)) continue;
+            verified.set('EVOLUTION-' + id, { ...item, id: 'EVOLUTION-' + id });
+          }
+        } catch {
+          // state() reports EVOLUTION_QUEUE_READ_FAILED when this matters.
+        }
+      }
       if (verified.size) {
         for (const job of await this.listSchedulerJobs()) {
           const item = job?.requested_by === 'mel-autonomy' ? verified.get(roadmapIdFromJob(job)) : null;
