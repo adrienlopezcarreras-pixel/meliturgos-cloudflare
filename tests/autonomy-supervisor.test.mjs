@@ -752,3 +752,25 @@ test('the next attempt ID cannot reuse a terminal job hidden by the 100-row D1 w
   assert.equal((await repo.get(previous.id)).status, 'CANCELLED');
   assert.equal(await repo.countAutonomyObjectiveAttempts('MEL-WORK-01'), 2);
 });
+
+
+test('D1 admission fence never hands an old verified-but-active candidate to the next mission runtime', async () => {
+  const repo = isolatedRepo();
+  const old = await repo.create({
+    id: 'mel-autonomy-mel-work-01-legacy-candidate',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] awaiting candidate delivery',
+    optional_context: { roadmap_id: 'MEL-WORK-01' },
+  });
+  await repo.update(old.id, { status: 'TEACHER_APPROVED', candidate_branch: 'candidate/work-still-open' });
+  const verifiedRoadmap = roadmap.map(item =>
+    item.id === 'MEL-WORK-01' ? { ...item, status: 'DONE_VERIFIED' } : item);
+  const result = await new AutonomySupervisor({ repository: repo, roadmap: verifiedRoadmap }).ensureNextJob();
+  assert.equal(result.created, false);
+  assert.equal(result.job, null, 'runtime must never advance a different mission');
+  assert.equal(result.next?.id, 'GEN2-17');
+  assert.equal(result.external_progress?.job_id, old.id);
+  assert.equal(result.external_progress?.status, 'ACTIVE_OBJECTIVE_REQUIRES_RECONCILIATION');
+  assert.equal((await repo.get(old.id)).status, 'TEACHER_APPROVED');
+  assert.equal((await repo.list()).length, 1);
+});
