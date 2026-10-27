@@ -468,6 +468,20 @@ export class AutonomySupervisor {
 
     if (typeof this.repository.createIfAbsent === 'function') {
       const result = await this.repository.createIfAbsent(input);
+      // The atomic D1 admission fence can return an older, different active
+      // objective (e.g. a verified roadmap item still awaiting Bridge review).
+      // Never feed that job to the runtime as though it were the next mission.
+      if (!result.created && result.job?.requested_by === 'mel-autonomy'
+          && roadmapIdFromJob(result.job) !== item.id) {
+        return {
+          created: false, job: null, next: item, complete: false,
+          external_progress: {
+            job_id: result.job.id,
+            roadmap_id: roadmapIdFromJob(result.job),
+            status: 'ACTIVE_OBJECTIVE_REQUIRES_RECONCILIATION',
+          },
+        };
+      }
       if (result.job && this.epochMs && jobActivityTimestamp(result.job) < this.epochMs) {
         return {created:false,job:null,next:null,complete:false,external_progress:{job_id:result.job.id,status:'ACTIVE_OBJECTIVE_OUTSIDE_CURRENT_EPOCH'}};
       }
