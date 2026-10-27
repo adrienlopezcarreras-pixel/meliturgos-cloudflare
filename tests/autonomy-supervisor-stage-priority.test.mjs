@@ -74,13 +74,17 @@ test('shared actionable selector matches supervisor ordering for retry attributi
   });
   await repository.update(olderPreflight.id, { status: 'COUNCIL_COMPLETE' });
 
-  const approved = await repository.create({
+  // Simulate a legacy snapshot that predates atomic single-flight admission.
+  // Current repository.create() must refuse a second active internal mission.
+  const approved = { ...olderPreflight,
     id: 'approved-implementation',
-    requested_by: 'mel-autonomy',
+    job_id: 'approved-implementation',
     goal: 'approved implementation',
+    status: 'TEACHER_APPROVED',
+    created_at: Number(olderPreflight.created_at) + 100,
     optional_context: { roadmap_id: 'GEN2-18', source: 'autonomy-supervisor', priority: 'P0' },
-  });
-  await repository.update(approved.id, { status: 'TEACHER_APPROVED' });
+  };
+  repository.memory.set(approved.id, approved);
 
   const jobs = await repository.list();
   const selected = selectActionableAutonomyJob(jobs, { roadmap });
@@ -88,7 +92,9 @@ test('shared actionable selector matches supervisor ordering for retry attributi
 
   const supervisor = new AutonomySupervisor({ repository, roadmap });
   const ensured = await supervisor.ensureNextJob();
-  assert.equal(ensured.job.id, approved.id);
+  // The standalone selector prefers the approved job, but single-flight
+  // supervision must retain the oldest unfinished mission.
+  assert.equal(ensured.job.id, olderPreflight.id);
 });
 
 
@@ -113,13 +119,16 @@ test('REPAIR_REQUIRED approved work is actionable and outranks unrelated approve
     },
   });
 
-  const other = await repository.create({
+  const other = { ...repair,
     id: 'approved-newer',
-    requested_by: 'mel-autonomy',
+    job_id: 'approved-newer',
     goal: 'other approved work',
+    status: 'TEACHER_APPROVED',
+    created_at: Number(repair.created_at) + 100,
+    result_json: null,
     optional_context: { roadmap_id: 'GEN2-18', source: 'autonomy-supervisor', priority: 'P0' },
-  });
-  await repository.update(other.id, { status: 'TEACHER_APPROVED' });
+  };
+  repository.memory.set(other.id, other);
 
   const selected = selectActionableAutonomyJob(await repository.list(), { roadmap });
   assert.equal(selected.id, repair.id);
