@@ -40,9 +40,11 @@ function fetchImplFor(line = completionLine()) {
   };
 }
 
-async function approvedRepository({ proposal = true, proposalRequest = REQUEST, proposalBranch = BRANCH } = {}) {
+async function approvedRepository({ proposal = true, proposalRequest = REQUEST, proposalBranch = BRANCH, roadmapId = null } = {}) {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
-  const job = await repository.create({ id: JOB, requested_by: 'mel-autonomy', goal: 'x' });
+  const job = await repository.create({ id: JOB, requested_by: 'mel-autonomy', goal: 'x',
+    ...(roadmapId ? { optional_context: { roadmap_id: roadmapId } } : {}),
+  });
   await repository.update(job.id, {
     status: 'TEACHER_APPROVED',
     result_json: {
@@ -285,4 +287,41 @@ test('GPT6: older job outside the bounded list can still complete by exact ID', 
   });
   assert.equal(result.completed.length, 1);
   assert.equal((await repository.get(JOB)).status, 'COMPLETED');
+});
+
+
+test('MEL-MANIFEST-01 cannot finish merely because Teacher and full candidate CI succeeded', async () => {
+  const repository = await approvedRepository({ roadmapId: 'MEL-MANIFEST-01' });
+  const before = await repository.get(JOB);
+  const result = await reconcileRuntimeCompletions({
+    repository,
+    env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
+    fetchImpl: fetchImplFor(),
+  });
+  assert.equal(result.completed.length, 0);
+  assert.equal(result.rejected.length, 1);
+  assert.equal(result.rejected[0].code, 'MANIFEST_01_FOUNDATION_PROOFS_REQUIRED');
+  assert.deepEqual(result.rejected[0].pending.map(row => row.priority), [0, 1, 2, 3, 4]);
+  assert.ok(result.rejected[0].pending.some(row => row.priority === 4 && row.reason === 'PHYSICAL_DEVICE_PROOF_REQUIRED'));
+  assert.deepEqual(await repository.get(JOB), before, 'the live job and its evidence must not be erased or falsely closed');
+});
+
+test('manifest acceptance counts only DONE_VERIFIED on every one of the five founder priorities', async () => {
+  const { MANIFEST_01_FOUNDATION, manifest01FoundationPrerequisites } = await import('../src/roadmap/manifest-01-acceptance.js');
+  assert.equal(MANIFEST_01_FOUNDATION.length, 5);
+  const synthetic = MANIFEST_01_FOUNDATION.map(row => ({ id: row.roadmap_id, status: 'DONE_VERIFIED' }));
+  const ready = manifest01FoundationPrerequisites(synthetic);
+  assert.equal(ready.ready, true);
+  assert.equal(ready.verified_count, 5);
+  assert.equal(ready.pending.length, 0);
+  const notEnough = synthetic.map((row, i) => i === 3 ? { ...row, status: 'DONE' }
+    : i === 4 ? { ...row, status: 'BLOCKED_HUMAN' } : row);
+  const pending = manifest01FoundationPrerequisites(notEnough);
+  assert.equal(pending.ready, false);
+  assert.equal(pending.verified_count, 3);
+  assert.deepEqual(pending.pending.map(row => row.priority), [3, 4]);
+  assert.deepEqual(pending.pending.map(row => row.reason), [
+    'FOUNDER_REAL_EXECUTION_NOT_VERIFIED', 'PHYSICAL_DEVICE_PROOF_REQUIRED',
+  ]);
+  assert.equal(manifest01FoundationPrerequisites([]).ready, false, 'missing roadmap entries cannot create evidence');
 });
