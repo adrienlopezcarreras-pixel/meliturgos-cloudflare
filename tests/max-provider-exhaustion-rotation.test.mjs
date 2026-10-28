@@ -106,28 +106,31 @@ test('D1 NULL deferral never bypasses the atomic admission fence', async t => {
   }), { code: 'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE' });
 });
 
-for (const storage of ['memory', 'sqlite']) test(`Council cooldown polling never spends a model retry, but three real rounds release the next roadmap job on ${storage}`, async t => {
+for (const storage of ['memory', 'sqlite']) test(`Council cooldown polling never spends an extra attempt, but three distinct review windows rotate on ${storage}`, async t => {
   const DB = storage === 'sqlite' ? sqliteD1() : null;
   if (DB) t.after(() => DB.close());
   const repository = new D1DevJobRepository(DB, { memoryStore: new Map() });
   const original = await repository.create({ id: 'council-mel-manifest-01',
     requested_by: 'mel-autonomy', goal: '[MEL-MANIFEST-01] Council unavailable',
     optional_context: { roadmap_id: 'MEL-MANIFEST-01', source: 'autonomy-supervisor' } });
+  let clock = 1792749000000;
   for (let round = 1; round <= 3; round++) {
     let current = await repository.get(original.id);
     const failure = boundedCouncilDeferral({ job: current,
-      deferred: { code: 'COUNCIL_INSUFFICIENT_RESPONSES', observed_at: Date.now() },
-      retryAt: Date.now() + 300_000,
+      deferred: { code: 'COUNCIL_INSUFFICIENT_RESPONSES', observed_at: clock },
+      retryAt: clock + 300_000, now: clock,
       freshAttempts: [{ provider_id: 'workers-ai:test', status: 'TIMEOUT' }],
     });
     await repository.update(original.id, { result_json: { ...current.result_json, autonomy_deferral: failure } });
     current = await repository.get(original.id);
     const cooldown = boundedCouncilDeferral({ job: current,
-      deferred: { code: 'COUNCIL_PROVIDER_COOLDOWN_PENDING', observed_at: Date.now() },
-      retryAt: Date.now() + 300_000, freshAttempts: [] });
-    assert.equal(cooldown.attempts, round, 'cooldown is zero new model calls');
+      deferred: { code: 'COUNCIL_PROVIDER_COOLDOWN_PENDING', observed_at: clock + 1000 },
+      retryAt: clock + 500_000, now: clock + 1000, freshAttempts: [] });
+    assert.equal(cooldown.attempts, round, 'polling within the same retry window is not a new attempt');
+    assert.equal(cooldown.retry_after, failure.retry_after, 'polling cannot postpone the authorized retry');
     await repository.update(original.id, { result_json: { ...current.result_json, autonomy_deferral: cooldown } });
     assert.equal(isRotatableProviderExhaustion(await repository.get(original.id)), round === 3);
+    clock += 300_001;
   }
   const supervisor = new AutonomySupervisor({ repository, roadmap });
   const next = await supervisor.ensureNextJob();
@@ -136,6 +139,37 @@ for (const storage of ['memory', 'sqlite']) test(`Council cooldown polling never
   assert.equal((await repository.get(original.id)).result_json.autonomy_deferral.attempts, 3);
 });
 
+for (const storage of ['memory', 'sqlite']) test(`Council with no eligible providers rotates only after 3 distinct retry windows on ${storage}`, async t => {
+  const DB = storage === 'sqlite' ? sqliteD1() : null;
+  if (DB) t.after(() => DB.close());
+  const repository = new D1DevJobRepository(DB, { memoryStore: new Map() });
+  const original = await repository.create({ id: 'council-no-provider',
+    requested_by: 'mel-autonomy', goal: '[MEL-MANIFEST-01] Waiting for Council',
+    optional_context: { roadmap_id: 'MEL-MANIFEST-01', source: 'autonomy-supervisor' } });
+  let clock = 1792749000000;
+  for (let round = 1; round <= 3; round++) {
+    const current = await repository.get(original.id);
+    const noProvider = boundedCouncilDeferral({ job: current,
+      deferred: { code: 'COUNCIL_PROVIDER_COOLDOWN_PENDING', observed_at: clock },
+      retryAt: clock + 300_000, now: clock, freshAttempts: [] });
+    assert.equal(noProvider.attempts, round);
+    assert.equal(noProvider.last_round, 'NO_ELIGIBLE_PROVIDER_WINDOW');
+    await repository.update(original.id, { result_json: { ...current.result_json, autonomy_deferral: noProvider } });
+    const within = boundedCouncilDeferral({ job: await repository.get(original.id),
+      deferred: { code: 'COUNCIL_PROVIDER_COOLDOWN_PENDING' },
+      retryAt: clock + 600_000, now: clock + 1000, freshAttempts: [] });
+    assert.equal(within.attempts, round);
+    assert.equal(within.retry_after, noProvider.retry_after);
+    assert.equal(isRotatableProviderExhaustion(await repository.get(original.id)), round === 3);
+    clock += 300_001;
+  }
+  const next = await new AutonomySupervisor({ repository, roadmap }).ensureNextJob();
+  assert.equal(next.created, true);
+  assert.equal(next.job.optional_context.roadmap_id, 'MEL-MANIFEST-02');
+  const preserved = await repository.get(original.id);
+  assert.equal(preserved.status, 'QUEUED');
+  assert.equal(preserved.result_json.autonomy_deferral.attempts, 3);
+});
 for (const storage of ['memory', 'sqlite']) test(`changed parked context cannot preempt live rotated successor on ${storage}`, async t => {
   const DB = storage === 'sqlite' ? sqliteD1() : null;
   if (DB) t.after(() => DB.close());
