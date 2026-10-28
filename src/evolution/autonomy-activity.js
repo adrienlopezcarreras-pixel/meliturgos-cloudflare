@@ -62,6 +62,7 @@ function atOrAfter(value, epoch) {
 
 const STATUS_TEXT = Object.freeze({
   QUEUED: 'En file : attend que le cycle minute le choisisse.',
+  WAITING_DEPENDENCY: 'En attente passive de prérequis vérifiables : aucun appel IA.',
   PLANNING: 'Plan en cours d’écriture par le conseil de modèles.',
   WAITING_TEACHER: 'Plan écrit, attend la validation (MAX la donne automatiquement).',
   TEACHER_APPROVED: 'Plan approuvé ; implémentation ou vérification du code à confirmer.',
@@ -332,7 +333,7 @@ export function scheduledCycles(now = Date.now()) {
 export function buildCodePlan(jobs = [], { roadmap = flattenRoadmap(), now = Date.now(), limit = 3 } = {}) {
   const terminal = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
   const active = jobs.filter(job => job?.roadmap_id && !terminal.has(String(job.status || '').toUpperCase()));
-  const current = active[0] || null;
+  const current = active.find(job => String(job.status || '').toUpperCase() !== 'WAITING_DEPENDENCY') || null;
   const excluded = active.map(job => job.roadmap_id);
   const next = [];
   while (next.length < limit) {
@@ -342,7 +343,7 @@ export function buildCodePlan(jobs = [], { roadmap = flattenRoadmap(), now = Dat
   }
   return {
     current: current ? { roadmap_id: current.roadmap_id, status: current.status, goal: clip(String(current.goal || '').replace(/\s*\|\s*OBJECTIF\s[\s\S]*$/, ''), 200), steps: current.pipeline || [] } : null,
-    queued: active.slice(1, 1 + limit).map(job => ({ roadmap_id: job.roadmap_id, status: job.status })),
+    queued: active.filter(job => job !== current).slice(0, limit).map(job => ({ roadmap_id: job.roadmap_id, status: job.status })),
     next,
     schedule: scheduledCycles(now),
   };
