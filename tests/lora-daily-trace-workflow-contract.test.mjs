@@ -97,7 +97,7 @@ test('a transient 401 refreshes GitHub OIDC identity and keeps the ordered trace
     assert.match(journal,/'http_status":401/);
     assert.match(journal,/'http_status":200/);
     assert.match(run.stdout,/LORA_TRACE_WRITTEN_AND_SPOOL_EMPTY/);
-    assert.match(run.stdout,/'pending':0|\\"pending\\":0/);
+    assert.match(run.stdout,/"pending":0/);
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
 
