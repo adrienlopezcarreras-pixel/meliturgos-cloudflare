@@ -924,7 +924,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
           result_json: {
             ...latest.result_json,
             autonomy_deferral: boundedCouncilDeferral({
-              job: latest, deferred, retryAt, freshAttempts,
+              job: latest, deferred, retryAt, freshAttempts, now,
             }),
             council_model_attempts: attempts,
             council_model_exclusions: [...quarantine.values()].slice(0, 40),
