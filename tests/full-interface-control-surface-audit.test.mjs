@@ -57,7 +57,11 @@ test('every id-bearing button is uniquely declared and wired outside its markup 
       && source.includes('<form id="objectiveAdd"')
       && source.includes('<button id="objectiveAddSubmit" type="submit">')
       && objectiveRuntime.includes("document.getElementById('objectiveAdd').addEventListener('submit'");
-    assert.ok(occurrences >= 2 || objectiveSubmit, 'orphan button without runtime wiring: ' + id);
+    const objectiveControls = new Set(['objectiveCollapse', 'objectiveHide', 'objectiveShow']);
+    const objectiveWired = objectiveControls.has(id)
+      && objectiveRuntime.includes("document.getElementById('" + id + "')")
+      && objectiveRuntime.includes(id + ".addEventListener('click'");
+    assert.ok(occurrences >= 2 || objectiveSubmit || objectiveWired, 'orphan button without runtime wiring: ' + id);
   }
 });
 
@@ -109,6 +113,7 @@ test('responsive duplicate controls are limited to the audited autonomy/navigati
     'actualiser',
     'tester',
     'enregistrer chiffré',
+    'réduire', // floating Professor objective and activity panel have independent collapse controls
   ]);
 
   for (const label of duplicates) {
