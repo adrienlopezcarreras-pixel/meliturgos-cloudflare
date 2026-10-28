@@ -527,3 +527,24 @@ test('Gmail reads with a Google token stored on Calendar when the Gmail token is
   assert.equal(result.messages[0].subject, 'Bonjour');
   assert.ok(seen.some(value => value.includes('calendar-token')));
 });
+
+
+test('Gmail missing authorization does not inherit the last Google Tasks token error', async () => {
+  const bus = new CapabilityBus();
+  registerGoogleWorkspaceCapabilities(bus, {
+    env: { MELITURGOS_USER: 'owner' },
+    resolveAccessToken: async () => '',
+    fetchImpl: async () => { throw new Error('NETWORK_MUST_NOT_BE_CALLED_WITHOUT_AUTH'); },
+  });
+  const health = await bus.refreshHealth('gmail.messages.search');
+  assert.equal(health.health, 'UNAVAILABLE');
+  assert.equal(health.health_detail, 'GMAIL_AUTH_REQUIRED');
+  await assert.rejects(
+    () => bus.execute('gmail.messages.search', { query: 'newer_than:7d', limit: 1 }, {
+      owner: 'owner', permissions: ['google.gmail.read'],
+    }),
+    error => error.code === 'CAPABILITY_UNAVAILABLE',
+  );
+  assert.equal(bus.describe('gmail.messages.search').health_detail, 'GMAIL_AUTH_REQUIRED',
+    'the read-only runtime can report exact Gmail auth instead of Google Tasks');
+});

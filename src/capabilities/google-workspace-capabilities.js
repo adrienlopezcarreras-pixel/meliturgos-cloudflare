@@ -371,19 +371,21 @@ function gmailAuthFailure(cause) {
 }
 
 async function gmailNativeRead({ resolveAccessToken, fetchImpl, context, url, method, body, code }) {
-  let last = null;
   for (const connectorId of GMAIL_TOKEN_CONNECTORS) {
     try {
       const token = await tokenFor(resolveAccessToken, connectorId, context);
       const result = await requestJson(fetchImpl, token, url, { method, body, code, signal: context?.signal });
       return { provider: 'google', body: result };
     } catch (cause) {
-      last = cause;
       if (gmailAuthFailure(cause)) continue;
       throw cause;
     }
   }
-  throw last || error('GMAIL_AUTH_REQUIRED', 503);
+  // All four token sources were tried and none authorized Gmail. Returning
+  // the last *other-service* error (e.g. GOOGLE_TASKS_AUTH_REQUIRED) hides the
+  // actual missing Gmail authorization and blocks the founder proof forever.
+  // A non-auth network/timeout failure has already been thrown above.
+  throw error('GMAIL_AUTH_REQUIRED', 503);
 }
 
 async function gmailRequest({

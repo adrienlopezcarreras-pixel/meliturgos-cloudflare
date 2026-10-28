@@ -2,6 +2,8 @@ import { createMentorEngine } from '../learning/mentor-engine.js';
 import { hasDistinctProviderAttempts } from '../evolution/autonomy-provider-attempts.js';
 import { createLearningEngine } from '../learning/learning-engine.js';
 import { ingestValidatedHandoffs } from '../learning/handoff-ingestion.js';
+import { manifest01FoundationPrerequisites } from '../roadmap/manifest-01-acceptance.js';
+import { requiredLiveChecks, runLiveChecks, liveProofGate } from '../evolution/verify-existing-live-checks.js';
 
 const COMPLETION_KIND = 'MEL_WORK_COMPLETION';
 const SHA_RE = /^[a-f0-9]{40}$/i;
@@ -443,7 +445,7 @@ async function recordVerifiedCompletionLesson(env, job, record, proposal, ci, be
   }
 }
 
-export async function reconcileRuntimeCompletions({ repository, env = {}, fetchImpl = fetch, benchmarkEvaluator = null, benchmarkModelId = '' } = {}) {
+export async function reconcileRuntimeCompletions({ repository, env = {}, fetchImpl = fetch, benchmarkEvaluator = null, benchmarkModelId = '', liveCheckRunner = runLiveChecks } = {}) {
   if (!repository) throw Object.assign(new Error('COMPLETION_JOB_REPOSITORY_REQUIRED'), { code: 'COMPLETION_JOB_REPOSITORY_REQUIRED' });
   const teacherRecords = await fetchCompletionRecords(env, { fetchImpl });
   const reviews = await approvedCouncilReviews(env);
@@ -464,6 +466,23 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
     if (!job) continue;
     if (String(job.status || '').toUpperCase() === 'COMPLETED' && job.result_json?.autonomy_completion?.candidate_sha === record.candidate_sha) continue;
 
+    // The first Manifest job accounts for five canonical priority statuses.
+    // It is NOT a dependency barrier on their eventual completion. With the
+    // single-flight scheduler such a barrier would make the live Gmail and
+    // other founder work permanently unreachable. A verified account may
+    // truthfully list IN_PROGRESS, PLANNED or BLOCKED_HUMAN priorities.
+    const manifest01 = job?.optional_context?.roadmap_id === 'MEL-MANIFEST-01'
+      ? manifest01FoundationPrerequisites() : null;
+    if (manifest01 && !manifest01.reportable) {
+      rejected.push({
+        job_id: job.id,
+        request_id: record.request_id,
+        code: 'MANIFEST_01_CANONICAL_ACCOUNT_MISSING',
+        missing: manifest01.priorities.filter(row => row.status === 'NOT_FOUND').map(row => row.roadmap_id),
+      });
+      continue;
+    }
+
     const teacher = job.result_json?.teacher_bridge;
     if (teacher?.status !== 'ANSWERED' || teacher?.review?.development_allowed !== true || teacher?.review?.verdict !== 'APPROVE_PLAN' || teacher?.request?.request_id !== record.request_id) {
       rejected.push({ job_id: job.id, request_id: record.request_id, code: 'COMPLETION_TEACHER_APPROVAL_REQUIRED' });
@@ -482,10 +501,61 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
 
     try {
       const ci = await verifyCompletionEvidence(record, env, { fetchImpl });
+      let founder01Proof = null;
+      // The FOUNDER-01 job promises an actual bounded Gmail, Calendar and Drive
+      // probe OR an exact observed missing-auth diagnostic for each service.
+      // Council/Teacher approval + a green code SHA cannot replace that runtime
+      // evidence. Do this even for a READY patch (not just VERIFY_EXISTING).
+      if (job?.optional_context?.roadmap_id === 'MEL-FOUNDER-01') {
+        const required = requiredLiveChecks(job.goal, proposal?.selected?.text);
+        let liveChecks;
+        try {
+          liveChecks = await liveCheckRunner(env, required);
+        } catch {
+          liveChecks = [];
+        }
+        const gate = liveProofGate(required, liveChecks, { goal: job.goal });
+        if (!gate.ok) {
+          rejected.push({
+            job_id: job.id,
+            request_id: record.request_id,
+            code: 'COMPLETION_FOUNDER_01_LIVE_PROOF_REQUIRED',
+            reason: gate.code,
+          });
+          continue;
+        }
+        founder01Proof = {
+          status: gate.proof_status,
+          checked: required.map(capability => {
+            const row = liveChecks.find(item => item.capability === capability);
+            return { capability, outcome: row?.outcome || 'UNKNOWN', ok: row?.ok === true,
+              code: row?.code || null, items: Number.isInteger(row?.items) ? row.items : null };
+          }),
+          auth_missing: gate.auth_missing,
+        };
+      }
       const mentorLearning = await recordVerifiedCompletionLesson(env, job, record, proposal, ci, benchmarkEvaluator, benchmarkModelId);
       const result = job.result_json && typeof job.result_json === 'object' ? { ...job.result_json } : {};
       result.autonomy_completion = {
         status: 'VERIFIED',
+        ...(founder01Proof ? { founder_01_live_proof: founder01Proof } : {}),
+        ...(manifest01 ? { manifest_01: {
+          status: manifest01.account_status,
+          source: manifest01.source,
+          account_verified: manifest01.reportable,
+          all_priorities_verified: manifest01.all_verified,
+          cloud_priorities_verified: manifest01.ready,
+          founder_verified_count: manifest01.verified_count,
+          founder_total_count: manifest01.required_count,
+          // Snapshot only canonical statuses, not invented evidence or
+          // unverified success claims. The separate paused hardware item is
+          // never written as DONE_VERIFIED by completing this account.
+          priorities: manifest01.priorities.map(row => ({
+            priority: row.priority, roadmap_id: row.roadmap_id,
+            status: row.status, verified: row.verified,
+            blocking: row.blocking, reason: row.reason,
+          })),
+        } } : {}),
         request_id: record.request_id,
         candidate_sha: record.candidate_sha,
         candidate_branch: record.candidate_branch,

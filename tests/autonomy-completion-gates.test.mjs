@@ -40,9 +40,11 @@ function fetchImplFor(line = completionLine()) {
   };
 }
 
-async function approvedRepository({ proposal = true, proposalRequest = REQUEST, proposalBranch = BRANCH } = {}) {
+async function approvedRepository({ proposal = true, proposalRequest = REQUEST, proposalBranch = BRANCH, roadmapId = null } = {}) {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
-  const job = await repository.create({ id: JOB, requested_by: 'mel-autonomy', goal: 'x' });
+  const job = await repository.create({ id: JOB, requested_by: 'mel-autonomy', goal: 'x',
+    ...(roadmapId ? { optional_context: { roadmap_id: roadmapId } } : {}),
+  });
   await repository.update(job.id, {
     status: 'TEACHER_APPROVED',
     result_json: {
@@ -285,4 +287,258 @@ test('GPT6: older job outside the bounded list can still complete by exact ID', 
   });
   assert.equal(result.completed.length, 1);
   assert.equal((await repository.get(JOB)).status, 'COMPLETED');
+});
+
+
+test('MEL-MANIFEST-01 records all five truthful statuses without waiting for Gmail or paused hardware', async () => {
+  const repository = await approvedRepository({ roadmapId: 'MEL-MANIFEST-01' });
+  const result = await reconcileRuntimeCompletions({
+    repository,
+    env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
+    fetchImpl: fetchImplFor(),
+  });
+  assert.equal(result.completed.length, 1, JSON.stringify(result.rejected));
+  assert.equal(result.rejected.length, 0);
+  const stored = await repository.get(JOB);
+  assert.equal(stored.status, 'COMPLETED');
+  const account = stored.result_json.autonomy_completion.manifest_01;
+  assert.equal(account.account_verified, true);
+  assert.equal(account.status, 'ACCOUNT_RECORDED_PENDING_PRIORITIES');
+  assert.equal(account.all_priorities_verified, false);
+  assert.equal(account.cloud_priorities_verified, false);
+  assert.equal(account.priorities.length, 5);
+  assert.deepEqual(account.priorities.map(row => row.priority), [0, 1, 2, 3, 4]);
+  assert.ok(account.priorities.some(row => row.priority === 0 && row.verified === false),
+    'Gmail remains a separate actionable founder job, not a false success');
+  assert.ok(account.priorities.some(row => row.priority === 4
+    && row.verified === false && row.blocking === false
+    && row.reason === 'PHYSICAL_DEVICE_PROOF_REQUIRED'));
+});
+
+test('manifest acceptance never treats paused hardware as a blocker or as verified', async () => {
+  const { MANIFEST_01_FOUNDATION, manifest01FoundationPrerequisites } = await import('../src/roadmap/manifest-01-acceptance.js');
+  assert.equal(MANIFEST_01_FOUNDATION.length, 5);
+  const synthetic = MANIFEST_01_FOUNDATION.map(row => ({ id: row.roadmap_id, status: 'DONE_VERIFIED' }));
+  const ready = manifest01FoundationPrerequisites(synthetic);
+  assert.equal(ready.ready, true);
+  assert.equal(ready.all_verified, true);
+  assert.equal(ready.reportable, true);
+  assert.equal(ready.account_status, 'ALL_PRIORITIES_VERIFIED');
+  assert.equal(ready.blocking_required_count, 4);
+  assert.equal(ready.verified_count, 5);
+  assert.equal(ready.pending.length, 0);
+  assert.equal(ready.nonblocking_pending.length, 0);
+  const notEnough = synthetic.map((row, i) => i === 3 ? { ...row, status: 'DONE' }
+    : i === 4 ? { ...row, status: 'BLOCKED_HUMAN' } : row);
+  const pending = manifest01FoundationPrerequisites(notEnough);
+  assert.equal(pending.ready, false);
+  assert.equal(pending.reportable, false, 'DONE is not a canonical verified or in-progress status');
+  assert.equal(pending.verified_count, 3);
+  assert.deepEqual(pending.pending.map(row => row.priority), [3, 4]);
+  assert.deepEqual(pending.pending.map(row => row.reason), [
+    'FOUNDER_REAL_EXECUTION_NOT_VERIFIED', 'PHYSICAL_DEVICE_PROOF_REQUIRED',
+  ]);
+  assert.deepEqual(pending.blocking_pending.map(row => row.priority), [3]);
+  assert.deepEqual(pending.nonblocking_pending.map(row => row.priority), [4]);
+  const cloudDoneHardwarePaused = synthetic.map((row, i) => i === 4
+    ? { ...row, status: 'BLOCKED_HUMAN' } : row);
+  const cloudReady = manifest01FoundationPrerequisites(cloudDoneHardwarePaused);
+  assert.equal(cloudReady.ready, true, 'cloud tasks must finish without an APK/MINI/Companion');
+  assert.equal(cloudReady.all_verified, false, 'hardware is not silently certified');
+  assert.equal(cloudReady.reportable, true, 'a truthful account is valid while physical tests are paused');
+  assert.equal(cloudReady.verified_count, 4);
+  assert.deepEqual(cloudReady.nonblocking_pending.map(row => row.roadmap_id), ['MEL-FOUNDER-06']);
+  assert.equal(cloudReady.priorities[4].verified, false);
+  assert.equal(cloudReady.priorities[4].blocking, false);
+  assert.equal(manifest01FoundationPrerequisites([]).ready, false, 'missing cloud entries cannot create evidence');
+  assert.equal(manifest01FoundationPrerequisites([]).reportable, false);
+  const inProgress = synthetic.map(row => ({ ...row, status: row.id === 'MEL-FOUNDER-06' ? 'BLOCKED_HUMAN' : 'IN_PROGRESS' }));
+  const account = manifest01FoundationPrerequisites(inProgress);
+  assert.equal(account.reportable, true, 'accounting is possible before the founder jobs execute');
+  assert.equal(account.ready, false, 'the reported founder jobs are not verified');
+  assert.equal(account.account_status, 'ACCOUNT_RECORDED_PENDING_PRIORITIES');
+});
+
+
+test('FOUNDER-01 accepts exact observed Gmail auth-block, not an invented Gmail read', async () => {
+  const { runLiveChecks, liveProofGate, requiredLiveChecks } = await import('../src/evolution/verify-existing-live-checks.js');
+  const goal = "[MEL-FOUNDER-01] Prouver en production une lecture Gmail, une lecture Agenda et une lecture Drive, ou l’erreur d’authentification exacte de chacune.";
+  const required = requiredLiveChecks(goal, 'DECISION: VERIFY_EXISTING\nLIVE_CHECKS:');
+  assert.deepEqual(required, ['gmail.messages.search', 'calendar.events.read', 'drive.files.list']);
+  const calls = [];
+  const createRuntime = async () => ({ bus: {
+    async execute(id) {
+      calls.push(id);
+      if (id === 'gmail.messages.search') {
+        const error = new Error('GMAIL_SEARCH_FAILED_ALL_PATHS_FAILED');
+        error.code = 'GMAIL_SEARCH_FAILED_ALL_PATHS_FAILED';
+        error.native_code = 'GMAIL_SEARCH_FAILED_NETWORK';
+        error.fallback_code = 'PIPEDREAM_GMAIL_ACCOUNT_REQUIRED';
+        throw error;
+      }
+      if (id === 'calendar.events.read') return { events: [] };
+      return { files: [{ id: 'file-id-private', name: 'private-name' }] };
+    },
+  } });
+  const checks = await runLiveChecks({}, required, { createRuntime });
+  assert.deepEqual(calls, required);
+  assert.deepEqual(checks.map(c => [c.outcome, c.ok]), [
+    ['AUTH_REQUIRED', false], ['READ_SUCCEEDED', true], ['READ_SUCCEEDED', true],
+  ]);
+  assert.equal(checks[0].code, 'PIPEDREAM_GMAIL_ACCOUNT_REQUIRED');
+  assert.equal(checks[0].items, null);
+  assert.equal(liveProofGate(required, checks, { goal }).ok, true);
+  assert.deepEqual(liveProofGate(required, checks, { goal }).auth_missing, ['gmail.messages.search']);
+  assert.equal(liveProofGate(required, checks).ok, false, 'other goals still demand a real read');
+  assert.doesNotMatch(JSON.stringify(checks), /private-name|file-id-private/);
+});
+
+test('FOUNDER-01 refuses network errors, missing permissions, generic provider outages and fake empty success', async () => {
+  const { runLiveChecks, liveProofGate, requiredLiveChecks } = await import('../src/evolution/verify-existing-live-checks.js');
+  const goal = "[MEL-FOUNDER-01] Gmail Agenda Drive ou l’erreur d’authentification exacte de chacune";
+  const required = requiredLiveChecks(goal, '');
+  for (const code of ['GMAIL_SEARCH_FAILED_NETWORK', 'CAPABILITY_UNAVAILABLE', 'CAPABILITY_PERMISSION_DENIED', 'GMAIL_SEARCH_FAILED_ALL_PATHS_FAILED']) {
+    const fail = [
+      { capability: 'gmail.messages.search', ok: false, outcome: 'FAILED', code },
+      { capability: 'calendar.events.read', ok: true, outcome: 'READ_SUCCEEDED' },
+      { capability: 'drive.files.list', ok: true, outcome: 'READ_SUCCEEDED' },
+    ];
+    assert.equal(liveProofGate(required, fail, { goal }).ok, false, code);
+  }
+  const malformed = await runLiveChecks({}, required, { createRuntime: async () => ({ bus: {
+    execute: async () => ({ ok: true }),
+  } }) });
+  assert.equal(malformed.every(row => row.ok === false && row.code === 'CAPABILITY_READ_RESULT_INVALID'), true);
+  assert.equal(liveProofGate(required, malformed, { goal }).ok, false);
+});
+
+test('FOUNDER-01 keeps the original D1 job uncompleted when runtime evidence is absent', async () => {
+  const repository = await approvedRepository({ roadmapId: 'MEL-FOUNDER-01' });
+  const goal = "[MEL-FOUNDER-01] Prouver en production une lecture Gmail, une lecture Agenda et une lecture Drive, ou l’erreur d’authentification exacte de chacune.";
+  const before = await repository.get(JOB);
+  await repository.update(JOB, { goal });
+  const statusBefore = (await repository.get(JOB)).status;
+  let checked = 0;
+  const result = await reconcileRuntimeCompletions({
+    repository,
+    env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
+    fetchImpl: fetchImplFor(),
+    liveCheckRunner: async () => {
+      checked++;
+      return [
+        { capability: 'gmail.messages.search', ok: false, outcome: 'FAILED', code: 'GMAIL_SEARCH_FAILED_NETWORK' },
+        { capability: 'calendar.events.read', ok: true, outcome: 'READ_SUCCEEDED' },
+        { capability: 'drive.files.list', ok: true, outcome: 'READ_SUCCEEDED' },
+      ];
+    },
+  });
+  assert.equal(checked, 1);
+  assert.equal(result.completed.length, 0);
+  assert.equal(result.rejected[0].code, 'COMPLETION_FOUNDER_01_LIVE_PROOF_REQUIRED');
+  assert.equal((await repository.get(JOB)).status, statusBefore);
+  assert.equal((await repository.get(JOB)).result_json.autonomy_completion, undefined);
+  assert.equal(before.result_json.teacher_bridge.status, 'ANSWERED');
+});
+
+test('FOUNDER-01 records honest read/auth evidence only after Teacher, exact-SHA CI and a real probe', async () => {
+  const repository = await approvedRepository({ roadmapId: 'MEL-FOUNDER-01' });
+  const goal = "[MEL-FOUNDER-01] Prouver en production une lecture Gmail, une lecture Agenda et une lecture Drive, ou l’erreur d’authentification exacte de chacune.";
+  await repository.update(JOB, { goal });
+  const result = await reconcileRuntimeCompletions({
+    repository,
+    env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
+    fetchImpl: fetchImplFor(),
+    liveCheckRunner: async (_env, ids) => {
+      assert.deepEqual(ids, ['gmail.messages.search', 'calendar.events.read', 'drive.files.list']);
+      return [
+        { capability: ids[0], ok: false, outcome: 'AUTH_REQUIRED', code: 'PIPEDREAM_GMAIL_ACCOUNT_REQUIRED', items: null },
+        { capability: ids[1], ok: true, outcome: 'READ_SUCCEEDED', items: 0 },
+        { capability: ids[2], ok: true, outcome: 'READ_SUCCEEDED', items: 1 },
+      ];
+    },
+  });
+  assert.equal(result.rejected.length, 0);
+  assert.equal(result.completed.length, 1);
+  const stored = await repository.get(JOB);
+  assert.equal(stored.status, 'COMPLETED');
+  const proof = stored.result_json.autonomy_completion.founder_01_live_proof;
+  assert.equal(proof.status, 'READS_OR_EXACT_AUTH_DIAGNOSTICS');
+  assert.deepEqual(proof.auth_missing, ['gmail.messages.search']);
+  assert.equal(proof.checked[0].ok, false, 'Gmail still is not connected');
+  assert.equal(proof.checked[0].code, 'PIPEDREAM_GMAIL_ACCOUNT_REQUIRED');
+});
+
+
+test('founder auth proof runs the real CapabilityBus health/auth gates for Gmail, Calendar and Drive', async () => {
+  const { CapabilityBus } = await import('../src/capabilities/capability-bus.js');
+  const { registerGoogleWorkspaceCapabilities } = await import('../src/capabilities/google-workspace-capabilities.js');
+  const { registerPipedreamLinkedCapabilities } = await import('../src/capabilities/pipedream-linked-capabilities.js');
+  const { runLiveChecks, liveProofGate } = await import('../src/evolution/verify-existing-live-checks.js');
+  const bus = new CapabilityBus();
+  const probes = [];
+  const pd = {
+    async proxy({ app }) {
+      probes.push(app);
+      const code = 'PIPEDREAM_' + app.toUpperCase() + '_ACCOUNT_REQUIRED';
+      throw Object.assign(new Error(code), { code, status: 409 });
+    },
+  };
+  const env = { MEL_OWNER_PERSONAL_AGENT: 'true', MELITURGOS_USER: 'owner' };
+  registerGoogleWorkspaceCapabilities(bus, {
+    env, resolveAccessToken: async () => '',
+    fetchImpl: async () => { throw new Error('NETWORK_NOT_ALLOWED_WITHOUT_TOKEN'); },
+    pipedreamRuntime: pd,
+  });
+  registerPipedreamLinkedCapabilities(bus, { pipedreamRuntime: pd });
+  const ids = ['gmail.messages.search', 'calendar.events.read', 'drive.files.list'];
+  const goal = "[MEL-FOUNDER-01] Gmail Agenda Drive ou l’erreur d’authentification exacte de chacune";
+  const checks = await runLiveChecks(env, ids, { createRuntime: async () => ({ bus }) });
+  assert.deepEqual(checks.map(row => row.capability), ids);
+  assert.deepEqual(checks.map(row => row.outcome), ['AUTH_REQUIRED', 'AUTH_REQUIRED', 'AUTH_REQUIRED']);
+  assert.deepEqual(checks.map(row => row.code), [
+    'PIPEDREAM_GMAIL_ACCOUNT_REQUIRED',
+    'PIPEDREAM_GOOGLE_CALENDAR_ACCOUNT_REQUIRED',
+    'PIPEDREAM_GOOGLE_DRIVE_ACCOUNT_REQUIRED',
+  ]);
+  assert.deepEqual(probes.sort(), ['gmail', 'gmail', 'google_calendar', 'google_drive'].sort(),
+    'real adapters must probe each intended external connection');
+  assert.equal(liveProofGate(ids, checks, { goal }).ok, true);
+  assert.equal(checks.some(row => row.ok), false);
+  const denied = await runLiveChecks({ MEL_OWNER_PERSONAL_AGENT: 'false' }, ids, {
+    createRuntime: async () => ({ bus }),
+  });
+  assert.equal(denied.every(row => row.ok === false && row.outcome === 'FAILED'), true);
+  assert.equal(liveProofGate(ids, denied, { goal }).ok, false, 'permission denied never counts as an auth proof');
+});
+
+
+test('FOUNDER-01 never probes Gmail Calendar or Drive for a failed or mismatched candidate CI', async () => {
+  const repository = await approvedRepository({ roadmapId: 'MEL-FOUNDER-01' });
+  await repository.update(JOB, {
+    goal: "[MEL-FOUNDER-01] Prouver en production une lecture Gmail Agenda Drive, ou l’erreur d’authentification exacte de chacune.",
+  });
+  const originalFetch = fetchImplFor();
+  let probes = 0;
+  const result = await reconcileRuntimeCompletions({
+    repository,
+    env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
+    fetchImpl: async url => {
+      if (String(url).includes('/actions/runs/4242')) return Response.json({
+        name: 'full-candidate-ci',
+        head_sha: SHA,
+        head_branch: BRANCH,
+        status: 'completed',
+        conclusion: 'failure',
+      });
+      return originalFetch(url);
+    },
+    liveCheckRunner: async () => {
+      probes++;
+      throw new Error('UNAUTHORIZED_PROBE_ON_FAILED_CI');
+    },
+  });
+  assert.equal(probes, 0, 'external capability execution must be downstream of exact-SHA CI proof');
+  assert.equal(result.completed.length, 0);
+  assert.equal(result.rejected[0].code, 'COMPLETION_CI_EVIDENCE_INVALID');
+  assert.equal((await repository.get(JOB)).status, 'TEACHER_APPROVED');
 });

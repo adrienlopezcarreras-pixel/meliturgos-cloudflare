@@ -1005,7 +1005,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       const required = requiredLiveChecks(job?.goal, implementation?.selected?.text);
       const liveChecks = ciRunId ? await runLiveChecks(env, required).catch(() => []) : [];
       const gate = ciLookupFailure ? { ok: false, code: ciLookupFailure }
-        : ciRunId ? liveProofGate(required, liveChecks) : { ok: false, code: 'FULL_CANDIDATE_CI_REQUIRED' };
+        : ciRunId ? liveProofGate(required, liveChecks, { goal: job?.goal }) : { ok: false, code: 'FULL_CANDIDATE_CI_REQUIRED' };
       const council = gate.ok && job ? await reviewVerificationEvidence(env, { job, implementation, ciRunId, liveChecks }).catch(() => null) : null;
       if (job && (!gate.ok || !council || ['COUNCIL_UNAVAILABLE', 'INSUFFICIENT_REVIEWERS', 'REVIEW_INPUT_INVALID'].includes(council.decision))) {
         await persistVerificationWait(jobRepository, job.id, {
