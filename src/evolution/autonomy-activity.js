@@ -333,7 +333,7 @@ export function scheduledCycles(now = Date.now()) {
 export function buildCodePlan(jobs = [], { roadmap = flattenRoadmap(), now = Date.now(), limit = 3 } = {}) {
   const terminal = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
   const active = jobs.filter(job => job?.roadmap_id && !terminal.has(String(job.status || '').toUpperCase()));
-  const current = active[0] || null;
+  const current = active.find(job => String(job.status || '').toUpperCase() !== 'WAITING_DEPENDENCY') || null;
   const excluded = active.map(job => job.roadmap_id);
   const next = [];
   while (next.length < limit) {
@@ -343,7 +343,7 @@ export function buildCodePlan(jobs = [], { roadmap = flattenRoadmap(), now = Dat
   }
   return {
     current: current ? { roadmap_id: current.roadmap_id, status: current.status, goal: clip(String(current.goal || '').replace(/\s*\|\s*OBJECTIF\s[\s\S]*$/, ''), 200), steps: current.pipeline || [] } : null,
-    queued: active.slice(1, 1 + limit).map(job => ({ roadmap_id: job.roadmap_id, status: job.status })),
+    queued: active.filter(job => job !== current).slice(0, limit).map(job => ({ roadmap_id: job.roadmap_id, status: job.status })),
     next,
     schedule: scheduledCycles(now),
   };
