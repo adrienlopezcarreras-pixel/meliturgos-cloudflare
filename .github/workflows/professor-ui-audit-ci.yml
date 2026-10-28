@@ -63,6 +63,8 @@ jobs:
         run: node --test tests/ui-control-contract-exhaustive.test.mjs
       - name: Audit Professor ergonomics and responsive UI
         run: node --test tests/ui-performance-ergonomics.test.mjs
+      - name: Verify floating Professor objective and Normal isolation
+        run: node --test tests/professor-floating-objective.test.mjs tests/gen2/chat-objective.test.mjs
       - name: Audit capability health semantics
         run: node --test tests/capability-protected-health.test.mjs tests/gen2/platform-read-capabilities.test.mjs
       - name: Verify self-state chat grounding
