@@ -15,7 +15,7 @@ export function isRotatableProviderExhaustion(job) {
   if (job?.requested_by !== 'mel-autonomy') return false;
   if (!['QUEUED', 'TEACHER_APPROVED'].includes(String(job?.status || '').toUpperCase())) return false;
   const delay = job?.result_json?.autonomy_deferral;
-  if (delay?.exhausted !== true || !['implementation', 'bridge'].includes(delay.phase)) return false;
+  if (delay?.exhausted !== true || !['implementation', 'bridge', 'council'].includes(delay.phase)) return false;
   if (!Number.isFinite(Number(delay.attempts)) || Number(delay.attempts) < 3
       || !Number.isFinite(Number(delay.max_attempts)) || Number(delay.max_attempts) < 3
       || Number(delay.attempts) < Number(delay.max_attempts)) return false;
@@ -33,7 +33,7 @@ export function isRotatableProviderExhaustion(job) {
 export const ROTATABLE_PROVIDER_EXHAUSTION_SQL = `(
   status IN ('QUEUED','TEACHER_APPROVED')
   AND json_extract(result_json,'$.autonomy_deferral.exhausted') = 1
-  AND json_extract(result_json,'$.autonomy_deferral.phase') IN ('implementation','bridge')
+  AND json_extract(result_json,'$.autonomy_deferral.phase') IN ('implementation','bridge','council')
   AND json_extract(result_json,'$.autonomy_deferral.attempts') >= 3
   AND json_extract(result_json,'$.autonomy_deferral.max_attempts') >= 3
   AND json_extract(result_json,'$.autonomy_deferral.attempts') >=
@@ -49,3 +49,20 @@ export const ROTATABLE_PROVIDER_EXHAUSTION_SQL = `(
   AND UPPER(COALESCE(json_extract(result_json,'$.dev_bridge.status'),'')) NOT IN
     ('RUNNING','IN_PROGRESS','CLAIMED','READY_FOR_REVIEW')
 )`;
+
+/**
+ * Council can report COOLDOWN_PENDING with no new provider invocation.
+ * Count only failed model rounds, not the timer polling itself. This keeps
+ * a real three-round limit without burning attempts during provider cooldown.
+ */
+export function boundedCouncilDeferral({ job, deferred, retryAt, freshAttempts = [] } = {}) {
+  const context = providerRetryContext(job);
+  const previous = job?.result_json?.autonomy_deferral;
+  const previousRounds = previous?.phase === 'council' && previous?.context === context
+    ? Math.max(0, Math.min(3, Number(previous.attempts) || 0)) : 0;
+  const invokedAndFailed = Array.isArray(freshAttempts)
+    && freshAttempts.some(row => ['FAILED', 'TIMEOUT'].includes(String(row?.status || '').toUpperCase()));
+  const attempts = Math.min(3, previousRounds + (invokedAndFailed ? 1 : 0));
+  return { ...deferred, phase: 'council', context,
+    attempts, max_attempts: 3, exhausted: attempts >= 3, retry_after: retryAt };
+}
