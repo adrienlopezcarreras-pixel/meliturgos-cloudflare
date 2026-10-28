@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ProviderPool } from '../src/augmentio/provider-pool.js';
 import { ZERO_EURO_POLICY } from '../src/augmentio/zero-euro-governor.js';
-import { COUNCIL_ROLES, REQUIRED_COUNCIL_ROLE_IDS, runAugmentioStateOfPlay } from '../src/teachers/augmentio-council.js';
+import { COUNCIL_ROLES, REQUIRED_COUNCIL_ROLE_IDS, runAugmentioStateOfPlay, PROVIDER_CALL_TIMEOUT_MS, COUNCIL_REVIEW_MAX_MS } from '../src/teachers/augmentio-council.js';
 
 function verifiedFree(id) {
   return Object.freeze({
@@ -368,4 +368,13 @@ test('Council reports exact cooldown expiry without inventing failed model repli
     },
   );
   assert.equal(calls.length, 0);
+});
+
+test('measured production timeout diagnosis grants slower free models a bounded 20-second opportunity, not unlimited work', () => {
+  // Live D1 recorded 81 COUNCIL_PROVIDER_TIMEOUT failures at exactly the
+  // former 12000 ms cap. A model remains subject to the shorter 58-second
+  // aggregate Council review and the existing zero-added-cost governor.
+  assert.equal(PROVIDER_CALL_TIMEOUT_MS, 20_000);
+  assert.equal(COUNCIL_REVIEW_MAX_MS, 58_000);
+  assert.ok(PROVIDER_CALL_TIMEOUT_MS > 12_000 && PROVIDER_CALL_TIMEOUT_MS < COUNCIL_REVIEW_MAX_MS / 2);
 });
