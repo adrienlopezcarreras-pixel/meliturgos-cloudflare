@@ -50,6 +50,10 @@ test('/api/gen2/autonomy/status is an authenticated alias with evidence-based re
   assert.equal(body.readiness.manifest_01?.required_count, 5);
   assert.deepEqual(body.readiness.manifest_01.priorities.map(row => row.priority), [0, 1, 2, 3, 4]);
   assert.equal(body.readiness.manifest_01.priorities[4].reason, 'PHYSICAL_DEVICE_PROOF_REQUIRED');
+  assert.equal(body.readiness.manifest_01.priorities[4].blocking, false);
+  assert.equal(body.readiness.manifest_01.nonblocking_pending.length, 1);
+  assert.equal(body.readiness.manifest_01.nonblocking_pending[0].roadmap_id, 'MEL-FOUNDER-06');
+  assert.equal(body.readiness.manifest_01.blocking_pending.some(row => row.roadmap_id === 'MEL-FOUNDER-06'), false);
 });
 
 test('manual tick without independently verified live Council remains unverified', async () => {
