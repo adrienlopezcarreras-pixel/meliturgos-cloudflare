@@ -60,7 +60,10 @@ async function deliver(file){
         fs.unlinkSync(file);
         return {ok:true,parsed};
       }
-      if(response.status>=400&&response.status<500&&![408,409,425,429].includes(response.status))break;
+      // A transient 401 can follow GitHub OIDC key rotation or a short-lived
+      // edge authentication failure. Each retry obtains a fresh OIDC token.
+      // Never accept a failed response or mark a trace delivered without ok:true.
+      if(response.status>=400&&response.status<500&&![401,408,409,425,429].includes(response.status))break;
     }catch(error){
       last={status:0,parsed:null,raw:'',error:String(error?.code||error?.message||error).slice(0,300)};
       journal({direction:'RETRY_ERROR',attempt,seq:body.seq,event_type:body.event_type,error:last.error});
