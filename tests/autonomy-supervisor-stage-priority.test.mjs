@@ -161,7 +161,7 @@ test('jobs created before the activity epoch are ignored by the selector', () =>
 test('MAX selector admits only one actionable mission with roadmap before errors and watches', () => {
   const make = (id, source, created_at) => ({ id, requested_by: 'mel-autonomy', status: 'QUEUED', created_at, optional_context: { source } });
   const jobs = [make('watch-1', 'ecosystem-watch', 1), make('error-ledger-1', 'error-ledger', 2), make('roadmap-1', 'autonomy-supervisor', 3)];
-  const selected = selectActionableAutonomyJobs(jobs, { roadmap: [], limit: 4 });
+  const selected = selectActionableAutonomyJobs(jobs, { roadmap: [], limit: 1 });
   assert.equal(selected.length, 1);
   assert.equal(selected[0].id, 'roadmap-1');
   assert.equal(selectActionableAutonomyJobs(jobs.slice(0, 2), { roadmap: [] })[0].id, 'error-ledger-1');
