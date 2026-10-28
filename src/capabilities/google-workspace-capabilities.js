@@ -383,7 +383,11 @@ async function gmailNativeRead({ resolveAccessToken, fetchImpl, context, url, me
       throw cause;
     }
   }
-  throw last || error('GMAIL_AUTH_REQUIRED', 503);
+  // All four token sources were tried and none authorized Gmail. Returning
+  // the last *other-service* error (e.g. GOOGLE_TASKS_AUTH_REQUIRED) hides the
+  // actual missing Gmail authorization and blocks the founder proof forever.
+  // A non-auth network/timeout failure has already been thrown above.
+  throw error('GMAIL_AUTH_REQUIRED', 503);
 }
 
 async function gmailRequest({
