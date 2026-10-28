@@ -467,3 +467,46 @@ test('FOUNDER-01 records honest read/auth evidence only after Teacher, exact-SHA
   assert.equal(proof.checked[0].ok, false, 'Gmail still is not connected');
   assert.equal(proof.checked[0].code, 'PIPEDREAM_GMAIL_ACCOUNT_REQUIRED');
 });
+
+
+test('founder auth proof runs the real CapabilityBus health/auth gates for Gmail, Calendar and Drive', async () => {
+  const { CapabilityBus } = await import('../src/capabilities/capability-bus.js');
+  const { registerGoogleWorkspaceCapabilities } = await import('../src/capabilities/google-workspace-capabilities.js');
+  const { registerPipedreamLinkedCapabilities } = await import('../src/capabilities/pipedream-linked-capabilities.js');
+  const { runLiveChecks, liveProofGate } = await import('../src/evolution/verify-existing-live-checks.js');
+  const bus = new CapabilityBus();
+  const probes = [];
+  const pd = {
+    async proxy({ app }) {
+      probes.push(app);
+      const code = 'PIPEDREAM_' + app.toUpperCase() + '_ACCOUNT_REQUIRED';
+      throw Object.assign(new Error(code), { code, status: 409 });
+    },
+  };
+  const env = { MEL_OWNER_PERSONAL_AGENT: 'true', MELITURGOS_USER: 'owner' };
+  registerGoogleWorkspaceCapabilities(bus, {
+    env, resolveAccessToken: async () => '',
+    fetchImpl: async () => { throw new Error('NETWORK_NOT_ALLOWED_WITHOUT_TOKEN'); },
+    pipedreamRuntime: pd,
+  });
+  registerPipedreamLinkedCapabilities(bus, { pipedreamRuntime: pd });
+  const ids = ['gmail.messages.search', 'calendar.events.read', 'drive.files.list'];
+  const goal = "[MEL-FOUNDER-01] Gmail Agenda Drive ou l’erreur d’authentification exacte de chacune";
+  const checks = await runLiveChecks(env, ids, { createRuntime: async () => ({ bus }) });
+  assert.deepEqual(checks.map(row => row.capability), ids);
+  assert.deepEqual(checks.map(row => row.outcome), ['AUTH_REQUIRED', 'AUTH_REQUIRED', 'AUTH_REQUIRED']);
+  assert.deepEqual(checks.map(row => row.code), [
+    'PIPEDREAM_GMAIL_ACCOUNT_REQUIRED',
+    'PIPEDREAM_GOOGLE_CALENDAR_ACCOUNT_REQUIRED',
+    'PIPEDREAM_GOOGLE_DRIVE_ACCOUNT_REQUIRED',
+  ]);
+  assert.deepEqual(probes.sort(), ['gmail', 'gmail', 'google_calendar', 'google_drive'].sort(),
+    'real adapters must probe each intended external connection');
+  assert.equal(liveProofGate(ids, checks, { goal }).ok, true);
+  assert.equal(checks.some(row => row.ok), false);
+  const denied = await runLiveChecks({ MEL_OWNER_PERSONAL_AGENT: 'false' }, ids, {
+    createRuntime: async () => ({ bus }),
+  });
+  assert.equal(denied.every(row => row.ok === false && row.outcome === 'FAILED'), true);
+  assert.equal(liveProofGate(ids, denied, { goal }).ok, false, 'permission denied never counts as an auth proof');
+});
