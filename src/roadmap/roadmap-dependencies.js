@@ -39,8 +39,10 @@ export function validateRoadmapTechnicalWork(roadmap = []) {
       seen.add(id);
       const row = roadmap.find(item => item.id === id);
       if (!row) issues.push({ type: 'ROADMAP_UNKNOWN_EXECUTION_CONTRACT', id });
+      // A completed objective keeps its historical contract. Successful MAX
+      // delivery must never require manual deletion from the registry.
       else if (['DONE_VERIFIED', 'VERIFIED', 'ACCEPTED'].includes(String(row.status || '').toUpperCase())) {
-        issues.push({ type: 'ROADMAP_CLOSED_EXECUTION_CONTRACT', id });
+        continue;
       } else if ((mode === 'EXTERNAL') !== ['BLOCKED_HUMAN','BLOCKED_EXTERNAL'].includes(String(row.status || '').toUpperCase())) {
         issues.push({ type: 'ROADMAP_EXECUTION_MODE_STATUS_MISMATCH', id, mode, status: row.status });
       }
