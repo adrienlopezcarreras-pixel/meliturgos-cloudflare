@@ -49,3 +49,15 @@ test('automatic error admission is one per pass and keeps remaining errors in D1
   assert.equal((await queueErrorRepairs(db, { enqueue, now: T + 2000, limit: 3 })).queued, 1);
   assert.equal(tasks.length, 3);
 });
+
+
+test('failed admission leaves the error OPEN for a later retry', async () => {
+  const db = sqliteD1();
+  await recordError(db, { source: 'MAX', code: 'QUEUE_FULL', now: T });
+  const rejected = await queueErrorRepairs(db, { enqueue: async () => ({ error: 'QUEUE_FULL' }), now: T });
+  assert.equal(rejected.queued, 0);
+  const missingId = await queueErrorRepairs(db, { enqueue: async () => ({}), now: T + 1000 });
+  assert.equal(missingId.queued, 0);
+  const accepted = await queueErrorRepairs(db, { enqueue: async () => ({ job_id: 'repair-1' }), now: T + 2000 });
+  assert.equal(accepted.queued, 1);
+});
