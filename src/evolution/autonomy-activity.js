@@ -381,7 +381,7 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
   const unique = [...new Map(supervised.map(job => [String(job.id), job])).values()];
   const pending = unique.filter(job => !terminal.has(String(job?.status || '').toUpperCase()) && job.id !== activeMission?.id);
   const reportJobs = unique.slice().sort((a,b)=>Number(b.id===activeMission?.id)-Number(a.id===activeMission?.id));
-  const jobs = reportJobs.slice(0, Math.max(1, Math.min(60, limit))).map(job => ({ ...describeJob(job, now), queue_state: terminal.has(String(job.status).toUpperCase()) ? 'TERMINAL' : job.id === activeMission?.id ? 'ACTIVE' : 'WAITING', priority_penalty: Number(job.result_json?.autonomy_deferral?.priority_penalty || (job.result_json?.autonomy_deferral?.exhausted ? 1 : 0)) }));
+  const jobs = reportJobs.filter(job => !terminal.has(String(job.status || '').toUpperCase())).concat(reportJobs.filter(job => terminal.has(String(job.status || '').toUpperCase())).slice(0, Math.max(1, Math.min(60, limit)))).map(job => ({ ...describeJob(job, now), queue_state: terminal.has(String(job.status).toUpperCase()) ? 'TERMINAL' : job.id === activeMission?.id ? 'ACTIVE' : 'WAITING', priority_penalty: Number(job.result_json?.autonomy_deferral?.priority_penalty || (job.result_json?.autonomy_deferral?.exhausted ? 1 : 0)) }));
   const mentor = mentorMetrics(supervised);
   const executorAge = executor ? now - Number(executor.last_seen || 0) : null;
   return {
