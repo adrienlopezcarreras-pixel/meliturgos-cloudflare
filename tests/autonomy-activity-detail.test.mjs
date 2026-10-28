@@ -291,3 +291,15 @@ test('displayed mission selection and waiting count are deduplicated', async () 
   assert.equal(activity.jobs.filter(job=>job.queue_state==='ACTIVE').length,1);
   assert.equal(activity.jobs.filter(job=>job.queue_state==='WAITING').length,1);
 });
+
+
+test('passive queue retains over 60 distinct missions without an execution slot', async () => {
+  const queued=Array.from({length:125},(_,i)=>({...approved,id:'passive-'+i,status:'QUEUED',created_at:now-i*1000,updated_at:now-i*1000,result_json:{}}));
+  const db={prepare(sql){const st={bind(){return st;},async run(){return {};},async all(){return {results:[]};},async first(){return null;}};return st;}};
+  const activity=await buildAutonomyActivity({DB:db},{now,repository:{list:async()=>queued}});
+  assert.equal(activity.counts.active,0);
+  assert.equal(activity.counts.waiting,125);
+  assert.equal(activity.counts.by_status.QUEUED,125);
+  assert.equal(activity.jobs.filter(job=>job.queue_state==='WAITING').length,125);
+  assert.equal(new Set(activity.jobs.map(job=>job.id)).size,125);
+});
