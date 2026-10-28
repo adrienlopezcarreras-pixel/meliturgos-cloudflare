@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const workflow=await readFile(new URL('../.github/workflows/lora-kaggle-free-gpu.yml',import.meta.url),'utf8');
 const client=await readFile(new URL('../scripts/lora-daily-trace-client.mjs',import.meta.url),'utf8');
@@ -54,6 +59,46 @@ test('trace client durably journals and spools locally before flushing remote de
   assert.match(client,/audience=meliturgos-worker/);
   assert.match(client,/x-mel-github-oidc/);
   assert.match(client,/LORA_TRACE_WRITE_FAILED_QUEUE_RETAINED/);
+  assert.match(client,/\[401,408,409,425,429\]/);
+  assert.match(client,/const token=await oidcToken\(\)/);
+  assert.match(client,/if\(response.ok&&parsed\?\.ok===true\)/);
+  assert.match(client,/process\.exit\(terminalEvents\.has\(EVENT\)/);
+});
+
+test('a transient 401 refreshes GitHub OIDC identity and keeps the ordered trace valid',()=>{
+  // Reproduces run 40745756599: 15 successful heartbeats, then a temporary 401.
+  // A fresh OIDC token is required; the event is only delivered on a proven 200 ok:true.
+  const dir=mkdtempSync(join(tmpdir(),'mel-lora-trace-'));
+  try {
+    const preload='data:text/javascript,'+encodeURIComponent(`
+      let tokenCount=0;
+      globalThis.fetch=async(url)=>{
+        if(String(url).startsWith('https://fixture.invalid/oidc')) return {
+          ok:true,json:async()=>({value:'new-token-'+(++tokenCount)})
+        };
+        if(String(url)==='https://fixture.invalid/trace') {
+          if(tokenCount===1) return {ok:false,status:401,text:async()=>JSON.stringify({ok:false,code:'GITHUB_OIDC_KID_UNKNOWN'})};
+          return {ok:true,status:200,text:async()=>JSON.stringify({ok:true})};
+        }
+        throw new Error('UNEXPECTED_NETWORK');
+      };
+    `);
+    const run=spawnSync(process.execPath,['--import',preload,fileURLToPath(new URL('../scripts/lora-daily-trace-client.mjs',import.meta.url)),'TRAINING_HEARTBEAT','-','RUNNING'],{
+      encoding:'utf8',timeout:10000,env:{...process.env,
+        RUNNER_TEMP:dir,MEL_LORA_TRACE_ARTIFACT_DIR:join(dir,'artifacts'),
+        ACTIONS_ID_TOKEN_REQUEST_URL:'https://fixture.invalid/oidc',
+        ACTIONS_ID_TOKEN_REQUEST_TOKEN:'fixture',
+        MEL_LORA_TRACE_ENDPOINT:'https://fixture.invalid/trace',
+        SOURCE_SHA:'a'.repeat(40),GITHUB_SHA:'a'.repeat(40),GITHUB_RUN_ID:'1234',
+      },
+    });
+    assert.equal(run.status,0,run.stderr||run.error?.message);
+    const journal=readFileSync(join(dir,'artifacts','lora-daily-trace.jsonl'),'utf8');
+    assert.match(journal,/'http_status":401/);
+    assert.match(journal,/'http_status":200/);
+    assert.match(run.stdout,/LORA_TRACE_WRITTEN_AND_SPOOL_EMPTY/);
+    assert.match(run.stdout,/'pending':0|\\"pending\\":0/);
+  } finally { rmSync(dir,{recursive:true,force:true}); }
 });
 
 test('MEL exposes durable trace history and daily status to the authenticated learning API',()=>{
