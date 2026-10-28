@@ -59,10 +59,11 @@ export function validateRoadmapTechnicalWork(roadmap = []) {
 // objective before the independent, testable work that proves it exists.
 // A prerequisite is an exact roadmap ID, never an inferred keyword or phase.
 // In particular, paused real-device acceptance is not a dependency of cloud jobs.
+// MEL-MANIFEST-01 is a reportable ledger even when founder statuses remain
+// pending; actual closure belongs to MEL-MANIFEST-10 after verified proof.
 export const ROADMAP_HARD_DEPENDENCIES = Object.freeze({
   'MEL-FOUNDER-03': ['MEL-FOUNDER-02'],
   'MEL-AUDIT-07': ['MEL-AUDIT-02', 'MEL-AUDIT-03'],
-  'MEL-MANIFEST-01': ['MEL-FOUNDER-01', 'MEL-FOUNDER-02', 'MEL-FOUNDER-03', 'MEL-FOUNDER-04'],
   'MEL-MANIFEST-02': ['MEL-FOUNDER-02'],
   'MEL-MANIFEST-03': ['MEL-FOUNDER-03', 'MEL-FOUNDER-04'],
   'MEL-MANIFEST-04': ['MEL-FOUNDER-07'],
