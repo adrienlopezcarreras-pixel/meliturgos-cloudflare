@@ -148,7 +148,16 @@ test('owner clearing the MAX list cancels dependency waits and starts a fresh pr
       previous_status: 'TEACHER_APPROVED', prerequisites: ['TEST-FOUNDATION'],
     } },
   });
+  const verified = await repository.create({
+    id: 'completed-and-verified-before-clear',
+    goal: 'historical acceptance proof',
+    requested_by: 'mel-autonomy',
+    optional_context: { roadmap_id: 'TEST-VERIFIED-HISTORY' },
+  });
+  await repository.update(verified.id, { status: 'DONE_VERIFIED' });
   const reset = await resetAutonomyActivityList(db);
+  assert.equal((await repository.get(verified.id)).status, 'DONE_VERIFIED',
+    'clearing the queue must not destroy previously verified execution evidence');
   assert.equal(reset.ok, true);
   assert.ok(reset.cancelled_active >= 1);
   assert.equal(await readActivityListEpoch(db), reset.epoch);
@@ -160,7 +169,7 @@ test('owner clearing the MAX list cancels dependency waits and starts a fresh pr
   assert.equal(fresh.job.optional_context.roadmap_id, 'TEST-FOUNDATION');
   assert.notEqual(fresh.job.id, old.id);
   assert.equal((await repository.get(old.id)).status, 'CANCELLED');
-  assert.equal((await repository.list()).length, 2);
+  assert.equal((await repository.list()).length, 3);
 });
 
 test('an explicit actionability selector never exposes a waiting prerequisite to the LLM', () => {

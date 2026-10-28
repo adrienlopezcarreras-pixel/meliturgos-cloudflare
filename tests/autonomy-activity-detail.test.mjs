@@ -189,7 +189,7 @@ test('activity reset includes COMMITTED but excludes terminal job states', async
   const result = await resetAutonomyActivityList(db, { now: 1_800_000_000_000 });
   assert.equal(result.cancelled_active, 1);
   assert.match(statements[0], /UPDATE dev_jobs SET status='CANCELLED'/);
-  assert.ok(statements[0].includes("status NOT IN ('COMPLETED','CANCELLED','FAILED')"));
+  assert.ok(statements[0].includes("status NOT IN ('COMPLETED','CANCELLED','FAILED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED')"));
   assert.doesNotMatch(statements[0], /'COMMITTED'/);
 });
 
