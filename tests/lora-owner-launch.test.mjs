@@ -10,6 +10,21 @@ test('training launch endpoint rejects unauthenticated requests before dispatch'
   assert.equal(response.status,401);
 });
 
+test('Professor launch returns a typed diagnostic on a failed dispatch, never an opaque HTTP 503',async()=>{
+  const source=await readFile(new URL('../src/professor-live-learning-entry.js',import.meta.url),'utf8');
+  assert.match(source,/code: String\(result\.error \|\| result\.status \|\| 'LORA_TRAINING_LAUNCH_UNAVAILABLE'\)/);
+});
+
+test('manual owner cycle is not blocked by a disabled scheduled-training toggle',async()=>{
+  const env={MEL_LORA_CONTINUOUS_TRAINING:'false'};
+  const scheduled=await runLoraTrainingHeartbeat(env,{force:true});
+  assert.equal(scheduled.status,'DISABLED');
+  const owner=await runLoraTrainingHeartbeat(env,{force:true,manualSingleCycle:true});
+  // Missing GitHub credentials still fail closed; do not fabricate a dispatch.
+  assert.equal(owner.status,'SKIPPED_NO_GITHUB_TOKEN');
+  assert.equal(owner.dispatched,false);
+});
+
 test('manual and automatic launch cannot dispatch concurrently through D1',async t=>{
   const DB=sqliteD1();t.after(()=>DB.close());
   await DB.prepare('CREATE TABLE dev_bridge_state(bridge_id TEXT PRIMARY KEY,last_seen INTEGER,status TEXT,metadata_json TEXT)').run();

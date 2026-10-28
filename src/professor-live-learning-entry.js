@@ -478,7 +478,9 @@ export default {
       try {
         const result = await runLoraTrainingHeartbeat(env, { force: true, manualSingleCycle: true });
         const ok = ['TRAINING_CHAIN_DISPATCHED','TRAINING_CHAIN_ACTIVE','TRAINING_LAUNCH_PENDING'].includes(result.status);
-        return json({ ok, ...result }, ok ? 200 : 503);
+        // Preserve the precise refusal reason for the Professor UI instead of an opaque HTTP 503.
+        // A refusal still fails closed; a no-op cannot masquerade as a new GPU dispatch.
+        return json({ ok, ...result, ...(ok ? {} : { code: String(result.error || result.status || 'LORA_TRAINING_LAUNCH_UNAVAILABLE') }) }, ok ? 200 : 503);
       } catch { return json({ ok: false, error: 'LORA_TRAINING_LAUNCH_UNAVAILABLE' }, 503); }
     }
     if (request.method === 'POST' && url.pathname === '/api/learning/lora/prepare') {
