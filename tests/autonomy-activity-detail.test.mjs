@@ -256,13 +256,13 @@ test('each pipeline step of a mission is traced to its exact run and SHA', async
   assert.deepEqual(jobTrace({}), []);
 });
 
-test('activity exposes one active mission and every other queued row as waiting',async()=>{
+test('activity keeps all QUEUED missions waiting without inventing an active execution',async()=>{
   const jobs=Array.from({length:15},(_,i)=>({...approved,id:'queued-'+i,status:'QUEUED',created_at:now-i*1000,result_json:'{}',files_json:'[]',tests_json:'[]'}));
   const db={prepare(sql){const st={bind(){return st;},async run(){return {};},async all(){return {results:/FROM dev_jobs/.test(sql)?jobs:[]};},async first(){return sql.startsWith('SELECT status,last_seen,metadata_json FROM dev_bridge_state')?{status:'MAX_AUTONOMY',last_seen:now,metadata_json:JSON.stringify({paused:false,max_autonomy:true})}:null;}};return st;}};
   const activity=await buildAutonomyActivity({DB:db},{now,repository:{list:async()=>jobs.map(job=>({...job,result_json:{},files_json:[],tests_json:[]}))}});
-  assert.equal(activity.counts.active,1);assert.equal(activity.counts.waiting,14);
-  assert.equal(activity.jobs.filter(job=>job.queue_state==='ACTIVE').length,1);
-  assert.equal(activity.jobs.filter(job=>job.queue_state==='WAITING').length,14);
+  assert.equal(activity.counts.active,0);assert.equal(activity.counts.waiting,15);
+  assert.equal(activity.jobs.filter(job=>job.queue_state==='ACTIVE').length,0);
+  assert.equal(activity.jobs.filter(job=>job.queue_state==='WAITING').length,15);
 });
 
 
