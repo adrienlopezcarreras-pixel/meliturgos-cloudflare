@@ -266,7 +266,7 @@ test('activity exposes one active mission and every other queued row as waiting'
 });
 
 
-test('QUEUED missions never occupy the execution slot or trigger inference', async () => {
+test('QUEUED missions never occupy the displayed execution slot', async () => {
   const { activeAutonomyMission } = await import('../src/evolution/provider-exhaustion-rotation.js');
   const queued = Array.from({length:100},(_,i)=>({id:'MEL-MANIFEST-'+i,status:'QUEUED',requested_by:'mel-autonomy',created_at:i}));
   assert.equal(activeAutonomyMission(queued),null);
