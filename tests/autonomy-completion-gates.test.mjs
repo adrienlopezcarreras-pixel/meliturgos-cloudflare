@@ -510,3 +510,35 @@ test('founder auth proof runs the real CapabilityBus health/auth gates for Gmail
   assert.equal(denied.every(row => row.ok === false && row.outcome === 'FAILED'), true);
   assert.equal(liveProofGate(ids, denied, { goal }).ok, false, 'permission denied never counts as an auth proof');
 });
+
+
+test('FOUNDER-01 never probes Gmail Calendar or Drive for a failed or mismatched candidate CI', async () => {
+  const repository = await approvedRepository({ roadmapId: 'MEL-FOUNDER-01' });
+  await repository.update(JOB, {
+    goal: "[MEL-FOUNDER-01] Prouver en production une lecture Gmail Agenda Drive, ou l’erreur d’authentification exacte de chacune.",
+  });
+  const originalFetch = fetchImplFor();
+  let probes = 0;
+  const result = await reconcileRuntimeCompletions({
+    repository,
+    env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
+    fetchImpl: async url => {
+      if (String(url).includes('/actions/runs/4242')) return Response.json({
+        name: 'full-candidate-ci',
+        head_sha: SHA,
+        head_branch: BRANCH,
+        status: 'completed',
+        conclusion: 'failure',
+      });
+      return originalFetch(url);
+    },
+    liveCheckRunner: async () => {
+      probes++;
+      throw new Error('UNAUTHORIZED_PROBE_ON_FAILED_CI');
+    },
+  });
+  assert.equal(probes, 0, 'external capability execution must be downstream of exact-SHA CI proof');
+  assert.equal(result.completed.length, 0);
+  assert.equal(result.rejected[0].code, 'COMPLETION_CI_EVIDENCE_INVALID');
+  assert.equal((await repository.get(JOB)).status, 'TEACHER_APPROVED');
+});
