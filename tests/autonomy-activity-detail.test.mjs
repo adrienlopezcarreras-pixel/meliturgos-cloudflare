@@ -327,7 +327,8 @@ test('automatic error-correction jobs keep their queue category and remain passi
   assert.equal(autonomyQueueCategory(watch),2);
   const jobs=[error,roadmap,watch];
   const before=JSON.stringify(jobs);
-  assert.ok(selectActionableAutonomyJob(jobs,{roadmap:[]}));
+  assert.equal(selectActionableAutonomyJob(jobs,{roadmap:[]})?.id,'roadmap-1');
+  assert.equal(selectActionableAutonomyJob([error,watch],{roadmap:[]})?.id,'error-ledger-504');
   assert.equal(JSON.stringify(jobs),before);
   assert.ok(jobs.every(job=>job.status==='QUEUED'));
 });
