@@ -63,6 +63,7 @@ for (const storage of ['memory', 'sqlite']) test(`provider exhaustion rotates sa
 for (const invalid of [
   { attempts: 2 },
   { maxAttempts: 1 },
+  { attempts: 3, maxAttempts: 4 },
   { context: false },
   { status: 'CLAIMED' },
 ]) test(`unsafe provider exhaustion marker cannot free the lane: ${JSON.stringify(invalid)}`, async t => {
