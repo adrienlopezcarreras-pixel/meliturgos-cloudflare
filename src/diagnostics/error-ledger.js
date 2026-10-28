@@ -5,7 +5,9 @@
 // A fingerprint seen again after its repair had a day reopens it.
 
 const DAY_MS = 86_400_000;
-export const MAX_REPAIRS_PER_RUN = 3;
+// Error repairs are admitted one at a time; the ledger retains every other
+// fingerprint durably as OPEN until a later supervised admission pass.
+export const MAX_REPAIRS_PER_RUN = 1;
 const clean = (value, max) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 
 const schemaReady = new WeakMap();
@@ -52,7 +54,10 @@ export async function queueErrorRepairs(db, { enqueue, now = Date.now(), limit =
   await ensureSchema(db);
   // A queued error seen again a day after its repair started is reopened.
   await db.prepare("UPDATE mel_error_ledger SET status = 'OPEN' WHERE status = 'QUEUED' AND last_seen > queued_at + ?").bind(DAY_MS).run();
-  const rows = (await db.prepare("SELECT * FROM mel_error_ledger WHERE status = 'OPEN' ORDER BY count DESC, last_seen DESC LIMIT ?").bind(limit).all())?.results || [];
+  // A caller cannot expand automatic repair admission beyond one item per pass.
+  // This is not an execution lock: the supervised D1 single-flight fence remains authoritative.
+  const admissionLimit = Math.min(MAX_REPAIRS_PER_RUN, Math.max(0, Number(limit) || 0));
+  const rows = admissionLimit ? (await db.prepare("SELECT * FROM mel_error_ledger WHERE status = 'OPEN' ORDER BY count DESC, last_seen DESC LIMIT ?").bind(admissionLimit).all())?.results || [] : [];
   const queued = [];
   for (const row of rows) {
     const again = Number(row.repairs) > 0 ? ` Déjà réparée ${row.repairs} fois sans effet : la correction précédente n’a pas suffi.` : '';
@@ -64,7 +69,9 @@ export async function queueErrorRepairs(db, { enqueue, now = Date.now(), limit =
       priority: 'P0',
       evidence: { fingerprint: row.fingerprint, count: row.count, first_seen: row.first_seen, last_seen: row.last_seen },
     }).catch(error => ({ error: clean(error?.code || error?.message, 120) }));
-    if (result?.error) continue;
+    // Never mark an error queued unless the supervised queue confirms a durable job.
+    // A failed or capacity-rejected enqueue must leave the fingerprint OPEN for retry.
+    if (result?.error || !result?.job_id) continue;
     await db.prepare("UPDATE mel_error_ledger SET status = 'QUEUED', job_id = ?, queued_at = ?, repairs = repairs + 1 WHERE fingerprint = ?")
       .bind(result?.job_id || null, now, row.fingerprint).run();
     queued.push({ fingerprint: row.fingerprint, job_id: result?.job_id || null });

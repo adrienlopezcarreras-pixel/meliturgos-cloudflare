@@ -33,3 +33,31 @@ test('server errors are captured at the entry and swept every hour', async () =>
   assert.match(await readFile('src/visual-final-entry.js', 'utf8'), /response\.status >= 500[\s\S]*recordError\(env\.DB/);
   assert.match(await readFile('src/diagnostics/self-audit-supervisor.js', 'utf8'), /capture\('error-ledger'/);
 });
+
+test('automatic error admission is one per pass and keeps remaining errors in D1', async () => {
+  const db = sqliteD1();
+  for (const code of ['ERROR_A', 'ERROR_B', 'ERROR_C']) {
+    await recordError(db, { source: 'MAX', code, now: T });
+  }
+  const tasks = [];
+  const enqueue = async options => { tasks.push(options); return { job_id: 'job-' + tasks.length }; };
+  const first = await queueErrorRepairs(db, { enqueue, now: T, limit: 3 });
+  assert.equal(first.queued, 1);
+  const waiting = (await db.prepare("SELECT * FROM mel_error_ledger WHERE status = 'OPEN'").all()).results;
+  assert.equal(waiting.length, 2, 'unadmitted errors must remain durably OPEN');
+  assert.equal((await queueErrorRepairs(db, { enqueue, now: T + 1000, limit: 3 })).queued, 1);
+  assert.equal((await queueErrorRepairs(db, { enqueue, now: T + 2000, limit: 3 })).queued, 1);
+  assert.equal(tasks.length, 3);
+});
+
+
+test('failed admission leaves the error OPEN for a later retry', async () => {
+  const db = sqliteD1();
+  await recordError(db, { source: 'MAX', code: 'QUEUE_FULL', now: T });
+  const rejected = await queueErrorRepairs(db, { enqueue: async () => ({ error: 'QUEUE_FULL' }), now: T });
+  assert.equal(rejected.queued, 0);
+  const missingId = await queueErrorRepairs(db, { enqueue: async () => ({}), now: T + 1000 });
+  assert.equal(missingId.queued, 0);
+  const accepted = await queueErrorRepairs(db, { enqueue: async () => ({ job_id: 'repair-1' }), now: T + 2000 });
+  assert.equal(accepted.queued, 1);
+});

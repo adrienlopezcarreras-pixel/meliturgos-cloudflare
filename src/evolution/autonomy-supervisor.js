@@ -3,6 +3,14 @@ import { approvedEvolutionRoadmap } from '../roadmap/evolution-autonomy-queue.js
 import { flattenRoadmap, ROADMAP_STATUSES, isClosedRoadmapStatus } from '../roadmap/master-roadmap.js';
 import { isClaimedPreparedDevBridgeJob } from '../dev/bridge-job-state.js';
 
+// Strict category order: roadmap, recorded errors, then ecosystem watches.
+export function autonomyQueueCategory(job) {
+  const source = String(job?.optional_context?.source || job?.source || '').toLowerCase();
+  if (source === 'error-ledger' || String(job?.id || '').startsWith('error-ledger-')) return 1;
+  if (source.includes('watch') || source.includes('discovery') || source.includes('veille')) return 2;
+  return 0;
+}
+
 const TERMINAL_JOB = new Set(['COMPLETED', 'CANCELLED', 'FAILED', 'DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED']);
 const BLOCKED_ROADMAP = new Set([ROADMAP_STATUSES.BLOCKED_HUMAN, ROADMAP_STATUSES.BLOCKED_EXTERNAL]);
 function isVerifiedRoadmap(item) { return isClosedRoadmapStatus(item?.status); }
@@ -158,6 +166,7 @@ function activeJobRank(job) {
   // equal class explicit owner work still outranks background roadmap work.
   return {
     passive: isPassiveRuntimeJob(job) ? 1 : 0,
+    category: autonomyQueueCategory(job),
     executionReady: executionReadyRank(job),
     revisionContinuation: revisionContinuationRank(job),
     requester: job?.requested_by === 'owner-chat' ? 0 : 1,
@@ -169,6 +178,7 @@ function compareActiveJobs(left, right) {
   const a = activeJobRank(left);
   const b = activeJobRank(right);
   return a.passive - b.passive
+    || a.category - b.category
     || a.executionReady - b.executionReady
     || a.revisionContinuation - b.revisionContinuation
     || a.requester - b.requester
