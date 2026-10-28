@@ -28,20 +28,26 @@ function fakeDb(){
   };
 }
 
-const proof={
-  isolated_test:true,smoke:true,rollback:true,export:true,import:true,activate:true,
-  verified_at:'2026-09-28T17:00:00.000Z',
-  expires_at:'2026-10-28T17:00:00.000Z',
-  evidence_ref:'ci://proof',
-  source_sha:'a'.repeat(40),
-};
+// This is only a test fixture. A fixed 28/10/2026 expiration made the
+// round-trip test fail after that date even though the D1 store was healthy.
+// Keep the proof temporally valid for each test run; production validators
+// still reject expired real proofs and are not changed here.
+function testProof(now = Date.now()) {
+  return {
+    isolated_test:true,smoke:true,rollback:true,export:true,import:true,activate:true,
+    verified_at:new Date(now - 60_000).toISOString(),
+    expires_at:new Date(now + 24 * 60 * 60_000).toISOString(),
+    evidence_ref:'ci://proof',
+    source_sha:'a'.repeat(40),
+  };
+}
 
 test('D1 alternative registry survives save/load round trip',async()=>{
   const db=fakeDb();
   const store=new D1AlternativeRegistryStore(db);
   const registry=createAlternativeRegistry([
-    {id:'ai.alt',layer:'ai',provider:'alt-ai',added_cost_eur:0,proof},
-    {id:'git.alt',layer:'source_control',provider:'alt-git',added_cost_eur:0,proof},
+    {id:'ai.alt',layer:'ai',provider:'alt-ai',added_cost_eur:0,proof:testProof()},
+    {id:'git.alt',layer:'source_control',provider:'alt-git',added_cost_eur:0,proof:testProof()},
   ]);
   const saved=await store.save(registry);
   assert.equal(saved.count,2);
