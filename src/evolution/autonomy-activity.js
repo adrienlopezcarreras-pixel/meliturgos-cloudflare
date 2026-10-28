@@ -62,6 +62,7 @@ function atOrAfter(value, epoch) {
 
 const STATUS_TEXT = Object.freeze({
   QUEUED: 'En file : attend que le cycle minute le choisisse.',
+  WAITING_DEPENDENCY: 'En attente passive des missions préalables : aucune exécution IA.',
   PLANNING: 'Plan en cours d’écriture par le conseil de modèles.',
   WAITING_TEACHER: 'Plan écrit, attend la validation (MAX la donne automatiquement).',
   TEACHER_APPROVED: 'Plan approuvé ; implémentation ou vérification du code à confirmer.',
