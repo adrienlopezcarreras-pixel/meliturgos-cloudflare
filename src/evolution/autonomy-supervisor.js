@@ -609,7 +609,9 @@ export class AutonomySupervisor {
       : listedAttempts;
     const attempts = Math.max(listedAttempts, persistedAttempts);
     const deterministicId = jobAttemptId(item.id, attempts + 1, this.epochMs);
-    const goal = `[${item.id}] ${item.title}${item.next ? ` — ${item.next}` : ''} | OBJECTIF ${manifestObjective(this.roadmap)}`;
+    const technicalMode = String(item.mode || 'IMPLEMENT').toUpperCase();
+    const requiredProof = String(item.required_proof || 'DIFF_TESTS_EXACT_SHA_CI');
+    const goal = `[${item.id}] ${item.title}${item.next ? ` — ${item.next}` : ''} | MODE_TECHNIQUE ${technicalMode} | PREUVE_REQUISE ${requiredProof} | OBJECTIF ${manifestObjective(this.roadmap)}`;
     const input = {
       id: deterministicId,
       requested_by: 'mel-autonomy',
@@ -619,6 +621,9 @@ export class AutonomySupervisor {
         phase_id: item.phase_id,
         phase: item.phase,
         priority: item.priority,
+        work_mode: technicalMode,
+        required_proof: requiredProof,
+        depends_on: [...(item.depends_on || [])],
         source: 'autonomy-supervisor',
         candidate_branch_only: true,
         zero_added_cost: true,
