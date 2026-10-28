@@ -85,7 +85,7 @@ export function boundedCouncilDeferral({ job, deferred, retryAt, freshAttempts =
 export function activeAutonomyMission(jobs = []) {
   return jobs.filter(job => job?.requested_by === 'mel-autonomy'
     && String(job.status || '').toUpperCase() !== 'QUEUED'
-    && !['COMPLETED','CANCELLED','FAILED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED'].includes(String(job.status).toUpperCase())
+    && !['COMPLETED','CANCELLED','FAILED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED','WAITING_DEPENDENCY'].includes(String(job.status).toUpperCase())
     && !isRotatableProviderExhaustion(job))
     .sort((a,b)=>Number(Boolean(a.result_json?.autonomy_deferral?.exhausted && a.result_json.autonomy_deferral.context !== providerRetryContext(a)))
       - Number(Boolean(b.result_json?.autonomy_deferral?.exhausted && b.result_json.autonomy_deferral.context !== providerRetryContext(b)))
