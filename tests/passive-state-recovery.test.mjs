@@ -129,3 +129,42 @@ test('maintenance finds old active manifest work beyond the 100-row D1 UI window
   assert.equal(result.recovered[0].job_id, manifest.id);
   assert.equal((await repository.get(manifest.id)).status, 'QUEUED');
 });
+
+
+test('clearing the list during orphan review recovery never requeues or reports cancelled work', async () => {
+  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+  const job = await repository.create({ id: 'cleared-review', requested_by: 'mel-autonomy', goal: 'cleared review' });
+  await repository.update(job.id, { status: 'READY_FOR_REVIEW', result_json: {} });
+  const view = {
+    list: repository.list.bind(repository),
+    listActiveAutonomyJobs: repository.listActiveAutonomyJobs.bind(repository),
+    async update(id, patch, options) {
+      await repository.update(id, { status: 'CANCELLED' });
+      return repository.update(id, patch, options);
+    },
+  };
+  const result = await recoverPassiveRuntimeStates(view, { canonicalSha: NEW_SHA });
+  assert.equal(result.recovered.length, 0);
+  assert.equal(result.failed.length, 0);
+  assert.equal((await repository.get(job.id)).status, 'CANCELLED');
+});
+
+test('clearing the list during stale Teacher recovery never reports cancelled work', async () => {
+  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+  const job = await repository.create({ id: 'cleared-teacher', requested_by: 'mel-autonomy', goal: 'cleared teacher' });
+  await repository.update(job.id, { status: 'WAITING_TEACHER', result_json: {
+    teacher_bridge: { status: 'WAITING_TEACHER', request: { request_id: 'stale', target_sha: OLD_SHA } },
+  } });
+  const view = {
+    list: repository.list.bind(repository),
+    listActiveAutonomyJobs: repository.listActiveAutonomyJobs.bind(repository),
+    async update(id, patch, options) {
+      await repository.update(id, { status: 'CANCELLED' });
+      return repository.update(id, patch, options);
+    },
+  };
+  const result = await recoverPassiveRuntimeStates(view, { canonicalSha: NEW_SHA });
+  assert.equal(result.recovered.length, 0);
+  assert.equal(result.failed.length, 0);
+  assert.equal((await repository.get(job.id)).status, 'CANCELLED');
+});
