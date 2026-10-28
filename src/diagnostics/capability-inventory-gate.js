@@ -23,15 +23,18 @@ export function validateCapabilityInventory(bus) {
       && contract?.handler_registered === true);
     const declared = String(record?.implementation_status || '').toUpperCase();
     const unimplemented = ['STUB','NOT_IMPLEMENTED'].includes(declared);
+    const partial = declared === 'PARTIAL';
     const enabled = record?.enabled === true;
     const available = String(record?.health || '').toUpperCase() !== 'UNAVAILABLE';
     const status = !valid ? 'INVALID_CONTRACT'
       : unimplemented ? 'NOT_IMPLEMENTED'
+      : partial ? 'PARTIAL_IMPLEMENTATION'
       : !enabled ? 'DISABLED'
       : !available ? 'BLOCKED_EXTERNAL'
       : 'CONTRACT_VERIFIED_RUNTIME_UNPROVEN';
     const next = !valid ? 'FIX_CONTRACT_AND_HANDLER'
       : unimplemented ? 'IMPLEMENT_WITH_EXECUTABLE_TESTS'
+      : partial ? 'COMPLETE_IMPLEMENTATION_AND_RUN_TESTS'
       : !enabled ? 'VERIFY_ENABLEMENT_AND_APPROVAL'
       : !available ? 'VERIFY_PROVIDER_OR_DEVICE_INTEGRATION'
       : 'EXECUTE_BOUNDED_TEST_AND_COLLECT_EXACT_SHA_EVIDENCE';
@@ -53,7 +56,7 @@ export function validateCapabilityInventory(bus) {
     return acc;
   }, {});
   const invalid = capabilities.filter(row => !row.contract_valid
-    || row.status === 'NOT_IMPLEMENTED');
+    || ['NOT_IMPLEMENTED','PARTIAL_IMPLEMENTATION'].includes(row.status));
   return {
     schema: 'mel.capability-contract-inventory.v1',
     total: capabilities.length,
@@ -61,6 +64,7 @@ export function validateCapabilityInventory(bus) {
     contracts_valid: capabilities.length - capabilities.filter(row=>!row.contract_valid).length,
     contracts_invalid: capabilities.filter(row=>!row.contract_valid).length,
     unimplemented: capabilities.filter(row=>row.status === 'NOT_IMPLEMENTED').length,
+    partial: capabilities.filter(row=>row.status === 'PARTIAL_IMPLEMENTATION').length,
     runtime_verified: 0,
     structural_ok: invalid.length === 0,
     all_validated: false, // static contracts never certify live execution
