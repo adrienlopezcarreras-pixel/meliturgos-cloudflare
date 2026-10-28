@@ -1,4 +1,4 @@
-import { ROADMAP_HARD_DEPENDENCIES, validateRoadmapDependencies } from './roadmap-dependencies.js';
+import { ROADMAP_HARD_DEPENDENCIES, ROADMAP_TECHNICAL_WORK, validateRoadmapDependencies, validateRoadmapTechnicalWork } from './roadmap-dependencies.js';
 export const ROADMAP_STATUSES = Object.freeze({
   VERIFIED: 'DONE_VERIFIED',
   IN_PROGRESS: 'IN_PROGRESS',
@@ -12,7 +12,7 @@ export function isClosedRoadmapStatus(status) {
   return [ROADMAP_STATUSES.VERIFIED, 'DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED'].includes(String(status || '').trim().toUpperCase());
 }
 
-export const ROADMAP_REGISTRY_REVISION = '2026-10-28.2';
+export const ROADMAP_REGISTRY_REVISION = '2026-10-28.3';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -271,7 +271,8 @@ export const MASTER_ROADMAP = Object.freeze([
 
 export function flattenRoadmap() {
   return MASTER_ROADMAP.flatMap(p => p.items.map(i => ({ ...i, phase_id: p.id, phase: p.title,
-    depends_on: [...(ROADMAP_HARD_DEPENDENCIES[i.id] || [])] })));
+    depends_on: [...(ROADMAP_HARD_DEPENDENCIES[i.id] || [])],
+    ...(ROADMAP_TECHNICAL_WORK[i.id] || {}) })));
 }
 
 /** Structural guard against duplicate or contradictory registry entries. */
@@ -305,6 +306,7 @@ export function validateRoadmap() {
   }
 
   issues.push(...validateRoadmapDependencies(flattenRoadmap()));
+  issues.push(...validateRoadmapTechnicalWork(flattenRoadmap()));
   return { ok: issues.length === 0, issues };
 }
 
@@ -342,6 +344,7 @@ export function getRoadmapPayload() {
       items: p.items.map(row => ({
         ...row,
         depends_on: [...(ROADMAP_HARD_DEPENDENCIES[row.id] || [])],
+        ...(ROADMAP_TECHNICAL_WORK[row.id] || {}),
       })),
     }))
   };
