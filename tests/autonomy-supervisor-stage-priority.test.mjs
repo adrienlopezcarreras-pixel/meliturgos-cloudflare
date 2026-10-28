@@ -168,7 +168,7 @@ test('MAX selector admits only one actionable mission with roadmap before errors
 });
 
 
-test('MAX resumes an exhausted provider job once its retry deadline passes', async () => {
+test('MAX does not restart exhausted identical provider retries when cooldown expires', async () => {
   const repository = repo();
   const job = await repository.create({
     id: 'mel-autonomy-manifest-01-retry', requested_by: 'mel-autonomy',
@@ -182,26 +182,7 @@ test('MAX resumes an exhausted provider job once its retry deadline passes', asy
   const supervisor = new AutonomySupervisor({ repository, roadmap: [
     { id: 'MEL-MANIFEST-01', title: 'Retry provider', status: 'PLANNED', priority: 'P0' },
   ] });
-  const resumed = await supervisor.ensureNextJob();
-  assert.equal(resumed.job?.id, job.id);
-  assert.equal(resumed.external_progress, undefined);
-});
-
-test('MAX retains provider cooldown while its retry deadline is still in the future', async () => {
-  const repository = repo();
-  const job = await repository.create({
-    id: 'mel-autonomy-manifest-01-cooldown', requested_by: 'mel-autonomy',
-    goal: '[MEL-MANIFEST-01] Await provider',
-    optional_context: { roadmap_id: 'MEL-MANIFEST-01', source: 'autonomy-supervisor' },
-  });
-  await repository.update(job.id, { result_json: { autonomy_deferral: {
-    exhausted: true, phase: 'mentor', attempts: 3, max_attempts: 3,
-    retry_after: Date.now() + 600_000,
-  } } });
-  const supervisor = new AutonomySupervisor({ repository, roadmap: [
-    { id: 'MEL-MANIFEST-01', title: 'Await provider', status: 'PLANNED', priority: 'P0' },
-  ] });
-  const deferred = await supervisor.ensureNextJob();
-  assert.equal(deferred.job, null);
-  assert.equal(deferred.external_progress?.status, 'DEFERRED_PROVIDER_RETRY_PENDING');
+  const parked = await supervisor.ensureNextJob();
+  assert.equal(parked.job, null);
+  assert.equal(parked.external_progress?.status, 'DEFERRED_PROVIDER_RETRY_PENDING');
 });
