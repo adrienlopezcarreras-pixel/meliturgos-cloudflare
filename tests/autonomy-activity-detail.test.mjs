@@ -99,8 +99,8 @@ test('an activity reset hides older jobs and cancels only the active supervised 
   assert.equal(view.activity_list_epoch, now);
 });
 
-// GPT6: a committed candidate still awaits CI/promotion and must not disappear from active counts.
-test('COMMITTED supervised job remains active until COMPLETED', async () => {
+// A committed candidate awaits CI/promotion: retain it in the passive queue, not the execution slot.
+test('COMMITTED supervised job remains queued until COMPLETED', async () => {
   const { buildAutonomyActivity } = await import('../src/evolution/autonomy-activity.js');
   const now = Date.now();
   const db = { prepare(sql) {
@@ -124,7 +124,9 @@ test('COMMITTED supervised job remains active until COMPLETED', async () => {
     { id: 'done-1', status: 'COMPLETED', requested_by: 'mel-autonomy', goal: 'Released', created_at: now, updated_at: now, result_json: '{}' },
   ];
   const view = await buildAutonomyActivity({ DB: db }, { now, repository: { async list() { return fixtureJobs; } } });
-  assert.equal(view.counts.active, 1);
+  assert.equal(view.counts.active, 0);
+  assert.equal(view.counts.waiting, 1);
+  assert.equal(view.jobs.find(job => job.id === 'commit-1').queue_state, 'WAITING');
   assert.equal(view.counts.by_status.COMMITTED, 1);
   assert.equal(view.jobs.find(job => job.id === 'commit-1').pipeline.at(-1).done, false);
 });
@@ -256,11 +258,79 @@ test('each pipeline step of a mission is traced to its exact run and SHA', async
   assert.deepEqual(jobTrace({}), []);
 });
 
-test('activity exposes one active mission and every other queued row as waiting',async()=>{
+test('activity keeps all QUEUED missions waiting without inventing an active execution',async()=>{
   const jobs=Array.from({length:15},(_,i)=>({...approved,id:'queued-'+i,status:'QUEUED',created_at:now-i*1000,result_json:'{}',files_json:'[]',tests_json:'[]'}));
   const db={prepare(sql){const st={bind(){return st;},async run(){return {};},async all(){return {results:/FROM dev_jobs/.test(sql)?jobs:[]};},async first(){return sql.startsWith('SELECT status,last_seen,metadata_json FROM dev_bridge_state')?{status:'MAX_AUTONOMY',last_seen:now,metadata_json:JSON.stringify({paused:false,max_autonomy:true})}:null;}};return st;}};
   const activity=await buildAutonomyActivity({DB:db},{now,repository:{list:async()=>jobs.map(job=>({...job,result_json:{},files_json:[],tests_json:[]}))}});
-  assert.equal(activity.counts.active,1);assert.equal(activity.counts.waiting,14);
+  assert.equal(activity.counts.active,0);assert.equal(activity.counts.waiting,15);
+  assert.equal(activity.jobs.filter(job=>job.queue_state==='ACTIVE').length,0);
+  assert.equal(activity.jobs.filter(job=>job.queue_state==='WAITING').length,15);
+});
+
+
+test('QUEUED missions never occupy the displayed execution slot', async () => {
+  const { activeAutonomyMission } = await import('../src/evolution/provider-exhaustion-rotation.js');
+  const queued = Array.from({length:100},(_,i)=>({id:'MEL-MANIFEST-'+i,status:'QUEUED',requested_by:'mel-autonomy',created_at:i}));
+  assert.equal(activeAutonomyMission(queued),null);
+  const running={id:'running',status:'PLANNING',requested_by:'mel-autonomy',created_at:101};
+  assert.equal(activeAutonomyMission([...queued,running])?.id,'running');
+  assert.equal(activeAutonomyMission([...queued,{...running,status:'COMPLETED'}]),null);
+});
+
+
+test('displayed mission selection and waiting count are deduplicated', async () => {
+  const running={...approved,id:'single-running',status:'PLANNING',result_json:{}};
+  const queued={...approved,id:'single-waiting',status:'QUEUED',result_json:{}};
+  const rows=[running,running,queued,queued];
+  const db={prepare(sql){const st={bind(){return st;},async run(){return {};},async all(){return {results:/FROM dev_jobs/.test(sql)?rows:[]};},async first(){return sql.startsWith('SELECT status,last_seen,metadata_json FROM dev_bridge_state')?{status:'MAX_AUTONOMY',last_seen:now,metadata_json:JSON.stringify({paused:false,max_autonomy:true})}:null;}};return st;}};
+  const activity=await buildAutonomyActivity({DB:db},{now,repository:{list:async()=>rows}});
+  assert.equal(activity.counts.active,1);
+  assert.equal(activity.counts.waiting,1);
+  assert.equal(activity.counts.supervised_total,2);
+  assert.equal(activity.counts.by_status.PLANNING,1);
+  assert.equal(activity.counts.by_status.QUEUED,1);
+  assert.equal(Object.values(activity.counts.by_status).reduce((sum,n)=>sum+n,0),2);
   assert.equal(activity.jobs.filter(job=>job.queue_state==='ACTIVE').length,1);
-  assert.equal(activity.jobs.filter(job=>job.queue_state==='WAITING').length,14);
+  assert.equal(activity.jobs.filter(job=>job.queue_state==='WAITING').length,1);
+});
+
+
+test('passive queue retains over 60 distinct missions without an execution slot', async () => {
+  const queued=Array.from({length:125},(_,i)=>({...approved,id:'passive-'+i,status:'QUEUED',created_at:now-i*1000,updated_at:now-i*1000,result_json:{}}));
+  const db={prepare(sql){const st={bind(){return st;},async run(){return {};},async all(){return {results:[]};},async first(){return null;}};return st;}};
+  const activity=await buildAutonomyActivity({DB:db},{now,repository:{list:async()=>queued}});
+  assert.equal(activity.counts.active,0);
+  assert.equal(activity.counts.waiting,125);
+  assert.equal(activity.counts.by_status.QUEUED,125);
+  assert.equal(activity.jobs.filter(job=>job.queue_state==='WAITING').length,125);
+  assert.equal(new Set(activity.jobs.map(job=>job.id)).size,125);
+});
+
+
+test('scheduler admits only one queued mission while the rest remain unmodified', async () => {
+  const { selectActionableAutonomyJob } = await import('../src/evolution/autonomy-supervisor.js');
+  const queued=Array.from({length:125},(_,i)=>({id:'queue-'+i,requested_by:'mel-autonomy',status:'QUEUED',created_at:now+i,updated_at:now+i,result_json:{}}));
+  const original=JSON.stringify(queued);
+  const selected=selectActionableAutonomyJob(queued,{roadmap:[],epochMs:0});
+  assert.ok(selected);
+  assert.equal(queued.filter(job=>job.id===selected.id).length,1);
+  assert.equal(queued.filter(job=>job.status==='QUEUED').length,125);
+  assert.equal(JSON.stringify(queued),original);
+});
+
+
+test('automatic error-correction jobs keep their queue category and remain passive until admitted', async () => {
+  const { autonomyQueueCategory, selectActionableAutonomyJob } = await import('../src/evolution/autonomy-supervisor.js');
+  const error={id:'error-ledger-504',requested_by:'mel-autonomy',status:'QUEUED',optional_context:{source:'error-ledger'},created_at:now,updated_at:now,result_json:{}};
+  const roadmap={...error,id:'roadmap-1',optional_context:{source:'roadmap'}};
+  const watch={...error,id:'ecosystem-watch-1',optional_context:{source:'ecosystem-watch'}};
+  assert.equal(autonomyQueueCategory(roadmap),0);
+  assert.equal(autonomyQueueCategory(error),1);
+  assert.equal(autonomyQueueCategory(watch),2);
+  const jobs=[error,roadmap,watch];
+  const before=JSON.stringify(jobs);
+  assert.equal(selectActionableAutonomyJob(jobs,{roadmap:[]})?.id,'roadmap-1');
+  assert.equal(selectActionableAutonomyJob([error,watch],{roadmap:[]})?.id,'error-ledger-504');
+  assert.equal(JSON.stringify(jobs),before);
+  assert.ok(jobs.every(job=>job.status==='QUEUED'));
 });

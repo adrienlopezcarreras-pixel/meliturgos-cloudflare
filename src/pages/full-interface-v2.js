@@ -1054,9 +1054,12 @@ function activityMarkup(a){
     +(c.launch_approved_sha?'<div class="act-kv">Version autorisée : '+esc(String(c.launch_approved_sha).slice(0,12))+'</div>':''));
   const by=a.counts?.by_status||{};
   const jobsKnown=Array.isArray(a.jobs),fmtN=v=>{const n=finiteMetric(v);return n===null?'—':String(n)};
-  h+=activitySection('Missions ('+fmtN(a.counts?.active)+' active · '+fmtN(a.counts?.waiting)+' en attente)',
+  const executing=(a.jobs||[]).filter(j=>j.queue_state==='ACTIVE').slice(0,1);
+  const awaiting=(a.jobs||[]).filter(j=>j.queue_state==='WAITING');
+  h+=activitySection('Missions — En cours ('+executing.length+'/1) · À venir ('+fmtN(a.counts?.waiting)+')',
     '<div class="act-kv">'+Object.entries(by).map(([k,v])=>esc(k)+' : '+esc(v)).join(' · ')+'</div>'
-    +(!jobsKnown?'<div class="muted">Historique d’activité non chargé.</div>':!a.jobs.length?'<div class="muted">Aucune activité récente observée.</div>':'')+(a.jobs||[]).slice(0,12).map(j=>{
+    +'<div class="act-queue-columns" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px"><div><strong>En cours ('+executing.length+'/1)</strong>'+(executing.length?'': '<div class="muted">Aucune mission en exécution</div>')+executing.map(j=>'<div class="act-kv">'+esc(j.roadmap_id||j.id)+' · '+esc(j.status)+'</div>').join('')+'</div><div><strong>À venir ('+fmtN(a.counts?.waiting)+')</strong><div class="muted">File passive : aucun appel IA, aucun jeton, aucun retry.</div>'+awaiting.map(j=>'<div class="act-kv">'+esc(j.roadmap_id||j.id)+' · '+esc(j.status)+'</div>').join('')+'</div></div>'
+    +(!jobsKnown?'<div class="muted">Historique d’activité non chargé.</div>':!a.jobs.length?'<div class="muted">Aucune activité récente observée.</div>':'')+(a.jobs||[]).filter(j=>j.queue_state!=='WAITING').slice(0,12).map(j=>{
       const steps=(j.pipeline||[]).map(s=>'<span class="act-step act-'+esc(s.state)+'" title="'+esc(s.label)+'">'+(s.state==='done'?'✓':s.state==='current'?'▶':s.state==='blocked'?'✕':'·')+' '+esc(s.label)+'</span>').join('');
       return '<details class="act-job"'+(['TEACHER_APPROVED','CLAIMED','APPLIED','TESTING','WAITING_TEACHER','PLANNING'].includes(j.status)?' open':'')+'><summary><b>'+esc(j.roadmap_id||j.id)+'</b> · '+esc(j.queue_state==='WAITING'?'EN ATTENTE'+(j.priority_penalty>0?' · priorité réduite':''):j.status)+' · <span class="muted">'+esc(j.origin)+' · màj '+esc(activityTime(j.updated_at))+'</span></summary>'
         +'<div class="act-kv">'+esc(j.status_text)+'</div>'

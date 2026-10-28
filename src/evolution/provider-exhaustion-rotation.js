@@ -84,6 +84,7 @@ export function boundedCouncilDeferral({ job, deferred, retryAt, freshAttempts =
 // A queue entry is not an executing mission. Match the single-flight scheduler.
 export function activeAutonomyMission(jobs = []) {
   return jobs.filter(job => job?.requested_by === 'mel-autonomy'
+    && String(job.status || '').toUpperCase() !== 'QUEUED'
     && !['COMPLETED','CANCELLED','FAILED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED'].includes(String(job.status).toUpperCase())
     && !isRotatableProviderExhaustion(job))
     .sort((a,b)=>Number(Boolean(a.result_json?.autonomy_deferral?.exhausted && a.result_json.autonomy_deferral.context !== providerRetryContext(a)))

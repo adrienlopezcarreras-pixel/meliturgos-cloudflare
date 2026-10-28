@@ -117,7 +117,10 @@ export async function recoverPassiveRuntimeStates(repository, { canonicalSha = n
   const jobs = await repository.list();
   const recovered = [];
   const failed = [];
-  for (const job of jobs.slice(0, Math.max(1, Math.min(500, Number(limit) || 100)))) {
+  // Prioritize recoverable review and Teacher states before the bounded scan.
+  // Otherwise a large queue of unrelated jobs can indefinitely starve recovery.
+  const candidates = jobs.filter(job => ['READY_FOR_REVIEW', 'WAITING_TEACHER', 'TEACHER_APPROVED'].includes(upper(job?.status)));
+  for (const job of candidates.slice(0, Math.max(1, Math.min(500, Number(limit) || 100)))) {
     try {
       const stale = await requeueStaleTeacher(repository, job, String(canonicalSha || '').toLowerCase());
       if (stale) { recovered.push(stale); continue; }

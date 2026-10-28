@@ -6,7 +6,7 @@ import { assertNoActiveDeploy, requestAutonomousRelease, RELEASE_BRANCH } from '
 const MAIN_SHA = 'a'.repeat(40);
 const OLD_SHA = 'b'.repeat(40);
 
-test('MEL automation fast-forwards the release pointer then requests MAX restoration after production proofs', async () => {
+test('MEL automation fast-forwards the release pointer then preserves owner-disabled MAX after production proofs', async () => {
   for (const fullR2Backup of [false,true]) {
   const operations = [];
   let releaseSha = OLD_SHA;
@@ -31,7 +31,7 @@ test('MEL automation fast-forwards the release pointer then requests MAX restora
   assert.equal(dispatch.body.inputs.expected_sha, MAIN_SHA);
   assert.equal(dispatch.body.inputs.approval, 'AUTONOMOUS_POLICY');
   assert.equal(dispatch.body.inputs.autonomous_release, 'true');
-  assert.equal(dispatch.body.inputs.owner_max_autorelease, 'true');
+  assert.equal(dispatch.body.inputs.owner_max_autorelease, 'false', 'owner-disabled MAX must not be reactivated by a release');
   assert.ok(operations.filter(x => x.path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs')).length === 2);
   assert.ok(!operations.some(x => x.path.includes('branches/release%2F')), 'run preflight must not filter away main-ref dispatches');
   assert.equal(dispatch.body.inputs.full_r2_backup, fullR2Backup ? 'true' : undefined);

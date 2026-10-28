@@ -369,17 +369,24 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
     const by = String(job?.requested_by || '').toLowerCase();
     return (by === 'mel-autonomy' || by.startsWith('owner-chat')) && atOrAfter(jobActivityTimestamp(job), epoch);
   }).sort((a, b) => Number(b?.updated_at || 0) - Number(a?.updated_at || 0));
-  const byStatus = {};
-  for (const job of supervised) {
-    const s = String(job?.status || 'UNKNOWN').toUpperCase();
-    byStatus[s] = (byStatus[s] || 0) + 1;
-  }
   // COMMITTED still awaits CI and promotion. Only genuinely terminal jobs leave active counts.
   const terminal = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
-  const activeMission = control?.paused ? null : activeAutonomyMission(supervised);
-  const pending = supervised.filter(job => !terminal.has(String(job?.status || '').toUpperCase()) && job.id !== activeMission?.id);
-  const reportJobs = supervised.slice().sort((a,b)=>Number(b.id===activeMission?.id)-Number(a.id===activeMission?.id));
-  const jobs = reportJobs.slice(0, Math.max(1, Math.min(60, limit))).map(job => ({ ...describeJob(job, now), queue_state: terminal.has(String(job.status).toUpperCase()) ? 'TERMINAL' : job.id === activeMission?.id ? 'ACTIVE' : 'WAITING', priority_penalty: Number(job.result_json?.autonomy_deferral?.priority_penalty || (job.result_json?.autonomy_deferral?.exhausted ? 1 : 0)) }));
+  // Display one entry per persisted mission, regardless of repeated snapshots.
+  const unique = [...new Map(supervised.map(job => [String(job.id), job])).values()];
+  // Counts must describe the same deduplicated snapshot that the UI renders.
+  const uniqueByStatus = {};
+  for (const job of unique) {
+    const status = String(job.status || 'UNKNOWN').toUpperCase();
+    uniqueByStatus[status] = (uniqueByStatus[status] || 0) + 1;
+  }
+  // Waiting for teacher approval, provider retry or promotion is not active execution.
+  const executionStatuses = new Set(['PLANNING', 'CLAIMED', 'APPLIED', 'TESTING']);
+  const executing = unique.filter(job => executionStatuses.has(String(job?.status || '').toUpperCase())
+    && !job?.result_json?.autonomy_deferral?.exhausted);
+  const activeMission = control?.paused ? null : activeAutonomyMission(executing);
+  const pending = unique.filter(job => !terminal.has(String(job?.status || '').toUpperCase()) && job.id !== activeMission?.id);
+  const reportJobs = unique.slice().sort((a,b)=>Number(b.id===activeMission?.id)-Number(a.id===activeMission?.id));
+  const jobs = reportJobs.filter(job => !terminal.has(String(job.status || '').toUpperCase())).concat(reportJobs.filter(job => terminal.has(String(job.status || '').toUpperCase())).slice(0, Math.max(1, Math.min(60, limit)))).map(job => ({ ...describeJob(job, now), queue_state: terminal.has(String(job.status).toUpperCase()) ? 'TERMINAL' : job.id === activeMission?.id ? 'ACTIVE' : 'WAITING', priority_penalty: Number(job.result_json?.autonomy_deferral?.priority_penalty || (job.result_json?.autonomy_deferral?.exhausted ? 1 : 0)) }));
   const mentor = mentorMetrics(supervised);
   const executorAge = executor ? now - Number(executor.last_seen || 0) : null;
   return {
@@ -404,10 +411,10 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
       local_coder_reason: coder?.ok === true ? null : (coder?.code || null),
     } : null,
     counts: {
-      supervised_total: supervised.length,
+      supervised_total: unique.length,
       active: activeMission ? 1 : 0,
       waiting: pending.length,
-      by_status: byStatus,
+      by_status: uniqueByStatus,
     },
     jobs,
     plan: buildCodePlan(jobs, { now }),
