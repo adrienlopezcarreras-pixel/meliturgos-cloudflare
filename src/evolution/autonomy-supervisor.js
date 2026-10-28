@@ -184,7 +184,7 @@ function compareActiveJobs(left, right) {
     || String(left?.id || '').localeCompare(String(right?.id || ''));
 }
 
-export function selectActionableAutonomyJobs(jobs = [], { epochMs = 0, roadmap = flattenRoadmap(), completedIds = [], excludeIds = [], limit = 4 } = {}) {
+export function selectActionableAutonomyJobs(jobs = [], { epochMs = 0, roadmap = flattenRoadmap(), completedIds = [], verifiedIds = completedIds, excludeIds = [], limit = 4 } = {}) {
   const closedIds = new Set(roadmap.filter(isVerifiedRoadmap).map(item => item.id));
   const epoch = Number(epochMs) || 0;
   const excluded = new Set(excludeIds);
@@ -194,7 +194,7 @@ export function selectActionableAutonomyJobs(jobs = [], { epochMs = 0, roadmap =
     .filter(job => {
       const item = roadmap.find(row => row.id === roadmapIdFromJob(job));
       return !item || (!BLOCKED_ROADMAP.has(String(item.status || '').toUpperCase())
-        && !unmetRoadmapPrerequisites(item, roadmap, completedIds).length);
+        && !unmetRoadmapPrerequisites(item, roadmap, verifiedIds).length);
     })
     .filter((job) => !TERMINAL_JOB.has(String(job?.status || '').toUpperCase()))
     .filter((job) => !isPassiveRuntimeJob(job))
@@ -217,14 +217,14 @@ export function manifestObjective(roadmap = flattenRoadmap()) {
     .slice(0, 900);
 }
 
-export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedIds = [], blockedIds = [] } = {}) {
+export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedIds = [], verifiedIds = completedIds, blockedIds = [] } = {}) {
   const completed = new Set(completedIds);
   const blocked = new Set(blockedIds);
   return roadmap
     .filter((item) => item && item.id)
     .filter((item) => !isVerifiedRoadmap(item))
     .filter((item) => !BLOCKED_ROADMAP.has(String(item.status || '').trim().toUpperCase()))
-    .filter((item) => !unmetRoadmapPrerequisites(item, roadmap, completedIds).length)
+    .filter((item) => !unmetRoadmapPrerequisites(item, roadmap, verifiedIds).length)
     .filter((item) => (!completed.has(item.id) || String(item.status).toUpperCase() === 'REGRESSED') && !blocked.has(item.id))
     .sort((a, b) => score(a) - score(b) || String(a.id).localeCompare(String(b.id)))[0] || null;
 }
@@ -304,6 +304,9 @@ export class AutonomySupervisor {
       .filter(job => ['COMPLETED'].includes(String(job.status).toUpperCase()) || isClosedRoadmapStatus(job.status))
       .map(roadmapIdFromJob).filter(id => id && !reopenedIds.has(id));
     const completedSet = new Set(completedIds);
+    // Terminal code delivery is not an acceptance verdict. Only exact roadmap
+    // DONE_VERIFIED proof may unlock an objective that depends on this one.
+    const verifiedDependencyIds = [...verifiedRoadmapIds];
     const waiting = supervisedJobs.filter(job => String(job.status || '').toUpperCase() === 'WAITING_DEPENDENCY');
     const active = supervisedJobs.filter(job => !TERMINAL_JOB.has(String(job.status || '').toUpperCase())
       && String(job.status || '').toUpperCase() !== 'WAITING_DEPENDENCY')
@@ -338,6 +341,7 @@ export class AutonomySupervisor {
     let next = selectNextAutonomyItem({
       roadmap: this.roadmap,
       completedIds,
+      verifiedIds: verifiedDependencyIds,
       blockedIds: excludedIds,
     });
     if (!next && this.evolutionLoader) {
@@ -351,6 +355,7 @@ export class AutonomySupervisor {
       activeIds,
       waiting,
       completedIds,
+      verifiedDependencyIds,
       blockedIds,
       retryExhaustedIds,
       failedAttemptsByRoadmap: Object.fromEntries(failedAttemptsByRoadmap),
@@ -403,7 +408,7 @@ export class AutonomySupervisor {
             || !['QUEUED', 'TEACHER_APPROVED'].includes(String(job.status || '').toUpperCase())) return false;
         const item = this.roadmap.find(row => row.id === roadmapIdFromJob(job));
         return item && (BLOCKED_ROADMAP.has(String(item.status || '').toUpperCase())
-          || unmetRoadmapPrerequisites(item, this.roadmap, current.completedIds).length > 0);
+          || unmetRoadmapPrerequisites(item, this.roadmap, current.verifiedDependencyIds).length > 0);
       });
       if (blocked) {
         const item = this.roadmap.find(row => row.id === roadmapIdFromJob(blocked));
@@ -464,7 +469,7 @@ export class AutonomySupervisor {
     const selectableJobs = this.singleFlight && activeInternal
       ? current.active.filter(job => job.requested_by !== 'mel-autonomy' || job.id === activeInternal.id)
       : current.active;
-    const actionable = selectActionableAutonomyJob(selectableJobs, { epochMs: this.epochMs, roadmap: this.roadmap, completedIds: current.completedIds });
+    const actionable = selectActionableAutonomyJob(selectableJobs, { epochMs: this.epochMs, roadmap: this.roadmap, completedIds: current.completedIds, verifiedIds: current.verifiedDependencyIds });
     if (this.singleFlight && activeInternal && actionable?.requested_by !== 'owner-chat') {
       // COMMITTED means the candidate was committed, not necessarily that the
       // release passed live verification. D1's admission fence still sees this
