@@ -342,3 +342,112 @@ test('manifest acceptance never treats paused hardware as a blocker or as verifi
   assert.equal(cloudReady.priorities[4].blocking, false);
   assert.equal(manifest01FoundationPrerequisites([]).ready, false, 'missing cloud entries cannot create evidence');
 });
+
+
+test('FOUNDER-01 accepts exact observed Gmail auth-block, not an invented Gmail read', async () => {
+  const { runLiveChecks, liveProofGate, requiredLiveChecks } = await import('../src/evolution/verify-existing-live-checks.js');
+  const goal = "[MEL-FOUNDER-01] Prouver en production une lecture Gmail, une lecture Agenda et une lecture Drive, ou l’erreur d’authentification exacte de chacune.";
+  const required = requiredLiveChecks(goal, 'DECISION: VERIFY_EXISTING\nLIVE_CHECKS:');
+  assert.deepEqual(required, ['gmail.messages.search', 'calendar.events.read', 'drive.files.list']);
+  const calls = [];
+  const createRuntime = async () => ({ bus: {
+    async execute(id) {
+      calls.push(id);
+      if (id === 'gmail.messages.search') {
+        const error = new Error('GMAIL_SEARCH_FAILED_ALL_PATHS_FAILED');
+        error.code = 'GMAIL_SEARCH_FAILED_ALL_PATHS_FAILED';
+        error.native_code = 'GMAIL_SEARCH_FAILED_NETWORK';
+        error.fallback_code = 'PIPEDREAM_GMAIL_ACCOUNT_REQUIRED';
+        throw error;
+      }
+      if (id === 'calendar.events.read') return { events: [] };
+      return { files: [{ id: 'file-id-private', name: 'private-name' }] };
+    },
+  } });
+  const checks = await runLiveChecks({}, required, { createRuntime });
+  assert.deepEqual(calls, required);
+  assert.deepEqual(checks.map(c => [c.outcome, c.ok]), [
+    ['AUTH_REQUIRED', false], ['READ_SUCCEEDED', true], ['READ_SUCCEEDED', true],
+  ]);
+  assert.equal(checks[0].code, 'PIPEDREAM_GMAIL_ACCOUNT_REQUIRED');
+  assert.equal(checks[0].items, null);
+  assert.equal(liveProofGate(required, checks, { goal }).ok, true);
+  assert.deepEqual(liveProofGate(required, checks, { goal }).auth_missing, ['gmail.messages.search']);
+  assert.equal(liveProofGate(required, checks).ok, false, 'other goals still demand a real read');
+  assert.doesNotMatch(JSON.stringify(checks), /private-name|file-id-private/);
+});
+
+test('FOUNDER-01 refuses network errors, missing permissions, generic provider outages and fake empty success', async () => {
+  const { runLiveChecks, liveProofGate, requiredLiveChecks } = await import('../src/evolution/verify-existing-live-checks.js');
+  const goal = "[MEL-FOUNDER-01] Gmail Agenda Drive ou l’erreur d’authentification exacte de chacune";
+  const required = requiredLiveChecks(goal, '');
+  for (const code of ['GMAIL_SEARCH_FAILED_NETWORK', 'CAPABILITY_UNAVAILABLE', 'CAPABILITY_PERMISSION_DENIED', 'GMAIL_SEARCH_FAILED_ALL_PATHS_FAILED']) {
+    const fail = [
+      { capability: 'gmail.messages.search', ok: false, outcome: 'FAILED', code },
+      { capability: 'calendar.events.read', ok: true, outcome: 'READ_SUCCEEDED' },
+      { capability: 'drive.files.list', ok: true, outcome: 'READ_SUCCEEDED' },
+    ];
+    assert.equal(liveProofGate(required, fail, { goal }).ok, false, code);
+  }
+  const malformed = await runLiveChecks({}, required, { createRuntime: async () => ({ bus: {
+    execute: async () => ({ ok: true }),
+  } }) });
+  assert.equal(malformed.every(row => row.ok === false && row.code === 'CAPABILITY_READ_RESULT_INVALID'), true);
+  assert.equal(liveProofGate(required, malformed, { goal }).ok, false);
+});
+
+test('FOUNDER-01 keeps the original D1 job uncompleted when runtime evidence is absent', async () => {
+  const repository = await approvedRepository({ roadmapId: 'MEL-FOUNDER-01' });
+  const goal = "[MEL-FOUNDER-01] Prouver en production une lecture Gmail, une lecture Agenda et une lecture Drive, ou l’erreur d’authentification exacte de chacune.";
+  const before = await repository.get(JOB);
+  await repository.update(JOB, { goal });
+  const statusBefore = (await repository.get(JOB)).status;
+  let checked = 0;
+  const result = await reconcileRuntimeCompletions({
+    repository,
+    env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
+    fetchImpl: fetchImplFor(),
+    liveCheckRunner: async () => {
+      checked++;
+      return [
+        { capability: 'gmail.messages.search', ok: false, outcome: 'FAILED', code: 'GMAIL_SEARCH_FAILED_NETWORK' },
+        { capability: 'calendar.events.read', ok: true, outcome: 'READ_SUCCEEDED' },
+        { capability: 'drive.files.list', ok: true, outcome: 'READ_SUCCEEDED' },
+      ];
+    },
+  });
+  assert.equal(checked, 1);
+  assert.equal(result.completed.length, 0);
+  assert.equal(result.rejected[0].code, 'COMPLETION_FOUNDER_01_LIVE_PROOF_REQUIRED');
+  assert.equal((await repository.get(JOB)).status, statusBefore);
+  assert.equal((await repository.get(JOB)).result_json.autonomy_completion, undefined);
+  assert.equal(before.result_json.teacher_bridge.status, 'ANSWERED');
+});
+
+test('FOUNDER-01 records honest read/auth evidence only after Teacher, exact-SHA CI and a real probe', async () => {
+  const repository = await approvedRepository({ roadmapId: 'MEL-FOUNDER-01' });
+  const goal = "[MEL-FOUNDER-01] Prouver en production une lecture Gmail, une lecture Agenda et une lecture Drive, ou l’erreur d’authentification exacte de chacune.";
+  await repository.update(JOB, { goal });
+  const result = await reconcileRuntimeCompletions({
+    repository,
+    env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
+    fetchImpl: fetchImplFor(),
+    liveCheckRunner: async (_env, ids) => {
+      assert.deepEqual(ids, ['gmail.messages.search', 'calendar.events.read', 'drive.files.list']);
+      return [
+        { capability: ids[0], ok: false, outcome: 'AUTH_REQUIRED', code: 'PIPEDREAM_GMAIL_ACCOUNT_REQUIRED', items: null },
+        { capability: ids[1], ok: true, outcome: 'READ_SUCCEEDED', items: 0 },
+        { capability: ids[2], ok: true, outcome: 'READ_SUCCEEDED', items: 1 },
+      ];
+    },
+  });
+  assert.equal(result.rejected.length, 0);
+  assert.equal(result.completed.length, 1);
+  const stored = await repository.get(JOB);
+  assert.equal(stored.status, 'COMPLETED');
+  const proof = stored.result_json.autonomy_completion.founder_01_live_proof;
+  assert.equal(proof.status, 'READS_OR_EXACT_AUTH_DIAGNOSTICS');
+  assert.deepEqual(proof.auth_missing, ['gmail.messages.search']);
+  assert.equal(proof.checked[0].ok, false, 'Gmail still is not connected');
+  assert.equal(proof.checked[0].code, 'PIPEDREAM_GMAIL_ACCOUNT_REQUIRED');
+});
