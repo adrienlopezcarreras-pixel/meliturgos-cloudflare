@@ -14,7 +14,7 @@ import { readFile } from 'node:fs/promises';
 
 test('canonical release proves a recent restore-verified backup through the ephemeral binder before deploy', async () => {
   const source = await readExpandedReleaseWorkflow();
-  assert.match(source, /owner_max_autorelease:[\s\S]{0,220}default: true/, 'owner opts in by default for manual releases');
+  assert.match(source, /owner_max_autorelease:[\s\S]{0,220}default: false/, 'owner MAX restoration must be opt-in for manual releases');
   const start = source.indexOf('      - name: Create verified pre-deploy production backup');
   const end = source.indexOf('      - name: Prepare encrypted Media Vault secrets for exact deployment', start);
   const block = source.slice(start, end);
