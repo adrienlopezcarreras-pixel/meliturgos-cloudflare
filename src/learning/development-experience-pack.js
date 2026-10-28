@@ -1,5 +1,20 @@
 export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
   {
+    id: 'codex-single-flight-lifecycle-all-entrypoints-20261028',
+    source: 'codex',
+    domain: 'autonomy-concurrency',
+    task: 'Conserver une mission courante pendant tout son cycle, y compris les attentes Teacher et CI.',
+    input: 'Une admission unique ne protège pas les missions déjà persistées ni les chemins de reprise PC, approbation et Bridge.',
+    before: 'Une réparation sans roadmap_id contournait l’admission ; les balayages Teacher et les claims faisaient progresser la file passive.',
+    after: 'Partager la sélection déterministe de la mission entre ordonnanceur, continuation ciblée, Teacher, Bridge et UI ; vérifier aussi le propriétaire du slot dans la mutation SQL atomique. Filtrer l’époque propriétaire sur toutes les lectures de missions actives.',
+    rationale: 'Un verrou à la création ne garantit pas l’exclusion sur tout le cycle de vie. Les lignes historiques et les exécutants indépendants exigent des régressions spécifiques.',
+    tests: ['tests/max-passive-queue-single-flight.test.mjs: régressions réelles mémoire et SQLite, cinq échecs reproduits avant correction', 'tests/autonomy-runtime-epoch.test.mjs: anciennes missions exclues après reset', 'tests/pc-max-batch.test.mjs: continuation épinglée malgré plusieurs candidats'],
+    tags: ['single-flight', 'd1', 'cas', 'passive-queue', 'local-proof'],
+    validated: true,
+    quality: 1,
+    created_at: 1793225880000,
+  },
+  {
     id: 'bootstrap-multi-ai-orchestrator-20260916',
     source: 'chatgpt-teacher',
     domain: 'multi-ai-orchestration',

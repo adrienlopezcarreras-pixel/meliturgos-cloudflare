@@ -134,6 +134,7 @@ test('MAX selects the open founder cycle instead of treating the historical regi
   assert.equal(next.status, 'IN_PROGRESS');
   const followed = selectNextAutonomyItem({
     completedIds: ['MEL-FOUNDER-01', 'MEL-FOUNDER-02', 'MEL-FOUNDER-03', 'MEL-FOUNDER-04', 'MEL-FOUNDER-05', 'MEL-FOUNDER-07', 'MEL-FOUNDER-08'],
+    verifiedIds: ['MEL-FOUNDER-01', 'MEL-FOUNDER-02', 'MEL-FOUNDER-03', 'MEL-FOUNDER-04', 'MEL-FOUNDER-05', 'MEL-FOUNDER-07', 'MEL-FOUNDER-08'],
   });
   assert.equal(followed.id, 'MEL-MANIFEST-01');
   const objective = manifestObjective();

@@ -7,7 +7,9 @@ test('the actual roadmap audit payload exposes professional-chat, Council and Lo
  const payload=getRoadmapPayload(),phase=payload.phases.find(row=>row.id==='P19');
  assert.ok(phase);assert.equal(payload.source.revision,ROADMAP_REGISTRY_REVISION);
  assert.deepEqual(phase.items.map(row=>row.id),['MEL-CHAT-01','MEL-CHAT-02','MEL-CHAT-03','MEL-CHAT-04','MEL-CHAT-05','MEL-CHAT-06','MEL-CHAT-07','MEL-CHAT-08','MEL-COUNCIL-OPS-01','MEL-COUNCIL-OPS-02','MEL-LORA-CHAT-01','MEL-LORA-MODE-01']);
- assert.ok(phase.items.every(row=>['IN_PROGRESS','PLANNED'].includes(row.status)));
+ assert.ok(phase.items.filter(row=>!row.id.startsWith('MEL-LORA-')).every(row=>['IN_PROGRESS','PLANNED'].includes(row.status)));
+ assert.deepEqual(phase.items.filter(row=>row.id.startsWith('MEL-LORA-')).map(row=>row.status),
+   ['BLOCKED_EXTERNAL','BLOCKED_EXTERNAL'], 'unavailable LoRA training may not enter MAX execution');
  assert.ok(phase.items.every(row=>/Council réel/.test(row.next)),'no synthetic or missing Council verdict closes the acceptance goals');
  assert.equal(validateRoadmap().ok,true);
 });

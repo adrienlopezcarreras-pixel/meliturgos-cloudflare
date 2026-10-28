@@ -2,7 +2,7 @@ import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { runAutonomyRuntimeTick as runCoreAutonomyRuntimeTick, autonomyTickAdvanced, currentAutonomyRepository } from './autonomy-runtime-core.js';
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
 import { getAutonomyControl, setOwnerMaxAutonomy } from './autonomy-control.js';
-import { AutonomySupervisor, selectActionableAutonomyJob, selectActionableAutonomyJobs, setRuntimeRoadmapRegressions } from './autonomy-supervisor.js';
+import { AutonomySupervisor, selectActionableAutonomyJob, selectActionableAutonomyJobs, setRuntimeRoadmapRegressions, listAutonomySchedulerJobs } from './autonomy-supervisor.js';
 import { activeRoadmapRegressions } from '../roadmap/roadmap-regressions.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { applyOwnerMaxApproval } from '../teachers/owner-max-approval.js';
@@ -18,6 +18,7 @@ import { readActivityListEpoch } from './autonomy-activity.js';
 import { backgroundNeuronBudgetExhausted, readNeuronBonusTotal } from '../augmentio/neuron-budget.js';
 import { bindLocalPcWorkersAi, localPcModelReady } from '../models/local-pc-model.js';
 import { readSurvivalState, shouldResumeForSurvival } from '../legacy/survival-mode.js';
+import { singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
 
 export * from './autonomy-runtime-core.js';
 
@@ -34,7 +35,7 @@ export async function advanceMoreOnPc({ env, ready = localPcModelReady, run, see
   const ids = room > 0 && typeof selectJobs === 'function'
     ? (await selectJobs(room).catch(() => [])).filter(Boolean).slice(0, room)
     : [];
-  if (ids.length > 1) {
+  if (!resumeSameJob && ids.length > 1) {
     const lanes = Math.max(1, Math.min(width, ids.length));
     const results = [];
     for (let index = 0; index < ids.length; index += lanes) {
@@ -75,7 +76,11 @@ export async function advanceMoreOnPc({ env, ready = localPcModelReady, run, see
 async function selectablePcJobs(repository, epochMs, roadmap, count, singleFlight = true) {
   const supervisor = new AutonomySupervisor({ repository, epochMs, ...(roadmap ? { roadmap } : {}) });
   const state = await supervisor.state();
-  const jobs = selectActionableAutonomyJobs(state.active, { epochMs, limit: count, ...(roadmap ? { roadmap } : {}) });
+  const holder = singleFlightAutonomyMission(state.active);
+  const eligible = singleFlight && holder
+    ? state.active.filter(job => job.requested_by !== 'mel-autonomy' || job.id === holder.id)
+    : state.active;
+  const jobs = selectActionableAutonomyJobs(eligible, { epochMs, limit: count, ...(roadmap ? { roadmap } : {}) });
   // Both autonomy modes pin one objective; independent tests inside that objective may parallelize elsewhere.
   return (singleFlight ? jobs.slice(0, 1) : jobs).map(job => job.id);
 }
@@ -262,7 +267,10 @@ function preservePreEnsureCreation(result, preEnsure) {
 
 async function recordCoreRuntimeFailure(repository, error, { maxAttempts = 3, epochMs = 0, roadmap, evolutionLoader = null, onlyJobId = null } = {}) {
   const supervisor = new AutonomySupervisor({ repository: currentAutonomyRepository(repository, epochMs), epochMs, ...(roadmap ? { roadmap } : {}), evolutionLoader });
-  const jobs = (await supervisor.state()).active.filter(job => !onlyJobId || job.id === onlyJobId);
+  const active = (await supervisor.state()).active;
+  const holder = singleFlightAutonomyMission(active);
+  const jobs = active.filter(job => !onlyJobId || job.id === onlyJobId)
+    .filter(job => job.requested_by !== 'mel-autonomy' || job.id === holder?.id);
   const schedulerSelected = selectActionableAutonomyJob(
     jobs.filter(job => ACTIONABLE_FAILURE_STATES.has(String(job?.status || '').toUpperCase())),
     { epochMs, ...(roadmap ? { roadmap } : {}) },
@@ -379,8 +387,10 @@ export async function mirrorAllWaitingInternalTeachers({ env = {}, repository, f
     throw Object.assign(new Error('INTERNAL_TEACHER_REPOSITORY_REQUIRED'), { code: 'INTERNAL_TEACHER_REPOSITORY_REQUIRED' });
   }
   const excluded = new Set((Array.isArray(excludeRequestIds) ? excludeRequestIds : []).map(value => String(value || '')).filter(Boolean));
-  const jobs = await repository.list();
+  const jobs = await listAutonomySchedulerJobs(repository);
+  const holder = singleFlightAutonomyMission(jobs);
   const waiting = jobs
+    .filter(job => job.id === holder?.id)
     .filter(internalWaitingTeacher)
     .filter(job => !excluded.has(String(job?.result_json?.teacher_bridge?.request?.request_id || '')))
     .slice(0, Math.max(1, Math.min(100, Number(limit) || 50)));
@@ -419,8 +429,11 @@ export async function approveAllWaitingTeachersUnderOwnerMax(repository, { sourc
   if (!repository || typeof repository.list !== 'function') {
     throw Object.assign(new Error('OWNER_MAX_REPOSITORY_REQUIRED'), { code: 'OWNER_MAX_REPOSITORY_REQUIRED' });
   }
-  const jobs = await repository.list();
-  const waiting = jobs.filter(job => !onlyJobId || job.id === onlyJobId).filter(waitingTeacher).slice(0, Math.max(1, Math.min(100, Number(limit) || 50)));
+  const jobs = await listAutonomySchedulerJobs(repository);
+  const holder = singleFlightAutonomyMission(jobs);
+  const waiting = jobs.filter(job => !onlyJobId || job.id === onlyJobId)
+    .filter(job => job.requested_by !== 'mel-autonomy' || job.id === holder?.id)
+    .filter(waitingTeacher).slice(0, Math.max(1, Math.min(100, Number(limit) || 50)));
   const applied = [];
   const failed = [];
 
@@ -691,13 +704,15 @@ async function autonomyProgressSnapshot(repository, roadmap = null, epochMs = 0)
     const supervisor = new AutonomySupervisor({ repository, epochMs, ...(roadmap ? { roadmap } : {}) });
     const state = await supervisor.state();
     const active = Array.isArray(state?.active) ? state.active : [];
-    const actionable = selectActionableAutonomyJob(active, { epochMs, ...(roadmap ? { roadmap } : {}) });
+    const holder = singleFlightAutonomyMission(active);
+    const selectable = holder ? active.filter(job => job.requested_by !== 'mel-autonomy' || job.id === holder.id) : active;
+    const actionable = selectActionableAutonomyJob(selectable, { epochMs, ...(roadmap ? { roadmap } : {}) });
     return {
       work_remaining: active.length > 0 || Boolean(state?.next),
       active_jobs: active.length,
       next_roadmap_id: state?.next?.id || null,
-      job_id: actionable?.id || active[0]?.id || null,
-      job_status: String(actionable?.status || active[0]?.status || '').toUpperCase() || null,
+      job_id: actionable?.id || holder?.id || active[0]?.id || null,
+      job_status: String(actionable?.status || holder?.status || active[0]?.status || '').toUpperCase() || null,
     };
   } catch {
     return {

@@ -89,19 +89,20 @@ test('owner-chat becomes claimable only after the same correlated Teacher approv
 });
 
 
-test('cloud fallback can atomically claim one exact prepared job without stealing another', async () => {
+test('cloud fallback claims the current prepared mission and leaves its successor passive', async () => {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
   const first = await prepareApprovedBridgeJob(repository, { id: 'mel-approved-first', requestedBy: 'mel-autonomy' });
   const second = await prepareApprovedBridgeJob(repository, { id: 'mel-approved-second', requestedBy: 'mel-autonomy' });
 
-  const claimed = await repository.claimPrepared(second.id);
-  assert.equal(claimed?.id, second.id);
+  assert.equal(await repository.claimPrepared(second.id), null);
+  const claimed = await repository.claimPrepared(first.id);
+  assert.equal(claimed?.id, first.id);
   assert.equal(claimed?.status, 'CLAIMED');
-  assert.equal((await repository.get(first.id))?.status, 'TEACHER_APPROVED');
+  assert.equal((await repository.get(second.id))?.status, 'TEACHER_APPROVED');
 
-  const duplicate = await repository.claimPrepared(second.id);
+  const duplicate = await repository.claimPrepared(first.id);
   assert.equal(duplicate, null, 'the same prepared package must never be claimed twice');
-  assert.equal((await repository.get(first.id))?.status, 'TEACHER_APPROVED');
+  assert.equal((await repository.get(second.id))?.status, 'TEACHER_APPROVED');
 });
 
 test('a ready package left in review without a candidate commit can be claimed once', async () => {
