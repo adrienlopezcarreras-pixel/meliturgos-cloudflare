@@ -5,6 +5,8 @@ import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { AutonomySupervisor } from '../src/evolution/autonomy-supervisor.js';
 import { approveAllWaitingTeachersUnderOwnerMax, mirrorAllWaitingInternalTeachers } from '../src/evolution/autonomy-runtime.js';
 import { buildAutonomyActivity } from '../src/evolution/autonomy-activity.js';
+import { currentAutonomyRepository } from '../src/evolution/autonomy-runtime-core.js';
+import { reconcileRuntimeTeacherReplies } from '../src/teachers/github-reply-reconciler.js';
 
 function waiting(id, created_at) {
   const sha = 'a'.repeat(40);
@@ -23,6 +25,19 @@ test('MAX approves only the current internal mission; an existing passive repair
   const before = structuredClone(await repo.get('error-ledger-new'));
   const result = await approveAllWaitingTeachersUnderOwnerMax(repo);
   assert.deepEqual(result.applied.map(row => row.job_id), ['manifest']);
+  assert.deepEqual(await repo.get('error-ledger-new'), before);
+});
+
+test('a stale Teacher reply scan cannot requeue the passive mission', async () => {
+  const jobs = [waiting('manifest', 10), waiting('error-ledger-new', 20)];
+  const repo = new D1DevJobRepository(null, { memoryStore: new Map(jobs.map(job => [job.id, job])) });
+  const before = structuredClone(await repo.get('error-ledger-new'));
+  await reconcileRuntimeTeacherReplies({
+    repository: currentAutonomyRepository(repo, 0, { singleFlight: true }),
+    env: { MEL_CANONICAL_CANDIDATE_SHA: 'b'.repeat(40) },
+    fetchImpl: async () => new Response(''),
+  });
+  assert.equal((await repo.get('manifest')).status, 'QUEUED');
   assert.deepEqual(await repo.get('error-ledger-new'), before);
 });
 

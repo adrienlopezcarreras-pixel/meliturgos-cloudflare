@@ -267,7 +267,10 @@ function preservePreEnsureCreation(result, preEnsure) {
 
 async function recordCoreRuntimeFailure(repository, error, { maxAttempts = 3, epochMs = 0, roadmap, evolutionLoader = null, onlyJobId = null } = {}) {
   const supervisor = new AutonomySupervisor({ repository: currentAutonomyRepository(repository, epochMs), epochMs, ...(roadmap ? { roadmap } : {}), evolutionLoader });
-  const jobs = (await supervisor.state()).active.filter(job => !onlyJobId || job.id === onlyJobId);
+  const active = (await supervisor.state()).active;
+  const holder = singleFlightAutonomyMission(active);
+  const jobs = active.filter(job => !onlyJobId || job.id === onlyJobId)
+    .filter(job => job.requested_by !== 'mel-autonomy' || job.id === holder?.id);
   const schedulerSelected = selectActionableAutonomyJob(
     jobs.filter(job => ACTIONABLE_FAILURE_STATES.has(String(job?.status || '').toUpperCase())),
     { epochMs, ...(roadmap ? { roadmap } : {}) },

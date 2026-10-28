@@ -2,8 +2,8 @@ import { staleCouncilDeferral } from '../teachers/council-inference-policy.js';
 import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
-import { AutonomySupervisor, providerRetryContext, BRIDGE_MENTOR_ROUNDS } from './autonomy-supervisor.js';
-import { boundedCouncilDeferral, activeAutonomyMission } from './provider-exhaustion-rotation.js';
+import { AutonomySupervisor, providerRetryContext, BRIDGE_MENTOR_ROUNDS, listAutonomySchedulerJobs } from './autonomy-supervisor.js';
+import { boundedCouncilDeferral, activeAutonomyMission, singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
 import { prepareDevelopmentRequest } from './development-preflight.js';
 import { createGitHubCodeReader } from '../capabilities/github-code-capabilities.js';
 import { createTeacherReviewRequest } from '../teachers/teacher-request.js';
@@ -21,13 +21,17 @@ import { readActivityListEpoch } from './autonomy-activity.js';
 
 // Bound active reconciliation/sweeps to the same activity generation as the
 // scheduler. The underlying repository still retains its complete journal.
-export function currentAutonomyRepository(repository, epochMs = 0) {
+export function currentAutonomyRepository(repository, epochMs = 0, { singleFlight = false } = {}) {
   const epoch = Math.max(0, Number(epochMs) || 0);
   return new Proxy(repository, {
     get(target, key) {
-      if ((key === 'list' || key === 'listActiveAutonomyJobs') && typeof target[key] === 'function') return async (...args) => (await target[key](...args)).filter(job =>
-        (!epoch || jobActivityTimestamp(job) >= epoch)
-        && String(job?.status || '').toUpperCase() !== 'CANCELLED');
+      if ((key === 'list' || key === 'listActiveAutonomyJobs') && typeof target[key] === 'function') return async (...args) => {
+        const rows = singleFlight ? await listAutonomySchedulerJobs(target) : await target[key](...args);
+        const jobs = rows.filter(job => (!epoch || jobActivityTimestamp(job) >= epoch)
+          && String(job?.status || '').toUpperCase() !== 'CANCELLED');
+        const holder = singleFlightAutonomyMission(jobs);
+        return singleFlight ? jobs.filter(job => job.requested_by !== 'mel-autonomy' || job.id === holder?.id) : jobs;
+      };
       const value = Reflect.get(target, key, target);
       return typeof value === 'function' ? value.bind(target) : value;
     },
@@ -688,7 +692,7 @@ export function autonomyQueueReadBlocker(state) {
 export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repository = null, benchmarkEvaluator = null, benchmarkModelId = '', roadmap = null, maxAutonomy = false, epochMs = null, onlyJobId = null } = {}) {
   const jobRepository = repository || new D1DevJobRepository(env.DB);
   const activityEpoch = epochMs ?? await readActivityListEpoch(env?.DB, { strict: true });
-  const currentRepository = currentAutonomyRepository(jobRepository, activityEpoch);
+  const currentRepository = currentAutonomyRepository(jobRepository, activityEpoch, { singleFlight: true });
   const focused = Boolean(onlyJobId);
   globalThis.__melTickStage = 'teacher-replies';
   const reconciliation = focused ? { ok: true, applied: [], skipped: 'FOCUSED_JOB' } : await reconcileRuntimeTeacherReplies({ repository: currentRepository, env, fetchImpl }).catch((error) => ({
@@ -719,12 +723,14 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   });
   let reopenedUnansweredRepair = false;
   if (!focused) {
-  const existing = await jobRepository.list();
+  const existing = await listAutonomySchedulerJobs(jobRepository);
+  const holder = singleFlightAutonomyMission(existing);
   const epoch = Number(activityEpoch) || 0;
   for (const candidate of Array.isArray(existing) ? existing : []) {
     if (epoch && jobActivityTimestamp(candidate) < epoch) continue;
     const by = String(candidate?.requested_by || '');
     if (by !== 'mel-autonomy' && !by.startsWith('owner-chat')) continue;
+    if (by === 'mel-autonomy' && holder && candidate.id !== holder.id) continue;
     const decision = unansweredExhaustedRepair(candidate);
     if (!decision) continue;
     const result = candidate.result_json && typeof candidate.result_json === 'object' ? { ...candidate.result_json } : {};
