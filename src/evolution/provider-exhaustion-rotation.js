@@ -17,7 +17,8 @@ export function isRotatableProviderExhaustion(job) {
   const delay = job?.result_json?.autonomy_deferral;
   if (delay?.exhausted !== true || !['implementation', 'bridge'].includes(delay.phase)) return false;
   if (!Number.isFinite(Number(delay.attempts)) || Number(delay.attempts) < 3
-      || !Number.isFinite(Number(delay.max_attempts)) || Number(delay.max_attempts) < 3) return false;
+      || !Number.isFinite(Number(delay.max_attempts)) || Number(delay.max_attempts) < 3
+      || Number(delay.attempts) < Number(delay.max_attempts)) return false;
   // Never free a lane for a stale or absent context, where an old deferral
   // might otherwise conceal a newly approved job.
   if (typeof delay.context !== 'string' || delay.context !== providerRetryContext(job)) return false;
@@ -35,6 +36,8 @@ export const ROTATABLE_PROVIDER_EXHAUSTION_SQL = `(
   AND json_extract(result_json,'$.autonomy_deferral.phase') IN ('implementation','bridge')
   AND json_extract(result_json,'$.autonomy_deferral.attempts') >= 3
   AND json_extract(result_json,'$.autonomy_deferral.max_attempts') >= 3
+  AND json_extract(result_json,'$.autonomy_deferral.attempts') >=
+      json_extract(result_json,'$.autonomy_deferral.max_attempts')
   AND json_type(result_json,'$.autonomy_deferral.context') = 'text'
   AND json_extract(result_json,'$.autonomy_deferral.context') = json_array(
     candidate_branch,
@@ -43,6 +46,6 @@ export const ROTATABLE_PROVIDER_EXHAUSTION_SQL = `(
     json_extract(result_json,'$.implementation_proposal.candidate_sha'),
     json_extract(result_json,'$.implementation_proposal.teacher_request_id')
   )
-  AND COALESCE(json_extract(result_json,'$.dev_bridge.status'),'') NOT IN
+  AND UPPER(COALESCE(json_extract(result_json,'$.dev_bridge.status'),'')) NOT IN
     ('RUNNING','IN_PROGRESS','CLAIMED','READY_FOR_REVIEW')
 )`;
