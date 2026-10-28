@@ -94,8 +94,8 @@ test('a transient 401 refreshes GitHub OIDC identity and keeps the ordered trace
     });
     assert.equal(run.status,0,run.stderr||run.error?.message);
     const journal=readFileSync(join(dir,'artifacts','lora-daily-trace.jsonl'),'utf8');
-    assert.match(journal,/'http_status":401/);
-    assert.match(journal,/'http_status":200/);
+    assert.match(journal,/"http_status":401/);
+    assert.match(journal,/"http_status":200/);
     assert.match(run.stdout,/LORA_TRACE_WRITTEN_AND_SPOOL_EMPTY/);
     assert.match(run.stdout,/"pending":0/);
   } finally { rmSync(dir,{recursive:true,force:true}); }
