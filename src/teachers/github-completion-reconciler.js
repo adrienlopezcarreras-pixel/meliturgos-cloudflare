@@ -465,21 +465,21 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
     if (!job) continue;
     if (String(job.status || '').toUpperCase() === 'COMPLETED' && job.result_json?.autonomy_completion?.candidate_sha === record.candidate_sha) continue;
 
-    // MEL-MANIFEST-01 is a verified account of five real founder priorities.
-    // A valid Teacher reply and green code CI cannot stand in for real tool,
-    // runtime, capability, Council and physical-device evidence. Reject only
-    // the final completion; leave the original mission and its journal intact.
-    if (job?.optional_context?.roadmap_id === 'MEL-MANIFEST-01') {
-      const prerequisites = manifest01FoundationPrerequisites();
-      if (!prerequisites.ready) {
-        rejected.push({
-          job_id: job.id,
-          request_id: record.request_id,
-          code: 'MANIFEST_01_FOUNDATION_PROOFS_REQUIRED',
-          pending: prerequisites.pending,
-        });
-        continue;
-      }
+    // MEL-MANIFEST-01 is a cloud-first account of founder priorities.
+    // Priorities 0..3 require canonical verified evidence; priority 4 is a
+    // separate paused physical-device acceptance task (APK/MINI/Companion).
+    // Keep it explicitly unverified, but never block a cloud completion for it.
+    const manifest01 = job?.optional_context?.roadmap_id === 'MEL-MANIFEST-01'
+      ? manifest01FoundationPrerequisites() : null;
+    if (manifest01 && !manifest01.ready) {
+      rejected.push({
+        job_id: job.id,
+        request_id: record.request_id,
+        code: 'MANIFEST_01_FOUNDATION_PROOFS_REQUIRED',
+        pending: manifest01.blocking_pending,
+        deferred_hardware: manifest01.nonblocking_pending,
+      });
+      continue;
     }
 
     const teacher = job.result_json?.teacher_bridge;
@@ -504,6 +504,14 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
       const result = job.result_json && typeof job.result_json === 'object' ? { ...job.result_json } : {};
       result.autonomy_completion = {
         status: 'VERIFIED',
+        ...(manifest01 ? { manifest_01: {
+          status: manifest01.all_verified ? 'ALL_PRIORITIES_VERIFIED' : 'CLOUD_VERIFIED_HARDWARE_DEFERRED',
+          cloud_prerequisites_verified: manifest01.ready,
+          founder_verified_count: manifest01.verified_count,
+          founder_total_count: manifest01.required_count,
+          hardware_accepted: manifest01.nonblocking_pending.length === 0,
+          pending_hardware: manifest01.nonblocking_pending,
+        } } : {}),
         request_id: record.request_id,
         candidate_sha: record.candidate_sha,
         candidate_branch: record.candidate_branch,
