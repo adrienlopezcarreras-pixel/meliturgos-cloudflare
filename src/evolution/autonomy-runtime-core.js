@@ -25,7 +25,7 @@ export function currentAutonomyRepository(repository, epochMs = 0) {
   const epoch = Math.max(0, Number(epochMs) || 0);
   return new Proxy(repository, {
     get(target, key) {
-      if (key === 'list') return async () => (await target.list()).filter(job =>
+      if ((key === 'list' || key === 'listActiveAutonomyJobs') && typeof target[key] === 'function') return async (...args) => (await target[key](...args)).filter(job =>
         (!epoch || jobActivityTimestamp(job) >= epoch)
         && String(job?.status || '').toUpperCase() !== 'CANCELLED');
       const value = Reflect.get(target, key, target);

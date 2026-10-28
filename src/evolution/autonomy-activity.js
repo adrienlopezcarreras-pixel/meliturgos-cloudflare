@@ -1,4 +1,4 @@
-import { activeAutonomyMission } from './provider-exhaustion-rotation.js';
+import { singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
 import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 // Detailed, read-only view of what MEL is doing, for the « Activité » panel.
 //
@@ -15,7 +15,7 @@ import { getAutonomyControl } from './autonomy-control.js';
 import { readAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
 import { readSurvivalState } from '../legacy/survival-mode.js';
 import { flattenRoadmap, isClosedRoadmapStatus } from '../roadmap/master-roadmap.js';
-import { selectNextAutonomyItem } from './autonomy-supervisor.js';
+import { selectNextAutonomyItem, listAutonomySchedulerJobs } from './autonomy-supervisor.js';
 import { localPcModelReady } from '../models/local-pc-model.js';
 
 
@@ -39,7 +39,7 @@ export async function readActivityListEpoch(db, { strict = false } = {}) {
 export async function resetAutonomyActivityList(db, { now = Date.now() } = {}) {
   if (!db?.prepare) throw Object.assign(new Error('DB_BINDING_MISSING'), { code: 'DB_BINDING_MISSING' });
   const cancel = await db.prepare(`UPDATE dev_jobs SET status='CANCELLED', updated_at=?, error='ACTIVITY_LIST_RESET'
-    WHERE status NOT IN ('COMPLETED','CANCELLED','FAILED')
+    WHERE status NOT IN ('COMPLETED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED','CANCELLED','FAILED')
     AND (requested_by='mel-autonomy' OR requested_by LIKE 'owner-chat%')`).bind(now).run();
   await db.prepare(`INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json)
     VALUES(?,?,?,?)
@@ -62,6 +62,7 @@ function atOrAfter(value, epoch) {
 
 const STATUS_TEXT = Object.freeze({
   QUEUED: 'En file : attend que le cycle minute le choisisse.',
+  WAITING_DEPENDENCY: 'En attente passive de prérequis vérifiables : aucun appel IA.',
   PLANNING: 'Plan en cours d’écriture par le conseil de modèles.',
   WAITING_TEACHER: 'Plan écrit, attend la validation (MAX la donne automatiquement).',
   TEACHER_APPROVED: 'Plan approuvé ; implémentation ou vérification du code à confirmer.',
@@ -332,7 +333,7 @@ export function scheduledCycles(now = Date.now()) {
 export function buildCodePlan(jobs = [], { roadmap = flattenRoadmap(), now = Date.now(), limit = 3 } = {}) {
   const terminal = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
   const active = jobs.filter(job => job?.roadmap_id && !terminal.has(String(job.status || '').toUpperCase()));
-  const current = active[0] || null;
+  const current = active.find(job => String(job.status || '').toUpperCase() !== 'WAITING_DEPENDENCY') || null;
   const excluded = active.map(job => job.roadmap_id);
   const next = [];
   while (next.length < limit) {
@@ -342,7 +343,7 @@ export function buildCodePlan(jobs = [], { roadmap = flattenRoadmap(), now = Dat
   }
   return {
     current: current ? { roadmap_id: current.roadmap_id, status: current.status, goal: clip(String(current.goal || '').replace(/\s*\|\s*OBJECTIF\s[\s\S]*$/, ''), 200), steps: current.pipeline || [] } : null,
-    queued: active.slice(1, 1 + limit).map(job => ({ roadmap_id: job.roadmap_id, status: job.status })),
+    queued: active.filter(job => job !== current).slice(0, limit).map(job => ({ roadmap_id: job.roadmap_id, status: job.status })),
     next,
     schedule: scheduledCycles(now),
   };
@@ -356,7 +357,7 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
   const [control, watchdog, allJobs, recentLedger, dispatches, relay, workCycles, executor, coder] = await Promise.all([
     getAutonomyControl(db).catch(() => null),
     readAutonomyProgressWatchdog(db).catch(() => null),
-    repo.list().catch(() => []),
+    listAutonomySchedulerJobs(repo).catch(() => []),
     ledger.listRecent({ limit: 400 }).catch(() => []),
     rows(db, "SELECT bridge_id,status,last_seen,metadata_json FROM dev_bridge_state WHERE bridge_id LIKE 'cloud-bridge-dispatch:%' ORDER BY last_seen DESC LIMIT 10"),
     rows(db, 'SELECT id,status,workflow,result_json,error,created_at,updated_at FROM github_action_relay_jobs ORDER BY created_at DESC LIMIT 12'),
@@ -370,7 +371,7 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
     return (by === 'mel-autonomy' || by.startsWith('owner-chat')) && atOrAfter(jobActivityTimestamp(job), epoch);
   }).sort((a, b) => Number(b?.updated_at || 0) - Number(a?.updated_at || 0));
   // COMMITTED still awaits CI and promotion. Only genuinely terminal jobs leave active counts.
-  const terminal = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
+  const terminal = new Set(['COMPLETED', 'FAILED', 'CANCELLED', 'DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED']);
   // Display one entry per persisted mission, regardless of repeated snapshots.
   const unique = [...new Map(supervised.map(job => [String(job.id), job])).values()];
   // Counts must describe the same deduplicated snapshot that the UI renders.
@@ -379,11 +380,11 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
     const status = String(job.status || 'UNKNOWN').toUpperCase();
     uniqueByStatus[status] = (uniqueByStatus[status] || 0) + 1;
   }
-  // Waiting for teacher approval, provider retry or promotion is not active execution.
-  const executionStatuses = new Set(['PLANNING', 'CLAIMED', 'APPLIED', 'TESTING']);
-  const executing = unique.filter(job => executionStatuses.has(String(job?.status || '').toUpperCase())
-    && !job?.result_json?.autonomy_deferral?.exhausted);
-  const activeMission = control?.paused ? null : activeAutonomyMission(executing);
+  // A mission remains current while Teacher/CI is pending. Those are stages
+  // of its lifecycle, not permission for a passive queue entry to advance.
+  // A fresh QUEUED record alone still proves no execution.
+  const holder = singleFlightAutonomyMission(unique);
+  const activeMission = control?.paused || String(holder?.status || '').toUpperCase() === 'QUEUED' ? null : holder;
   const pending = unique.filter(job => !terminal.has(String(job?.status || '').toUpperCase()) && job.id !== activeMission?.id);
   const reportJobs = unique.slice().sort((a,b)=>Number(b.id===activeMission?.id)-Number(a.id===activeMission?.id));
   const jobs = reportJobs.filter(job => !terminal.has(String(job.status || '').toUpperCase())).concat(reportJobs.filter(job => terminal.has(String(job.status || '').toUpperCase())).slice(0, Math.max(1, Math.min(60, limit)))).map(job => ({ ...describeJob(job, now), queue_state: terminal.has(String(job.status).toUpperCase()) ? 'TERMINAL' : job.id === activeMission?.id ? 'ACTIVE' : 'WAITING', priority_penalty: Number(job.result_json?.autonomy_deferral?.priority_penalty || (job.result_json?.autonomy_deferral?.exhausted ? 1 : 0)) }));

@@ -58,3 +58,17 @@ test('a tick stops when the next development does not advance and names no job',
   });
   assert.equal(result.ran, 2);
 });
+
+test('single-flight continuation ignores a multi-job PC batch and pins the current mission', async () => {
+  const seen = [];
+  const result = await advanceMoreOnPc({ env: {}, ready, resumeSameJob: true,
+    seed: { progress: { advanced: true, work_remaining: true, job_id: 'current' } },
+    selectJobs: async () => ['passive-a', 'passive-b'],
+    run: async ({ onlyJobId }) => {
+      seen.push(onlyJobId);
+      return { progress: { advanced: true, work_remaining: true, job_id: onlyJobId } };
+    },
+  });
+  assert.ok(seen.length > 0 && seen.every(id => id === 'current'));
+  assert.notEqual(result.parallel, true);
+});

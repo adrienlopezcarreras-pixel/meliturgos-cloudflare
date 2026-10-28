@@ -99,8 +99,8 @@ test('an activity reset hides older jobs and cancels only the active supervised 
   assert.equal(view.activity_list_epoch, now);
 });
 
-// A committed candidate awaits CI/promotion: retain it in the passive queue, not the execution slot.
-test('COMMITTED supervised job remains queued until COMPLETED', async () => {
+// Promotion is part of the same current mission; no second job may advance.
+test('COMMITTED supervised job remains current until COMPLETED', async () => {
   const { buildAutonomyActivity } = await import('../src/evolution/autonomy-activity.js');
   const now = Date.now();
   const db = { prepare(sql) {
@@ -124,9 +124,9 @@ test('COMMITTED supervised job remains queued until COMPLETED', async () => {
     { id: 'done-1', status: 'COMPLETED', requested_by: 'mel-autonomy', goal: 'Released', created_at: now, updated_at: now, result_json: '{}' },
   ];
   const view = await buildAutonomyActivity({ DB: db }, { now, repository: { async list() { return fixtureJobs; } } });
-  assert.equal(view.counts.active, 0);
-  assert.equal(view.counts.waiting, 1);
-  assert.equal(view.jobs.find(job => job.id === 'commit-1').queue_state, 'WAITING');
+  assert.equal(view.counts.active, 1);
+  assert.equal(view.counts.waiting, 0);
+  assert.equal(view.jobs.find(job => job.id === 'commit-1').queue_state, 'ACTIVE');
   assert.equal(view.counts.by_status.COMMITTED, 1);
   assert.equal(view.jobs.find(job => job.id === 'commit-1').pipeline.at(-1).done, false);
 });
@@ -189,8 +189,10 @@ test('activity reset includes COMMITTED but excludes terminal job states', async
   const result = await resetAutonomyActivityList(db, { now: 1_800_000_000_000 });
   assert.equal(result.cancelled_active, 1);
   assert.match(statements[0], /UPDATE dev_jobs SET status='CANCELLED'/);
-  assert.ok(statements[0].includes("status NOT IN ('COMPLETED','CANCELLED','FAILED')"));
+  assert.ok(statements[0].includes("status NOT IN ('COMPLETED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED','CANCELLED','FAILED')"));
   assert.doesNotMatch(statements[0], /'COMMITTED'/);
+  assert.match(statements[0], /'DONE_VERIFIED'/);
+  assert.match(statements[0], /'ACCEPTED'/);
 });
 
 test('activity exposes bounded bridge diagnostics without secret-bearing output', () => {

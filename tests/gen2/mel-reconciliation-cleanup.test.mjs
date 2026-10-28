@@ -54,7 +54,7 @@ test('MEL reconciliation roadmap leaves the founder cycle and the manifesto acco
     { id: 'MEL-UI-AUDIT-02', status: 'PLANNED' },
     { id: 'MEL-UI-AUDIT-03', status: 'PLANNED' },
     { id: 'MEL-UI-AUDIT-04', status: 'PLANNED' },
-    { id: 'MEL-UI-AUDIT-05', status: 'PLANNED' },
+    { id: 'MEL-UI-AUDIT-05', status: 'BLOCKED_HUMAN' },
     { id: 'MEL-UI-AUDIT-06', status: 'PLANNED' },
     { id: 'MEL-UI-AUDIT-07', status: 'PLANNED' },
     { id: 'MEL-MANIFEST-01', status: 'PLANNED' },
@@ -77,7 +77,7 @@ test('MEL reconciliation roadmap leaves the founder cycle and the manifesto acco
     { id: 'MEL-CHAT-08', status: 'IN_PROGRESS' },
     { id: 'MEL-COUNCIL-OPS-01', status: 'IN_PROGRESS' },
     { id: 'MEL-COUNCIL-OPS-02', status: 'PLANNED' },
-    { id: 'MEL-LORA-CHAT-01', status: 'PLANNED' },
-    { id: 'MEL-LORA-MODE-01', status: 'PLANNED' },
+    { id: 'MEL-LORA-CHAT-01', status: 'BLOCKED_EXTERNAL' },
+    { id: 'MEL-LORA-MODE-01', status: 'BLOCKED_EXTERNAL' },
   ]);
 });

@@ -7,6 +7,12 @@ on:
       - 'tests/autonomy-runtime.test.mjs'
       - 'src/dev/d1-dev-job-repository.js'
       - 'tests/autonomy-objective-admission.test.mjs'
+      - 'tests/max-passive-queue-single-flight.test.mjs'
+      - 'tests/dev-bridge-teacher-gate.test.mjs'
+      - 'tests/pc-max-batch.test.mjs'
+      - 'tests/waiting-teacher-runtime-fix.test.mjs'
+      - 'tests/passive-state-recovery.test.mjs'
+      - 'tests/autonomy-activity-detail.test.mjs'
       - 'src/evolution/**'
       - 'src/maintenance/**'
       - 'release-tools/predeploy-backup-refresh/system-restore-proof.mjs'
@@ -51,6 +57,7 @@ jobs:
           node --check src/evolution/semantic-intent.js &&
           node --check src/evolution/autonomy-runtime.js &&
           node --check src/dev/d1-dev-job-repository.js &&
+          node --check src/evolution/passive-state-recovery.js &&
           node --check src/evolution/autonomy-supervisor.js &&
           node --check src/evolution/evolution-proof-runner.js &&
           node --check src/evolution/release-launch-bootstrap.js &&
@@ -68,6 +75,13 @@ jobs:
           tests/self-state-introspection.test.mjs
           tests/chat-gap-development-routing.test.mjs
           tests/evolution-chat-gap-e2e.test.mjs
+      - name: Validate every registered capability and roadmap prerequisites (read-only)
+        run: >
+          node --test
+          tests/capability-inventory-gate.test.mjs
+          tests/gen2/skill-registry.test.mjs
+          tests/gen2/skill-registry-runtime.test.mjs
+          tests/max-roadmap-dependency-priority.test.mjs
       - name: Targeted supervised autonomy proof
         # GPT6 2026-10-21: the planner tests use mocked zero-cost providers;
         # this flag is strictly Node-only and cannot authorize production providers.
@@ -77,6 +91,12 @@ jobs:
           node --test
           tests/autonomy-runtime.test.mjs
           tests/autonomy-objective-admission.test.mjs
+          tests/max-passive-queue-single-flight.test.mjs
+          tests/dev-bridge-teacher-gate.test.mjs
+          tests/pc-max-batch.test.mjs
+          tests/waiting-teacher-runtime-fix.test.mjs
+          tests/passive-state-recovery.test.mjs
+          tests/autonomy-activity-detail.test.mjs
           tests/autonomy-completion-gates.test.mjs
           tests/autonomy-supervisor.test.mjs
           tests/autonomy-implementation-planner.test.mjs
@@ -88,9 +108,10 @@ jobs:
           tests/gen2/capability-watch-production-proof.test.mjs
 
   gen2-17-full-suite:
-    # TEMPORARY DEV-LIGHT MODE: targeted autonomy proof remains automatic;
-    # full repository validation is manual until final closure.
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    # Final closure gate: every PR changing MAX dependencies/capabilities
+    # must also pass the complete repository suite after targeted tests.
+    # workflow_dispatch remains available for manual re-verification.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     needs: gen2-17-targeted
