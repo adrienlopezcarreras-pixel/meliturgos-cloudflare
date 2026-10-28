@@ -284,6 +284,10 @@ test('displayed mission selection and waiting count are deduplicated', async () 
   const activity=await buildAutonomyActivity({DB:db},{now,repository:{list:async()=>rows}});
   assert.equal(activity.counts.active,1);
   assert.equal(activity.counts.waiting,1);
+  assert.equal(activity.counts.supervised_total,2);
+  assert.equal(activity.counts.by_status.PLANNING,1);
+  assert.equal(activity.counts.by_status.QUEUED,1);
+  assert.equal(Object.values(activity.counts.by_status).reduce((sum,n)=>sum+n,0),2);
   assert.equal(activity.jobs.filter(job=>job.queue_state==='ACTIVE').length,1);
   assert.equal(activity.jobs.filter(job=>job.queue_state==='WAITING').length,1);
 });
