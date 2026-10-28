@@ -6,6 +6,7 @@ on:
     paths:
       - 'tests/autonomy-runtime.test.mjs'
       - 'tests/passive-state-recovery.test.mjs'
+      - 'tests/autonomy-activity-detail.test.mjs'
       - 'src/evolution/**'
       - 'src/maintenance/**'
       - 'release-tools/predeploy-backup-refresh/system-restore-proof.mjs'
@@ -76,6 +77,7 @@ jobs:
           node --test
           tests/autonomy-runtime.test.mjs
           tests/passive-state-recovery.test.mjs
+          tests/autonomy-activity-detail.test.mjs
           tests/autonomy-completion-gates.test.mjs
           tests/autonomy-supervisor.test.mjs
           tests/autonomy-implementation-planner.test.mjs
