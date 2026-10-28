@@ -81,3 +81,15 @@ test('objective panel exists only in Professor chat, never in Normal', async () 
   assert.equal(OBJECTIVE_PANEL_SOURCE.includes('/api/chat/objective/step'), true);
   assert.equal(OBJECTIVE_PANEL_SOURCE.includes('const melQueueMessage=queueMessage'), false);
 });
+
+
+test('Professor objective floats independently with persisted layout and no Normal panel', () => {
+  assert.match(OBJECTIVE_PANEL_SOURCE, /setupFloatingObjective\(\)/);
+  assert.match(OBJECTIVE_PANEL_SOURCE, /document\.body\.appendChild\(objectivePanel\)/);
+  assert.match(OBJECTIVE_PANEL_SOURCE, /setPointerCapture/);
+  assert.match(OBJECTIVE_PANEL_SOURCE, /ResizeObserver/);
+  assert.match(OBJECTIVE_PANEL_SOURCE, /localStorage\.setItem/);
+  assert.match(OBJECTIVE_PANEL_SOURCE, /objective-collapsed/);
+  assert.match(OBJECTIVE_PANEL_SOURCE, /mel-objective-show/);
+  assert.doesNotMatch(NORMAL_RUNTIME_SOURCE, /setupFloatingObjective/);
+});
