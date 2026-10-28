@@ -412,7 +412,7 @@ export class AutonomySupervisor {
       });
       if (blocked) {
         const item = this.roadmap.find(row => row.id === roadmapIdFromJob(blocked));
-        const dependencies = unmetRoadmapPrerequisites(item, this.roadmap, current.completedIds);
+        const dependencies = unmetRoadmapPrerequisites(item, this.roadmap, current.verifiedDependencyIds);
         try {
           await this.repository.update(blocked.id, {
             status: 'WAITING_DEPENDENCY',
@@ -428,6 +428,9 @@ export class AutonomySupervisor {
           }, { expected: blocked });
         } catch (error) {
           if (error?.code !== 'JOB_UPDATE_CONFLICT') throw error;
+          // The contender owns this row now; do not loop on stale snapshots.
+          return { created: false, job: null, next: current.next, complete: false,
+            external_progress: { job_id: blocked.id, status: 'DEPENDENCY_PARK_CONFLICT' } };
         }
         // The next state is fresh: it may admit an independent prerequisite
         // without submitting a second generation call for the blocked job.
@@ -438,7 +441,7 @@ export class AutonomySupervisor {
       const wanted = current.active.find(job => job.id === this.onlyJobId) || null;
       const item = this.roadmap.find(row => row.id === roadmapIdFromJob(wanted));
       if (item && (BLOCKED_ROADMAP.has(String(item.status || '').toUpperCase())
-        || unmetRoadmapPrerequisites(item, this.roadmap, current.completedIds).length)) {
+        || unmetRoadmapPrerequisites(item, this.roadmap, current.verifiedDependencyIds).length)) {
         return { created: false, job: null, next: current.next, complete: false,
           external_progress: { job_id: wanted.id, status: 'ROADMAP_PREREQUISITES_PENDING' } };
       }
