@@ -301,19 +301,25 @@ test('MEL-MANIFEST-01 cannot finish merely because Teacher and full candidate CI
   assert.equal(result.completed.length, 0);
   assert.equal(result.rejected.length, 1);
   assert.equal(result.rejected[0].code, 'MANIFEST_01_FOUNDATION_PROOFS_REQUIRED');
-  assert.deepEqual(result.rejected[0].pending.map(row => row.priority), [0, 1, 2, 3, 4]);
-  assert.ok(result.rejected[0].pending.some(row => row.priority === 4 && row.reason === 'PHYSICAL_DEVICE_PROOF_REQUIRED'));
+  assert.deepEqual(result.rejected[0].pending.map(row => row.priority), [0, 1, 2, 3]);
+  assert.equal(result.rejected[0].pending.some(row => row.priority === 4), false,
+    'APK, MINI and Companion must never block the cloud completion');
+  assert.deepEqual(result.rejected[0].deferred_hardware.map(row => row.priority), [4]);
+  assert.equal(result.rejected[0].deferred_hardware[0].reason, 'PHYSICAL_DEVICE_PROOF_REQUIRED');
   assert.deepEqual(await repository.get(JOB), before, 'the live job and its evidence must not be erased or falsely closed');
 });
 
-test('manifest acceptance counts only DONE_VERIFIED on every one of the five founder priorities', async () => {
+test('manifest acceptance never treats paused hardware as a blocker or as verified', async () => {
   const { MANIFEST_01_FOUNDATION, manifest01FoundationPrerequisites } = await import('../src/roadmap/manifest-01-acceptance.js');
   assert.equal(MANIFEST_01_FOUNDATION.length, 5);
   const synthetic = MANIFEST_01_FOUNDATION.map(row => ({ id: row.roadmap_id, status: 'DONE_VERIFIED' }));
   const ready = manifest01FoundationPrerequisites(synthetic);
   assert.equal(ready.ready, true);
+  assert.equal(ready.all_verified, true);
+  assert.equal(ready.blocking_required_count, 4);
   assert.equal(ready.verified_count, 5);
   assert.equal(ready.pending.length, 0);
+  assert.equal(ready.nonblocking_pending.length, 0);
   const notEnough = synthetic.map((row, i) => i === 3 ? { ...row, status: 'DONE' }
     : i === 4 ? { ...row, status: 'BLOCKED_HUMAN' } : row);
   const pending = manifest01FoundationPrerequisites(notEnough);
@@ -323,5 +329,16 @@ test('manifest acceptance counts only DONE_VERIFIED on every one of the five fou
   assert.deepEqual(pending.pending.map(row => row.reason), [
     'FOUNDER_REAL_EXECUTION_NOT_VERIFIED', 'PHYSICAL_DEVICE_PROOF_REQUIRED',
   ]);
-  assert.equal(manifest01FoundationPrerequisites([]).ready, false, 'missing roadmap entries cannot create evidence');
+  assert.deepEqual(pending.blocking_pending.map(row => row.priority), [3]);
+  assert.deepEqual(pending.nonblocking_pending.map(row => row.priority), [4]);
+  const cloudDoneHardwarePaused = synthetic.map((row, i) => i === 4
+    ? { ...row, status: 'BLOCKED_HUMAN' } : row);
+  const cloudReady = manifest01FoundationPrerequisites(cloudDoneHardwarePaused);
+  assert.equal(cloudReady.ready, true, 'cloud tasks must finish without an APK/MINI/Companion');
+  assert.equal(cloudReady.all_verified, false, 'hardware is not silently certified');
+  assert.equal(cloudReady.verified_count, 4);
+  assert.deepEqual(cloudReady.nonblocking_pending.map(row => row.roadmap_id), ['MEL-FOUNDER-06']);
+  assert.equal(cloudReady.priorities[4].verified, false);
+  assert.equal(cloudReady.priorities[4].blocking, false);
+  assert.equal(manifest01FoundationPrerequisites([]).ready, false, 'missing cloud entries cannot create evidence');
 });
