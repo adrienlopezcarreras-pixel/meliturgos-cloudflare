@@ -240,7 +240,7 @@ export const MASTER_ROADMAP = Object.freeze([
   ]),
 
   phase('P17', 'Compte du manifeste : continuer après le cycle fondateur', [
-    item('MEL-MANIFEST-01', 'Tenir le compte des cinq priorités du manifeste', 'PLANNED', 'Prouver les priorités cloud 0 à 3 par leur exécution réelle ; enregistrer séparément la priorité matérielle 4 comme BLOCKED_HUMAN en pause, sans l’attendre ni la programmer dans MAX. Ne jamais inventer la preuve APK/MINI, ni marquer un fondateur DONE_VERIFIED sans preuve.', 'P1'),
+    item('MEL-MANIFEST-01', 'Tenir le compte des cinq priorités du manifeste', 'PLANNED', 'Prouver les priorités cloud 0 à 3 par leur exécution réelle ; enregistrer séparément la priorité matérielle 4 comme BLOCKED_HUMAN en pause, sans l’attendre ni la programmer dans MAX. Ne jamais inventer la preuve APK/MINI, ni marquer un fondateur DONE_VERIFIED sans preuve.', 'P0'),
     item('MEL-MANIFEST-02', 'Reprendre le même travail au tick suivant', 'PLANNED', 'Le bail est rendu. Un seul job par objectif. Le tick suivant lit le journal et continue, sans créer un second job.', 'P1'),
     item('MEL-MANIFEST-03', 'Enregistrer une compétence nouvelle sur le bus unique', 'PLANNED', 'Couvert par MEL-FOUNDER-03 : ne pas écrire de second chemin. Vérifier seulement qu’une demande sans outil devient un diff, un avis du Council, une CI verte, puis une capacité du bus. Pas de second moteur.', 'P1'),
     item('MEL-MANIFEST-04', 'Conserver une version stable avant une évolution risquée', 'PLANNED', 'La sauvegarde est vérifiée et la restauration est comparée hors de la D1 de production. Le rollback connu reste disponible. Réutiliser le travail de MEL-FOUNDER-07 (scripts/ ou src/backup/, avec test) ; ne pas modifier .github/workflows/.', 'P1'),
