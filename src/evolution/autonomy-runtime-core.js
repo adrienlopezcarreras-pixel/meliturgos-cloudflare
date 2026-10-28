@@ -143,7 +143,7 @@ export function providerDeferral(code, now = Date.now()) {
     'WORKERS_AI_BINDING_UNAVAILABLE', 'NO_ZERO_COST_PROVIDER_AVAILABLE',
     'MENTOR_NO_ZERO_COST_CODE_PROVIDER', 'NO_ELIGIBLE_PROVIDER', 'MODEL_UNAVAILABLE',
     'MENTOR_PROVIDER_TIMEOUT', 'MENTOR_NO_VALID_CODE_PROPOSAL', 'MENTOR_JSON_INVALID', 'MENTOR_JSON_REQUIRED',
-    'CODE_INSPECTION_TIMEOUT', 'COUNCIL_UNAVAILABLE', 'COUNCIL_INSUFFICIENT_RESPONSES', 'COUNCIL_REVIEW_DEADLINE', 'COUNCIL_NOT_ENOUGH_ZERO_COST_PROVIDERS', 'COUNCIL_NOT_ENOUGH_MEMBERS',
+    'CODE_INSPECTION_TIMEOUT', 'COUNCIL_UNAVAILABLE', 'COUNCIL_INSUFFICIENT_RESPONSES', 'COUNCIL_PROVIDER_COOLDOWN_PENDING', 'COUNCIL_REVIEW_DEADLINE', 'COUNCIL_NOT_ENOUGH_ZERO_COST_PROVIDERS', 'COUNCIL_NOT_ENOUGH_MEMBERS',
     'COUNCIL_REQUIRED_ROLE_RESPONSES_MISSING', 'COUNCIL_MEL_SYNTHESIS_REQUIRED', 'COUNCIL_PROVIDER_NOT_FOUND',
   ]);
   return retryable.has(value.split(':')[0])
@@ -899,7 +899,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
             quarantine.set(id, { id, until: now + 10 * 60_000 });
           }
         }
-        const attempts = (Array.isArray(error?.council_model_attempts) ? error.council_model_attempts : [])
+        const freshAttempts = (Array.isArray(error?.council_model_attempts) ? error.council_model_attempts : [])
           .slice(-80).map(row => ({
             provider_id: String(row.provider_id || '').slice(0, 100),
             model_id: String(row.model_id || '').slice(0, 100),
@@ -908,12 +908,30 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
             duration_ms: Math.max(0, Number(row.duration_ms) || 0),
             error: row.error ? String(row.error).slice(0, 100) : null,
           }));
+        // Zero new calls during provider cooldown must never erase the
+        // previous *real* model failures, which explain the outage to MAX.
+        const attempts = freshAttempts.length
+          ? freshAttempts
+          : (Array.isArray(latest.result_json?.council_model_attempts)
+            ? latest.result_json.council_model_attempts.slice(-80) : []);
+        const isCooldown = code === 'COUNCIL_PROVIDER_COOLDOWN_PENDING';
+        const requestedRetry = Number(error?.retry_after);
+        const retryAt = isCooldown && Number.isFinite(requestedRetry)
+          ? Math.max(now + 1_000, Math.min(now + 30 * 60_000, requestedRetry))
+          : deferred.retry_after;
         await jobRepository.update(job.id, {
           result_json: {
             ...latest.result_json,
-            autonomy_deferral: deferred,
+            autonomy_deferral: { ...deferred, retry_after: retryAt },
             council_model_attempts: attempts,
             council_model_exclusions: [...quarantine.values()].slice(0, 40),
+            ...(isCooldown ? { council_provider_cooldown: {
+              status: 'WAITING_FOR_AUTHORIZED_PROVIDERS',
+              authorized: Number(error?.authorized_count || 0),
+              eligible: Number(error?.eligible_count || 0),
+              required: Number(error?.required || 2),
+              retry_after: retryAt,
+            } } : { council_provider_cooldown: null }),
           },
         }, { expected: latest });
       }
