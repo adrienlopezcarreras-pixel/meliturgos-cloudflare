@@ -36,8 +36,11 @@ function assertIdButtonsWired(html, source, label) {
   // Audit that runtime together with the canonical page, not markup alone.
   if (label === 'full interface') source += '\n' + OBJECTIVE_PANEL_SOURCE;
   const aliases = new Map();
-  for (const match of String(source).matchAll(/\b([A-Za-z_$][\w$]*)=(?:qs|q)\(["']#([^"']+)["']\)/g)) {
-    aliases.set(match[2], match[1]);
+  // Both q('#id') aliases and document.getElementById('id') aliases
+  // are real listener bindings. Keep checking the alias for an actual
+  // addEventListener/onclick instead of treating lookup as a working control.
+  for (const match of String(source).matchAll(/\b([A-Za-z_$][\w$]*)\s*=\s*(?:(?:qs|q)\(["']#([^"']+)["']\)|document\.getElementById\(["']([^"']+)["']\))/g)) {
+    aliases.set(match[2] || match[3], match[1]);
   }
   for (const id of ids) {
     const escaped = escapeRe(id);
@@ -161,6 +164,15 @@ test('learning controls are canonical and LoRA validation is not mislabeled as r
   ], 'learning API owner');
   assert.doesNotMatch(entry, /PROFESSOR_LIVE_LEARNING_PATCH|mel-professor-live-learning-runtime/);
   assert.doesNotMatch(learning, /inchangés · LoRA inactif/);
+});
+
+test('objective controls reached through getElementById alias count only with real listeners', () => {
+  const markup = '<button id="objectiveCollapse" type="button">Réduire</button>';
+  assert.deepEqual(assertIdButtonsWired(markup, OBJECTIVE_PANEL_SOURCE, 'objective runtime'), ['objectiveCollapse']);
+  assert.throws(() => assertIdButtonsWired(markup,
+    "const objectiveCollapse=document.getElementById('objectiveCollapse');",
+    'objective runtime'), /missing handler for #objectiveCollapse/,
+  'a DOM lookup alone must never certify a working button');
 });
 
 test('every canonical id button is automatically inventoried and wired', async () => {
