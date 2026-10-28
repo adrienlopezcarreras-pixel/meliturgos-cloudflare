@@ -13,6 +13,7 @@ test('all registered MEL capabilities receive a complete structural validation r
   assert.equal(result.structural_ok, true, JSON.stringify(result.capabilities.filter(x=>!x.contract_valid)));
   assert.equal(result.contracts_invalid, 0);
   assert.equal(result.unimplemented, 0);
+  assert.equal(result.partial, 0);
   assert.deepEqual(result.capabilities.map(row=>row.id).sort(),
     registered.map(row=>row.id).sort());
   assert.ok(result.capabilities.every(row => row.contract_valid && row.handler_registered));
@@ -52,14 +53,18 @@ test('duplicate, missing handlers and stub capabilities are never certified', ()
       {id:'same',enabled:true,health:'HEALTHY',risk:'LOW'},
       {id:'same',enabled:true,health:'HEALTHY',risk:'LOW'},
       {id:'stub',enabled:true,health:'HEALTHY',risk:'LOW',implementation_status:'STUB'},
+      {id:'partial',enabled:true,health:'HEALTHY',risk:'LOW',implementation_status:'PARTIAL'},
       {id:'unhandled',enabled:true,health:'HEALTHY',risk:'LOW'},
     ],
     contract: id => ({valid:id!=='unhandled',handler_registered:id!=='unhandled'}),
   };
   const result=validateCapabilityInventory(fake);
-  assert.equal(result.total, 4);
+  assert.equal(result.total, 5);
   assert.equal(result.contracts_invalid, 2);
   assert.equal(result.unimplemented, 1);
+  assert.equal(result.partial, 1);
+  assert.equal(result.capabilities.find(row=>row.id==='partial').status, 'PARTIAL_IMPLEMENTATION');
+  assert.equal(result.capabilities.find(row=>row.id==='partial').next, 'COMPLETE_IMPLEMENTATION_AND_RUN_TESTS');
   assert.equal(result.structural_ok, false);
   assert.equal(result.all_validated, false);
   assert.ok(result.capabilities.some(row=>row.status==='INVALID_CONTRACT'));
