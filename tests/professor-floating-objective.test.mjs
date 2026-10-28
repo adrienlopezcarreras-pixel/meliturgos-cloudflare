@@ -60,12 +60,12 @@ test('dragging, keyboard movement, collapse, hide and restore retain local posit
   const startX=Number.parseFloat(panel.style.left);
   const startY=Number.parseFloat(panel.style.top);
   pointer(win,drag,'pointerdown',100,100);
-  pointer(win,drag,'pointermove',160,150);
-  pointer(win,drag,'pointerup',160,150);
-  assert.equal(Number.parseFloat(panel.style.left),startX+60);
+  pointer(win,drag,'pointermove',40,150);
+  pointer(win,drag,'pointerup',40,150);
+  assert.equal(Number.parseFloat(panel.style.left),startX-60);
   assert.equal(Number.parseFloat(panel.style.top),startY+50);
   drag.dispatchEvent(new win.KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}));
-  assert.equal(Number.parseFloat(panel.style.left),startX+40);
+  assert.equal(Number.parseFloat(panel.style.left),startX-80);
   const collapse=win.document.getElementById('objectiveCollapse');
   collapse.click();
   assert.equal(panel.classList.contains('is-collapsed'),true);
@@ -78,7 +78,7 @@ test('dragging, keyboard movement, collapse, hide and restore retain local posit
   win.document.getElementById('objectiveShow').click();
   assert.equal(panel.hidden,false);
   const saved=JSON.parse(win.localStorage.getItem('mel-professor-objective-float-v1'));
-  assert.equal(saved.left,startX+40);
+  assert.equal(saved.left,startX-80);
   assert.equal(saved.top,startY+50);
   assert.equal(saved.hidden,false);
   dom.window.close();
