@@ -110,3 +110,22 @@ test('orphan review recovery must not overwrite a concurrent runtime claim', asy
   assert.equal((await repository.get(orphan.id)).status, 'CLAIMED');
   assert.equal((await repository.get(orphan.id)).result_json.runner, 'active');
 });
+
+
+test('maintenance finds old active manifest work beyond the 100-row D1 UI window', async () => {
+  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+  const manifest = await repository.create({ id: 'old-manifest', requested_by: 'mel-autonomy', goal: 'manifest report', optional_context: { roadmap_id: 'MEL-MANIFEST-01' } });
+  await repository.update(manifest.id, { status: 'READY_FOR_REVIEW', result_json: {} });
+  for (let i = 0; i < 105; i++) {
+    await repository.create({ id: `recent-ui-${i}`, requested_by: 'owner-chat', goal: 'unrelated queue item' });
+  }
+  const view = {
+    list: async () => (await repository.list()).slice(-100),
+    listActiveAutonomyJobs: repository.listActiveAutonomyJobs.bind(repository),
+    update: repository.update.bind(repository),
+  };
+  const result = await recoverPassiveRuntimeStates(view, { canonicalSha: NEW_SHA, limit: 1 });
+  assert.equal(result.recovered.length, 1);
+  assert.equal(result.recovered[0].job_id, manifest.id);
+  assert.equal((await repository.get(manifest.id)).status, 'QUEUED');
+});
