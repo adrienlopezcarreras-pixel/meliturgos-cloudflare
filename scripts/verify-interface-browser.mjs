@@ -77,6 +77,35 @@ try{
    const reselected=await evaluate(`document.querySelector('${attachmentSelector}')?.textContent.includes('attachment-reselect.txt')`);
    record(path,'attachment:same-file-reselection','remove then select same local file again','Second upload and staged attachment',JSON.stringify({staged:reselected,requests:uploads()-initial}),reselected&&uploads()>initial?'PASS':'FAIL','browser-results.json');
   }
+  if(path==='/'){
+   const noObjective=await evaluate("!document.querySelector('#objectivePanel')");
+   record(path,'objective:normal-isolation','inspect Normal UI','Objective panel entirely absent',noObjective,noObjective?'PASS':'FAIL','browser-results.json');
+  }
+  if(path==='/professor'){
+   const state=await evaluate("(()=>{const p=document.querySelector('#objectivePanel');const r=p?.getBoundingClientRect();return {fixed:getComputedStyle(p).position==='fixed',visible:!!r?.width&&!!r?.height,right:r?.right,bottom:r?.bottom,viewWidth:innerWidth,viewHeight:innerHeight}})()");
+   record(path,'objective:floating','computed style and layout','Fixed and inside viewport',JSON.stringify(state),state.fixed&&state.visible&&state.right<=state.viewWidth+1&&state.bottom<=state.viewHeight+1?'PASS':'FAIL','browser-results.json');
+   const start=await evaluate("(()=>{const r=document.querySelector('#objectiveDrag').getBoundingClientRect();const p=document.querySelector('#objectivePanel').getBoundingClientRect();return {x:r.left+30,y:r.top+r.height/2,left:p.left,top:p.top}})()");
+   await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:start.x,y:start.y});
+   await send('Input.dispatchMouseEvent',{type:'mousePressed',x:start.x,y:start.y,button:'left',clickCount:1});
+   await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:start.x-60,y:start.y+35,button:'left',buttons:1});
+   await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:start.x-60,y:start.y+35,button:'left',clickCount:1});
+   const moved=await evaluate("(()=>{const r=document.querySelector('#objectivePanel').getBoundingClientRect();return {left:r.left,top:r.top}})()");
+   record(path,'objective:drag','real Chromium pointer drag','Panel moved without repositioning chat',JSON.stringify({start,moved}),Math.abs(moved.left-(start.left-60))<3&&Math.abs(moved.top-(start.top+35))<3?'PASS':'FAIL','browser-results.json');
+   const collapsedClick=await pointerClick('#objectiveCollapse');
+   const collapsed=await evaluate("document.querySelector('#objectivePanel').classList.contains('is-collapsed')");
+   record(path,'objective:collapse','real pointer click','Objective reduced',collapsed,collapsedClick&&collapsed?'PASS':'FAIL','browser-results.json');
+   await pointerClick('#objectiveCollapse');
+   await pointerClick('#objectiveHide');
+   const hidden=await evaluate("document.querySelector('#objectivePanel').hidden&&!document.querySelector('#objectiveShow').hidden");
+   record(path,'objective:hide','real pointer click','Objective hidden and restore available',hidden,hidden?'PASS':'FAIL','browser-results.json');
+   const restoredClick=await pointerClick('#objectiveShow');
+   const reopened=await evaluate("!document.querySelector('#objectivePanel').hidden");
+   record(path,'objective:restore','real pointer click','Objective shown again',reopened,restoredClick&&reopened?'PASS':'FAIL','browser-results.json');
+   await send('Page.reload');
+   for(let i=0;i<100;i++){if(await evaluate('document.readyState===\"complete\"'))break;await pause(50);}await pause(100);
+   const persisted=await evaluate("(()=>{const p=document.querySelector('#objectivePanel');const r=p.getBoundingClientRect();return !p.hidden&&Math.abs(r.left-parseFloat(localStorage.getItem('mel-professor-objective-float-v1')?JSON.parse(localStorage.getItem('mel-professor-objective-float-v1')).left:-100))<3})()");
+   record(path,'objective:persistence','reload after drag','Stored position restored',persisted,persisted?'PASS':'FAIL','browser-results.json');
+  }
   if(path==='/professor'){
    for(const view of await evaluate('[...document.querySelectorAll("#nav [data-view]")].map(e=>e.dataset.view)')){
     let clicked=await pointerClick('#nav [data-view="'+view+'"]');
