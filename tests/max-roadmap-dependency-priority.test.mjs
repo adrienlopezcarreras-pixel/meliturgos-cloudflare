@@ -49,7 +49,9 @@ test('priority never overrides unmet prerequisites or owner-blocked status', () 
   const onlyWaiting = roadmap.filter(item => item.id !== 'TEST-FOUNDATION');
   assert.equal(selectNextAutonomyItem({ roadmap: onlyWaiting }).id, 'TEST-UNRELATED');
   assert.equal(selectNextAutonomyItem({ roadmap }).id, 'TEST-FOUNDATION');
-  assert.equal(selectNextAutonomyItem({ roadmap, completedIds: ['TEST-FOUNDATION'] }).id, 'TEST-CHILD');
+  assert.equal(selectNextAutonomyItem({ roadmap, completedIds: ['TEST-FOUNDATION'] }).id, 'TEST-UNRELATED',
+    'a completed delivery alone cannot unlock its child');
+  assert.equal(selectNextAutonomyItem({ roadmap, completedIds: ['TEST-FOUNDATION'], verifiedIds: ['TEST-FOUNDATION'] }).id, 'TEST-CHILD');
   assert.equal(selectNextAutonomyItem({ roadmap: [
     { id: 'HARDWARE', status: 'BLOCKED_HUMAN', priority: 'P0', depends_on: [] },
     ...roadmap,
