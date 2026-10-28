@@ -69,7 +69,9 @@ export async function queueErrorRepairs(db, { enqueue, now = Date.now(), limit =
       priority: 'P0',
       evidence: { fingerprint: row.fingerprint, count: row.count, first_seen: row.first_seen, last_seen: row.last_seen },
     }).catch(error => ({ error: clean(error?.code || error?.message, 120) }));
-    if (result?.error) continue;
+    // Never mark an error queued unless the supervised queue confirms a durable job.
+    // A failed or capacity-rejected enqueue must leave the fingerprint OPEN for retry.
+    if (result?.error || !result?.job_id) continue;
     await db.prepare("UPDATE mel_error_ledger SET status = 'QUEUED', job_id = ?, queued_at = ?, repairs = repairs + 1 WHERE fingerprint = ?")
       .bind(result?.job_id || null, now, row.fingerprint).run();
     queued.push({ fingerprint: row.fingerprint, job_id: result?.job_id || null });
