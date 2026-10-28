@@ -2,6 +2,7 @@ import { createMentorEngine } from '../learning/mentor-engine.js';
 import { hasDistinctProviderAttempts } from '../evolution/autonomy-provider-attempts.js';
 import { createLearningEngine } from '../learning/learning-engine.js';
 import { ingestValidatedHandoffs } from '../learning/handoff-ingestion.js';
+import { manifest01FoundationPrerequisites } from '../roadmap/manifest-01-acceptance.js';
 
 const COMPLETION_KIND = 'MEL_WORK_COMPLETION';
 const SHA_RE = /^[a-f0-9]{40}$/i;
@@ -463,6 +464,23 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
     const job = byId.get(record.job_id) || await repository.get(record.job_id);
     if (!job) continue;
     if (String(job.status || '').toUpperCase() === 'COMPLETED' && job.result_json?.autonomy_completion?.candidate_sha === record.candidate_sha) continue;
+
+    // MEL-MANIFEST-01 is a verified account of five real founder priorities.
+    // A valid Teacher reply and green code CI cannot stand in for real tool,
+    // runtime, capability, Council and physical-device evidence. Reject only
+    // the final completion; leave the original mission and its journal intact.
+    if (job?.optional_context?.roadmap_id === 'MEL-MANIFEST-01') {
+      const prerequisites = manifest01FoundationPrerequisites();
+      if (!prerequisites.ready) {
+        rejected.push({
+          job_id: job.id,
+          request_id: record.request_id,
+          code: 'MANIFEST_01_FOUNDATION_PROOFS_REQUIRED',
+          pending: prerequisites.pending,
+        });
+        continue;
+      }
+    }
 
     const teacher = job.result_json?.teacher_bridge;
     if (teacher?.status !== 'ANSWERED' || teacher?.review?.development_allowed !== true || teacher?.review?.verdict !== 'APPROVE_PLAN' || teacher?.request?.request_id !== record.request_id) {
