@@ -135,3 +135,32 @@ for (const storage of ['memory', 'sqlite']) test(`Council cooldown polling never
   assert.equal(next.job.optional_context.roadmap_id, 'MEL-MANIFEST-02');
   assert.equal((await repository.get(original.id)).result_json.autonomy_deferral.attempts, 3);
 });
+
+for (const storage of ['memory', 'sqlite']) test(`changed parked context cannot preempt live rotated successor on ${storage}`, async t => {
+  const DB = storage === 'sqlite' ? sqliteD1() : null;
+  if (DB) t.after(() => DB.close());
+  const repository = new D1DevJobRepository(DB, { memoryStore: new Map() });
+  const firstId = await setup(repository);
+  const supervisor = new AutonomySupervisor({ repository, roadmap });
+  const replacement = await supervisor.ensureNextJob();
+  assert.equal(replacement.created, true);
+  assert.equal(replacement.job.optional_context.roadmap_id, 'MEL-MANIFEST-02');
+
+  const previous = await repository.get(firstId);
+  await repository.update(firstId, { result_json: {
+    ...previous.result_json,
+    implementation_proposal: { candidate_sha: 'b'.repeat(40) },
+  } });
+  assert.equal(isRotatableProviderExhaustion(await repository.get(firstId)), false,
+    'a new approval context makes the parked job eligible again only after its successor');
+  const selected = await supervisor.ensureNextJob();
+  assert.equal(selected.job.id, replacement.job.id,
+    'the current slot holder must remain selected despite the older approved mission');
+  assert.equal((await repository.list()).length, 2);
+
+  await repository.update(replacement.job.id, { status: 'COMPLETED' });
+  const resumed = await supervisor.ensureNextJob();
+  assert.equal(resumed.created, false);
+  assert.equal(resumed.job.id, firstId,
+    'changed-context original resumes only after its replacement leaves the active set');
+});

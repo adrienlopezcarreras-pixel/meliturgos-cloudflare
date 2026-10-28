@@ -385,7 +385,15 @@ export class AutonomySupervisor {
       const wanted = current.active.find(job => job.id === this.onlyJobId) || null;
       return { created: false, job: wanted, next: current.next };
     }
-    const actionable = selectActionableAutonomyJob(current.active, { epochMs: this.epochMs, roadmap: this.roadmap });
+    // A parked mission may receive a newly approved SHA while its rotated
+    // successor still owns the only runnable slot. Never reactivate that old
+    // mission in parallel; resume it once the successor has left the active set.
+    // This remains a scheduler decision, never an invented completion signal.
+    const changedExhaustedContext = job => {
+      const delay = job?.result_json?.autonomy_deferral;
+      return delay?.exhausted === true && typeof delay.context === 'string'
+        && delay.context !== providerRetryContext(job);
+    };
     // Single-flight must not switch to a different internal objective just
     // because an older one is waiting for Teacher, Bridge or CI. Explicit
     // owner-chat requests retain their established priority.
@@ -393,8 +401,16 @@ export class AutonomySupervisor {
       .filter(job => job.requested_by === 'mel-autonomy')
       .filter(job => !isRotatableProviderExhaustion(job))
       .filter(job => !this.roadmap.some(item => item.id === roadmapIdFromJob(job) && isVerifiedRoadmap(item)))
-      .sort((left, right) => Number(left?.created_at || 0) - Number(right?.created_at || 0)
+      .sort((left, right) => Number(changedExhaustedContext(left)) - Number(changedExhaustedContext(right))
+        || Number(left?.created_at || 0) - Number(right?.created_at || 0)
         || String(left?.id || '').localeCompare(String(right?.id || '')))[0] || null;
+    // The shared selector can rank a changed-context TEACHER_APPROVED job
+    // above its QUEUED successor; constrain internal selection to the slot
+    // holder while preserving explicit owner-chat priority.
+    const selectableJobs = this.singleFlight && activeInternal
+      ? current.active.filter(job => job.requested_by !== 'mel-autonomy' || job.id === activeInternal.id)
+      : current.active;
+    const actionable = selectActionableAutonomyJob(selectableJobs, { epochMs: this.epochMs, roadmap: this.roadmap });
     if (this.singleFlight && activeInternal && actionable?.requested_by !== 'owner-chat') {
       // COMMITTED means the candidate was committed, not necessarily that the
       // release passed live verification. D1's admission fence still sees this
