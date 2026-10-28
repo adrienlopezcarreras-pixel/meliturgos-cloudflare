@@ -97,7 +97,12 @@ function providerDeferred(job) {
   // 25/10) get the rounds the current policy grants before the large model.
   const exhausted = delay?.exhausted === true
     && !(delay?.phase === 'bridge' && Number(delay?.max_attempts) === 1 && Number(delay?.attempts || 0) < BRIDGE_MENTOR_ROUNDS);
-  return exhausted || Number(delay?.retry_after || 0) > Date.now();
+  // An exhausted provider round is a persistent diagnostic, not an infinite
+  // global scheduling lock. Once the retry deadline passes, allow the same
+  // mission to resume its bounded mentor/provider selection. The runtime
+  // still enforces Council, CI, evidence and the single-flight D1 fence.
+  const retryAfter = Number(delay?.retry_after || 0);
+  return retryAfter > Date.now() || (exhausted && !retryAfter);
 }
 
 function isPassiveRuntimeJob(job) {
