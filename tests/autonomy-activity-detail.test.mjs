@@ -125,7 +125,7 @@ test('COMMITTED supervised job remains queued until COMPLETED', async () => {
   ];
   const view = await buildAutonomyActivity({ DB: db }, { now, repository: { async list() { return fixtureJobs; } } });
   assert.equal(view.counts.active, 0);
-  assert.equal(view.counts.pending, 1);
+  assert.equal(view.counts.waiting, 1);
   assert.equal(view.jobs.find(job => job.id === 'commit-1').queue_state, 'WAITING');
   assert.equal(view.counts.by_status.COMMITTED, 1);
   assert.equal(view.jobs.find(job => job.id === 'commit-1').pipeline.at(-1).done, false);
