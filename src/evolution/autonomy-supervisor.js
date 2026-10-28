@@ -4,6 +4,7 @@ import { approvedEvolutionRoadmap } from '../roadmap/evolution-autonomy-queue.js
 import { flattenRoadmap, ROADMAP_STATUSES, isClosedRoadmapStatus } from '../roadmap/master-roadmap.js';
 import { isClaimedPreparedDevBridgeJob } from '../dev/bridge-job-state.js';
 import { providerRetryContext, isRotatableProviderExhaustion } from './provider-exhaustion-rotation.js';
+import { unmetRoadmapPrerequisites } from '../roadmap/roadmap-dependencies.js';
 export { providerRetryContext } from './provider-exhaustion-rotation.js';
 
 // Strict category order: roadmap, recorded errors, then ecosystem watches.
@@ -102,7 +103,7 @@ function isPassiveRuntimeJob(job) {
   const status = String(job?.status || '').toUpperCase();
   if (status === 'WAITING_TEACHER') return true;
   if (isClaimedPreparedDevBridgeJob(job)) return true;
-  if (status === 'CANCELLED' || status === 'FAILED') return true;
+  if (status === 'CANCELLED' || status === 'FAILED' || status === 'WAITING_DEPENDENCY') return true;
 
   // [MEL-MANIFEST-06] Protection against stale QUEUED jobs from before activity epoch.
   if (status === 'QUEUED') {
@@ -183,13 +184,17 @@ function compareActiveJobs(left, right) {
     || String(left?.id || '').localeCompare(String(right?.id || ''));
 }
 
-export function selectActionableAutonomyJobs(jobs = [], { epochMs = 0, roadmap = flattenRoadmap(), excludeIds = [], limit = 4 } = {}) {
+export function selectActionableAutonomyJobs(jobs = [], { epochMs = 0, roadmap = flattenRoadmap(), completedIds = [], excludeIds = [], limit = 4 } = {}) {
   const closedIds = new Set(roadmap.filter(isVerifiedRoadmap).map(item => item.id));
   const epoch = Number(epochMs) || 0;
   const excluded = new Set(excludeIds);
   return (Array.isArray(jobs) ? jobs : [])
     .filter(isSupervisedAutonomyJob)
     .filter(job => !closedIds.has(roadmapIdFromJob(job)))
+    .filter(job => {
+      const item = roadmap.find(row => row.id === roadmapIdFromJob(job));
+      return !item || !unmetRoadmapPrerequisites(item, roadmap, completedIds).length;
+    })
     .filter((job) => !TERMINAL_JOB.has(String(job?.status || '').toUpperCase()))
     .filter((job) => !isPassiveRuntimeJob(job))
     .filter((job) => !epoch || jobActivityTimestamp(job) >= epoch)
@@ -218,6 +223,7 @@ export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedId
     .filter((item) => item && item.id)
     .filter((item) => !isVerifiedRoadmap(item))
     .filter((item) => !BLOCKED_ROADMAP.has(String(item.status || '').trim().toUpperCase()))
+    .filter((item) => !unmetRoadmapPrerequisites(item, roadmap, completedIds).length)
     .filter((item) => (!completed.has(item.id) || String(item.status).toUpperCase() === 'REGRESSED') && !blocked.has(item.id))
     .sort((a, b) => score(a) - score(b) || String(a.id).localeCompare(String(b.id)))[0] || null;
 }
@@ -297,7 +303,9 @@ export class AutonomySupervisor {
       .filter(job => ['COMPLETED'].includes(String(job.status).toUpperCase()) || isClosedRoadmapStatus(job.status))
       .map(roadmapIdFromJob).filter(id => id && !reopenedIds.has(id));
     const completedSet = new Set(completedIds);
-    const active = supervisedJobs.filter(job => !TERMINAL_JOB.has(String(job.status || '').toUpperCase()))
+    const waiting = supervisedJobs.filter(job => String(job.status || '').toUpperCase() === 'WAITING_DEPENDENCY');
+    const active = supervisedJobs.filter(job => !TERMINAL_JOB.has(String(job.status || '').toUpperCase())
+      && String(job.status || '').toUpperCase() !== 'WAITING_DEPENDENCY')
       .filter(job => !verifiedRoadmapIds.has(roadmapIdFromJob(job)) && !completedSet.has(roadmapIdFromJob(job)))
       .filter(job => !(evolution.status === 'UNAVAILABLE' && String(roadmapIdFromJob(job) || '').startsWith('EVOLUTION-')));
     const activeIds = active.map(roadmapIdFromJob).filter(Boolean);
@@ -340,6 +348,7 @@ export class AutonomySupervisor {
       supervisedJobs,
       active,
       activeIds,
+      waiting,
       completedIds,
       blockedIds,
       retryExhaustedIds,
@@ -383,6 +392,40 @@ export class AutonomySupervisor {
       }
     }
     const current = await this.state();
+    // Preflight: if an old internal mission was selected before its foundations
+    // were proved, park it durably instead of repeatedly running Mentor.
+    // Only QUEUED / TEACHER_APPROVED are safe to park here; a published or
+    // Bridge-claimed package is already in a separate delivery lane.
+    if (!this.onlyJobId) {
+      const blocked = current.active.find(job => {
+        if (job.requested_by !== 'mel-autonomy'
+            || !['QUEUED', 'TEACHER_APPROVED'].includes(String(job.status || '').toUpperCase())) return false;
+        const item = this.roadmap.find(row => row.id === roadmapIdFromJob(job));
+        return item && unmetRoadmapPrerequisites(item, this.roadmap, current.completedIds).length > 0;
+      });
+      if (blocked) {
+        const item = this.roadmap.find(row => row.id === roadmapIdFromJob(blocked));
+        const dependencies = unmetRoadmapPrerequisites(item, this.roadmap, current.completedIds);
+        try {
+          await this.repository.update(blocked.id, {
+            status: 'WAITING_DEPENDENCY',
+            result_json: {
+              ...(blocked.result_json || {}),
+              dependency_wait: {
+                previous_status: blocked.status,
+                prerequisites: dependencies,
+                observed_at: new Date().toISOString(),
+              },
+            },
+          }, { expected: blocked });
+        } catch (error) {
+          if (error?.code !== 'JOB_UPDATE_CONFLICT') throw error;
+        }
+        // The next state is fresh: it may admit an independent prerequisite
+        // without submitting a second generation call for the blocked job.
+        return this.ensureNextJob();
+      }
+    }
     if (this.onlyJobId) {
       const wanted = current.active.find(job => job.id === this.onlyJobId) || null;
       return { created: false, job: wanted, next: current.next };
@@ -412,7 +455,7 @@ export class AutonomySupervisor {
     const selectableJobs = this.singleFlight && activeInternal
       ? current.active.filter(job => job.requested_by !== 'mel-autonomy' || job.id === activeInternal.id)
       : current.active;
-    const actionable = selectActionableAutonomyJob(selectableJobs, { epochMs: this.epochMs, roadmap: this.roadmap });
+    const actionable = selectActionableAutonomyJob(selectableJobs, { epochMs: this.epochMs, roadmap: this.roadmap, completedIds: current.completedIds });
     if (this.singleFlight && activeInternal && actionable?.requested_by !== 'owner-chat') {
       // COMMITTED means the candidate was committed, not necessarily that the
       // release passed live verification. D1's admission fence still sees this
@@ -530,6 +573,19 @@ export class AutonomySupervisor {
     }
 
     const item = current.next;
+    // A prerequisite-waiting mission is resumed, never duplicated. Resume is
+    // an atomic D1 claim: another running mission or maintenance lease wins.
+    const waiting = current.waiting.find(job => job.requested_by === 'mel-autonomy' && roadmapIdFromJob(job) === item.id);
+    if (waiting) {
+      if (typeof this.repository.resumeWaitingDependency !== 'function') {
+        return { created: false, job: null, next: item, complete: false,
+          external_progress: { job_id: waiting.id, status: 'DEPENDENCY_RESUME_UNAVAILABLE' } };
+      }
+      const resumed = await this.repository.resumeWaitingDependency(waiting.id, { expected: waiting });
+      if (resumed) return { created: false, job: resumed, next: item };
+      return { created: false, job: null, next: item, complete: false,
+        external_progress: { job_id: waiting.id, status: 'DEPENDENCY_RESUME_SLOT_BUSY' } };
+    }
     const listedAttempts = current.supervisedJobs.filter((job) => roadmapIdFromJob(job) === item.id).length;
     const persistedAttempts = typeof this.repository.countAutonomyObjectiveAttempts === 'function'
       ? await this.repository.countAutonomyObjectiveAttempts(item.id)
