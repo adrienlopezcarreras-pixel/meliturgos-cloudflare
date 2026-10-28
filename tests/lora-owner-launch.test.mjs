@@ -31,3 +31,14 @@ test('LoRA page exposes one authenticated single-cycle launch action and its res
   assert.match(page,/Lancer un entraînement/);assert.match(page,/jfetch\('\/api\/learning\/lora\/train',\{method:'POST'/);
   assert.match(page,/Entraînement non lancé/);
 });
+
+test('a failed status refresh cannot turn an acknowledged launch into a false failure',async()=>{
+  const page=await readFile(new URL('../src/pages/full-interface-v2.js',import.meta.url),'utf8');
+  const start=page.indexOf("qs('#freeLoraTrain').onclick=");
+  const end=page.indexOf("qs('#freeLoraRefresh').onclick=",start);
+  const button={},message={};
+  const qs=id=>id==='#freeLoraTrain'?button:message;
+  new Function('qs','jfetch','panelLoadedAt','loadFreeLoraStatus',page.slice(start,end))(qs,async()=>({ok:true,dispatched:true}),new Map(),async()=>{throw Error('status temporarily unavailable');});
+  await button.onclick();
+  assert.match(message.textContent,/Entraînement demandé/);assert.equal(button.disabled,false);
+});

@@ -1519,7 +1519,7 @@ qs('#freeLoraTrain').onclick=async()=>{
   try{const d=await jfetch('/api/learning/lora/train',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
     if(d.ok!==true)throw new Error(d.error||d.status||'Lancement indisponible');
     message.textContent=d.dispatched?'Entraînement demandé : un cycle GPU gratuit.':d.status==='TRAINING_CHAIN_ACTIVE'?'Un entraînement est déjà en cours.':'Lancement déjà demandé, vérification en cours.';
-    panelLoadedAt.delete('lora');await loadFreeLoraStatus();
+    panelLoadedAt.delete('lora');await loadFreeLoraStatus().catch(()=>{});
   }catch(e){message.textContent='Entraînement non lancé : '+String(e.message||e);}finally{b.disabled=false;}
 };
 qs('#freeLoraRefresh').onclick=()=>{panelLoadedAt.delete('lora');loadFreeLoraStatus().then(()=>panelLoadedAt.set('lora',Date.now())).catch(()=>{})};
