@@ -82,6 +82,15 @@ test('autonomy state reports canonical candidate/deployed branches and lifecycle
   assert.equal(body.counts.waiting, 1);
   assert.equal(body.active_jobs.length, 0);
   assert.equal(body.waiting_jobs[0].roadmap_id, 'MEL-WORK-01');
+  assert.equal(f.aiCalls.length, 0, 'reading a queued mission must never invoke an AI provider');
+  const repeated = await maybeHandleAutonomyApi(
+    new Request('http://mel/api/gen2/autonomy/state', { headers: { authorization: authHeader() } }),
+    f.env,
+    { repository: f.repository, fetchImpl: f.fetchImpl, roadmap: TEST_ROADMAP },
+  );
+  assert.equal(repeated.status, 200);
+  assert.equal((await repeated.json()).counts.waiting, 1);
+  assert.equal(f.aiCalls.length, 0, 'repeated passive queue reads must not invoke AI');
   assert.equal(JSON.stringify(body).includes('PRIVATE AUTONOMY GOAL'), false);
 });
 
