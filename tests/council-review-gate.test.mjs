@@ -110,6 +110,9 @@ test('VERIFY_EXISTING reviewers get evidence instructions, not code-diff instruc
     await reviewVerificationEvidence({ DB }, { job: { id: 'j', goal: 'g' }, implementation: { candidate_sha: 'a'.repeat(40), selected: { text: 'DECISION: VERIFY_EXISTING' } }, ciRunId: 1, liveChecks: [], review });
     assert.equal(seen[0], VERIFY_SYSTEM);
     assert.match(VERIFY_SYSTEM, /Ne rejette jamais pour absence de modification de code/);
+    assert.match(VERIFY_SYSTEM, /EXCEPTION STRICTE MEL-FOUNDER-01/);
+    assert.match(VERIFY_SYSTEM, /AUTH_REQUIRED n’est donc PAS une lecture réussie/);
+    assert.match(VERIFY_SYSTEM, /erreurs réseau, permission ou fournisseur génériques restent insuffisantes/);
     const asked = [];
     const env = { AI: { async run(_m, { messages }) { asked.push(messages[0].content); return { response: '{"verdict":"APPROVE","summary":"preuves suffisantes"}' }; } } };
     const { runCouncilReview } = await import('../src/evolution/council-review.js');
