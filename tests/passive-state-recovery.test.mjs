@@ -79,3 +79,15 @@ test('exhausted approved Mentor work wakes only on a new deployed SHA and preser
   assert.equal(conflict.failed[0].code,'JOB_UPDATE_CONFLICT');
   assert.equal((await repository.get(job.id)).status,'CLAIMED');
 });
+
+
+test('passive recovery prioritizes orphan reviews beyond unrelated queue entries', async () => {
+  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+  for (let i = 0; i < 5; i++) await repository.create({ id: `unrelated-${i}`, requested_by: 'owner-chat', goal: 'unrelated queued work' });
+  const orphan = await repository.create({ id: 'manifest-review-orphan', requested_by: 'owner-chat', goal: 'manifest review' });
+  await repository.update(orphan.id, { status: 'READY_FOR_REVIEW', result_json: {} });
+  const result = await recoverPassiveRuntimeStates(repository, { canonicalSha: NEW_SHA, limit: 1 });
+  assert.equal(result.recovered.length, 1);
+  assert.equal(result.recovered[0].job_id, orphan.id);
+  assert.equal((await repository.get(orphan.id)).status, 'QUEUED');
+});
