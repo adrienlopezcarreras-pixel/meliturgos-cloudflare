@@ -63,6 +63,9 @@ async function requeueStaleTeacher(repository, job, canonicalSha) {
     result_json: result,
     error: null,
   }, { expected: job });
+  // Clearing the list may CANCEL this job between the read and the update.
+  // D1 deliberately keeps CANCELLED terminal; never report it as requeued.
+  if (upper(updated?.status) !== 'QUEUED') return null;
   return { job_id: updated.id, from: upper(job.status), to: 'QUEUED', reason: 'STALE_CANDIDATE_SHA' };
 }
 
@@ -107,6 +110,7 @@ async function requeueOrphanReview(repository, job) {
     result_json: result,
     error: null,
   }, { expected: job });
+  if (upper(updated?.status) !== 'QUEUED') return null;
   return { job_id: updated.id, from: 'READY_FOR_REVIEW', to: 'QUEUED', reason: result.passive_state_recovery.reason };
 }
 
@@ -115,7 +119,7 @@ export async function recoverPassiveRuntimeStates(repository, { canonicalSha = n
     throw Object.assign(new Error('PASSIVE_RECOVERY_REPOSITORY_REQUIRED'), { code: 'PASSIVE_RECOVERY_REPOSITORY_REQUIRED' });
   }
   // The general D1 list is a 100-row UI window. Fetch all active autonomy
-  // jobs separately so older work (including MEL-MANIFEST-01) is not invisible
+  // jobs separately so older, non-cancelled work is not invisible
   // to hourly passive recovery. This does not start or authorize MAX.
   const activeAutonomyJobs = typeof repository.listActiveAutonomyJobs === 'function'
     ? await repository.listActiveAutonomyJobs()
