@@ -93,3 +93,15 @@ test('two competing D1 supervisors still admit only one replacement after provid
   assert.equal((await repository.list()).filter(job =>
     job.requested_by === 'mel-autonomy' && job.optional_context.roadmap_id === 'MEL-MANIFEST-02').length, 1);
 });
+
+test('D1 NULL deferral never bypasses the atomic admission fence', async t => {
+  const DB = sqliteD1();
+  t.after(() => DB.close());
+  const repository = new D1DevJobRepository(DB);
+  await repository.create({ id: 'active-without-deferral', requested_by: 'mel-autonomy',
+    goal: 'Running a real roadmap item', optional_context: { roadmap_id: 'MEL-MANIFEST-01' } });
+  await assert.rejects(() => repository.create({
+    id: 'must-not-run-parallel', requested_by: 'mel-autonomy',
+    goal: 'Second job', optional_context: { roadmap_id: 'MEL-MANIFEST-02' },
+  }), { code: 'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE' });
+});
