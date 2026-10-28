@@ -74,6 +74,7 @@ test('objective panel exists only in Professor chat, never in Normal', async () 
   assert.equal((professor.match(/id="objectivePanel"/g) || []).length, 1);
   assert.equal(professor.includes('Objectif en cours'), true);
   assert.equal(professor.includes('id="objectiveAdd"'), true);
+  assert.equal(professor.includes('id="objectiveAddSubmit"'), true);
   assert.equal(professor.includes("if(originalText&&source!=='code-auto'"), true);
   assert.equal(professor.includes('function maybeTrackObjective'), true);
   assert.equal(professor.includes('readObjective()'), true);
