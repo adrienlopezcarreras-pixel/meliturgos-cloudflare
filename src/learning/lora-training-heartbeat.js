@@ -180,7 +180,10 @@ async function dispatchWorkflow({ fetchImpl, repository, branch, workflow, token
 }
 
 async function runLoraTrainingHeartbeatUnlocked(env = {}, options = {}) {
-  if (String(env?.MEL_LORA_CONTINUOUS_TRAINING ?? 'true').toLowerCase() === 'false') {
+  // The scheduled training toggle must not disable the authenticated owner's
+  // explicit one-cycle button. The manual path still enforces GitHub auth,
+  // D1 single-flight deduplication, free GPU, and all benchmark/activation gates.
+  if (options.manualSingleCycle !== true && String(env?.MEL_LORA_CONTINUOUS_TRAINING ?? 'true').toLowerCase() === 'false') {
     return { status: 'DISABLED', dispatched: false };
   }
   if (String(env?.MEL_RUNTIME_ENV || '').toLowerCase() === 'preview') {
