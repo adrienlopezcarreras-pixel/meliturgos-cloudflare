@@ -732,3 +732,35 @@ test('first QUEUED mission retains real Council failure evidence during provider
     assert.equal((await fixture.repository.list()).length, 1);
   } finally { Date.now = realNow; }
 });
+
+
+test('MEL-MANIFEST-01 can enter the real Council/Teacher pipeline without a second job or false completion', async () => {
+  const fixture = runtimeFixture();
+  const manifesto = [{
+    id: 'MEL-MANIFEST-01',
+    title: 'Tenir le compte des cinq priorités du manifeste',
+    status: 'PLANNED',
+    next: 'Associer les priorités 0 à 4 à leurs preuves d’exécution réelles.',
+    priority: 'P1',
+  }];
+  const first = await runAutonomyRuntimeTickRaw(fixture.env, {
+    fetchImpl: fixture.fetchImpl, repository: fixture.repository, roadmap: manifesto,
+  });
+  assert.equal(first.ok, true);
+  assert.equal(first.ensured.created, true);
+  assert.equal(first.job?.roadmap_id, 'MEL-MANIFEST-01');
+  assert.equal(first.job?.status, 'WAITING_TEACHER');
+  const original = await fixture.repository.get(first.job.id);
+  assert.equal(original.plan_json.preflight.council.status, 'COMPLETE');
+  assert.ok(original.plan_json.preflight.council.responding_model_count >= 2);
+  assert.equal(original.plan_json.preflight.council.all_required_roles_satisfied, true);
+  assert.equal(original.result_json.teacher_bridge.status, 'WAITING_TEACHER');
+  assert.equal(original.result_json.autonomy_completion, undefined,
+    'Council+Teacher request never claims actual manifesto acceptance');
+  const second = await runAutonomyRuntimeTickRaw(fixture.env, {
+    fetchImpl: fixture.fetchImpl, repository: fixture.repository, roadmap: manifesto,
+  });
+  assert.equal(second.ensured.created, false);
+  assert.equal((await fixture.repository.list()).length, 1,
+    'the same Manifest mission remains pending external Teacher review');
+});
