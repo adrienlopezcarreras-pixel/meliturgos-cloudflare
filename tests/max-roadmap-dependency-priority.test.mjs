@@ -58,7 +58,8 @@ for (const storage of ['memory', 'sqlite']) {
       optional_context: { roadmap_id: 'TEST-CHILD', source: 'autonomy-supervisor' },
     });
     await repository.update(former.id, { status: 'TEACHER_APPROVED' });
-    const supervisor = new AutonomySupervisor({ repository, roadmap });
+    const localRoadmap = roadmap.map(item => ({ ...item, depends_on: [...item.depends_on] }));
+    const supervisor = new AutonomySupervisor({ repository, roadmap: localRoadmap });
     const first = await supervisor.ensureNextJob();
     assert.equal(first.created, true);
     assert.equal(first.job.optional_context.roadmap_id, 'TEST-FOUNDATION');
@@ -67,7 +68,7 @@ for (const storage of ['memory', 'sqlite']) {
     assert.deepEqual(parked.result_json.dependency_wait.prerequisites, ['TEST-FOUNDATION']);
     assert.equal(parked.result_json.dependency_wait.previous_status, 'TEACHER_APPROVED');
     // A direct executor cannot override the dependency guard.
-    const targeted = await new AutonomySupervisor({ repository, roadmap, onlyJobId: former.id }).ensureNextJob();
+    const targeted = await new AutonomySupervisor({ repository, roadmap: localRoadmap, onlyJobId: former.id }).ensureNextJob();
     assert.equal(targeted.job, null);
     // A paused job is part of the durable ledger, but cannot be created twice.
     const duplicate = await repository.createIfAbsent({
@@ -80,12 +81,18 @@ for (const storage of ['memory', 'sqlite']) {
     const again = await supervisor.ensureNextJob();
     assert.equal(again.job.id, first.job.id);
     await repository.update(first.job.id, { status: 'COMPLETED' });
+    // A job being COMPLETED proves only its delivery, not canonical acceptance.
+    const beforeVerified = await supervisor.ensureNextJob();
+    assert.equal(beforeVerified.job.optional_context.roadmap_id, 'TEST-UNRELATED');
+    assert.equal((await repository.get(former.id)).status, 'WAITING_DEPENDENCY');
+    await repository.update(beforeVerified.job.id, { status: 'COMPLETED' });
+    localRoadmap[0].status = 'DONE_VERIFIED'; // simulated, separately verified objective acceptance
     const resumed = await supervisor.ensureNextJob();
     assert.equal(resumed.created, false);
     assert.equal(resumed.job.id, former.id);
     assert.equal(resumed.job.status, 'TEACHER_APPROVED');
     assert.equal(resumed.job.result_json.dependency_wait, undefined);
-    assert.equal((await repository.list()).length, 2, 'no duplicate mission added');
+    assert.equal((await repository.list()).length, 3, 'two independent objectives and one resumed original');
   });
 
   test(`an occupied execution slot prevents resuming a waiting mission (${storage})`, async t => {
@@ -111,5 +118,7 @@ test('an explicit actionability selector never exposes a waiting prerequisite to
   const jobs = [{ id: 'job-child', status: 'QUEUED', requested_by: 'mel-autonomy',
     optional_context: { roadmap_id: 'TEST-CHILD' } }];
   assert.equal(selectActionableAutonomyJob(jobs, { roadmap }), null);
-  assert.equal(selectActionableAutonomyJob(jobs, { roadmap, completedIds: ['TEST-FOUNDATION'] }).id, 'job-child');
+  assert.equal(selectActionableAutonomyJob(jobs, { roadmap, completedIds: ['TEST-FOUNDATION'],
+    verifiedIds: [] }), null, 'COMPLETED without acceptance cannot satisfy a dependency');
+  assert.equal(selectActionableAutonomyJob(jobs, { roadmap, verifiedIds: ['TEST-FOUNDATION'] }).id, 'job-child');
 });
