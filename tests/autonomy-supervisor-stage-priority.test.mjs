@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
-import { AutonomySupervisor, selectActionableAutonomyJob } from '../src/evolution/autonomy-supervisor.js';
+import { AutonomySupervisor, selectActionableAutonomyJob, selectActionableAutonomyJobs } from '../src/evolution/autonomy-supervisor.js';
 
 function repo() {
   return new D1DevJobRepository(null, { memoryStore: new Map() });
@@ -153,4 +153,16 @@ test('jobs created before the activity epoch are ignored by the selector', () =>
   assert.equal(selectActionableAutonomyJob([old, fresh], { epochMs: 4000, roadmap }).id, 'fresh-job');
   assert.equal(selectActionableAutonomyJob([old], { epochMs: 4000, roadmap }), null);
   assert.equal(selectActionableAutonomyJob([old, fresh], { roadmap }).id, 'old-job');
+});
+
+
+
+
+test('MAX selector admits only one actionable mission with roadmap before errors and watches', () => {
+  const make = (id, source, created_at) => ({ id, requested_by: 'mel-autonomy', status: 'QUEUED', created_at, optional_context: { source } });
+  const jobs = [make('watch-1', 'ecosystem-watch', 1), make('error-ledger-1', 'error-ledger', 2), make('roadmap-1', 'autonomy-supervisor', 3)];
+  const selected = selectActionableAutonomyJobs(jobs, { roadmap: [], limit: 4 });
+  assert.equal(selected.length, 1);
+  assert.equal(selected[0].id, 'roadmap-1');
+  assert.equal(selectActionableAutonomyJobs(jobs.slice(0, 2), { roadmap: [] })[0].id, 'error-ledger-1');
 });
