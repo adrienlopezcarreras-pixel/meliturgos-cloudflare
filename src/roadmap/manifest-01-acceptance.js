@@ -31,10 +31,19 @@ export function manifest01FoundationPrerequisites(roadmap = flattenRoadmap()) {
   const pending = priorities.filter(row => !row.verified);
   const blockingPending = pending.filter(row => row.blocking);
   const nonblockingPending = pending.filter(row => !row.blocking);
+  // MEL-MANIFEST-01 is a ledger/report about progress, not a dependency on
+  // every reported task already being complete. Requiring all founder tasks
+  // DONE_VERIFIED while this one holds the single-flight lock deadlocks the
+  // actual founder jobs (including the Gmail proof).
+  const allowed = new Set([...Object.values(ROADMAP_STATUSES), 'REGRESSED']);
+  const reportable = priorities.every(row => allowed.has(row.status));
   return {
     schema: 'mel.manifest-01-foundation-prerequisites.v2',
     roadmap_id: 'MEL-MANIFEST-01',
     ready: blockingPending.length === 0,
+    reportable,
+    account_status: reportable ? (pending.length ? 'ACCOUNT_RECORDED_PENDING_PRIORITIES' : 'ALL_PRIORITIES_VERIFIED') : 'ACCOUNT_SOURCE_INCOMPLETE',
+    source: 'src/roadmap/master-roadmap.js',
     all_verified: pending.length === 0,
     verified_count: priorities.length - pending.length,
     required_count: MANIFEST_01_FOUNDATION.length,
