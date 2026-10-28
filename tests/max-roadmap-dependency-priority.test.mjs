@@ -130,6 +130,39 @@ for (const storage of ['memory', 'sqlite']) {
   });
 }
 
+test('owner clearing the MAX list cancels dependency waits and starts a fresh prioritized epoch', async t => {
+  const { resetAutonomyActivityList, readActivityListEpoch } =
+    await import('../src/evolution/autonomy-activity.js');
+  const db = sqliteD1();
+  t.after(() => db.close());
+  const repository = new D1DevJobRepository(db);
+  const old = await repository.create({
+    id: 'old-dependency-wait-before-owner-clear',
+    goal: 'historical blocked objective',
+    requested_by: 'mel-autonomy',
+    optional_context: { roadmap_id: 'TEST-CHILD' },
+  });
+  await repository.update(old.id, {
+    status: 'WAITING_DEPENDENCY',
+    result_json: { dependency_wait: {
+      previous_status: 'TEACHER_APPROVED', prerequisites: ['TEST-FOUNDATION'],
+    } },
+  });
+  const reset = await resetAutonomyActivityList(db);
+  assert.equal(reset.ok, true);
+  assert.ok(reset.cancelled_active >= 1);
+  assert.equal(await readActivityListEpoch(db), reset.epoch);
+  assert.equal((await repository.get(old.id)).status, 'CANCELLED');
+  // A manual reset is not proof of roadmap acceptance and does not enable MAX.
+  const supervisor = new AutonomySupervisor({ repository, roadmap, epochMs: reset.epoch });
+  const fresh = await supervisor.ensureNextJob();
+  assert.equal(fresh.created, true);
+  assert.equal(fresh.job.optional_context.roadmap_id, 'TEST-FOUNDATION');
+  assert.notEqual(fresh.job.id, old.id);
+  assert.equal((await repository.get(old.id)).status, 'CANCELLED');
+  assert.equal((await repository.list()).length, 2);
+});
+
 test('an explicit actionability selector never exposes a waiting prerequisite to the LLM', () => {
   const jobs = [{ id: 'job-child', status: 'QUEUED', requested_by: 'mel-autonomy',
     optional_context: { roadmap_id: 'TEST-CHILD' } }];
