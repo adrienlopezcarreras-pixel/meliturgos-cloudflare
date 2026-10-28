@@ -22,10 +22,16 @@ test('daily LoRA workflow owns GitHub OIDC and initializes trace before GPU subm
   assert.ok(start>=0&&submit>start);
 });
 
-test('Kaggle progress is copied incrementally to MEL and trace outage prevents green success',()=>{
+test('Kaggle monitoring survives a trace outage but no result or success bypasses the durable spool',()=>{
   assert.match(workflow,/TRAINING_PROGRESS artifacts\/lora-trace-progress\.json RUNNING/);
-  assert.match(workflow,/Durable progress trace failed; this workflow cannot be successful/);
-  assert.match(workflow,/exit 70/);
+  assert.match(workflow,/Durable progress trace failed; event retained in local spool/);
+  assert.match(workflow,/Durable heartbeat failed; event retained in local spool/);
+  assert.doesNotMatch(workflow,/exit 70|exit 71/);
+  const monitor=workflow.slice(workflow.indexOf('- name: Wait for Kaggle cycle'),workflow.indexOf('- name: Download trained bundle'));
+  assert.match(monitor,/TRAINING_PROGRESS/);
+  assert.match(monitor,/TRAINING_HEARTBEAT/);
+  assert.match(workflow,/lora-daily-trace-client\.mjs TRAINING_RESULT artifacts\/lora-trace-result\.json RUNNING/);
+  assert.match(workflow,/lora-daily-trace-client\.mjs SUCCEEDED artifacts\/lora-trace-success-final\.json SUCCEEDED/);
   assert.match(workflow,/TRAINING_RETRY/);
   assert.match(workflow,/TRAINING_ERROR/);
 });
