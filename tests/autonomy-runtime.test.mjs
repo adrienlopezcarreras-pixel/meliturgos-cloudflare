@@ -678,3 +678,53 @@ test('real Workers AI model identifiers survive persistent Council quarantine va
   assert.ok(job.result_json.council_model_exclusions.some(row=>row.id==='workers-ai:@cf/openai/gpt-oss-120b'));
   assert.ok(job.result_json.council_model_exclusions.every(row=>row.until>Date.now()));
 });
+
+
+test('first QUEUED mission retains real Council failure evidence during provider cooldown, then resumes on expiry', async () => {
+  const fixture = runtimeFixture();
+  let providerCalls = 0;
+  fixture.env.AI.run = async () => {
+    providerCalls += 1;
+    throw Object.assign(new Error('fixture outage'), { code: 'COUNCIL_PROVIDER_TIMEOUT' });
+  };
+  const { runAutonomyRuntimeTick: runCore } = await import('../src/evolution/autonomy-runtime-core.js');
+  const first = await runCore(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository, roadmap: TEST_ROADMAP });
+  assert.equal(first.progress.block_reason, 'COUNCIL_INSUFFICIENT_RESPONSES');
+  const persisted = await fixture.repository.get(first.ensured.job.id);
+  const failures = persisted.result_json.council_model_attempts;
+  const exclusions = persisted.result_json.council_model_exclusions;
+  assert.ok(failures.length >= 2, 'a first real attempt must retain its model failures');
+  assert.ok(exclusions.length >= 2);
+  await fixture.repository.update(persisted.id, {
+    result_json: {
+      ...persisted.result_json,
+      autonomy_deferral: { ...persisted.result_json.autonomy_deferral, retry_after: Date.now() - 1 },
+    },
+  }, { expected: persisted });
+  const beforeCooldownCalls = providerCalls;
+  const cooldown = await runCore(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository, roadmap: TEST_ROADMAP });
+  assert.equal(cooldown.progress.block_reason, 'COUNCIL_PROVIDER_COOLDOWN_PENDING');
+  assert.equal(providerCalls, beforeCooldownCalls, 'no cloud model is called while all alternatives are quarantined');
+  const waiting = await fixture.repository.get(persisted.id);
+  assert.equal(waiting.status, 'QUEUED');
+  assert.deepEqual(waiting.result_json.council_model_attempts, failures);
+  assert.equal(waiting.result_json.council_provider_cooldown.status, 'WAITING_FOR_AUTHORIZED_PROVIDERS');
+  const nextAvailable = [...exclusions].map(row => row.until).sort((a,b) => a-b)[0];
+  assert.equal(waiting.result_json.autonomy_deferral.retry_after, nextAvailable);
+
+  // Recovery on this exact mission, not admission of a second queued job.
+  fixture.env.AI.run = async model => ({
+    response: 'EXISTANT: code present; MANQUES: integration; OPTIONS: minimal diff; RISQUES: limited; RECOMMANDATION: inspect; TESTS: CI'
+      + String(model),
+  });
+  const realNow = Date.now;
+  try {
+    Date.now = () => Math.max(...exclusions.map(row => row.until)) + 1;
+    const recovered = await runCore(fixture.env, {
+      fetchImpl: fixture.fetchImpl, repository: fixture.repository, roadmap: TEST_ROADMAP,
+    });
+    assert.equal(recovered.job?.id, persisted.id, 'resume the original objective');
+    assert.equal(recovered.job?.status, 'WAITING_TEACHER');
+    assert.equal((await fixture.repository.list()).length, 1);
+  } finally { Date.now = realNow; }
+});
