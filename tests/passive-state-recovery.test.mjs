@@ -91,3 +91,22 @@ test('passive recovery prioritizes orphan reviews beyond unrelated queue entries
   assert.equal(result.recovered[0].job_id, orphan.id);
   assert.equal((await repository.get(orphan.id)).status, 'QUEUED');
 });
+
+
+test('orphan review recovery must not overwrite a concurrent runtime claim', async () => {
+  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+  const orphan = await repository.create({ id: 'review-race', requested_by: 'owner-chat', goal: 'race recovery' });
+  await repository.update(orphan.id, { status: 'READY_FOR_REVIEW', result_json: {} });
+  const racing = {
+    list: repository.list.bind(repository),
+    async update(id, patch, options) {
+      await repository.update(id, { status: 'CLAIMED', result_json: { runner: 'active' } });
+      return repository.update(id, patch, options);
+    },
+  };
+  const result = await recoverPassiveRuntimeStates(racing, { canonicalSha: NEW_SHA });
+  assert.equal(result.recovered.length, 0);
+  assert.equal(result.failed[0].code, 'JOB_UPDATE_CONFLICT');
+  assert.equal((await repository.get(orphan.id)).status, 'CLAIMED');
+  assert.equal((await repository.get(orphan.id)).result_json.runner, 'active');
+});
