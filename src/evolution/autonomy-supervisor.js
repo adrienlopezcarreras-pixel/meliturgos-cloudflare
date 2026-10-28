@@ -586,6 +586,20 @@ export class AutonomySupervisor {
           external_progress: { job_id: exhausted.id, status: 'DEFERRED_PROVIDER_RETRY_PENDING',
             reason: 'PROVIDER_EXHAUSTED_CONTEXT_REQUIRED' } };
       }
+      // No runnable entry does not mean all work is verified. Paused devices,
+      // unmet hard dependencies and parked jobs are still open obligations.
+      // Never publish 100 % completion from an empty runnable queue.
+      const outstanding = this.roadmap.filter(item => item?.id && !isVerifiedRoadmap(item));
+      const waiting = current.waiting.find(job => job.requested_by === 'mel-autonomy') || null;
+      if (!passiveOwner && (outstanding.length > 0 || waiting)) {
+        return {
+          created: false, job: null, next: null, complete: false,
+          evolution: current.evolution,
+          external_progress: waiting
+            ? { job_id: waiting.id, status: 'ROADMAP_PREREQUISITES_PENDING' }
+            : { status: 'ROADMAP_OBJECTIVES_UNVERIFIED', remaining_count: outstanding.length },
+        };
+      }
       return { created: false, job: passiveOwner, next: null, complete: !passiveOwner && current.evolution?.status !== 'UNAVAILABLE', evolution: current.evolution };
     }
 

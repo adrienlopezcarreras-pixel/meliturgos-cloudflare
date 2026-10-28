@@ -176,6 +176,50 @@ test('owner clearing the MAX list cancels dependency waits and starts a fresh pr
   assert.equal((await repository.list()).length, 3);
 });
 
+test('no runnable work is not a 100 % certificate while external tasks remain', async () => {
+  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+  const supervisor = new AutonomySupervisor({
+    repository, roadmap: [{ id: 'DEVICE', status: 'BLOCKED_HUMAN', priority: 'P1', depends_on: [] }],
+  });
+  const result = await supervisor.ensureNextJob();
+  assert.equal(result.job, null);
+  assert.equal(result.created, false);
+  assert.equal(result.complete, false);
+  assert.equal(result.external_progress?.status, 'ROADMAP_OBJECTIVES_UNVERIFIED');
+  assert.equal(result.external_progress?.remaining_count, 1);
+});
+
+test('dependency-only queue does not falsely finish or bypass a blocked prerequisite', async () => {
+  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+  const blockedRoadmap = [
+    { id: 'BLOCK', status: 'BLOCKED_EXTERNAL', priority: 'P0', depends_on: [] },
+    { id: 'CHILD', status: 'PLANNED', priority: 'P0', depends_on: ['BLOCK'] },
+  ];
+  const old = await repository.create({
+    id: 'wait-dependency', requested_by: 'mel-autonomy',
+    goal: 'dependent mission', optional_context: { roadmap_id: 'CHILD' },
+  });
+  await repository.update(old.id, { status: 'WAITING_DEPENDENCY',
+    result_json: { dependency_wait: { previous_status: 'QUEUED', prerequisites: ['BLOCK'] } } });
+  const supervisor = new AutonomySupervisor({ repository, roadmap: blockedRoadmap });
+  const result = await supervisor.ensureNextJob();
+  assert.equal(result.complete, false);
+  assert.equal(result.job, null);
+  assert.equal(result.external_progress?.status, 'ROADMAP_PREREQUISITES_PENDING');
+  assert.equal(result.external_progress?.job_id, old.id);
+  assert.equal((await repository.get(old.id)).status, 'WAITING_DEPENDENCY');
+});
+
+test('only actually verified and exhausted roadmap can report complete', async () => {
+  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+  const supervisor = new AutonomySupervisor({ repository, roadmap: [
+    { id: 'PROVEN', status: 'DONE_VERIFIED', priority: 'P0', depends_on: [] },
+  ] });
+  const result = await supervisor.ensureNextJob();
+  assert.equal(result.created, false);
+  assert.equal(result.complete, true);
+});
+
 test('an explicit actionability selector never exposes a waiting prerequisite to the LLM', () => {
   const jobs = [{ id: 'job-child', status: 'QUEUED', requested_by: 'mel-autonomy',
     optional_context: { roadmap_id: 'TEST-CHILD' } }];
