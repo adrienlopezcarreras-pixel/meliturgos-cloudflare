@@ -41,8 +41,6 @@ function maybeTrackObjective(text){
   if(!/^(?:objectif|but|mission)\\s*[:\\-–]|^(?:je veux|j'aimerais|fais(?:-moi)?|fait|crée|cree|construis|développe|developpe|prépare|prepare|mets en place)\\b/i.test(value))return;
   saveObjective(value).catch(()=>{});
 }
-const melQueueMessage=queueMessage;
-queueMessage=function(text,source){maybeTrackObjective(text);return melQueueMessage(text,source)};
 objectiveAdd?.addEventListener('submit',event=>{
   event.preventDefault();
   const field=document.getElementById('objectiveNewStep');
