@@ -337,6 +337,12 @@ export function getRoadmapPayload() {
     },
     summary: roadmapSummary(),
     validation: validateRoadmap(),
-    phases: MASTER_ROADMAP
+    phases: MASTER_ROADMAP.map(p => ({
+      ...p,
+      items: p.items.map(row => ({
+        ...row,
+        depends_on: [...(ROADMAP_HARD_DEPENDENCIES[row.id] || [])],
+      })),
+    }))
   };
 }
