@@ -1,3 +1,58 @@
+// Canonical open work is classified before any model is invoked. VERIFY
+// requires an executable check, IMPLEMENT/FIX a code diff plus tests and CI,
+// and EXTERNAL must remain outside MAX until real hardware/provider evidence.
+const WORK_MODES = Object.freeze({
+  VERIFY: 'EXECUTED_TEST_OR_LIVE_CHECK',
+  IMPLEMENT: 'DIFF_TESTS_EXACT_SHA_CI',
+  FIX: 'DIFF_TESTS_EXACT_SHA_CI',
+  EXTERNAL: 'REAL_EXTERNAL_EVIDENCE',
+});
+
+const OPEN_ROADMAP_WORK = Object.freeze({
+  VERIFY: [
+    'MEL-AUDIT-02','MEL-AUDIT-03','MEL-AUDIT-04','MEL-AUDIT-05','MEL-AUDIT-06',
+    'MEL-FOUNDER-01','MEL-FOUNDER-04','MEL-FOUNDER-05','MEL-FOUNDER-07',
+    'MEL-UI-AUDIT-01','MEL-UI-AUDIT-02','MEL-UI-AUDIT-03','MEL-UI-AUDIT-04',
+    'MEL-UI-AUDIT-06','MEL-UI-AUDIT-07',
+    'MEL-MANIFEST-01','MEL-MANIFEST-02','MEL-MANIFEST-03','MEL-MANIFEST-04',
+    'MEL-MANIFEST-05','MEL-MANIFEST-06','MEL-MANIFEST-07','MEL-MANIFEST-08',
+    'MEL-MANIFEST-09','MEL-MANIFEST-10',
+    'MEL-CHAT-01','MEL-CHAT-02','MEL-CHAT-03','MEL-CHAT-04','MEL-CHAT-05',
+    'MEL-CHAT-08','MEL-COUNCIL-OPS-01',
+  ],
+  IMPLEMENT: ['MEL-FOUNDER-03','MEL-CHAT-06','MEL-COUNCIL-OPS-02'],
+  FIX: ['MEL-AUDIT-07','MEL-FOUNDER-02','MEL-CHAT-07'],
+  EXTERNAL: ['MEL-FOUNDER-06','MEL-FOUNDER-08','MEL-UI-AUDIT-05',
+    'MEL-LORA-CHAT-01','MEL-LORA-MODE-01'],
+});
+export const ROADMAP_TECHNICAL_WORK = Object.freeze(Object.fromEntries(
+  Object.entries(OPEN_ROADMAP_WORK).flatMap(([mode, ids]) =>
+    ids.map(id => [id, Object.freeze({ mode, required_proof: WORK_MODES[mode] })]))
+));
+
+export function validateRoadmapTechnicalWork(roadmap = []) {
+  const issues = [];
+  const seen = new Set();
+  for (const [mode, ids] of Object.entries(OPEN_ROADMAP_WORK)) {
+    for (const id of ids) {
+      if (seen.has(id)) issues.push({ type: 'ROADMAP_DUPLICATE_EXECUTION_CONTRACT', id });
+      seen.add(id);
+      const row = roadmap.find(item => item.id === id);
+      if (!row) issues.push({ type: 'ROADMAP_UNKNOWN_EXECUTION_CONTRACT', id });
+      else if (['DONE_VERIFIED', 'VERIFIED', 'ACCEPTED'].includes(String(row.status || '').toUpperCase())) {
+        issues.push({ type: 'ROADMAP_CLOSED_EXECUTION_CONTRACT', id });
+      } else if ((mode === 'EXTERNAL') !== ['BLOCKED_HUMAN','BLOCKED_EXTERNAL'].includes(String(row.status || '').toUpperCase())) {
+        issues.push({ type: 'ROADMAP_EXECUTION_MODE_STATUS_MISMATCH', id, mode, status: row.status });
+      }
+    }
+  }
+  for (const row of roadmap) {
+    if (!['DONE_VERIFIED','VERIFIED','ACCEPTED'].includes(String(row.status || '').toUpperCase())
+        && !seen.has(row.id)) issues.push({ type: 'ROADMAP_EXECUTION_CONTRACT_REQUIRED', id: row.id });
+  }
+  return issues;
+}
+
 // Hard verification prerequisites: never ask MAX to certify a downstream
 // objective before the independent, testable work that proves it exists.
 // A prerequisite is an exact roadmap ID, never an inferred keyword or phase.
