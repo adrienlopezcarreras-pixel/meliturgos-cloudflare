@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const source = fs.readFileSync(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8');
+const objectiveRuntime = fs.readFileSync(new URL('../src/pages/objective-panel-runtime.js', import.meta.url), 'utf8');
 
 function buttons() {
   return [...source.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)].map((match, index) => ({
@@ -50,7 +51,12 @@ test('every id-bearing button is uniquely declared and wired outside its markup 
 
   for (const id of ids) {
     const occurrences = source.split(id).length - 1;
-    assert.ok(occurrences >= 2, 'orphan button without runtime wiring: ' + id);
+    // Submit controls are wired by their containing form. The Professor
+    // objective form delegates its submit action to the imported runtime.
+    const objectiveSubmit = id === 'objectiveAddSubmit'
+      && /<form id="objectiveAdd"[^>]*>[\\s\\S]*?<button id="objectiveAddSubmit" type="submit">/.test(source)
+      && objectiveRuntime.includes("document.getElementById('objectiveAdd').addEventListener('submit'");
+    assert.ok(occurrences >= 2 || objectiveSubmit, 'orphan button without runtime wiring: ' + id);
   }
 });
 
