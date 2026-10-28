@@ -34,7 +34,7 @@ function assertIdButtonsWired(html, source, label) {
   const ids = idButtonIds(html);
   // Floating objective controls live in the dedicated Professor runtime.
   // Audit that runtime together with the canonical page, not markup alone.
-  if (label === 'full') source += '\n' + OBJECTIVE_PANEL_SOURCE;
+  if (label === 'full interface') source += '\n' + OBJECTIVE_PANEL_SOURCE;
   const aliases = new Map();
   for (const match of String(source).matchAll(/\b([A-Za-z_$][\w$]*)=(?:qs|q)\(["']#([^"']+)["']\)/g)) {
     aliases.set(match[2], match[1]);
