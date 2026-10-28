@@ -63,6 +63,9 @@ function setupFloatingObjective(){
   controls.append(collapse,close);head.appendChild(controls);objectivePanel.prepend(head);
   objectivePanel.classList.add('objective-floating');
   document.body.appendChild(objectivePanel);
+  const reopen=document.createElement('button');reopen.type='button';reopen.textContent='Objectif';reopen.setAttribute('aria-label',"Afficher l'objectif du Professeur");
+  reopen.style.cssText='position:fixed;right:18px;bottom:18px;z-index:1101;padding:8px 12px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--text);cursor:pointer';
+  document.body.appendChild(reopen);
   let saved={};
   try{saved=JSON.parse(localStorage.getItem(key)||'{}')||{}}catch{}
   const apply=()=>{
@@ -74,12 +77,14 @@ function setupFloatingObjective(){
     if(saved.y!==undefined)objectivePanel.style.bottom='auto';
     objectivePanel.classList.toggle('objective-collapsed',!!saved.collapsed);
     objectivePanel.hidden=!!saved.hidden;
+    reopen.hidden=!saved.hidden;
     collapse.textContent=saved.collapsed?'Agrandir':'Réduire';
   };
   const persist=()=>{try{localStorage.setItem(key,JSON.stringify(saved))}catch{}};
   apply();
   collapse.addEventListener('click',()=>{saved.collapsed=!saved.collapsed;apply();persist()});
   close.addEventListener('click',()=>{saved.hidden=true;apply();persist()});
+  reopen.addEventListener('click',()=>{saved.hidden=false;apply();persist()});
   let dragging=null;
   head.addEventListener('pointerdown',event=>{
     if(event.target.closest('button')||event.button!==0)return;
