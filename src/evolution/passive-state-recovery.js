@@ -114,12 +114,22 @@ export async function recoverPassiveRuntimeStates(repository, { canonicalSha = n
   if (!repository || typeof repository.list !== 'function' || typeof repository.update !== 'function') {
     throw Object.assign(new Error('PASSIVE_RECOVERY_REPOSITORY_REQUIRED'), { code: 'PASSIVE_RECOVERY_REPOSITORY_REQUIRED' });
   }
-  const jobs = await repository.list();
+  // The general D1 list is a 100-row UI window. Fetch all active autonomy
+  // jobs separately so older work (including MEL-MANIFEST-01) is not invisible
+  // to hourly passive recovery. This does not start or authorize MAX.
+  const activeAutonomyJobs = typeof repository.listActiveAutonomyJobs === 'function'
+    ? await repository.listActiveAutonomyJobs()
+    : [];
+  const recentJobs = await repository.list();
+  const allJobs = new Map();
+  for (const job of [...activeAutonomyJobs, ...recentJobs]) {
+    if (job?.id && !allJobs.has(job.id)) allJobs.set(job.id, job);
+  }
   const recovered = [];
   const failed = [];
-  // Prioritize recoverable review and Teacher states before the bounded scan.
-  // Otherwise a large queue of unrelated jobs can indefinitely starve recovery.
-  const candidates = jobs.filter(job => ['READY_FOR_REVIEW', 'WAITING_TEACHER', 'TEACHER_APPROVED'].includes(upper(job?.status)));
+  // Prioritize relevant states before applying the maintenance limit.
+  const candidates = [...allJobs.values()].filter(job =>
+    ['READY_FOR_REVIEW', 'WAITING_TEACHER', 'TEACHER_APPROVED'].includes(upper(job?.status)));
   for (const job of candidates.slice(0, Math.max(1, Math.min(500, Number(limit) || 100)))) {
     try {
       const stale = await requeueStaleTeacher(repository, job, String(canonicalSha || '').toLowerCase());
@@ -130,7 +140,7 @@ export async function recoverPassiveRuntimeStates(repository, { canonicalSha = n
       failed.push({ job_id: job?.id || null, code: error?.code || error?.message || 'PASSIVE_RECOVERY_FAILED' });
     }
   }
-  return { attempted: jobs.length, recovered, failed, canonical_sha: SHA40.test(String(canonicalSha || '')) ? canonicalSha : null };
+  return { attempted: allJobs.size, recovered, failed, canonical_sha: SHA40.test(String(canonicalSha || '')) ? canonicalSha : null };
 }
 
 export { requeueStaleTeacher, requeueOrphanReview };
