@@ -69,6 +69,8 @@ jobs:
         run: >
           node --test
           tests/capability-inventory-gate.test.mjs
+          tests/gen2/skill-registry.test.mjs
+          tests/gen2/skill-registry-runtime.test.mjs
           tests/max-roadmap-dependency-priority.test.mjs
       - name: Targeted supervised autonomy proof
         # GPT6 2026-10-21: the planner tests use mocked zero-cost providers;
