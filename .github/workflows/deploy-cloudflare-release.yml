@@ -64,9 +64,9 @@ jobs:
       # is permitted only after the exact-SHA and canonical-main gates below.
       AUTONOMOUS_RELEASE_POLICY: 'enabled'
       AUTONOMOUS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' && inputs.autonomous_release && 'true' || 'false' }}
-      # Automatic updates (Codex, GitHub release pointer, other authors) also request MAX restoration.
-      # Owner/safety pauses still win in the authenticated release_restore endpoint.
-      OWNER_MAX_AUTORELEASE: ${{ github.event_name != 'workflow_dispatch' && 'true' || (inputs.owner_max_autorelease && 'true' || 'false') }}
+      # Automatic release-pointer pushes preserve the owner\'s prior MAX choice.
+      # Explicit manual dispatch may request restoration; owner/safety pauses remain authoritative.
+      OWNER_MAX_AUTORELEASE: ${{ github.event_name != 'workflow_dispatch' && 'false' || (inputs.owner_max_autorelease && 'true' || 'false') }}
       # TEMPORARY DEV-LIGHT MODE: ShardVault 7/7/code-sync proof paused to finish downstream release validation.
       # MUST be restored to 'false' before final validation/closure.
       MEL_ROADMAP_SHARDVAULT_PAUSED: 'true'
