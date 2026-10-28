@@ -31,10 +31,14 @@ test('all canonical roadmap edges reference existing IDs and never form cycles',
   assert.deepEqual(serialized.find(row => row.id === 'MEL-MANIFEST-03').depends_on,
     ['MEL-FOUNDER-03','MEL-FOUNDER-04']);
   const manifest = items.find(item => item.id === 'MEL-MANIFEST-01');
-  assert.ok(manifest.depends_on.includes('MEL-FOUNDER-02'));
+  assert.deepEqual(manifest.depends_on, [],
+    'MANIFEST-01 may account for pending founder states before they are verified');
   assert.ok(!items.find(item => item.id === 'MEL-FOUNDER-06').depends_on.length,
     'paused hardware must not be added as a cloud dependency');
-  assert.ok(unmetRoadmapPrerequisites(manifest, items).length >= 4);
+  assert.deepEqual(unmetRoadmapPrerequisites(manifest, items), []);
+  const closure = items.find(item => item.id === 'MEL-MANIFEST-10');
+  assert.ok(unmetRoadmapPrerequisites(closure, items).length >= 4,
+    'final manifesto closure still requires verified cloud foundations');
 });
 
 test('dependency validator rejects cycles, missing nodes and self edges', () => {
