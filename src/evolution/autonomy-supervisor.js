@@ -186,7 +186,7 @@ function compareActiveJobs(left, right) {
     || String(left?.id || '').localeCompare(String(right?.id || ''));
 }
 
-export function selectActionableAutonomyJobs(jobs = [], { epochMs = 0, roadmap = flattenRoadmap(), excludeIds = [], limit = 1 } = {}) {
+export function selectActionableAutonomyJobs(jobs = [], { epochMs = 0, roadmap = flattenRoadmap(), excludeIds = [], limit = 4 } = {}) {
   const closedIds = new Set(roadmap.filter(isVerifiedRoadmap).map(item => item.id));
   const epoch = Number(epochMs) || 0;
   const excluded = new Set(excludeIds);
@@ -198,7 +198,7 @@ export function selectActionableAutonomyJobs(jobs = [], { epochMs = 0, roadmap =
     .filter((job) => !epoch || jobActivityTimestamp(job) >= epoch)
     .filter((job) => !excluded.has(job?.id))
     .sort(compareActiveJobs)
-    .slice(0, 1);
+    .slice(0, Math.max(1, Math.min(4, Number(limit) || 1)));
 }
 
 export function selectActionableAutonomyJob(jobs = [], options = {}) {
