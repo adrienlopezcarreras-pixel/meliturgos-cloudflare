@@ -499,42 +499,41 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
       continue;
     }
 
-    // The FOUNDER-01 job promises an actual bounded Gmail, Calendar and Drive
-    // probe OR an exact observed missing-auth diagnostic for each service.
-    // Council/Teacher approval + a green code SHA cannot replace that runtime
-    // evidence. Do this even for a READY patch (not just VERIFY_EXISTING).
-    let founder01Proof = null;
-    if (job?.optional_context?.roadmap_id === 'MEL-FOUNDER-01') {
-      const required = requiredLiveChecks(job.goal, proposal?.selected?.text);
-      let liveChecks;
-      try {
-        liveChecks = await liveCheckRunner(env, required);
-      } catch {
-        liveChecks = [];
-      }
-      const gate = liveProofGate(required, liveChecks, { goal: job.goal });
-      if (!gate.ok) {
-        rejected.push({
-          job_id: job.id,
-          request_id: record.request_id,
-          code: 'COMPLETION_FOUNDER_01_LIVE_PROOF_REQUIRED',
-          reason: gate.code,
-        });
-        continue;
-      }
-      founder01Proof = {
-        status: gate.proof_status,
-        checked: required.map(capability => {
-          const row = liveChecks.find(item => item.capability === capability);
-          return { capability, outcome: row?.outcome || 'UNKNOWN', ok: row?.ok === true,
-            code: row?.code || null, items: Number.isInteger(row?.items) ? row.items : null };
-        }),
-        auth_missing: gate.auth_missing,
-      };
-    }
-
     try {
       const ci = await verifyCompletionEvidence(record, env, { fetchImpl });
+      let founder01Proof = null;
+      // The FOUNDER-01 job promises an actual bounded Gmail, Calendar and Drive
+      // probe OR an exact observed missing-auth diagnostic for each service.
+      // Council/Teacher approval + a green code SHA cannot replace that runtime
+      // evidence. Do this even for a READY patch (not just VERIFY_EXISTING).
+      if (job?.optional_context?.roadmap_id === 'MEL-FOUNDER-01') {
+        const required = requiredLiveChecks(job.goal, proposal?.selected?.text);
+        let liveChecks;
+        try {
+          liveChecks = await liveCheckRunner(env, required);
+        } catch {
+          liveChecks = [];
+        }
+        const gate = liveProofGate(required, liveChecks, { goal: job.goal });
+        if (!gate.ok) {
+          rejected.push({
+            job_id: job.id,
+            request_id: record.request_id,
+            code: 'COMPLETION_FOUNDER_01_LIVE_PROOF_REQUIRED',
+            reason: gate.code,
+          });
+          continue;
+        }
+        founder01Proof = {
+          status: gate.proof_status,
+          checked: required.map(capability => {
+            const row = liveChecks.find(item => item.capability === capability);
+            return { capability, outcome: row?.outcome || 'UNKNOWN', ok: row?.ok === true,
+              code: row?.code || null, items: Number.isInteger(row?.items) ? row.items : null };
+          }),
+          auth_missing: gate.auth_missing,
+        };
+      }
       const mentorLearning = await recordVerifiedCompletionLesson(env, job, record, proposal, ci, benchmarkEvaluator, benchmarkModelId);
       const result = job.result_json && typeof job.result_json === 'object' ? { ...job.result_json } : {};
       result.autonomy_completion = {
