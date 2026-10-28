@@ -4,6 +4,8 @@ import { applyObjectiveStep, objectiveFromMessage, stepsForObjective } from '../
 import { handleChatObjective } from '../../src/api/chat-objective-api.js';
 import { sqliteD1 } from '../helpers/sqlite-d1.mjs';
 import { onRequestGet } from '../../src/pages/mvp-interface-v3.js';
+import { onRequestGet as onProfessorGet } from '../../src/pages/full-interface-v2.js';
+import { OBJECTIVE_PANEL_SOURCE } from '../../src/pages/objective-panel-runtime.js';
 import { NORMAL_RUNTIME_SOURCE } from '../../src/pages/mvp-runtime.js';
 
 test('a chat objective becomes a short followable list', () => {
@@ -60,11 +62,20 @@ test('the active objective is stored, replaced and stepped', async () => {
   assert.equal((await current.json()).plan.id, next.id);
 });
 
-test('the chat page keeps one fixed objective panel', async () => {
-  const html = await (await onRequestGet()).text();
-  assert.equal((html.match(/id="objectivePanel"/g) || []).length, 1);
-  assert.match(html, /src="\/normal-runtime\.js\?v=10"/);
-  assert.match(NORMAL_RUNTIME_SOURCE, /maybeTrackObjective/);
-  assert.match(NORMAL_RUNTIME_SOURCE, /function queueMessage/);
-  assert.ok(NORMAL_RUNTIME_SOURCE.indexOf('function queueMessage') < NORMAL_RUNTIME_SOURCE.indexOf('maybeTrackObjective'));
+test('objective panel exists only in Professor chat, never in Normal', async () => {
+  const normal = await (await onRequestGet()).text();
+  const professor = await (await onProfessorGet()).text();
+  assert.doesNotMatch(normal, /id="objectivePanel"/);
+  assert.doesNotMatch(normal, /class="objective-panel"/);
+  assert.doesNotMatch(normal, /Objectif en cours/);
+  assert.match(normal, /src="\\/normal-runtime\\.js\\?v=10"/);
+  assert.doesNotMatch(NORMAL_RUNTIME_SOURCE, /maybeTrackObjective|OBJECTIVE_PANEL_SOURCE|\\/api\\/chat\\/objective/);
+  assert.equal((professor.match(/id="objectivePanel"/g) || []).length, 1);
+  assert.match(professor, /Objectif en cours/);
+  assert.match(professor, /id="objectiveAdd"/);
+  assert.match(professor, /if\\(originalText&&source!==/);
+  assert.match(professor, /function maybeTrackObjective/);
+  assert.match(professor, /readObjective\\(\\)/);
+  assert.match(OBJECTIVE_PANEL_SOURCE, /\\/api\\/chat\\/objective\\/step/);
+  assert.doesNotMatch(OBJECTIVE_PANEL_SOURCE, /const melQueueMessage=queueMessage/);
 });
