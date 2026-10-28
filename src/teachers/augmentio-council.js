@@ -164,8 +164,12 @@ function zeroCostProvenance(provider) {
 // review past 240 s (456 tick timeouts at council-teacher). Each call is
 // bounded; a timeout falls back to the next provider like any other error.
 // A single silent provider must not exhaust the Council's full minute.
-const PROVIDER_CALL_TIMEOUT_MS = 12_000;
-const COUNCIL_REVIEW_MAX_MS = 58_000;
+// The production D1 Council failure ledger (28/10) recorded 81 provider
+// timeouts at the old 12s cap, with zero accepted reviews. Allow slower
+// authorized free models to respond, but retain the shared 58-second review
+// deadline, the Zero-Euro Governor and every mandatory independent role.
+export const PROVIDER_CALL_TIMEOUT_MS = 20_000;
+export const COUNCIL_REVIEW_MAX_MS = 58_000;
 function councilErrorCode(error) {
   const value = String(error?.code || error?.message || 'COUNCIL_PROVIDER_FAILED');
   return /^[A-Z][A-Z0-9_:-]{0,95}$/.test(value) ? value : 'COUNCIL_PROVIDER_FAILED';
