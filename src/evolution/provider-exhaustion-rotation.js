@@ -1,3 +1,4 @@
+import { COUNCIL_INFERENCE_POLICY, staleCouncilDeferral } from '../teachers/council-inference-policy.js';
 // An exhausted provider attempt is a preserved, non-runnable mission, not a
 // successful implementation or permission to make a fourth identical call.
 // Only a matching approved context and a completed, unclaimed preparation phase
@@ -12,7 +13,7 @@ export function providerRetryContext(job) {
 }
 
 export function isRotatableProviderExhaustion(job) {
-  if (job?.requested_by !== 'mel-autonomy') return false;
+  if (job?.requested_by !== 'mel-autonomy' || staleCouncilDeferral(job)) return false;
   if (!['QUEUED', 'TEACHER_APPROVED'].includes(String(job?.status || '').toUpperCase())) return false;
   const delay = job?.result_json?.autonomy_deferral;
   if (delay?.exhausted !== true || !['implementation', 'bridge', 'council'].includes(delay.phase)) return false;
@@ -32,6 +33,8 @@ export function isRotatableProviderExhaustion(job) {
 // changed SHA/request cannot bypass the single-flight fence.
 export const ROTATABLE_PROVIDER_EXHAUSTION_SQL = `(
   status IN ('QUEUED','TEACHER_APPROVED')
+  AND (json_extract(result_json,'$.autonomy_deferral.phase') != 'council'
+    OR json_extract(result_json,'$.autonomy_deferral.inference_policy') = '${COUNCIL_INFERENCE_POLICY}')
   AND json_extract(result_json,'$.autonomy_deferral.exhausted') = 1
   AND json_extract(result_json,'$.autonomy_deferral.phase') IN ('implementation','bridge','council')
   AND json_extract(result_json,'$.autonomy_deferral.attempts') >= 3
@@ -59,7 +62,7 @@ export const ROTATABLE_PROVIDER_EXHAUSTION_SQL = `(
 export function boundedCouncilDeferral({ job, deferred, retryAt, freshAttempts = [], now = Date.now() } = {}) {
   const context = providerRetryContext(job);
   const previous = job?.result_json?.autonomy_deferral;
-  const sameContext = previous?.phase === 'council' && previous?.context === context;
+  const sameContext = previous?.phase === 'council' && previous?.context === context && !staleCouncilDeferral(job);
   const previousRounds = sameContext
     ? Math.max(0, Math.min(3, Number(previous.attempts) || 0)) : 0;
   const previousRetryAt = Number(previous?.retry_after);
@@ -70,7 +73,7 @@ export function boundedCouncilDeferral({ job, deferred, retryAt, freshAttempts =
     && freshAttempts.some(row => ['FAILED', 'TIMEOUT'].includes(String(row?.status || '').toUpperCase()));
   // Existing proofs and model failure traces stay with the original job;
   // this marker explains whether a counted round actually invoked a model.
-  return { ...deferred, phase: 'council', context,
+  return { ...deferred, phase: 'council', context, inference_policy: COUNCIL_INFERENCE_POLICY,
     attempts, max_attempts: 3, exhausted: attempts >= 3,
     last_round: stillInWindow ? previous?.last_round || 'WINDOW_PENDING'
       : (invokedAndFailed ? 'PROVIDER_FAILURE' : 'NO_ELIGIBLE_PROVIDER_WINDOW'),

@@ -1,3 +1,4 @@
+import { staleCouncilDeferral } from '../teachers/council-inference-policy.js';
 import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { approvedEvolutionRoadmap } from '../roadmap/evolution-autonomy-queue.js';
 import { flattenRoadmap, ROADMAP_STATUSES, isClosedRoadmapStatus } from '../roadmap/master-roadmap.js';
@@ -84,6 +85,7 @@ function currentRoadmap() {
 
 // CODEX: a durable, bounded provider delay is passive, not a global MAX lock.
 function providerDeferred(job) {
+  if (staleCouncilDeferral(job)) return false;
   const delay = job?.result_json?.autonomy_deferral;
   if (delay?.context && delay.context !== providerRetryContext(job)) return false;
   // Bridge-phase jobs parked under the old one-round limit (FOUNDER-02..07,
