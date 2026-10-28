@@ -690,7 +690,8 @@ test('first QUEUED mission retains real Council failure evidence during provider
   const { runAutonomyRuntimeTick: runCore } = await import('../src/evolution/autonomy-runtime-core.js');
   const first = await runCore(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository, roadmap: TEST_ROADMAP });
   assert.equal(first.progress.block_reason, 'COUNCIL_INSUFFICIENT_RESPONSES');
-  const persisted = await fixture.repository.get(first.ensured.job.id);
+  const [persisted] = await fixture.repository.list();
+  assert.ok(persisted?.id, 'a failed Council must retain the first job in D1');
   const failures = persisted.result_json.council_model_attempts;
   const exclusions = persisted.result_json.council_model_exclusions;
   assert.ok(failures.length >= 2, 'a first real attempt must retain its model failures');
