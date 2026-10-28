@@ -230,6 +230,7 @@ test('one activity slot excludes all demoted waiting missions without deleting t
     result_json:{autonomy_deferral:{phase:'implementation',exhausted:true,attempts:3,max_attempts:3,context:providerRetryContext({}),priority_penalty:1}}}));
   assert.equal(activeAutonomyMission(jobs),null);
   const next={id:'new',requested_by:'mel-autonomy',status:'QUEUED',created_at:20,result_json:{}};
-  assert.equal(activeAutonomyMission([...jobs,next]).id,'new');
+  assert.equal(activeAutonomyMission([...jobs,next]), null, 'a fresh QUEUED mission remains passive until claimed');
+  assert.equal([...jobs,next].filter(job => job.status === 'QUEUED').length, 16);
   assert.equal(jobs.length,15);assert.equal(jobs[0].result_json.autonomy_deferral.attempts,3);
 });
