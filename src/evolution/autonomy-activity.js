@@ -378,6 +378,12 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
   const terminal = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
   // Display one entry per persisted mission, regardless of repeated snapshots.
   const unique = [...new Map(supervised.map(job => [String(job.id), job])).values()];
+  // Counts must describe the same deduplicated snapshot that the UI renders.
+  const uniqueByStatus = {};
+  for (const job of unique) {
+    const status = String(job.status || 'UNKNOWN').toUpperCase();
+    uniqueByStatus[status] = (uniqueByStatus[status] || 0) + 1;
+  }
   const activeMission = control?.paused ? null : activeAutonomyMission(unique);
   const pending = unique.filter(job => !terminal.has(String(job?.status || '').toUpperCase()) && job.id !== activeMission?.id);
   const reportJobs = unique.slice().sort((a,b)=>Number(b.id===activeMission?.id)-Number(a.id===activeMission?.id));
@@ -409,7 +415,7 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
       supervised_total: unique.length,
       active: activeMission ? 1 : 0,
       waiting: pending.length,
-      by_status: byStatus,
+      by_status: uniqueByStatus,
     },
     jobs,
     plan: buildCodePlan(jobs, { now }),
