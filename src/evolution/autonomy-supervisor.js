@@ -2,6 +2,8 @@ import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { approvedEvolutionRoadmap } from '../roadmap/evolution-autonomy-queue.js';
 import { flattenRoadmap, ROADMAP_STATUSES, isClosedRoadmapStatus } from '../roadmap/master-roadmap.js';
 import { isClaimedPreparedDevBridgeJob } from '../dev/bridge-job-state.js';
+import { providerRetryContext, isRotatableProviderExhaustion } from './provider-exhaustion-rotation.js';
+export { providerRetryContext } from './provider-exhaustion-rotation.js';
 
 // Strict category order: roadmap, recorded errors, then ecosystem watches.
 export function autonomyQueueCategory(job) {
@@ -81,15 +83,6 @@ function currentRoadmap() {
 }
 
 // CODEX: a durable, bounded provider delay is passive, not a global MAX lock.
-export function providerRetryContext(job) {
-  const result = job?.result_json || {};
-  return JSON.stringify([job?.candidate_branch || null,
-    result.teacher_bridge?.review?.target_sha || null,
-    result.teacher_bridge?.review?.request_id || null,
-    result.implementation_proposal?.candidate_sha || null,
-    result.implementation_proposal?.teacher_request_id || null]);
-}
-
 function providerDeferred(job) {
   const delay = job?.result_json?.autonomy_deferral;
   if (delay?.context && delay.context !== providerRetryContext(job)) return false;
@@ -398,6 +391,7 @@ export class AutonomySupervisor {
     // owner-chat requests retain their established priority.
     const activeInternal = current.active
       .filter(job => job.requested_by === 'mel-autonomy')
+      .filter(job => !isRotatableProviderExhaustion(job))
       .filter(job => !this.roadmap.some(item => item.id === roadmapIdFromJob(job) && isVerifiedRoadmap(item)))
       .sort((left, right) => Number(left?.created_at || 0) - Number(right?.created_at || 0)
         || String(left?.id || '').localeCompare(String(right?.id || '')))[0] || null;
@@ -431,7 +425,7 @@ export class AutonomySupervisor {
     // objective is still active, even when its external lane is passive.
     // Keep the old selection/owner-priority semantics for the active job.
     const inFlightInternal = current.active
-      .filter(job => job.requested_by === 'mel-autonomy')
+      .filter(job => job.requested_by === 'mel-autonomy' && !isRotatableProviderExhaustion(job))
       .sort(compareActiveJobs)[0] || null;
     if (this.singleFlight && inFlightInternal) {
       if (String(inFlightInternal.status || '').toUpperCase() === 'COMMITTED') {
@@ -463,6 +457,7 @@ export class AutonomySupervisor {
     const passiveInternal = current.active
       .filter(isSupervisedAutonomyJob)
       .filter((job) => isPassiveRuntimeJob(job) && job.requested_by === 'mel-autonomy')
+      .filter((job) => !isRotatableProviderExhaustion(job))
       .filter((job) => !hasLiveExternalProgress(job))
       .sort(compareActiveJobs)[0];
     if (passiveInternal) {
@@ -472,7 +467,7 @@ export class AutonomySupervisor {
     if (!current.next) {
       const passiveOwner = current.active
         .filter(isSupervisedAutonomyJob)
-        .filter((job) => isPassiveRuntimeJob(job))
+        .filter((job) => isPassiveRuntimeJob(job) && !isRotatableProviderExhaustion(job))
         .sort(compareActiveJobs)[0] || null;
       // A prepared CLAIMED package is already executing outside the heartbeat.
       // Returning it as `job` would make autonomy-runtime-core run its generic
@@ -490,6 +485,14 @@ export class AutonomySupervisor {
             status: providerDeferred(passiveOwner) ? 'DEFERRED_PROVIDER_RETRY_PENDING' : 'BRIDGE_EXECUTION_IN_PROGRESS',
           },
         };
+      }
+      const exhausted = current.active.find(isRotatableProviderExhaustion);
+      if (!passiveOwner && exhausted) {
+        // Preserve the original mission in D1 without retrying its identical
+        // provider context or claiming all remaining work complete.
+        return { created: false, job: null, next: null, complete: false,
+          external_progress: { job_id: exhausted.id, status: 'DEFERRED_PROVIDER_RETRY_PENDING',
+            reason: 'PROVIDER_EXHAUSTED_CONTEXT_REQUIRED' } };
       }
       return { created: false, job: passiveOwner, next: null, complete: !passiveOwner && current.evolution?.status !== 'UNAVAILABLE', evolution: current.evolution };
     }
