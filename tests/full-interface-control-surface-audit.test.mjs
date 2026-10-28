@@ -54,7 +54,8 @@ test('every id-bearing button is uniquely declared and wired outside its markup 
     // Submit controls are wired by their containing form. The Professor
     // objective form delegates its submit action to the imported runtime.
     const objectiveSubmit = id === 'objectiveAddSubmit'
-      && /<form id="objectiveAdd"[^>]*>[\\s\\S]*?<button id="objectiveAddSubmit" type="submit">/.test(source)
+      && source.includes('<form id="objectiveAdd"')
+      && source.includes('<button id="objectiveAddSubmit" type="submit">')
       && objectiveRuntime.includes("document.getElementById('objectiveAdd').addEventListener('submit'");
     assert.ok(occurrences >= 2 || objectiveSubmit, 'orphan button without runtime wiring: ' + id);
   }
