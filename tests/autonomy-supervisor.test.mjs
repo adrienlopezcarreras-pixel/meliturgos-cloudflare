@@ -443,20 +443,35 @@ for (const status of ['DONE_VERIFIED', 'verified', ' accepted ']) {
       ] });
       const first = await supervisor.ensureNextJob();
       const second = await supervisor.ensureNextJob();
-      assert.equal(first.job.optional_context.roadmap_id, 'NEXT-ITEM');
-      assert.equal(second.job.id, first.job.id);
-      assert.deepEqual(await repository.get(job.id), before);
-      assert.equal((await repository.list()).length, 2);
+      if (jobStatus === 'CLAIMED') {
+        // Unknown Bridge ownership cannot be overwritten by roadmap closure.
+        // Admission stays locked pending explicit reconciliation.
+        assert.equal(first.created, false);
+        assert.equal(first.job, null);
+        assert.equal(first.external_progress?.status, 'ACTIVE_OBJECTIVE_REQUIRES_RECONCILIATION');
+        assert.equal(second.created, false);
+        assert.deepEqual(await repository.get(job.id), before);
+        assert.equal((await repository.list()).length, 1);
+      } else {
+        assert.equal(first.job.optional_context.roadmap_id, 'NEXT-ITEM');
+        assert.equal(second.job.id, first.job.id);
+        const historical = await repository.get(job.id);
+        assert.equal(historical.status, 'DONE_VERIFIED');
+        assert.equal(historical.result_json.roadmap_reconciliation.previous_status, before.status);
+        assert.equal((await repository.list()).length, 2);
+      }
     });
   }
 }
 
 test('durable accepted job defeats contradictory stale active job even before roadmap refresh', async () => {
   const repository = isolatedRepo();
-  for (const [id, status] of [['accepted', 'ACCEPTED'], ['stale', 'CLAIMED']]) {
-    await repository.create({ id, requested_by: 'mel-autonomy', goal: 'Same objective', optional_context: { roadmap_id: 'CLOSED-ITEM' } });
-    await repository.update(id, { status });
-  }
+  // Recreate a pre-existing contradictory D1 snapshot without creating two
+  // simultaneous active jobs through today's atomic admission fence.
+  const accepted = await repository.create({ id: 'accepted', requested_by: 'mel-autonomy', goal: 'Accepted objective', optional_context: { roadmap_id: 'CLOSED-ITEM' } });
+  await repository.update(accepted.id, { status: 'ACCEPTED' });
+  const stale = await repository.create({ id: 'stale', requested_by: 'mel-autonomy', goal: 'Legacy claimed objective', optional_context: { roadmap_id: 'CLOSED-ITEM' } });
+  await repository.update(stale.id, { status: 'CLAIMED' });
   const supervisor = new AutonomySupervisor({ repository, roadmap: [{ id: 'CLOSED-ITEM', status: 'PLANNED' }] });
   assert.deepEqual((await supervisor.state()).active, []);
   assert.equal((await supervisor.ensureNextJob()).created, false);
@@ -471,4 +486,357 @@ test('explicit REGRESSED state permits a new attempt after historical completion
   assert.equal(result.created, true);
   assert.notEqual(result.job.id, 'old-completed');
   assert.equal((await repository.get('old-completed')).status, 'COMPLETED');
+});
+
+
+test('MAX single-flight retains a healthy WAITING_TEACHER mission instead of materializing another roadmap job', async () => {
+  const repo = isolatedRepo();
+  const first = await repo.create({
+    id: 'mel-autonomy-mel-work-01-1',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] Work Engine',
+    optional_context: { roadmap_id: 'MEL-WORK-01', source: 'autonomy-supervisor' },
+  });
+  await repo.update(first.id, {
+    status: 'WAITING_TEACHER',
+    result_json: { teacher_bridge: { status: 'WAITING_TEACHER' } },
+  });
+  const supervisor = new AutonomySupervisor({ repository: repo, roadmap, singleFlight: true });
+  const selected = await supervisor.ensureNextJob();
+  assert.equal(selected.created, false);
+  assert.equal(selected.job.id, first.id);
+  assert.equal((await repo.list()).length, 1);
+});
+
+test('normal mode also retains the current roadmap mission while Teacher progresses externally', async () => {
+  const repo = isolatedRepo();
+  const first = await repo.create({
+    id: 'mel-autonomy-mel-work-01-1',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] Work Engine',
+    optional_context: { roadmap_id: 'MEL-WORK-01', source: 'autonomy-supervisor' },
+  });
+  await repo.update(first.id, {
+    status: 'WAITING_TEACHER',
+    result_json: { teacher_bridge: { status: 'WAITING_TEACHER' } },
+  });
+  const supervisor = new AutonomySupervisor({ repository: repo, roadmap });
+  const selected = await supervisor.ensureNextJob();
+  assert.equal(selected.created, false);
+  assert.equal(selected.job.id, first.id);
+  assert.equal((await repo.list()).length, 1);
+});
+
+
+test('single-flight does not re-enter an externally owned prepared Bridge job', async () => {
+  const repo = isolatedRepo();
+  const job = await repo.create({
+    id: 'mel-autonomy-mel-work-01-1',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] Work Engine',
+    optional_context: { roadmap_id: 'MEL-WORK-01', source: 'autonomy-supervisor' },
+  });
+  await repo.update(job.id, {
+    status: 'CLAIMED',
+    plan_json: { steps: ['Implement the feature'] },
+    patch_json: { files: [] },
+    tests_json: { passed: true },
+  });
+  const supervisor = new AutonomySupervisor({ repository: repo, roadmap });
+  const selected = await supervisor.ensureNextJob();
+  assert.equal(selected.created, false);
+  assert.equal((await repo.list()).length, 1);
+  assert.ok(selected.job === null || selected.job.id === job.id);
+});
+
+
+test('single-flight keeps oldest internal objective when a newer one is actionable', async () => {
+  const repo = isolatedRepo();
+  const older = await repo.create({
+    id: 'mel-autonomy-mel-work-01-1',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] Work Engine',
+    optional_context: { roadmap_id: 'MEL-WORK-01', source: 'autonomy-supervisor' },
+  });
+  await repo.update(older.id, {
+    status: 'WAITING_TEACHER',
+    result_json: { teacher_bridge: { status: 'WAITING_TEACHER' } },
+  });
+  // Simulate legacy double-admission already persisted before the atomic fence.
+  const newer = { ...older,
+    id: 'mel-autonomy-gen2-17-1',
+    job_id: 'mel-autonomy-gen2-17-1',
+    goal: '[GEN2-17] Dev Agent',
+    status: 'TEACHER_APPROVED',
+    created_at: Number(older.created_at) + 1000,
+    updated_at: Number(older.updated_at) + 1000,
+    optional_context: { roadmap_id: 'GEN2-17', source: 'autonomy-supervisor' },
+  };
+  repo.memory.set(newer.id, newer);
+  const selected = await new AutonomySupervisor({ repository: repo, roadmap }).ensureNextJob();
+  assert.equal(selected.created, false);
+  assert.equal(selected.job.id, older.id);
+  assert.equal((await repo.list()).length, 2, 'existing jobs must not be deleted');
+});
+
+
+test('repository atomically admits only one autonomous objective across competing supervisors', async () => {
+  const repo = isolatedRepo();
+  const results = await Promise.all([
+    repo.createIfAbsent({ id: 'mel-autonomy-work-race', requested_by: 'mel-autonomy', goal: 'Work', optional_context: { roadmap_id: 'MEL-WORK-01' } }),
+    repo.createIfAbsent({ id: 'mel-autonomy-gen-race', requested_by: 'mel-autonomy', goal: 'Evolution', optional_context: { roadmap_id: 'GEN2-17' } }),
+  ]);
+  assert.equal(results.filter(row => row.created).length, 1);
+  assert.equal(results[0].job.id, results[1].job.id);
+  assert.equal((await repo.list()).length, 1);
+});
+
+
+test('verified roadmap closure reconciles stale approved legacy job before next admission', async () => {
+  const repo = isolatedRepo();
+  const stale = await repo.create({
+    id: 'mel-autonomy-mel-work-01-legacy',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] legacy objective',
+    optional_context: { roadmap_id: 'MEL-WORK-01', source: 'autonomy-supervisor' },
+  });
+  await repo.update(stale.id, { status: 'TEACHER_APPROVED' });
+  const closedRoadmap = roadmap.map(item => item.id === 'MEL-WORK-01' ? { ...item, status: 'DONE_VERIFIED' } : item);
+  const result = await new AutonomySupervisor({ repository: repo, roadmap: closedRoadmap }).ensureNextJob();
+  assert.equal(result.created, true, 'verified legacy job should release the atomic admission fence');
+  assert.equal(result.job.optional_context.roadmap_id, 'GEN2-17');
+  const historical = await repo.get(stale.id);
+  assert.equal(historical.status, 'DONE_VERIFIED');
+  assert.equal(historical.result_json.roadmap_reconciliation.previous_status, 'TEACHER_APPROVED');
+});
+
+
+test('verified roadmap reconciliation preserves a live Teacher marker on a nonwaiting job', async () => {
+  const repo = isolatedRepo();
+  const job = await repo.create({
+    id: 'mel-autonomy-work-live-teacher',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] live Teacher',
+    optional_context: { roadmap_id: 'MEL-WORK-01', source: 'autonomy-supervisor' },
+  });
+  await repo.update(job.id, {
+    status: 'TEACHER_APPROVED',
+    result_json: { teacher_bridge: { status: 'WAITING_TEACHER' } },
+  });
+  const verified = { id: 'MEL-WORK-01', status: 'DONE_VERIFIED' };
+  const unchanged = await repo.reconcileVerifiedAutonomyJob(job.id, verified);
+  assert.equal(unchanged.status, 'TEACHER_APPROVED');
+  assert.equal((await repo.get(job.id)).result_json.teacher_bridge.status, 'WAITING_TEACHER');
+});
+
+test('verified roadmap reconciliation refuses unverified or mismatched objectives', async () => {
+  const repo = isolatedRepo();
+  const job = await repo.create({
+    id: 'mel-autonomy-work-unverified',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] pending',
+    optional_context: { roadmap_id: 'MEL-WORK-01' },
+  });
+  await assert.rejects(() => repo.reconcileVerifiedAutonomyJob(job.id, { id: 'MEL-WORK-01', status: 'PARTIAL' }), { code: 'ROADMAP_VERIFICATION_REQUIRED' });
+  await assert.rejects(() => repo.reconcileVerifiedAutonomyJob(job.id, { id: 'GEN2-17', status: 'DONE_VERIFIED' }), { code: 'AUTONOMY_OBJECTIVE_MISMATCH' });
+  assert.equal((await repo.get(job.id)).status, 'QUEUED');
+});
+
+
+test('verified roadmap reconciliation never closes repair-required work', async () => {
+  const repo = isolatedRepo();
+  const job = await repo.create({
+    id: 'mel-autonomy-work-repair',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] repair required',
+    optional_context: { roadmap_id: 'MEL-WORK-01' },
+  });
+  await repo.update(job.id, {
+    status: 'REPAIR_REQUIRED',
+    result_json: { dev_bridge: { needs_repair: true } },
+  });
+  const result = await repo.reconcileVerifiedAutonomyJob(job.id, { id: 'MEL-WORK-01', status: 'DONE_VERIFIED' });
+  assert.equal(result.status, 'REPAIR_REQUIRED');
+  assert.equal((await repo.get(job.id)).result_json.dev_bridge.needs_repair, true);
+});
+
+
+test('administratively closed roadmap state never reconciles an active D1 job', async () => {
+  const repo = isolatedRepo();
+  const job = await repo.create({
+    id: 'mel-autonomy-work-closed-only',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] administrative closure only',
+    optional_context: { roadmap_id: 'MEL-WORK-01' },
+  });
+  const closedRoadmap = roadmap.map(item => item.id === 'MEL-WORK-01' ? { ...item, status: 'DONE' } : item);
+  await new AutonomySupervisor({ repository: repo, roadmap: closedRoadmap }).ensureNextJob();
+  assert.equal((await repo.get(job.id)).status, 'QUEUED');
+});
+
+
+test('verified roadmap cannot auto-close a council-complete job pending delivery evidence', async () => {
+  const repo = isolatedRepo();
+  const job = await repo.create({
+    id: 'mel-autonomy-work-council',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] council complete',
+    optional_context: { roadmap_id: 'MEL-WORK-01' },
+  });
+  await repo.update(job.id, { status: 'COUNCIL_COMPLETE' });
+  const result = await repo.reconcileVerifiedAutonomyJob(job.id, { id: 'MEL-WORK-01', status: 'DONE_VERIFIED' });
+  assert.equal(result.status, 'COUNCIL_COMPLETE');
+  assert.equal((await repo.get(job.id)).status, 'COUNCIL_COMPLETE');
+});
+
+
+test('verified roadmap reconciliation preserves a prepared candidate branch', async () => {
+  const repo = isolatedRepo();
+  const job = await repo.create({
+    id: 'mel-autonomy-work-candidate',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] candidate awaiting delivery',
+    optional_context: { roadmap_id: 'MEL-WORK-01' },
+  });
+  await repo.update(job.id, {
+    status: 'TEACHER_APPROVED',
+    candidate_branch: 'candidate/mel-work-01',
+  });
+  const result = await repo.reconcileVerifiedAutonomyJob(job.id, { id: 'MEL-WORK-01', status: 'DONE_VERIFIED' });
+  assert.equal(result.status, 'TEACHER_APPROVED');
+  assert.equal((await repo.get(job.id)).candidate_branch, 'candidate/mel-work-01');
+});
+
+
+test('single-flight finds an active D1 objective older than the 100-row UI window', async () => {
+  const repo = isolatedRepo();
+  const old = await repo.create({
+    id: 'mel-autonomy-work-old-active',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] old in-progress work',
+    optional_context: { roadmap_id: 'MEL-WORK-01' },
+  });
+  await repo.update(old.id, { status: 'TEACHER_APPROVED' });
+  for (let i = 0; i < 105; i += 1) {
+    await repo.create({ id: 'unrelated-' + i, requested_by: 'professor', goal: 'Other work' });
+  }
+  const list = repo.list.bind(repo);
+  repo.list = async () => (await list()).slice(-100);
+  const result = await new AutonomySupervisor({ repository: repo, roadmap }).ensureNextJob();
+  assert.equal(result.created, false);
+  assert.equal(result.job?.id, old.id);
+  assert.equal((await repo.listActiveAutonomyJobs()).some(job => job.id === old.id), true);
+});
+
+test('a verified old D1 job is reconciled even when absent from the UI window', async () => {
+  const repo = isolatedRepo();
+  const old = await repo.create({
+    id: 'mel-autonomy-work-old-verified',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] stale old queue entry',
+    optional_context: { roadmap_id: 'MEL-WORK-01' },
+  });
+  for (let i = 0; i < 105; i += 1) {
+    await repo.create({ id: 'history-' + i, requested_by: 'professor', goal: 'Historical job' });
+  }
+  const list = repo.list.bind(repo);
+  repo.list = async () => (await list()).slice(-100);
+  const verifiedRoadmap = roadmap.map(item =>
+    item.id === 'MEL-WORK-01' ? { ...item, status: 'DONE_VERIFIED' } : item);
+  const result = await new AutonomySupervisor({ repository: repo, roadmap: verifiedRoadmap }).ensureNextJob();
+  assert.equal((await repo.get(old.id)).status, 'DONE_VERIFIED');
+  assert.equal(result.created, true);
+  assert.equal(result.job.optional_context.roadmap_id, 'GEN2-17');
+});
+
+
+test('the next attempt ID cannot reuse a terminal job hidden by the 100-row D1 window', async () => {
+  const repo = isolatedRepo();
+  const previous = await repo.create({
+    id: 'mel-autonomy-mel-work-01-1',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] old attempt',
+    optional_context: { roadmap_id: 'MEL-WORK-01', attempt: 1 },
+  });
+  await repo.update(previous.id, { status: 'CANCELLED' });
+  for (let i = 0; i < 105; i += 1) {
+    await repo.create({ id: 'unrelated-attempt-' + i, requested_by: 'professor', goal: 'Other work' });
+  }
+  const fullList = repo.list.bind(repo);
+  repo.list = async () => (await fullList()).slice(-100);
+  const result = await new AutonomySupervisor({ repository: repo, roadmap }).ensureNextJob();
+  assert.equal(result.created, true);
+  assert.equal(result.job.id, 'mel-autonomy-mel-work-01-2');
+  assert.equal(result.job.optional_context.attempt, 2);
+  assert.equal((await repo.get(previous.id)).status, 'CANCELLED');
+  assert.equal(await repo.countAutonomyObjectiveAttempts('MEL-WORK-01'), 2);
+});
+
+
+test('D1 admission fence never hands an old verified-but-active candidate to the next mission runtime', async () => {
+  const repo = isolatedRepo();
+  const old = await repo.create({
+    id: 'mel-autonomy-mel-work-01-legacy-candidate',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] awaiting candidate delivery',
+    optional_context: { roadmap_id: 'MEL-WORK-01' },
+  });
+  await repo.update(old.id, { status: 'TEACHER_APPROVED', candidate_branch: 'candidate/work-still-open' });
+  const verifiedRoadmap = roadmap.map(item =>
+    item.id === 'MEL-WORK-01' ? { ...item, status: 'DONE_VERIFIED' } : item);
+  const result = await new AutonomySupervisor({ repository: repo, roadmap: verifiedRoadmap }).ensureNextJob();
+  assert.equal(result.created, false);
+  assert.equal(result.job, null, 'runtime must never advance a different mission');
+  assert.equal(result.next?.id, 'GEN2-17');
+  assert.equal(result.external_progress?.job_id, old.id);
+  assert.equal(result.external_progress?.status, 'ACTIVE_OBJECTIVE_REQUIRES_RECONCILIATION');
+  assert.equal((await repo.get(old.id)).status, 'TEACHER_APPROVED');
+  assert.equal((await repo.list()).length, 1);
+});
+
+
+test('COMMITTED work keeps the atomic mission fence until verified delivery', async () => {
+  const repo = isolatedRepo();
+  const job = await repo.create({
+    id: 'mel-autonomy-mel-work-01-committed',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] candidate committed without live delivery',
+    optional_context: { roadmap_id: 'MEL-WORK-01' },
+  });
+  await repo.update(job.id, { status: 'COMMITTED', result_json: { commit: 'candidate-sha' } });
+  const supervisor = new AutonomySupervisor({ repository: repo, roadmap });
+  const state = await supervisor.state();
+  assert.equal(state.completedIds.includes('MEL-WORK-01'), false);
+  assert.equal(state.active.some(row => row.id === job.id), true);
+  const result = await supervisor.ensureNextJob();
+  assert.equal(result.created, false);
+  assert.equal(result.job, null);
+  assert.equal(result.external_progress?.status, 'DELIVERY_VERIFICATION_PENDING');
+  assert.equal((await repo.list()).length, 1);
+  assert.equal((await repo.get(job.id)).status, 'COMMITTED');
+});
+
+
+test('failed autonomy attempts remain quarantined beyond the last 100 UI rows', async () => {
+  const repository = isolatedRepo();
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const job = await repository.create({
+      id: 'old-failed-attempt-' + attempt,
+      requested_by: 'mel-autonomy',
+      goal: '[MEL-WORK-01] failed implementation',
+      optional_context: { roadmap_id: 'MEL-WORK-01' },
+    });
+    await repository.update(job.id, { status: 'FAILED', error: 'REAL_ATTEMPT_FAILED' });
+  }
+  for (let i = 0; i < 105; i += 1) {
+    await repository.create({ id: 'history-failure-' + i, requested_by: 'professor', goal: 'Unrelated history' });
+  }
+  const fullList = repository.list.bind(repository);
+  repository.list = async () => (await fullList()).slice(-100);
+  const supervisor = new AutonomySupervisor({ repository, roadmap });
+  const state = await supervisor.state();
+  assert.equal(state.failedAttemptsByRoadmap['MEL-WORK-01'], 3);
+  assert.equal(state.retryExhaustedIds.includes('MEL-WORK-01'), true);
+  const next = await supervisor.ensureNextJob();
+  assert.equal(next.job?.optional_context?.roadmap_id, 'GEN2-17');
 });

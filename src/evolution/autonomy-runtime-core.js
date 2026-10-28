@@ -708,6 +708,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
 
   const evolutionLoader = !roadmap ? createRuntimeEvolutionLoader(env) : null;
   const supervisor = new AutonomySupervisor({
+    singleFlight: true,
     repository: jobRepository,
     epochMs: activityEpoch,
     ...(roadmap ? { roadmap } : {}),

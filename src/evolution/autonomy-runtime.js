@@ -27,7 +27,7 @@ const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
 export const PC_DEVELOPMENTS_PER_TICK = 4;
 export const PC_PARALLEL_DEVELOPMENTS = 2;
 
-export async function advanceMoreOnPc({ env, ready = localPcModelReady, run, seed, alreadyRan = 1, limit = PC_DEVELOPMENTS_PER_TICK, selectJobs = null, width = PC_PARALLEL_DEVELOPMENTS } = {}) {
+export async function advanceMoreOnPc({ env, ready = localPcModelReady, run, seed, alreadyRan = 1, limit = PC_DEVELOPMENTS_PER_TICK, selectJobs = null, width = PC_PARALLEL_DEVELOPMENTS, resumeSameJob = false } = {}) {
   const local = await ready(env).catch(() => null);
   if (!local?.ok || typeof run !== 'function') return { result: seed, ran: alreadyRan, job_ids: [] };
   const room = Math.max(0, limit - alreadyRan);
@@ -52,13 +52,19 @@ export async function advanceMoreOnPc({ env, ready = localPcModelReady, run, see
   let result = seed;
   let ran = alreadyRan;
   const job_ids = [];
+  const pinnedJobId = resumeSameJob
+    ? (seed?.progress?.job_id || seed?.job?.id || ids[0] || null)
+    : null;
   const skip = new Set(ids);
   while (ran < limit) {
     if (result?.progress?.work_remaining !== true || result?.progress?.waiting_external === true) break;
-    const next = await run({ skipJobIds: [...skip] });
+    const next = pinnedJobId
+      ? await run({ onlyJobId: pinnedJobId })
+      : await run({ skipJobIds: [...skip] });
     ran += 1;
     const jobId = next?.progress?.job_id || next?.job?.id || null;
     job_ids.push(jobId);
+    if (pinnedJobId && jobId && jobId !== pinnedJobId) break;
     if (jobId) skip.add(jobId);
     result = next;
     if (next?.progress?.advanced !== true && next?.advanced !== true && !jobId) break;
@@ -66,10 +72,12 @@ export async function advanceMoreOnPc({ env, ready = localPcModelReady, run, see
   return { result, ran, job_ids, device_id: local.device_id || null };
 }
 
-async function selectablePcJobs(repository, epochMs, roadmap, count) {
+async function selectablePcJobs(repository, epochMs, roadmap, count, singleFlight = true) {
   const supervisor = new AutonomySupervisor({ repository, epochMs, ...(roadmap ? { roadmap } : {}) });
   const state = await supervisor.state();
-  return selectActionableAutonomyJobs(state.active, { epochMs, limit: count, ...(roadmap ? { roadmap } : {}) }).map(job => job.id);
+  const jobs = selectActionableAutonomyJobs(state.active, { epochMs, limit: count, ...(roadmap ? { roadmap } : {}) });
+  // Both autonomy modes pin one objective; independent tests inside that objective may parallelize elsewhere.
+  return (singleFlight ? jobs.slice(0, 1) : jobs).map(job => job.id);
 }
 const ACTIONABLE_FAILURE_STATES = new Set(['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE', 'TEACHER_APPROVED']);
 const ACTIVE_RUNTIME_STATES = new Set([
@@ -215,9 +223,9 @@ async function hasActiveRuntimeWork(repository, epochMs = 0) {
     && ACTIVE_RUNTIME_STATES.has(String(job?.status || '').toUpperCase()));
 }
 
-async function ensureNextRuntimeJob(repository, roadmap = null, epochMs = 0) {
+async function ensureNextRuntimeJob(repository, roadmap = null, epochMs = 0, singleFlight = true) {
   try {
-    const supervisor = new AutonomySupervisor({ repository, epochMs, ...(roadmap ? { roadmap } : {}) });
+    const supervisor = new AutonomySupervisor({ repository, epochMs, singleFlight, ...(roadmap ? { roadmap } : {}) });
     const ensured = await supervisor.ensureNextJob();
     return {
       created: ensured?.created === true,
@@ -465,7 +473,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
   };
   try {
     if (!options.onlyJobId && !(await hasActiveRuntimeWork(repository, epochMs))) {
-      preEnsure = await ensureNextRuntimeJob(repository, options.roadmap || null, epochMs);
+      preEnsure = await ensureNextRuntimeJob(repository, options.roadmap || null, epochMs, true);
     }
   } catch (error) {
     preEnsure = {
@@ -559,11 +567,12 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
       env,
       seed: first,
       limit: options.onlyJobId ? 1 : PC_DEVELOPMENTS_PER_TICK,
+      resumeSameJob: true,
       run: async ({ onlyJobId } = {}) => {
         bindLocalPcWorkersAi(env, options.runLocalPcModel);
         return preservePreEnsureCreation(await runCoreResilient(env, { ...coreOptions, onlyJobId: onlyJobId || null }, repository), preEnsure);
       },
-      selectJobs: (count) => selectablePcJobs(currentRepository, epochMs, options.roadmap, count),
+      selectJobs: (count) => selectablePcJobs(currentRepository, epochMs, options.roadmap, count, true),
     });
     return {
       ...more.result,
@@ -585,11 +594,12 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     seed: second,
     alreadyRan: 2,
     limit: options.onlyJobId ? 2 : PC_DEVELOPMENTS_PER_TICK,
+    resumeSameJob: true,
     run: async ({ onlyJobId } = {}) => {
       bindLocalPcWorkersAi(env, options.runLocalPcModel);
       return preservePreEnsureCreation(await runCoreResilient(env, { ...coreOptions, onlyJobId: onlyJobId || null }, repository), preEnsure);
     },
-    selectJobs: (count) => selectablePcJobs(currentRepository, epochMs, options.roadmap, count),
+    selectJobs: (count) => selectablePcJobs(currentRepository, epochMs, options.roadmap, count, true),
   });
   return {
     ...more.result,
@@ -761,9 +771,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     ? await options.localPcReady(env)
     : await localPcModelReady(env).catch(() => ({ ok: false, code: 'LOCAL_CHECK_FAILED' }));
   if (options.ignoreNeuronBudget !== true && !local?.ok && await backgroundNeuronBudgetExhausted(env)) {
-    // The daily background share can be exhausted while the owner has already
-    // authorized additional neurons. Keep the gate closed if the reserve cannot
-    // be read, but do not silently strand a valid owner grant.
+    // Respect existing owner-granted neuron reserves; never mint a new grant.
     const bonus = env?.DB ? await readNeuronBonusTotal(env.DB).catch(() => 0) : 0;
     if (bonus <= 0) {
       const base = {

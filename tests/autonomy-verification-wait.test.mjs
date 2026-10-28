@@ -38,16 +38,17 @@ test('missing exact CI or live proof persists a resumable verification, not a fa
   }
 });
 
-test('restart admits independent cloud work while the same verification waits, and resumes after expiry', async t => {
+test('restart retains one mission while verification waits and resumes it after expiry', async t => {
   const { repository, id } = await fixture(t);
   const roadmap = [
     { id: 'MEL-FOUNDER-01', title: 'Read Gmail', status: 'IN_PROGRESS', priority: 'P0' },
     { id: 'MEL-FOUNDER-02', title: 'Independent cloud work', status: 'PLANNED', priority: 'P0' },
   ];
   await persistVerificationWait(repository, id, { code: 'FULL_CANDIDATE_CI_REQUIRED' });
-  const other = await new AutonomySupervisor({ repository, roadmap }).ensureNextJob();
-  assert.equal(other.job.optional_context.roadmap_id, 'MEL-FOUNDER-02');
-  await repository.update(other.job.id, { status: 'CANCELLED' });
+  const waiting = await new AutonomySupervisor({ repository, roadmap }).ensureNextJob();
+  assert.equal(waiting.job, null);
+  assert.equal(waiting.external_progress?.job_id, id);
+  assert.equal((await repository.list()).length, 1, 'pending verification cannot start an independent mission');
   await persistVerificationWait(repository, id, { code: 'FULL_CANDIDATE_CI_REQUIRED', now: Date.now() - 6 * 60_000 });
   const resumed = await new AutonomySupervisor({ repository, roadmap }).ensureNextJob();
   assert.equal(resumed.job.id, id);
@@ -140,7 +141,7 @@ test('retry code matching rejects invented prefix extensions and structural fail
   for(const code of ['MENTOR_PROVIDER_TIMEOUT_UNSAFE','MENTOR_JSON_INVALID_EXTRA','NO_ELIGIBLE_MISSION','MENTOR_UNINSPECTED_PATH','MENTOR_INVALID_CHANGE']) assert.equal(providerDeferral(code),null,code);
 });
 
-test('identical provider retries exhaust per context, let B advance, and wake on a new approved context', async t => {
+test('identical provider retries hold the current mission and wake on a new approved context', async t => {
   const {persistBridgePreparationDiagnostic}=await import('../src/evolution/autonomy-runtime-core.js');
   const {repository,id}=await fixture(t);
   const now=Date.now;
@@ -157,9 +158,10 @@ test('identical provider retries exhaust per context, let B advance, and wake on
     const roadmap=[{id:'MEL-FOUNDER-01',title:'A',status:'IN_PROGRESS',priority:'P0'},
       {id:'MEL-FOUNDER-02',title:'B',status:'PLANNED',priority:'P0'}];
     const supervisor=new AutonomySupervisor({repository,roadmap});
-    const other=await supervisor.ensureNextJob();
-    assert.equal(other.job.optional_context.roadmap_id,'MEL-FOUNDER-02');
-    await repository.update(other.job.id,{status:'CANCELLED'});
+    const waiting=await supervisor.ensureNextJob();
+    assert.equal(waiting.job,null,'exhausted provider retries must not start B');
+    assert.equal(waiting.external_progress?.job_id,id);
+    assert.equal((await repository.list()).length,1);
     supervisor.roadmap=[roadmap[0]];
     assert.equal((await supervisor.ensureNextJob()).job,null,'expiry alone cannot grant unlimited identical retries');
     const current=await repository.get(id);

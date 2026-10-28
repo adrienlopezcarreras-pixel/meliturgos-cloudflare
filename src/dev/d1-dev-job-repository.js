@@ -11,6 +11,10 @@ function memoryAdmission(memory, job) {
   const objective = objectiveId(job);
   const duplicate = objective && [...memory.values()].find(row => activeJob(row) && objectiveId(row) === objective);
   if (duplicate) throw Object.assign(new Error('AUTONOMY_OBJECTIVE_ALREADY_ACTIVE'), {code:'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE',job_id:duplicate.id});
+  if (objective) {
+    const inFlight = [...memory.values()].find(row => row.requested_by === 'mel-autonomy' && activeJob(row));
+    if (inFlight) throw Object.assign(new Error('AUTONOMY_OBJECTIVE_ALREADY_ACTIVE'), {code:'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE',job_id:inFlight.id});
+  }
   if (job?.optional_context?.source === 'revenue-watch' && [...memory.values()].filter(row=>activeJob(row)&&row?.optional_context?.source==='revenue-watch').length >= MAX_ACTIVE_REVENUE_JOBS) {
     throw Object.assign(new Error('REVENUE_WATCH_QUEUE_FULL'),{code:'REVENUE_WATCH_QUEUE_FULL'});
   }
@@ -161,13 +165,17 @@ export class D1DevJobRepository {
     return j;
     }
     // Same SQL statement as the insertion: a preflight read cannot close this race.
-    const admission = await this.db.prepare("INSERT INTO dev_jobs(id,created_at,updated_at,status,requested_by,goal,optional_context,plan_json,files_json,patch_json,tests_json,result_json,candidate_branch,approval_status,error) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED') AND (?='' OR NOT EXISTS (SELECT 1 FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + ACTIVE_JOB_SQL + " AND json_extract(optional_context,'$.roadmap_id')=?)) AND (?<> 'revenue-watch' OR (SELECT COUNT(*) FROM dev_jobs WHERE " + ACTIVE_JOB_SQL + " AND json_extract(optional_context,'$.source')='revenue-watch') < " + MAX_ACTIVE_REVENUE_JOBS + ")")
-      .bind(j.id, j.created_at, j.updated_at, j.status, j.requested_by, j.goal, JSON.stringify(j.optional_context), null, '[]', null, '[]', null, null, j.approval_status, null, MAINTENANCE_FENCE_ID, objectiveId(j), objectiveId(j), j.optional_context?.source || '')
+    const admission = await this.db.prepare("INSERT INTO dev_jobs(id,created_at,updated_at,status,requested_by,goal,optional_context,plan_json,files_json,patch_json,tests_json,result_json,candidate_branch,approval_status,error) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED') AND (?='' OR NOT EXISTS (SELECT 1 FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + ACTIVE_JOB_SQL + " AND json_extract(optional_context,'$.roadmap_id')=?)) AND (?='' OR NOT EXISTS (SELECT 1 FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + ACTIVE_JOB_SQL + ")) AND (?<> 'revenue-watch' OR (SELECT COUNT(*) FROM dev_jobs WHERE " + ACTIVE_JOB_SQL + " AND json_extract(optional_context,'$.source')='revenue-watch') < " + MAX_ACTIVE_REVENUE_JOBS + ")")
+      .bind(j.id, j.created_at, j.updated_at, j.status, j.requested_by, j.goal, JSON.stringify(j.optional_context), null, '[]', null, '[]', null, null, j.approval_status, null, MAINTENANCE_FENCE_ID, objectiveId(j), objectiveId(j), objectiveId(j), j.optional_context?.source || '')
       .run();
     if (Number(admission?.meta?.changes) !== 1) {
       if (objectiveId(j)) {
         const existing = await this.db.prepare("SELECT id FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + ACTIVE_JOB_SQL + " AND json_extract(optional_context,'$.roadmap_id')=? LIMIT 1").bind(objectiveId(j)).first();
         if (existing) throw Object.assign(new Error('AUTONOMY_OBJECTIVE_ALREADY_ACTIVE'), {code:'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE',job_id:existing.id});
+      }
+      if (objectiveId(j)) {
+        const inFlight = await this.db.prepare("SELECT id FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + ACTIVE_JOB_SQL + " ORDER BY created_at ASC, id ASC LIMIT 1").first();
+        if (inFlight) throw Object.assign(new Error('AUTONOMY_OBJECTIVE_ALREADY_ACTIVE'), {code:'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE',job_id:inFlight.id});
       }
       if (j.optional_context?.source === 'revenue-watch') {
         const count = await this.db.prepare("SELECT COUNT(*) AS n FROM dev_jobs WHERE " + ACTIVE_JOB_SQL + " AND json_extract(optional_context,'$.source')='revenue-watch'").first();
@@ -192,6 +200,54 @@ export class D1DevJobRepository {
    * check and insertion without an intervening await so concurrent callers
    * cannot create two logical copies of the same deterministic job.
    */
+  // Reconcile an already-verified roadmap objective without deleting its job
+  // or inventing Teacher/CI evidence. The caller must supply a verified
+  // roadmap record; CAS prevents overwriting a concurrently advancing job.
+  async reconcileVerifiedAutonomyJob(id, roadmapItem) {
+    const verified = new Set(['DONE_VERIFIED', 'VERIFIED', 'ACCEPTED']);
+    if (!roadmapItem?.id || !verified.has(String(roadmapItem.status || '').trim().toUpperCase())) {
+      throw Object.assign(new Error('ROADMAP_VERIFICATION_REQUIRED'), { code: 'ROADMAP_VERIFICATION_REQUIRED' });
+    }
+    const job = await this.get(id);
+    if (!job || job.requested_by !== 'mel-autonomy' || objectiveId(job) !== roadmapItem.id) {
+      throw Object.assign(new Error('AUTONOMY_OBJECTIVE_MISMATCH'), { code: 'AUTONOMY_OBJECTIVE_MISMATCH' });
+    }
+    if (!activeJob(job)) return job;
+    // Do not interrupt an external Bridge execution or live review. Such
+    // jobs require their own completion/rollback reconciliation.
+    // Reconcile only inert legacy queue states. Unknown, executing, review,
+    // repair and committed states require their own delivery evidence.
+    if (!['QUEUED', 'TEACHER_APPROVED'].includes(String(job.status || '').toUpperCase())) {
+      return job;
+    }
+    // A job still carrying an active Bridge or Teacher marker must not be
+    // closed just because its roadmap entry was marked verified elsewhere.
+    // Candidate artifacts or a pending approval are not stale queue entries:
+    // preserve them until the normal Council/CI/delivery path resolves.
+    if (job.candidate_branch || job.patch_json || (Array.isArray(job.files_json) && job.files_json.length > 0)
+        || (Array.isArray(job.tests_json) && job.tests_json.length > 0)) {
+      return job;
+    }
+    const bridgeStatus = String(job.result_json?.dev_bridge?.status || '').toUpperCase();
+    const teacherStatus = String(job.result_json?.teacher_bridge?.status || '').toUpperCase();
+    if (['RUNNING', 'IN_PROGRESS', 'CLAIMED', 'READY_FOR_REVIEW'].includes(bridgeStatus)
+        || ['WAITING_TEACHER', 'PENDING', 'REQUESTED'].includes(teacherStatus)) {
+      return job;
+    }
+    return this.update(id, {
+      status: 'DONE_VERIFIED',
+      result_json: {
+        ...(job.result_json || {}),
+        roadmap_reconciliation: {
+          roadmap_id: roadmapItem.id,
+          verified_status: String(roadmapItem.status).trim().toUpperCase(),
+          previous_status: job.status,
+          reconciled_at: Date.now(),
+        },
+      },
+    }, { expected: job });
+  }
+
   async createIfAbsent(input) {
     if (!input?.id) throw Object.assign(new Error('ID_REQUIRED'), { code: 'ID_REQUIRED' });
     await this.init();
@@ -244,6 +300,45 @@ export class D1DevJobRepository {
     return this.db
       ? ((await this.db.prepare(full ? FULL_LIST_SQL : LIGHT_LIST_SQL).all()).results || []).map(x => this._row(x))
       : [...this.memory.values()];
+  }
+
+  // A UI list is capped at 100 rows; the scheduler must not lose an older
+  // active autonomy job behind that window while D1's admission fence still
+  // sees it. Return all active autonomy jobs with their complete state.
+  async listActiveAutonomyJobs() {
+    await this.init();
+    return this.db
+      ? ((await this.db.prepare("SELECT * FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + ACTIVE_JOB_SQL + " ORDER BY created_at ASC, id ASC").all()).results || []).map(row => this._row(row))
+      : [...this.memory.values()].filter(job => job.requested_by === 'mel-autonomy' && activeJob(job));
+  }
+
+  // A completed/cancelled attempt can fall outside the 100-row UI list.
+  // Counting it in D1 prevents the next deterministic job ID from colliding
+  // with historical records and silently reusing a terminal job.
+  async countAutonomyObjectiveAttempts(roadmapId) {
+    const id = String(roadmapId || '').trim();
+    if (!id) return 0;
+    await this.init();
+    if (!this.db) return [...this.memory.values()].filter(job => objectiveId(job) === id).length;
+    const row = await this.db.prepare("SELECT COUNT(*) AS attempts FROM dev_jobs WHERE requested_by='mel-autonomy' AND json_extract(optional_context,'$.roadmap_id')=?").bind(id).first();
+    return Number(row?.attempts || 0);
+  }
+
+  // Retry limits must include failed attempts outside the UI's most recent
+  // 100 rows. Otherwise an old objective can escape its safety quarantine.
+  async failedAutonomyObjectiveCounts() {
+    await this.init();
+    if (!this.db) {
+      const counts = {};
+      for (const job of this.memory.values()) {
+        if (job.requested_by !== 'mel-autonomy' || String(job.status || '').toUpperCase() !== 'FAILED') continue;
+        const id = objectiveId(job);
+        if (id) counts[id] = (counts[id] || 0) + 1;
+      }
+      return counts;
+    }
+    const rows = (await this.db.prepare("SELECT json_extract(optional_context,'$.roadmap_id') AS objective, COUNT(*) AS failures FROM dev_jobs WHERE requested_by='mel-autonomy' AND status='FAILED' AND json_valid(optional_context) GROUP BY json_extract(optional_context,'$.roadmap_id')").all()).results || [];
+    return Object.fromEntries(rows.filter(row => row.objective).map(row => [row.objective, Number(row.failures || 0)]));
   }
 
   async update(id, patch, { expected = null } = {}) {

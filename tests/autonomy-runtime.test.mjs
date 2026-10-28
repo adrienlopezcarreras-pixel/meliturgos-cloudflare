@@ -79,7 +79,7 @@ function runtimeFixture() {
   };
 }
 
-test('cloud autonomy heartbeat creates P0 work, runs live Council, inspects candidate code, emits Teacher requests, and does not freeze behind a pending Teacher', async () => {
+test('cloud autonomy heartbeat creates P0 work, runs live Council, inspects candidate code, emits Teacher requests, and keeps a single mission pending Teacher', async () => {
   const fixture = runtimeFixture();
   const first = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
   assert.equal(first.ok, true);
@@ -96,14 +96,11 @@ test('cloud autonomy heartbeat creates P0 work, runs live Council, inspects cand
 
   const aiCallCount = fixture.aiCalls.length;
   const second = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
-  assert.equal(second.ensured.created, true, 'normal mode must create compatible follow-up work instead of freezing behind Teacher');
-  assert.notEqual(second.job.id, first.job.id);
-  assert.equal(second.job.roadmap_id, SECOND_AUTONOMY_ID);
-  assert.equal(second.job.status, 'WAITING_TEACHER');
-  assert.ok(second.teacher?.request_id);
-  assert.ok(fixture.aiCalls.length >= aiCallCount + 2, 'the next compatible work item must run its own Council');
+  assert.equal(second.ensured.created, false, 'both modes must retain the current mission while Teacher is pending');
+  assert.equal((await fixture.repository.list()).filter(job => job.requested_by === 'mel-autonomy').length, 1);
   const stillWaiting = await fixture.repository.get(first.job.id);
-  assert.equal(stillWaiting.status, 'WAITING_TEACHER', 'the original Teacher request must remain tracked while MEL advances');
+  assert.equal(stillWaiting.status, 'WAITING_TEACHER', 'the original Teacher request must remain tracked');
+  assert.equal(fixture.aiCalls.length, aiCallCount, 'pending Teacher must not launch another Council for a second mission');
 });
 
 test('Teacher inspection stays bound to captured candidate snapshot when branch moves concurrently', async () => {

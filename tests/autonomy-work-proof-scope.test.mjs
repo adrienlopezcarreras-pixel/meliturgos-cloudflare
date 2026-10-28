@@ -38,8 +38,10 @@ test('repository-wide diagnostic lookup may find historical Work proof', async (
 test('target-scoped lookup never reuses another job proof', async () => {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
   const oldJob = await repository.create({ id:'old-job', requested_by:'mel-autonomy', goal:'old proof', optional_context:{ roadmap_id:'MEL-WORK-01' } });
+  // A historical proof remains readable after its previous objective closes.
+  // Real D1 admission correctly forbids a second simultaneously active job.
+  await repository.update(oldJob.id, { status:'COMPLETED', result_json:{ autonomy_proofs:{ work_dag_resume: proof() } } });
   const newJob = await repository.create({ id:'new-job', requested_by:'mel-autonomy', goal:'new proof', optional_context:{ roadmap_id:'MEL-WORK-02' } });
-  await repository.update(oldJob.id, { result_json:{ autonomy_proofs:{ work_dag_resume: proof() } } });
   assert.equal(await findVerifiedRuntimeWorkProof(repository, { targetJobId:newJob.id }), null);
 
   await repository.update(newJob.id, { result_json:{ autonomy_proofs:{ work_dag_resume:{ ...proof(), target_job_id:newJob.id } } } });
@@ -51,8 +53,8 @@ test('target-scoped lookup never reuses another job proof', async () => {
 test('incomplete target proof is not reusable even when an older valid proof exists', async () => {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
   const oldJob = await repository.create({ id:'old-valid', requested_by:'mel-autonomy', goal:'old proof', optional_context:{ roadmap_id:'MEL-WORK-01' } });
+  await repository.update(oldJob.id, { status:'COMPLETED', result_json:{ autonomy_proofs:{ work_dag_resume: proof(oldJob.id) } } });
   const target = await repository.create({ id:'target-invalid', requested_by:'mel-autonomy', goal:'new proof', optional_context:{ roadmap_id:'GEN2-17' } });
-  await repository.update(oldJob.id, { result_json:{ autonomy_proofs:{ work_dag_resume: proof(oldJob.id) } } });
   await repository.update(target.id, { result_json:{ autonomy_proofs:{ work_dag_resume:{ ...proof(), providers_attempted:1 } } } });
   assert.equal(await findVerifiedRuntimeWorkProof(repository, { targetJobId:target.id }), null);
 });

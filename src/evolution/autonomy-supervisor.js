@@ -3,7 +3,7 @@ import { approvedEvolutionRoadmap } from '../roadmap/evolution-autonomy-queue.js
 import { flattenRoadmap, ROADMAP_STATUSES, isClosedRoadmapStatus } from '../roadmap/master-roadmap.js';
 import { isClaimedPreparedDevBridgeJob } from '../dev/bridge-job-state.js';
 
-const TERMINAL_JOB = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED', 'DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED']);
+const TERMINAL_JOB = new Set(['COMPLETED', 'CANCELLED', 'FAILED', 'DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED']);
 const BLOCKED_ROADMAP = new Set([ROADMAP_STATUSES.BLOCKED_HUMAN, ROADMAP_STATUSES.BLOCKED_EXTERNAL]);
 function isVerifiedRoadmap(item) { return isClosedRoadmapStatus(item?.status); }
 const PRIORITY_WEIGHT = Object.freeze({ P0: 0, P1: 10, P2: 20, P3: 30 });
@@ -235,7 +235,7 @@ export function isSupervisedAutonomyJob(job) {
 }
 
 export class AutonomySupervisor {
-  constructor({ repository, roadmap = currentRoadmap(), evolutionLoader = null, epochMs = 0, onlyJobId = null } = {}) {
+  constructor({ repository, roadmap = currentRoadmap(), evolutionLoader = null, epochMs = 0, onlyJobId = null, singleFlight = true } = {}) {
     if (!repository || typeof repository.list !== 'function' || typeof repository.create !== 'function') {
       throw Object.assign(new Error('AUTONOMY_JOB_REPOSITORY_REQUIRED'), { code: 'AUTONOMY_JOB_REPOSITORY_REQUIRED' });
     }
@@ -243,12 +243,23 @@ export class AutonomySupervisor {
     this.roadmap = roadmap;
     this.epochMs = Number(epochMs) || 0;
     this.onlyJobId = onlyJobId ? String(onlyJobId) : null;
+    this.singleFlight = singleFlight === true;
     if (evolutionLoader !== null && typeof evolutionLoader !== 'function') throw new Error('EVOLUTION_QUEUE_INVALID_LOADER');
     this.evolutionLoader = evolutionLoader;
   }
 
+  async listSchedulerJobs() {
+    const recent = await this.repository.list();
+    if (typeof this.repository.listActiveAutonomyJobs !== 'function') return recent;
+    const active = await this.repository.listActiveAutonomyJobs();
+    const byId = new Map(recent.map(job => [job.id, job]));
+    // Active full rows take precedence over trimmed UI rows.
+    for (const job of active) byId.set(job.id, job);
+    return [...byId.values()];
+  }
+
   async state() {
-    const jobs = await this.repository.list();
+    const jobs = await this.listSchedulerJobs();
     // Only jobs created by the supervised autonomy channels may advance, block
     // or consume roadmap attempts. Legacy/manual Professor jobs remain visible
     // in the repository but cannot forge roadmap completion evidence.
@@ -276,7 +287,7 @@ export class AutonomySupervisor {
     const reopenedIds = new Set(this.roadmap.filter(item => String(item.status).toUpperCase() === 'REGRESSED').map(item => item.id));
     for (const item of evolutionItems || []) if (item.status === 'REGRESSED') reopenedIds.add('EVOLUTION-' + item.id);
     const completedIds = supervisedJobs
-      .filter(job => ['COMPLETED', 'COMMITTED'].includes(String(job.status).toUpperCase()) || isClosedRoadmapStatus(job.status))
+      .filter(job => ['COMPLETED'].includes(String(job.status).toUpperCase()) || isClosedRoadmapStatus(job.status))
       .map(roadmapIdFromJob).filter(id => id && !reopenedIds.has(id));
     const completedSet = new Set(completedIds);
     const active = supervisedJobs.filter(job => !TERMINAL_JOB.has(String(job.status || '').toUpperCase()))
@@ -294,6 +305,14 @@ export class AutonomySupervisor {
       const roadmapId = roadmapIdFromJob(job);
       if (!roadmapId) continue;
       failedAttemptsByRoadmap.set(roadmapId, (failedAttemptsByRoadmap.get(roadmapId) || 0) + 1);
+    }
+    // The recent UI window omits old terminal failures. Use the complete D1
+    // counts for quarantine without duplicating failures present in this list.
+    if (typeof this.repository.failedAutonomyObjectiveCounts === 'function') {
+      const persisted = await this.repository.failedAutonomyObjectiveCounts();
+      for (const [id, count] of Object.entries(persisted || {})) {
+        failedAttemptsByRoadmap.set(id, Math.max(failedAttemptsByRoadmap.get(id) || 0, Number(count) || 0));
+      }
     }
     const retryExhaustedIds = [...failedAttemptsByRoadmap.entries()]
       .filter(([, attempts]) => attempts >= MAX_AUTONOMOUS_ROADMAP_ATTEMPTS)
@@ -323,13 +342,106 @@ export class AutonomySupervisor {
   }
 
   async ensureNextJob() {
+    // Release stale non-executing D1 jobs only when the canonical roadmap
+    // explicitly marks their objective verified. Never delete history or
+    // interrupt Teacher, Bridge or review lanes.
+    if (typeof this.repository.reconcileVerifiedAutonomyJob === 'function') {
+      const verifiedStatuses = new Set(['DONE_VERIFIED', 'VERIFIED', 'ACCEPTED']);
+      const explicitlyVerified = item => verifiedStatuses.has(String(item?.status || '').trim().toUpperCase());
+      const verified = new Map(this.roadmap.filter(explicitlyVerified).map(item => [item.id, item]));
+      // The persistent evolution backlog is separate from the base roadmap.
+      // Only its explicitly verified entries may release an old D1 admission
+      // fence, and a loader failure must never certify completion.
+      if (this.evolutionLoader) {
+        try {
+          for (const item of await this.evolutionLoader()) {
+            const id = String(item?.id || '');
+            if (!/^[A-Z0-9-]+$/.test(id) || !explicitlyVerified(item)) continue;
+            verified.set('EVOLUTION-' + id, { ...item, id: 'EVOLUTION-' + id });
+          }
+        } catch {
+          // state() reports EVOLUTION_QUEUE_READ_FAILED when this matters.
+        }
+      }
+      if (verified.size) {
+        for (const job of await this.listSchedulerJobs()) {
+          const item = job?.requested_by === 'mel-autonomy' ? verified.get(roadmapIdFromJob(job)) : null;
+          if (!item || TERMINAL_JOB.has(String(job.status || '').toUpperCase())) continue;
+          try {
+            await this.repository.reconcileVerifiedAutonomyJob(job.id, item);
+          } catch (error) {
+            if (error?.code !== 'JOB_UPDATE_CONFLICT') throw error;
+          }
+        }
+      }
+    }
     const current = await this.state();
     if (this.onlyJobId) {
       const wanted = current.active.find(job => job.id === this.onlyJobId) || null;
       return { created: false, job: wanted, next: current.next };
     }
     const actionable = selectActionableAutonomyJob(current.active, { epochMs: this.epochMs, roadmap: this.roadmap });
+    // Single-flight must not switch to a different internal objective just
+    // because an older one is waiting for Teacher, Bridge or CI. Explicit
+    // owner-chat requests retain their established priority.
+    const activeInternal = current.active
+      .filter(job => job.requested_by === 'mel-autonomy')
+      .filter(job => !this.roadmap.some(item => item.id === roadmapIdFromJob(job) && isVerifiedRoadmap(item)))
+      .sort((left, right) => Number(left?.created_at || 0) - Number(right?.created_at || 0)
+        || String(left?.id || '').localeCompare(String(right?.id || '')))[0] || null;
+    if (this.singleFlight && activeInternal && actionable?.requested_by !== 'owner-chat') {
+      // COMMITTED means the candidate was committed, not necessarily that the
+      // release passed live verification. D1's admission fence still sees this
+      // state as active; never run a second mission or re-enter COMMITTED.
+      if (String(activeInternal.status || '').toUpperCase() === 'COMMITTED') {
+        return {
+          created: false, job: null, next: current.next, complete: false,
+          external_progress: {
+            job_id: activeInternal.id,
+            status: 'DELIVERY_VERIFICATION_PENDING',
+          },
+        };
+      }
+      if (isClaimedPreparedDevBridgeJob(activeInternal) || providerDeferred(activeInternal)) {
+        return {
+          created: false, job: null, next: current.next, complete: false,
+          external_progress: {
+            job_id: activeInternal.id,
+            status: providerDeferred(activeInternal) ? 'DEFERRED_PROVIDER_RETRY_PENDING' : 'BRIDGE_EXECUTION_IN_PROGRESS',
+          },
+        };
+      }
+      return { created: false, job: activeInternal, next: current.next };
+    }
     if (actionable) return { created: false, job: actionable, next: current.next };
+
+    // Never materialize another roadmap job while an existing internal
+    // objective is still active, even when its external lane is passive.
+    // Keep the old selection/owner-priority semantics for the active job.
+    const inFlightInternal = current.active
+      .filter(job => job.requested_by === 'mel-autonomy')
+      .sort(compareActiveJobs)[0] || null;
+    if (this.singleFlight && inFlightInternal) {
+      if (String(inFlightInternal.status || '').toUpperCase() === 'COMMITTED') {
+        return { created: false, job: null, next: current.next, complete: false,
+          external_progress: { job_id: inFlightInternal.id, status: 'DELIVERY_VERIFICATION_PENDING' } };
+      }
+      // A Bridge-owned prepared CLAIMED job or a deferred provider must not
+      // be re-entered by the generic runtime while its external lane owns it.
+      if (isClaimedPreparedDevBridgeJob(inFlightInternal) || providerDeferred(inFlightInternal)) {
+        return {
+          created: false,
+          job: null,
+          next: current.next,
+          complete: false,
+          external_progress: {
+            job_id: inFlightInternal.id,
+            status: providerDeferred(inFlightInternal) ? 'DEFERRED_PROVIDER_RETRY_PENDING' : 'BRIDGE_EXECUTION_IN_PROGRESS',
+          },
+        };
+      }
+      return { created: false, job: inFlightInternal, next: current.next };
+    }
 
     // Teacher, Bridge execution and CI/review are validation/execution lanes,
     // not global scheduler locks. A passive job remains persisted and keeps
@@ -371,7 +483,11 @@ export class AutonomySupervisor {
     }
 
     const item = current.next;
-    const attempts = current.supervisedJobs.filter((job) => roadmapIdFromJob(job) === item.id).length;
+    const listedAttempts = current.supervisedJobs.filter((job) => roadmapIdFromJob(job) === item.id).length;
+    const persistedAttempts = typeof this.repository.countAutonomyObjectiveAttempts === 'function'
+      ? await this.repository.countAutonomyObjectiveAttempts(item.id)
+      : listedAttempts;
+    const attempts = Math.max(listedAttempts, persistedAttempts);
     const deterministicId = jobAttemptId(item.id, attempts + 1, this.epochMs);
     const goal = `[${item.id}] ${item.title}${item.next ? ` — ${item.next}` : ''} | OBJECTIF ${manifestObjective(this.roadmap)}`;
     const input = {
@@ -392,6 +508,20 @@ export class AutonomySupervisor {
 
     if (typeof this.repository.createIfAbsent === 'function') {
       const result = await this.repository.createIfAbsent(input);
+      // The atomic D1 admission fence can return an older, different active
+      // objective (e.g. a verified roadmap item still awaiting Bridge review).
+      // Never feed that job to the runtime as though it were the next mission.
+      if (!result.created && result.job?.requested_by === 'mel-autonomy'
+          && roadmapIdFromJob(result.job) !== item.id) {
+        return {
+          created: false, job: null, next: item, complete: false,
+          external_progress: {
+            job_id: result.job.id,
+            roadmap_id: roadmapIdFromJob(result.job),
+            status: 'ACTIVE_OBJECTIVE_REQUIRES_RECONCILIATION',
+          },
+        };
+      }
       if (result.job && this.epochMs && jobActivityTimestamp(result.job) < this.epochMs) {
         return {created:false,job:null,next:null,complete:false,external_progress:{job_id:result.job.id,status:'ACTIVE_OBJECTIVE_OUTSIDE_CURRENT_EPOCH'}};
       }
