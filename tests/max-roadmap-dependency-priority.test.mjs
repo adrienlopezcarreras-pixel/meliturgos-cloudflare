@@ -21,7 +21,11 @@ test('all canonical roadmap edges reference existing IDs and never form cycles',
   assert.equal(open.length, 43);
   assert.equal(open.filter(row => ['IMPLEMENT','FIX','VERIFY'].includes(row.mode)).length, 38);
   assert.equal(open.filter(row => row.mode === 'EXTERNAL').length, 5);
-  assert.ok(open.every(row => row.required_proof), 'every runnable roadmap has an acceptance contract');
+  assert.ok(open.every(row => row.required_proof), 'every open roadmap item has an acceptance contract');
+  const promoted = items.map(row => row.id === 'MEL-FOUNDER-06'
+    ? { ...row, status: 'DONE_VERIFIED' } : row);
+  assert.deepEqual(validateRoadmapTechnicalWork(promoted), [],
+    'when a formerly external mission is truly verified, its immutable contract stays valid');
   const serialized = getRoadmapPayload().phases.flatMap(phase => phase.items);
   assert.equal(serialized.find(row => row.id === 'MEL-MANIFEST-03').mode, 'VERIFY');
   assert.deepEqual(serialized.find(row => row.id === 'MEL-MANIFEST-03').depends_on,
