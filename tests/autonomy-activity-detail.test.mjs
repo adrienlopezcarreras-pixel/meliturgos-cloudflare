@@ -274,3 +274,16 @@ test('QUEUED missions never occupy the displayed execution slot', async () => {
   assert.equal(activeAutonomyMission([...queued,running])?.id,'running');
   assert.equal(activeAutonomyMission([...queued,{...running,status:'COMPLETED'}]),null);
 });
+
+
+test('displayed mission selection and waiting count are deduplicated', async () => {
+  const running={...approved,id:'single-running',status:'PLANNING',result_json:{}};
+  const queued={...approved,id:'single-waiting',status:'QUEUED',result_json:{}};
+  const rows=[running,running,queued,queued];
+  const db={prepare(sql){const st={bind(){return st;},async run(){return {};},async all(){return {results:/FROM dev_jobs/.test(sql)?rows:[]};},async first(){return sql.startsWith('SELECT status,last_seen,metadata_json FROM dev_bridge_state')?{status:'MAX_AUTONOMY',last_seen:now,metadata_json:JSON.stringify({paused:false,max_autonomy:true})}:null;}};return st;}};
+  const activity=await buildAutonomyActivity({DB:db},{now,repository:{list:async()=>rows}});
+  assert.equal(activity.counts.active,1);
+  assert.equal(activity.counts.waiting,1);
+  assert.equal(activity.jobs.filter(job=>job.queue_state==='ACTIVE').length,1);
+  assert.equal(activity.jobs.filter(job=>job.queue_state==='WAITING').length,1);
+});
