@@ -369,11 +369,6 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
     const by = String(job?.requested_by || '').toLowerCase();
     return (by === 'mel-autonomy' || by.startsWith('owner-chat')) && atOrAfter(jobActivityTimestamp(job), epoch);
   }).sort((a, b) => Number(b?.updated_at || 0) - Number(a?.updated_at || 0));
-  const byStatus = {};
-  for (const job of supervised) {
-    const s = String(job?.status || 'UNKNOWN').toUpperCase();
-    byStatus[s] = (byStatus[s] || 0) + 1;
-  }
   // COMMITTED still awaits CI and promotion. Only genuinely terminal jobs leave active counts.
   const terminal = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
   // Display one entry per persisted mission, regardless of repeated snapshots.
