@@ -290,23 +290,29 @@ test('GPT6: older job outside the bounded list can still complete by exact ID', 
 });
 
 
-test('MEL-MANIFEST-01 cannot finish merely because Teacher and full candidate CI succeeded', async () => {
+test('MEL-MANIFEST-01 records all five truthful statuses without waiting for Gmail or paused hardware', async () => {
   const repository = await approvedRepository({ roadmapId: 'MEL-MANIFEST-01' });
-  const before = await repository.get(JOB);
   const result = await reconcileRuntimeCompletions({
     repository,
     env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
     fetchImpl: fetchImplFor(),
   });
-  assert.equal(result.completed.length, 0);
-  assert.equal(result.rejected.length, 1);
-  assert.equal(result.rejected[0].code, 'MANIFEST_01_FOUNDATION_PROOFS_REQUIRED');
-  assert.deepEqual(result.rejected[0].pending.map(row => row.priority), [0, 1, 2, 3]);
-  assert.equal(result.rejected[0].pending.some(row => row.priority === 4), false,
-    'APK, MINI and Companion must never block the cloud completion');
-  assert.deepEqual(result.rejected[0].deferred_hardware.map(row => row.priority), [4]);
-  assert.equal(result.rejected[0].deferred_hardware[0].reason, 'PHYSICAL_DEVICE_PROOF_REQUIRED');
-  assert.deepEqual(await repository.get(JOB), before, 'the live job and its evidence must not be erased or falsely closed');
+  assert.equal(result.completed.length, 1, JSON.stringify(result.rejected));
+  assert.equal(result.rejected.length, 0);
+  const stored = await repository.get(JOB);
+  assert.equal(stored.status, 'COMPLETED');
+  const account = stored.result_json.autonomy_completion.manifest_01;
+  assert.equal(account.account_verified, true);
+  assert.equal(account.status, 'ACCOUNT_RECORDED_PENDING_PRIORITIES');
+  assert.equal(account.all_priorities_verified, false);
+  assert.equal(account.cloud_priorities_verified, false);
+  assert.equal(account.priorities.length, 5);
+  assert.deepEqual(account.priorities.map(row => row.priority), [0, 1, 2, 3, 4]);
+  assert.ok(account.priorities.some(row => row.priority === 0 && row.verified === false),
+    'Gmail remains a separate actionable founder job, not a false success');
+  assert.ok(account.priorities.some(row => row.priority === 4
+    && row.verified === false && row.blocking === false
+    && row.reason === 'PHYSICAL_DEVICE_PROOF_REQUIRED'));
 });
 
 test('manifest acceptance never treats paused hardware as a blocker or as verified', async () => {
@@ -316,6 +322,8 @@ test('manifest acceptance never treats paused hardware as a blocker or as verifi
   const ready = manifest01FoundationPrerequisites(synthetic);
   assert.equal(ready.ready, true);
   assert.equal(ready.all_verified, true);
+  assert.equal(ready.reportable, true);
+  assert.equal(ready.account_status, 'ALL_PRIORITIES_VERIFIED');
   assert.equal(ready.blocking_required_count, 4);
   assert.equal(ready.verified_count, 5);
   assert.equal(ready.pending.length, 0);
@@ -324,6 +332,7 @@ test('manifest acceptance never treats paused hardware as a blocker or as verifi
     : i === 4 ? { ...row, status: 'BLOCKED_HUMAN' } : row);
   const pending = manifest01FoundationPrerequisites(notEnough);
   assert.equal(pending.ready, false);
+  assert.equal(pending.reportable, false, 'DONE is not a canonical verified or in-progress status');
   assert.equal(pending.verified_count, 3);
   assert.deepEqual(pending.pending.map(row => row.priority), [3, 4]);
   assert.deepEqual(pending.pending.map(row => row.reason), [
@@ -336,11 +345,18 @@ test('manifest acceptance never treats paused hardware as a blocker or as verifi
   const cloudReady = manifest01FoundationPrerequisites(cloudDoneHardwarePaused);
   assert.equal(cloudReady.ready, true, 'cloud tasks must finish without an APK/MINI/Companion');
   assert.equal(cloudReady.all_verified, false, 'hardware is not silently certified');
+  assert.equal(cloudReady.reportable, true, 'a truthful account is valid while physical tests are paused');
   assert.equal(cloudReady.verified_count, 4);
   assert.deepEqual(cloudReady.nonblocking_pending.map(row => row.roadmap_id), ['MEL-FOUNDER-06']);
   assert.equal(cloudReady.priorities[4].verified, false);
   assert.equal(cloudReady.priorities[4].blocking, false);
   assert.equal(manifest01FoundationPrerequisites([]).ready, false, 'missing cloud entries cannot create evidence');
+  assert.equal(manifest01FoundationPrerequisites([]).reportable, false);
+  const inProgress = synthetic.map(row => ({ ...row, status: row.id === 'MEL-FOUNDER-06' ? 'BLOCKED_HUMAN' : 'IN_PROGRESS' }));
+  const account = manifest01FoundationPrerequisites(inProgress);
+  assert.equal(account.reportable, true, 'accounting is possible before the founder jobs execute');
+  assert.equal(account.ready, false, 'the reported founder jobs are not verified');
+  assert.equal(account.account_status, 'ACCOUNT_RECORDED_PENDING_PRIORITIES');
 });
 
 
