@@ -161,7 +161,8 @@ test('learning controls are canonical and LoRA validation is not mislabeled as r
 
 test('every canonical id button is automatically inventoried and wired', async () => {
   const fullHtml = await (await renderFull()).text();
-  const fullSource = await readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8');
+  const fullSource = (await readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8'))
+    + '\n' + (await readFile(new URL('../src/pages/objective-panel-runtime.js', import.meta.url), 'utf8'));
   const fullIds = assertIdButtonsWired(fullHtml, fullSource, 'full interface');
   assert.ok(fullIds.length >= 30, 'full interface button inventory unexpectedly small');
 

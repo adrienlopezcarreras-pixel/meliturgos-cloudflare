@@ -4,6 +4,8 @@ import { applyObjectiveStep, objectiveFromMessage, stepsForObjective } from '../
 import { handleChatObjective } from '../../src/api/chat-objective-api.js';
 import { sqliteD1 } from '../helpers/sqlite-d1.mjs';
 import { onRequestGet } from '../../src/pages/mvp-interface-v3.js';
+import { onRequestGet as onProfessorGet } from '../../src/pages/full-interface-v2.js';
+import { OBJECTIVE_PANEL_SOURCE } from '../../src/pages/objective-panel-runtime.js';
 import { NORMAL_RUNTIME_SOURCE } from '../../src/pages/mvp-runtime.js';
 
 test('a chat objective becomes a short followable list', () => {
@@ -60,11 +62,22 @@ test('the active objective is stored, replaced and stepped', async () => {
   assert.equal((await current.json()).plan.id, next.id);
 });
 
-test('the chat page keeps one fixed objective panel', async () => {
-  const html = await (await onRequestGet()).text();
-  assert.equal((html.match(/id="objectivePanel"/g) || []).length, 1);
-  assert.match(html, /src="\/normal-runtime\.js\?v=10"/);
-  assert.match(NORMAL_RUNTIME_SOURCE, /maybeTrackObjective/);
-  assert.match(NORMAL_RUNTIME_SOURCE, /function queueMessage/);
-  assert.ok(NORMAL_RUNTIME_SOURCE.indexOf('function queueMessage') < NORMAL_RUNTIME_SOURCE.indexOf('maybeTrackObjective'));
+test('objective panel exists only in Professor chat, never in Normal', async () => {
+  const normal = await (await onRequestGet()).text();
+  const professor = await (await onProfessorGet()).text();
+  assert.equal(normal.includes('id="objectivePanel"'), false);
+  assert.equal(normal.includes('class="objective-panel"'), false);
+  assert.equal(normal.includes('Objectif en cours'), false);
+  assert.equal(normal.includes('src="/normal-runtime.js?v=10"'), true);
+  assert.equal(NORMAL_RUNTIME_SOURCE.includes('maybeTrackObjective'), false);
+  assert.equal(NORMAL_RUNTIME_SOURCE.includes('/api/chat/objective'), false);
+  assert.equal((professor.match(/id="objectivePanel"/g) || []).length, 1);
+  assert.equal(professor.includes('Objectif en cours'), true);
+  assert.equal(professor.includes('id="objectiveAdd"'), true);
+  assert.equal(professor.includes('id="objectiveAddSubmit"'), true);
+  assert.equal(professor.includes("if(originalText&&source!=='code-auto'"), true);
+  assert.equal(professor.includes('function maybeTrackObjective'), true);
+  assert.equal(professor.includes('readObjective()'), true);
+  assert.equal(OBJECTIVE_PANEL_SOURCE.includes('/api/chat/objective/step'), true);
+  assert.equal(OBJECTIVE_PANEL_SOURCE.includes('const melQueueMessage=queueMessage'), false);
 });
