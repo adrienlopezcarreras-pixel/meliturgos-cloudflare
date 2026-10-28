@@ -466,19 +466,19 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
     if (!job) continue;
     if (String(job.status || '').toUpperCase() === 'COMPLETED' && job.result_json?.autonomy_completion?.candidate_sha === record.candidate_sha) continue;
 
-    // MEL-MANIFEST-01 is a cloud-first account of founder priorities.
-    // Priorities 0..3 require canonical verified evidence; priority 4 is a
-    // separate paused physical-device acceptance task (APK/MINI/Companion).
-    // Keep it explicitly unverified, but never block a cloud completion for it.
+    // The first Manifest job accounts for five canonical priority statuses.
+    // It is NOT a dependency barrier on their eventual completion. With the
+    // single-flight scheduler such a barrier would make the live Gmail and
+    // other founder work permanently unreachable. A verified account may
+    // truthfully list IN_PROGRESS, PLANNED or BLOCKED_HUMAN priorities.
     const manifest01 = job?.optional_context?.roadmap_id === 'MEL-MANIFEST-01'
       ? manifest01FoundationPrerequisites() : null;
-    if (manifest01 && !manifest01.ready) {
+    if (manifest01 && !manifest01.reportable) {
       rejected.push({
         job_id: job.id,
         request_id: record.request_id,
-        code: 'MANIFEST_01_FOUNDATION_PROOFS_REQUIRED',
-        pending: manifest01.blocking_pending,
-        deferred_hardware: manifest01.nonblocking_pending,
+        code: 'MANIFEST_01_CANONICAL_ACCOUNT_MISSING',
+        missing: manifest01.priorities.filter(row => row.status === 'NOT_FOUND').map(row => row.roadmap_id),
       });
       continue;
     }
@@ -541,12 +541,21 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
         status: 'VERIFIED',
         ...(founder01Proof ? { founder_01_live_proof: founder01Proof } : {}),
         ...(manifest01 ? { manifest_01: {
-          status: manifest01.all_verified ? 'ALL_PRIORITIES_VERIFIED' : 'CLOUD_VERIFIED_HARDWARE_DEFERRED',
-          cloud_prerequisites_verified: manifest01.ready,
+          status: manifest01.account_status,
+          source: manifest01.source,
+          account_verified: manifest01.reportable,
+          all_priorities_verified: manifest01.all_verified,
+          cloud_priorities_verified: manifest01.ready,
           founder_verified_count: manifest01.verified_count,
           founder_total_count: manifest01.required_count,
-          hardware_accepted: manifest01.nonblocking_pending.length === 0,
-          pending_hardware: manifest01.nonblocking_pending,
+          // Snapshot only canonical statuses, not invented evidence or
+          // unverified success claims. The separate paused hardware item is
+          // never written as DONE_VERIFIED by completing this account.
+          priorities: manifest01.priorities.map(row => ({
+            priority: row.priority, roadmap_id: row.roadmap_id,
+            status: row.status, verified: row.verified,
+            blocking: row.blocking, reason: row.reason,
+          })),
         } } : {}),
         request_id: record.request_id,
         candidate_sha: record.candidate_sha,
