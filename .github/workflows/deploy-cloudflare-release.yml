@@ -31,7 +31,7 @@ on:
       owner_max_autorelease:
         description: Reactivate MAX after verified release (owner/safety pauses remain authoritative)
         required: false
-        default: true
+        default: false
         type: boolean
 
 permissions:
