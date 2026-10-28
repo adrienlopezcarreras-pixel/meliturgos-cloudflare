@@ -63,7 +63,7 @@ export function validateCapabilityInventory(bus) {
     unimplemented: capabilities.filter(row=>row.status === 'NOT_IMPLEMENTED').length,
     runtime_verified: 0,
     structural_ok: invalid.length === 0,
-    all_validated: capabilities.length === 0 ? false : false,
+    all_validated: false, // static contracts never certify live execution
     execution_performed: false,
     counts,
     capabilities,
