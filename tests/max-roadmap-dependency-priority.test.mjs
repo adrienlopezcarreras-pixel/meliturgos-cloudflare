@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { AutonomySupervisor, selectActionableAutonomyJob, selectNextAutonomyItem } from '../src/evolution/autonomy-supervisor.js';
-import { flattenRoadmap, validateRoadmap } from '../src/roadmap/master-roadmap.js';
-import { unmetRoadmapPrerequisites, validateRoadmapDependencies } from '../src/roadmap/roadmap-dependencies.js';
+import { flattenRoadmap, validateRoadmap, getRoadmapPayload } from '../src/roadmap/master-roadmap.js';
+import { unmetRoadmapPrerequisites, validateRoadmapDependencies, validateRoadmapTechnicalWork } from '../src/roadmap/roadmap-dependencies.js';
 
 const roadmap = [
   { id: 'TEST-FOUNDATION', title: 'Deliver tested foundation', priority: 'P0', status: 'PLANNED', next: 'implement then test', depends_on: [] },
@@ -16,6 +16,16 @@ test('all canonical roadmap edges reference existing IDs and never form cycles',
   const items = flattenRoadmap();
   assert.equal(validateRoadmap().ok, true, JSON.stringify(validateRoadmap().issues));
   assert.deepEqual(validateRoadmapDependencies(items), []);
+  assert.deepEqual(validateRoadmapTechnicalWork(items), []);
+  const open = items.filter(row => row.status !== 'DONE_VERIFIED');
+  assert.equal(open.length, 43);
+  assert.equal(open.filter(row => ['IMPLEMENT','FIX','VERIFY'].includes(row.mode)).length, 38);
+  assert.equal(open.filter(row => row.mode === 'EXTERNAL').length, 5);
+  assert.ok(open.every(row => row.required_proof), 'every runnable roadmap has an acceptance contract');
+  const serialized = getRoadmapPayload().phases.flatMap(phase => phase.items);
+  assert.equal(serialized.find(row => row.id === 'MEL-MANIFEST-03').mode, 'VERIFY');
+  assert.deepEqual(serialized.find(row => row.id === 'MEL-MANIFEST-03').depends_on,
+    ['MEL-FOUNDER-03','MEL-FOUNDER-04']);
   const manifest = items.find(item => item.id === 'MEL-MANIFEST-01');
   assert.ok(manifest.depends_on.includes('MEL-FOUNDER-02'));
   assert.ok(!items.find(item => item.id === 'MEL-FOUNDER-06').depends_on.length,
