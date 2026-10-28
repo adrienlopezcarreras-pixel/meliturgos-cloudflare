@@ -2,6 +2,7 @@ import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { AutonomySupervisor, providerRetryContext, BRIDGE_MENTOR_ROUNDS } from './autonomy-supervisor.js';
+import { boundedCouncilDeferral } from './provider-exhaustion-rotation.js';
 import { prepareDevelopmentRequest } from './development-preflight.js';
 import { createGitHubCodeReader } from '../capabilities/github-code-capabilities.js';
 import { createTeacherReviewRequest } from '../teachers/teacher-request.js';
@@ -922,7 +923,9 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         await jobRepository.update(job.id, {
           result_json: {
             ...latest.result_json,
-            autonomy_deferral: { ...deferred, retry_after: retryAt },
+            autonomy_deferral: boundedCouncilDeferral({
+              job: latest, deferred, retryAt, freshAttempts,
+            }),
             council_model_attempts: attempts,
             council_model_exclusions: [...quarantine.values()].slice(0, 40),
             ...(isCooldown ? { council_provider_cooldown: {
