@@ -5,6 +5,8 @@ on:
   pull_request:
     paths:
       - 'tests/autonomy-runtime.test.mjs'
+      - 'src/dev/d1-dev-job-repository.js'
+      - 'tests/autonomy-objective-admission.test.mjs'
       - 'src/evolution/**'
       - 'src/maintenance/**'
       - 'release-tools/predeploy-backup-refresh/system-restore-proof.mjs'
@@ -48,6 +50,7 @@ jobs:
           node --check src/evolution/chat-intent.js &&
           node --check src/evolution/semantic-intent.js &&
           node --check src/evolution/autonomy-runtime.js &&
+          node --check src/dev/d1-dev-job-repository.js &&
           node --check src/evolution/autonomy-supervisor.js &&
           node --check src/evolution/evolution-proof-runner.js &&
           node --check src/evolution/release-launch-bootstrap.js &&
@@ -73,6 +76,7 @@ jobs:
         run: >
           node --test
           tests/autonomy-runtime.test.mjs
+          tests/autonomy-objective-admission.test.mjs
           tests/autonomy-completion-gates.test.mjs
           tests/autonomy-supervisor.test.mjs
           tests/autonomy-implementation-planner.test.mjs
