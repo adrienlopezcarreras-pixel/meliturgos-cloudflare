@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { OBJECTIVE_PANEL_SOURCE } from '../src/pages/objective-panel-runtime.js';
 import { onRequestGet as renderNormal } from '../src/pages/mvp-interface-v3.js';
 import { NORMAL_RUNTIME_SOURCE } from '../src/pages/mvp-runtime.js';
 import { onRequestGet as renderFull } from '../src/pages/full-interface-v2.js';
@@ -31,6 +32,9 @@ function escapeRe(value) {
 
 function assertIdButtonsWired(html, source, label) {
   const ids = idButtonIds(html);
+  // Floating objective controls live in the dedicated Professor runtime.
+  // Audit that runtime together with the canonical page, not markup alone.
+  if (label === 'full') source += '\n' + OBJECTIVE_PANEL_SOURCE;
   const aliases = new Map();
   for (const match of String(source).matchAll(/\b([A-Za-z_$][\w$]*)=(?:qs|q)\(["']#([^"']+)["']\)/g)) {
     aliases.set(match[2], match[1]);
