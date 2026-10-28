@@ -106,7 +106,7 @@ async function requeueOrphanReview(repository, job) {
     plan_json: plan,
     result_json: result,
     error: null,
-  });
+  }, { expected: job });
   return { job_id: updated.id, from: 'READY_FOR_REVIEW', to: 'QUEUED', reason: result.passive_state_recovery.reason };
 }
 
