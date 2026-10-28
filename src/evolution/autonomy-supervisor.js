@@ -97,6 +97,8 @@ function providerDeferred(job) {
   // 25/10) get the rounds the current policy grants before the large model.
   const exhausted = delay?.exhausted === true
     && !(delay?.phase === 'bridge' && Number(delay?.max_attempts) === 1 && Number(delay?.attempts || 0) < BRIDGE_MENTOR_ROUNDS);
+  // Keep exhausted identical retries parked until the approved context changes.
+  // A mere elapsed cooldown must never reset the bounded provider budget.
   return exhausted || Number(delay?.retry_after || 0) > Date.now();
 }
 

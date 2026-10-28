@@ -166,3 +166,23 @@ test('MAX selector admits only one actionable mission with roadmap before errors
   assert.equal(selected[0].id, 'roadmap-1');
   assert.equal(selectActionableAutonomyJobs(jobs.slice(0, 2), { roadmap: [] })[0].id, 'error-ledger-1');
 });
+
+
+test('MAX does not restart exhausted identical provider retries when cooldown expires', async () => {
+  const repository = repo();
+  const job = await repository.create({
+    id: 'mel-autonomy-manifest-01-retry', requested_by: 'mel-autonomy',
+    goal: '[MEL-MANIFEST-01] Retry provider',
+    optional_context: { roadmap_id: 'MEL-MANIFEST-01', source: 'autonomy-supervisor' },
+  });
+  await repository.update(job.id, { result_json: { autonomy_deferral: {
+    exhausted: true, phase: 'mentor', attempts: 3, max_attempts: 3,
+    retry_after: Date.now() - 60_000,
+  } } });
+  const supervisor = new AutonomySupervisor({ repository, roadmap: [
+    { id: 'MEL-MANIFEST-01', title: 'Retry provider', status: 'PLANNED', priority: 'P0' },
+  ] });
+  const parked = await supervisor.ensureNextJob();
+  assert.equal(parked.job, null);
+  assert.equal(parked.external_progress?.status, 'DEFERRED_PROVIDER_RETRY_PENDING');
+});
