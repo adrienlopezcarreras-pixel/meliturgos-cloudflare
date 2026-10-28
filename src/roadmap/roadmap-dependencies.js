@@ -23,7 +23,10 @@ export const ROADMAP_HARD_DEPENDENCIES = Object.freeze({
 });
 
 export function roadmapPrerequisiteIds(item) {
-  return Array.isArray(item?.depends_on) ? item.depends_on : (ROADMAP_HARD_DEPENDENCIES[item?.id] || []);
+  // An injected or evolved roadmap must declare its own edges explicitly.
+  // Never silently attach production dependencies to a synthetic job with
+  // the same ID (tests, external evolution queues, prior roadmap versions).
+  return Array.isArray(item?.depends_on) ? item.depends_on : [];
 }
 
 export function unmetRoadmapPrerequisites(item, roadmap = [], completedIds = []) {
