@@ -51,18 +51,28 @@ export const ROTATABLE_PROVIDER_EXHAUSTION_SQL = `(
 )`;
 
 /**
- * Council can report COOLDOWN_PENDING with no new provider invocation.
- * Count only failed model rounds, not the timer polling itself. This keeps
- * a real three-round limit without burning attempts during provider cooldown.
+ * A Council review that cannot reach an authorized provider is still a failed
+ * scheduling attempt. Count one *eligible* review window, not heartbeat polls
+ * or the number of model calls. This prevents zero-provider outages from
+ * retaining a permanent D1 single-flight lock.
  */
-export function boundedCouncilDeferral({ job, deferred, retryAt, freshAttempts = [] } = {}) {
+export function boundedCouncilDeferral({ job, deferred, retryAt, freshAttempts = [], now = Date.now() } = {}) {
   const context = providerRetryContext(job);
   const previous = job?.result_json?.autonomy_deferral;
-  const previousRounds = previous?.phase === 'council' && previous?.context === context
+  const sameContext = previous?.phase === 'council' && previous?.context === context;
+  const previousRounds = sameContext
     ? Math.max(0, Math.min(3, Number(previous.attempts) || 0)) : 0;
+  const previousRetryAt = Number(previous?.retry_after);
+  const stillInWindow = sameContext && Number.isFinite(previousRetryAt)
+    && previousRetryAt > now;
+  const attempts = Math.min(3, previousRounds + (stillInWindow ? 0 : 1));
   const invokedAndFailed = Array.isArray(freshAttempts)
     && freshAttempts.some(row => ['FAILED', 'TIMEOUT'].includes(String(row?.status || '').toUpperCase()));
-  const attempts = Math.min(3, previousRounds + (invokedAndFailed ? 1 : 0));
+  // Existing proofs and model failure traces stay with the original job;
+  // this marker explains whether a counted round actually invoked a model.
   return { ...deferred, phase: 'council', context,
-    attempts, max_attempts: 3, exhausted: attempts >= 3, retry_after: retryAt };
+    attempts, max_attempts: 3, exhausted: attempts >= 3,
+    last_round: stillInWindow ? previous?.last_round || 'WINDOW_PENDING'
+      : (invokedAndFailed ? 'PROVIDER_FAILURE' : 'NO_ELIGIBLE_PROVIDER_WINDOW'),
+    retry_after: stillInWindow ? previousRetryAt : retryAt };
 }

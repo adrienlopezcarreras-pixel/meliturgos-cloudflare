@@ -178,3 +178,26 @@ test('three identical provider retries rotate the mission without a fourth attem
     assert.equal((await repository.get(id)).result_json.autonomy_deferral.attempts,1);
   } finally {Date.now=now;}
 });
+
+test('legacy Council cooldown without a provider call receives a bounded scheduling attempt', async () => {
+  const { boundedCouncilDeferral } = await import('../src/evolution/provider-exhaustion-rotation.js');
+  const start = 1792749000000;
+  const job = {
+    requested_by: 'mel-autonomy', status: 'QUEUED', candidate_branch: null,
+    result_json: { autonomy_deferral: {
+      code: 'COUNCIL_PROVIDER_COOLDOWN_PENDING', retry_after: start - 1,
+    } },
+  };
+  const first = boundedCouncilDeferral({ job,
+    deferred: { code: 'COUNCIL_PROVIDER_COOLDOWN_PENDING', observed_at: start },
+    retryAt: start + 300_000, now: start, freshAttempts: [],
+  });
+  assert.equal(first.attempts, 1);
+  assert.equal(first.last_round, 'NO_ELIGIBLE_PROVIDER_WINDOW');
+  const repeated = boundedCouncilDeferral({ job: { ...job, result_json: { autonomy_deferral: first } },
+    deferred: { code: 'COUNCIL_PROVIDER_COOLDOWN_PENDING' },
+    retryAt: start + 600_000, now: start + 1000, freshAttempts: [],
+  });
+  assert.equal(repeated.attempts, 1);
+  assert.equal(repeated.retry_after, first.retry_after);
+});
