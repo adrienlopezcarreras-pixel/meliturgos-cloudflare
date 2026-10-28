@@ -240,12 +240,13 @@ export async function reviewVerificationEvidence(env, { job, implementation, ciR
   const evidence = [
     'AUCUN DIFF : MEL affirme que l’objectif est déjà satisfait par la version existante, sans modifier le code.',
     'Juge si les preuves ci-dessous démontrent réellement l’objectif. REJECT si une preuve manque ou si un changement est nécessaire.',
+    'Exception limitée à MEL-FOUNDER-01 : le manifeste autorise un diagnostic EXACT de connexion/authentification manquante comme preuve du parcours d’erreur, PAS comme preuve de lecture Gmail/Agenda/Drive réussie. Les erreurs réseau, permissions ou fournisseurs génériques ne sont jamais des preuves.',
     `SHA candidat exact : ${head}`,
     `full-candidate-ci verte sur ce SHA : run ${Number(ciRunId)}`,
     `Fichiers inspectés : ${inspected.join(', ') || '(aucun)'}`,
     'PREUVES FONCTIONNELLES EXÉCUTÉES EN PRODUCTION (lecture seule, résultat seulement) :',
     liveChecks.length
-      ? liveChecks.map(c => `- ${c.capability} : ${c.ok ? 'OK' : 'ÉCHEC ' + (c.code || '')}${c.items != null ? ' (' + c.items + ' élément(s))' : ''}`).join('\n')
+      ? liveChecks.map(c => `- ${c.capability} : ${c.outcome === 'AUTH_REQUIRED' ? 'AUTHENTIFICATION MANQUANTE (aucune lecture réussie) ' + (c.code || '') : c.ok ? 'OK' : 'ÉCHEC ' + (c.code || '')}${c.items != null ? ' (' + c.items + ' élément(s))' : ''}`).join('\n')
       : '- AUCUNE. REJECT si l’objectif exige une preuve fonctionnelle en production.',
     'Décision et preuves de MEL :',
     String(implementation?.selected?.text || '').slice(0, 20_000),
