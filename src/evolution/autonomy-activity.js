@@ -1,3 +1,4 @@
+import { activeAutonomyMission } from './provider-exhaustion-rotation.js';
 import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 // Detailed, read-only view of what MEL is doing, for the « Activité » panel.
 //
@@ -375,7 +376,10 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
   }
   // COMMITTED still awaits CI and promotion. Only genuinely terminal jobs leave active counts.
   const terminal = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
-  const jobs = supervised.slice(0, Math.max(1, Math.min(60, limit))).map(job => describeJob(job, now));
+  const activeMission = control?.paused ? null : activeAutonomyMission(supervised);
+  const pending = supervised.filter(job => !terminal.has(String(job?.status || '').toUpperCase()) && job.id !== activeMission?.id);
+  const reportJobs = supervised.slice().sort((a,b)=>Number(b.id===activeMission?.id)-Number(a.id===activeMission?.id));
+  const jobs = reportJobs.slice(0, Math.max(1, Math.min(60, limit))).map(job => ({ ...describeJob(job, now), queue_state: terminal.has(String(job.status).toUpperCase()) ? 'TERMINAL' : job.id === activeMission?.id ? 'ACTIVE' : 'WAITING', priority_penalty: Number(job.result_json?.autonomy_deferral?.priority_penalty || (job.result_json?.autonomy_deferral?.exhausted ? 1 : 0)) }));
   const mentor = mentorMetrics(supervised);
   const executorAge = executor ? now - Number(executor.last_seen || 0) : null;
   return {
@@ -401,7 +405,8 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
     } : null,
     counts: {
       supervised_total: supervised.length,
-      active: supervised.filter(job => !terminal.has(String(job?.status || '').toUpperCase())).length,
+      active: activeMission ? 1 : 0,
+      waiting: pending.length,
       by_status: byStatus,
     },
     jobs,

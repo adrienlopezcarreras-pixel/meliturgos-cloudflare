@@ -1,3 +1,4 @@
+import { activeAutonomyMission } from './provider-exhaustion-rotation.js';
 import { readMaintenanceFence } from '../maintenance/maintenance-gate.js';
 import { createSystemBackupService } from '../backup/system-backup-runtime.js';
 import { inspectBackupReadiness } from '../maintenance/global-reset.js';
@@ -83,7 +84,9 @@ export async function getAutonomyState(env, { repository = null, autonomyControl
     readAutonomyProgressWatchdog(env.DB),
   ]);
   const autonomyJobs = state.jobs.filter(isSupervisedAutonomyJob);
-  const active = autonomyJobs.filter(job => !TERMINAL.has(String(job.status || '').toUpperCase()));
+  const pendingJobs = autonomyJobs.filter(job => !TERMINAL.has(String(job.status || '').toUpperCase()));
+  const slot = control.paused ? null : activeAutonomyMission(pendingJobs);
+  const active = slot ? [slot] : [];
   const recent = autonomyJobs.slice().sort((a, b) => Number(b.updated_at || 0) - Number(a.updated_at || 0)).slice(0, 20).map(safeJob);
   return {
     ok: true,
@@ -110,11 +113,13 @@ export async function getAutonomyState(env, { repository = null, autonomyControl
       owner_requested: autonomyJobs.filter(job => job?.requested_by === 'owner-chat').length,
       roadmap_requested: autonomyJobs.filter(job => job?.requested_by === 'mel-autonomy').length,
       active: active.length,
+      waiting: pendingJobs.length - active.length,
       completed: autonomyJobs.filter(job => ['COMPLETED', 'COMMITTED'].includes(String(job.status || '').toUpperCase())).length,
       waiting_teacher: autonomyJobs.filter(job => String(job.status || '').toUpperCase() === 'WAITING_TEACHER').length,
       teacher_approved: autonomyJobs.filter(job => String(job.status || '').toUpperCase() === 'TEACHER_APPROVED').length,
       failed: autonomyJobs.filter(job => String(job.status || '').toUpperCase() === 'FAILED').length,
     },
+    waiting_jobs: pendingJobs.filter(job => job.id !== slot?.id).map(safeJob),
     active_jobs: active.slice().sort((a, b) => (a?.requested_by === 'owner-chat' ? 0 : 1) - (b?.requested_by === 'owner-chat' ? 0 : 1) || Number(a.created_at || 0) - Number(b.created_at || 0)).map(safeJob),
     recent_activity: recent,
     next: safeRoadmapItem(state.next),

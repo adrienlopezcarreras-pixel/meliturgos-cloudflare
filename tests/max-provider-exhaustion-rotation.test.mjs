@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { AutonomySupervisor, providerRetryContext } from '../src/evolution/autonomy-supervisor.js';
-import { isRotatableProviderExhaustion, boundedCouncilDeferral } from '../src/evolution/provider-exhaustion-rotation.js';
+import { isRotatableProviderExhaustion, boundedCouncilDeferral, activeAutonomyMission } from '../src/evolution/provider-exhaustion-rotation.js';
 
 const roadmap = [
   { id: 'MEL-MANIFEST-01', title: 'Provider blocked roadmap', status: 'PLANNED', priority: 'P0' },
@@ -222,4 +222,14 @@ for (const storage of ['memory', 'sqlite']) test(`bounded cloud policy reopens a
   const repeated = boundedCouncilDeferral({ job: await repository.get(original.id), deferred: { code: old.code }, retryAt: now + 300_001, now: now + 1 });
   assert.equal(repeated.attempts, 1, 'the new policy is persisted; heartbeat/redeploy cannot replenish attempts');
   assert.equal((await supervisor.ensureNextJob()).job, null, 'current policy cooldown is still enforced');
+});
+
+
+test('one activity slot excludes all demoted waiting missions without deleting their proofs', () => {
+  const jobs = Array.from({length:15},(_,i)=>({id:'j'+i,requested_by:'mel-autonomy',status:'QUEUED',created_at:i,
+    result_json:{autonomy_deferral:{phase:'implementation',exhausted:true,attempts:3,max_attempts:3,context:providerRetryContext({}),priority_penalty:1}}}));
+  assert.equal(activeAutonomyMission(jobs),null);
+  const next={id:'new',requested_by:'mel-autonomy',status:'QUEUED',created_at:20,result_json:{}};
+  assert.equal(activeAutonomyMission([...jobs,next]).id,'new');
+  assert.equal(jobs.length,15);assert.equal(jobs[0].result_json.autonomy_deferral.attempts,3);
 });

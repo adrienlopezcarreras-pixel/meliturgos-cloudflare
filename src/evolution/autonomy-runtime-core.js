@@ -3,7 +3,7 @@ import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { AutonomySupervisor, providerRetryContext, BRIDGE_MENTOR_ROUNDS } from './autonomy-supervisor.js';
-import { boundedCouncilDeferral } from './provider-exhaustion-rotation.js';
+import { boundedCouncilDeferral, activeAutonomyMission } from './provider-exhaustion-rotation.js';
 import { prepareDevelopmentRequest } from './development-preflight.js';
 import { createGitHubCodeReader } from '../capabilities/github-code-capabilities.js';
 import { createTeacherReviewRequest } from '../teachers/teacher-request.js';
@@ -1085,7 +1085,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   if ((Array.isArray(state?.completedIds) ? state.completedIds.length : 0) > initialCompletedCount) {
     progressEvents.push('ROADMAP_COMPLETION_ADVANCED');
   }
-  const activeCount = Array.isArray(state?.active) ? state.active.length : 0;
+  const activeCount = activeAutonomyMission(Array.isArray(state?.active) ? state.active : []) ? 1 : 0;
   const workRemaining = autonomyWorkRemaining(state);
   const waitingExternal = (teacher?.status === 'NOT_READY' && Boolean(providerDeferral(teacher.code)))
     || finalJobStatus === 'WAITING_TEACHER'

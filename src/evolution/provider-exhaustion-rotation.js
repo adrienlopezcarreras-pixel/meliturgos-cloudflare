@@ -75,7 +75,18 @@ export function boundedCouncilDeferral({ job, deferred, retryAt, freshAttempts =
   // this marker explains whether a counted round actually invoked a model.
   return { ...deferred, phase: 'council', context, inference_policy: COUNCIL_INFERENCE_POLICY,
     attempts, max_attempts: 3, exhausted: attempts >= 3,
+    priority_penalty: Math.max(0, Number(previous?.priority_penalty) || 0) + (attempts >= 3 && previous?.exhausted !== true ? 1 : 0),
     last_round: stillInWindow ? previous?.last_round || 'WINDOW_PENDING'
       : (invokedAndFailed ? 'PROVIDER_FAILURE' : 'NO_ELIGIBLE_PROVIDER_WINDOW'),
     retry_after: stillInWindow ? previousRetryAt : retryAt };
+}
+
+// A queue entry is not an executing mission. Match the single-flight scheduler.
+export function activeAutonomyMission(jobs = []) {
+  return jobs.filter(job => job?.requested_by === 'mel-autonomy'
+    && !['COMPLETED','CANCELLED','FAILED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED'].includes(String(job.status).toUpperCase())
+    && !isRotatableProviderExhaustion(job))
+    .sort((a,b)=>Number(Boolean(a.result_json?.autonomy_deferral?.exhausted && a.result_json.autonomy_deferral.context !== providerRetryContext(a)))
+      - Number(Boolean(b.result_json?.autonomy_deferral?.exhausted && b.result_json.autonomy_deferral.context !== providerRetryContext(b)))
+      || Number(a.created_at||0)-Number(b.created_at||0)||String(a.id).localeCompare(String(b.id)))[0] || null;
 }
