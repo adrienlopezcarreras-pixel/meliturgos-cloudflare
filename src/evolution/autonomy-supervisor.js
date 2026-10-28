@@ -193,7 +193,8 @@ export function selectActionableAutonomyJobs(jobs = [], { epochMs = 0, roadmap =
     .filter(job => !closedIds.has(roadmapIdFromJob(job)))
     .filter(job => {
       const item = roadmap.find(row => row.id === roadmapIdFromJob(job));
-      return !item || !unmetRoadmapPrerequisites(item, roadmap, completedIds).length;
+      return !item || (!BLOCKED_ROADMAP.has(String(item.status || '').toUpperCase())
+        && !unmetRoadmapPrerequisites(item, roadmap, completedIds).length);
     })
     .filter((job) => !TERMINAL_JOB.has(String(job?.status || '').toUpperCase()))
     .filter((job) => !isPassiveRuntimeJob(job))
@@ -401,7 +402,8 @@ export class AutonomySupervisor {
         if (job.requested_by !== 'mel-autonomy'
             || !['QUEUED', 'TEACHER_APPROVED'].includes(String(job.status || '').toUpperCase())) return false;
         const item = this.roadmap.find(row => row.id === roadmapIdFromJob(job));
-        return item && unmetRoadmapPrerequisites(item, this.roadmap, current.completedIds).length > 0;
+        return item && (BLOCKED_ROADMAP.has(String(item.status || '').toUpperCase())
+          || unmetRoadmapPrerequisites(item, this.roadmap, current.completedIds).length > 0);
       });
       if (blocked) {
         const item = this.roadmap.find(row => row.id === roadmapIdFromJob(blocked));
@@ -414,6 +416,7 @@ export class AutonomySupervisor {
               dependency_wait: {
                 previous_status: blocked.status,
                 prerequisites: dependencies,
+                ...(BLOCKED_ROADMAP.has(String(item.status || '').toUpperCase()) ? { blocker: item.status } : {}),
                 observed_at: new Date().toISOString(),
               },
             },
@@ -428,6 +431,12 @@ export class AutonomySupervisor {
     }
     if (this.onlyJobId) {
       const wanted = current.active.find(job => job.id === this.onlyJobId) || null;
+      const item = this.roadmap.find(row => row.id === roadmapIdFromJob(wanted));
+      if (item && (BLOCKED_ROADMAP.has(String(item.status || '').toUpperCase())
+        || unmetRoadmapPrerequisites(item, this.roadmap, current.completedIds).length)) {
+        return { created: false, job: null, next: current.next, complete: false,
+          external_progress: { job_id: wanted.id, status: 'ROADMAP_PREREQUISITES_PENDING' } };
+      }
       return { created: false, job: wanted, next: current.next };
     }
     // A parked mission may receive a newly approved SHA while its rotated
