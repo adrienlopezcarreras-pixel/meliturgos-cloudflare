@@ -371,14 +371,12 @@ function gmailAuthFailure(cause) {
 }
 
 async function gmailNativeRead({ resolveAccessToken, fetchImpl, context, url, method, body, code }) {
-  let last = null;
   for (const connectorId of GMAIL_TOKEN_CONNECTORS) {
     try {
       const token = await tokenFor(resolveAccessToken, connectorId, context);
       const result = await requestJson(fetchImpl, token, url, { method, body, code, signal: context?.signal });
       return { provider: 'google', body: result };
     } catch (cause) {
-      last = cause;
       if (gmailAuthFailure(cause)) continue;
       throw cause;
     }
