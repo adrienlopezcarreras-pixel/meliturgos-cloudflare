@@ -65,6 +65,11 @@ jobs:
           tests/self-state-introspection.test.mjs
           tests/chat-gap-development-routing.test.mjs
           tests/evolution-chat-gap-e2e.test.mjs
+      - name: Validate every registered capability and roadmap prerequisites (read-only)
+        run: >
+          node --test
+          tests/capability-inventory-gate.test.mjs
+          tests/max-roadmap-dependency-priority.test.mjs
       - name: Targeted supervised autonomy proof
         # GPT6 2026-10-21: the planner tests use mocked zero-cost providers;
         # this flag is strictly Node-only and cannot authorize production providers.
