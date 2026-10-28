@@ -257,9 +257,9 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.doesNotMatch(binderBlock, /release-launch-bootstrap/);
 });
 
-test('automatic and manual releases request guarded MAX restoration after verified proofs', async () => {
+test('automatic releases preserve owner MAX state and manual releases can request guarded restoration', async () => {
   const source = await readExpandedReleaseWorkflow();
-  assert.match(source, /OWNER_MAX_AUTORELEASE: \$\{\{ github\.event_name != 'workflow_dispatch' && 'true' \|\| \(inputs\.owner_max_autorelease && 'true' \|\| 'false'\) \}\}/, 'automatic releases request MAX restoration and manual release honors its owner selection');
+  assert.match(source, /OWNER_MAX_AUTORELEASE: \$\{\{ github\.event_name != 'workflow_dispatch' && 'true' \|\| \(inputs\.owner_max_autorelease && 'true' \|\| 'false'\) \}\}/, 'automatic releases preserve owner-disabled MAX while manual release honors its owner selection');
   const browser = source.indexOf('      - name: Prove real production browser.execute');
   const safeStop = source.indexOf('      - name: Keep MAX disabled after hardening release');
   const max = source.indexOf('      - name: Re-enable MAX 100% after verified autonomous release');
