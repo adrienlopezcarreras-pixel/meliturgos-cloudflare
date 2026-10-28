@@ -1,8 +1,9 @@
+import { staleCouncilDeferral } from '../teachers/council-inference-policy.js';
 import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { AutonomySupervisor, providerRetryContext, BRIDGE_MENTOR_ROUNDS } from './autonomy-supervisor.js';
-import { boundedCouncilDeferral } from './provider-exhaustion-rotation.js';
+import { boundedCouncilDeferral, activeAutonomyMission } from './provider-exhaustion-rotation.js';
 import { prepareDevelopmentRequest } from './development-preflight.js';
 import { createGitHubCodeReader } from '../capabilities/github-code-capabilities.js';
 import { createTeacherReviewRequest } from '../teachers/teacher-request.js';
@@ -587,7 +588,7 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
         ...(current.optional_context && typeof current.optional_context === 'object' ? current.optional_context : {}),
         job_id: current.id,
         origin: 'autonomy-runtime-cron',
-        council_excluded_providers: (Array.isArray(current.result_json?.council_model_exclusions)
+        council_excluded_providers: (!staleCouncilDeferral(current) && Array.isArray(current.result_json?.council_model_exclusions)
           ? current.result_json.council_model_exclusions : [])
           .filter(row => row && typeof row.id === 'string' && Number(row.until) > Date.now())
           .slice(0, 40),
@@ -889,7 +890,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       if (!deferred) throw error;
       const latest = await jobRepository.get(job.id);
       if (latest && !['FAILED', 'CANCELLED', 'COMPLETED'].includes(String(latest.status))) {
-        const existing = Array.isArray(latest.result_json?.council_model_exclusions)
+        const existing = !staleCouncilDeferral(latest) && Array.isArray(latest.result_json?.council_model_exclusions)
           ? latest.result_json.council_model_exclusions : [];
         const now = Date.now();
         const quarantine = new Map(existing
@@ -923,6 +924,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         await jobRepository.update(job.id, {
           result_json: {
             ...latest.result_json,
+            ...(staleCouncilDeferral(latest) ? { council_previous_policy_failure: { deferral: latest.result_json?.autonomy_deferral, attempts: latest.result_json?.council_model_attempts || [], exclusions: latest.result_json?.council_model_exclusions || [] } } : {}),
             autonomy_deferral: boundedCouncilDeferral({
               job: latest, deferred, retryAt, freshAttempts, now,
             }),
@@ -1083,7 +1085,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   if ((Array.isArray(state?.completedIds) ? state.completedIds.length : 0) > initialCompletedCount) {
     progressEvents.push('ROADMAP_COMPLETION_ADVANCED');
   }
-  const activeCount = Array.isArray(state?.active) ? state.active.length : 0;
+  const activeCount = activeAutonomyMission(Array.isArray(state?.active) ? state.active : []) ? 1 : 0;
   const workRemaining = autonomyWorkRemaining(state);
   const waitingExternal = (teacher?.status === 'NOT_READY' && Boolean(providerDeferral(teacher.code)))
     || finalJobStatus === 'WAITING_TEACHER'

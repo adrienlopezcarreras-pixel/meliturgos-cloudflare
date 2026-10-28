@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { AutonomySupervisor, providerRetryContext } from '../src/evolution/autonomy-supervisor.js';
-import { isRotatableProviderExhaustion, boundedCouncilDeferral } from '../src/evolution/provider-exhaustion-rotation.js';
+import { isRotatableProviderExhaustion, boundedCouncilDeferral, activeAutonomyMission } from '../src/evolution/provider-exhaustion-rotation.js';
 
 const roadmap = [
   { id: 'MEL-MANIFEST-01', title: 'Provider blocked roadmap', status: 'PLANNED', priority: 'P0' },
@@ -197,4 +197,39 @@ for (const storage of ['memory', 'sqlite']) test(`changed parked context cannot 
   assert.equal(resumed.created, false);
   assert.equal(resumed.job.id, firstId,
     'changed-context original resumes only after its replacement leaves the active set');
+});
+
+for (const storage of ['memory', 'sqlite']) test(`bounded cloud policy reopens an old Council once and retains single flight on ${storage}`, async t => {
+  const DB = storage === 'sqlite' ? sqliteD1() : null;
+  if (DB) t.after(() => DB.close());
+  const repository = new D1DevJobRepository(DB, { memoryStore: new Map() });
+  const original = await repository.create({ id: 'old-unbounded-council', requested_by: 'mel-autonomy',
+    goal: '[MEL-MANIFEST-01] Recover bounded Cloud review', optional_context: { roadmap_id: 'MEL-MANIFEST-01' } });
+  const old = { code: 'COUNCIL_INSUFFICIENT_RESPONSES', phase: 'council', context: providerRetryContext(original),
+    attempts: 3, max_attempts: 3, exhausted: true, retry_after: Date.now() + 600_000 };
+  await repository.update(original.id, { result_json: { autonomy_deferral: old } });
+  assert.equal(isRotatableProviderExhaustion(await repository.get(original.id)), false);
+  await assert.rejects(() => repository.create({ id: 'parallel-mission', requested_by: 'mel-autonomy',
+    goal: '[MEL-MANIFEST-02] Must wait', optional_context: { roadmap_id: 'MEL-MANIFEST-02' } }),
+  { code: 'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE' });
+  const supervisor = new AutonomySupervisor({ repository, roadmap });
+  const resumed = await supervisor.ensureNextJob();
+  assert.equal(resumed.job.id, original.id);
+  const now = Date.now();
+  const first = boundedCouncilDeferral({ job: resumed.job, deferred: { code: old.code }, retryAt: now + 300_000, now });
+  assert.equal(first.attempts, 1);assert.equal(first.exhausted, false);
+  await repository.update(original.id, { result_json: { autonomy_deferral: first } });
+  const repeated = boundedCouncilDeferral({ job: await repository.get(original.id), deferred: { code: old.code }, retryAt: now + 300_001, now: now + 1 });
+  assert.equal(repeated.attempts, 1, 'the new policy is persisted; heartbeat/redeploy cannot replenish attempts');
+  assert.equal((await supervisor.ensureNextJob()).job, null, 'current policy cooldown is still enforced');
+});
+
+
+test('one activity slot excludes all demoted waiting missions without deleting their proofs', () => {
+  const jobs = Array.from({length:15},(_,i)=>({id:'j'+i,requested_by:'mel-autonomy',status:'QUEUED',created_at:i,
+    result_json:{autonomy_deferral:{phase:'implementation',exhausted:true,attempts:3,max_attempts:3,context:providerRetryContext({}),priority_penalty:1}}}));
+  assert.equal(activeAutonomyMission(jobs),null);
+  const next={id:'new',requested_by:'mel-autonomy',status:'QUEUED',created_at:20,result_json:{}};
+  assert.equal(activeAutonomyMission([...jobs,next]).id,'new');
+  assert.equal(jobs.length,15);assert.equal(jobs[0].result_json.autonomy_deferral.attempts,3);
 });

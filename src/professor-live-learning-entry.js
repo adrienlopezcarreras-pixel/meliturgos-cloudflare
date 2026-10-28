@@ -1,6 +1,6 @@
 import { maybeHandleArchitectureAuditInternal } from './diagnostics/architecture-audit-store.js';
 import app from './ui-entry.js';
-import { selectLatestCheckpointRelease } from './learning/lora-training-heartbeat.js';
+import { selectLatestCheckpointRelease, runLoraTrainingHeartbeat } from './learning/lora-training-heartbeat.js';
 import { requireAuth } from './core/security.js';
 import { authorizeDevBridge, isOidcBridgeCall } from './core/dev-bridge-auth.js';
 import { createLearningEngine } from './learning/learning-engine.js';
@@ -471,6 +471,15 @@ export default {
     }
     if (request.method === 'POST' && url.pathname === '/api/learning/benchmark/run') {
       return operatorBenchmarkResponse(request, env);
+    }
+    if (request.method === 'POST' && url.pathname === '/api/learning/lora/train') {
+      const auth = requireAuth(request, env);
+      if (!auth.ok) return auth.response;
+      try {
+        const result = await runLoraTrainingHeartbeat(env, { force: true, manualSingleCycle: true });
+        const ok = ['TRAINING_CHAIN_DISPATCHED','TRAINING_CHAIN_ACTIVE','TRAINING_LAUNCH_PENDING'].includes(result.status);
+        return json({ ok, ...result }, ok ? 200 : 503);
+      } catch { return json({ ok: false, error: 'LORA_TRAINING_LAUNCH_UNAVAILABLE' }, 503); }
     }
     if (request.method === 'POST' && url.pathname === '/api/learning/lora/prepare') {
       return operatorLoraPrepareResponse(request, env);

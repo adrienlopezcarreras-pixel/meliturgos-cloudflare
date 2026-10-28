@@ -1,3 +1,4 @@
+import { acquireD1WorkRunLease, releaseD1WorkRunLease } from '../work/d1-work-run-lease.js';
 import { enqueueSupervisedDevelopmentRequest } from '../evolution/owner-development-queue.js';
 import { discoverLoraDatasets } from './lora-dataset-discovery.js';
 import { observeLoraObjectives } from './lora-objective-observer.js';
@@ -178,7 +179,7 @@ async function dispatchWorkflow({ fetchImpl, repository, branch, workflow, token
   }
 }
 
-export async function runLoraTrainingHeartbeat(env = {}, options = {}) {
+async function runLoraTrainingHeartbeatUnlocked(env = {}, options = {}) {
   if (String(env?.MEL_LORA_CONTINUOUS_TRAINING ?? 'true').toLowerCase() === 'false') {
     return { status: 'DISABLED', dispatched: false };
   }
@@ -207,7 +208,7 @@ export async function runLoraTrainingHeartbeat(env = {}, options = {}) {
   // objective: the observer decides from repeated measured gaps whether a new
   // cycle is needed (uncensored regression, agentic gap) or whether the gap is
   // a code problem that a LoRA cannot fix.
-  const objective = impact.next_stage === 'AGENTIC_READY'
+  const objective = options.manualSingleCycle === true ? { decision: 'TRAIN_UNCENSORED', reason: 'OWNER_SINGLE_CYCLE_REQUEST' } : impact.next_stage === 'AGENTIC_READY'
     ? observeLoraObjectives({ impactRows: impact.rows || [], jobs: options.jobs || await recentJobs(env).catch(() => []) })
     : { decision: 'TRAIN_UNCENSORED', reason: 'UNCENSORED_GATE_NOT_REACHED' };
   delete impact.rows;
@@ -280,7 +281,7 @@ export async function runLoraTrainingHeartbeat(env = {}, options = {}) {
     }
 
     const checkpoint = await latestCheckpointRelease({ fetchImpl, repository, token });
-    if (checkpoint?.local_gate_ready === true) {
+    if (checkpoint?.local_gate_ready === true && options.manualSingleCycle !== true) {
       return {
         status: 'LOCAL_GATE_READY_FOR_CANONICAL_BENCHMARK',
         dispatched: false,
@@ -290,9 +291,10 @@ export async function runLoraTrainingHeartbeat(env = {}, options = {}) {
       };
     }
 
-    const sha = await candidateHead({ fetchImpl, repository, branch, token });
+    const sha = options.manualSingleCycle === true && checkpoint?.target_commitish
+      ? checkpoint.target_commitish : await candidateHead({ fetchImpl, repository, branch, token });
     const shardSize = String(safeInt(env?.MEL_LORA_KAGGLE_SHARD_SIZE, 750, 50, 3000));
-    const maxCyclesNumber = safeInt(env?.MEL_LORA_KAGGLE_MAX_CYCLES, 100, 1, 100);
+    const maxCyclesNumber = options.manualSingleCycle === true ? (checkpoint ? checkpoint.cycle + 2 : 1) : safeInt(env?.MEL_LORA_KAGGLE_MAX_CYCLES, 100, 1, 100);
     const maxCycles = String(maxCyclesNumber);
     const nextCycle = checkpoint ? checkpoint.cycle + 1 : 0;
     const parentReleaseTag = checkpoint?.tag || '';
@@ -363,3 +365,14 @@ export const LORA_TRAINING_HEARTBEAT_DEFAULTS = Object.freeze({
   max_cycles: 100,
   zero_cost_only: true,
 });
+
+// Manual and scheduled launches share the same atomic short lease. Retain it
+// after dispatch until the new GitHub run becomes visible in the run listing.
+export async function runLoraTrainingHeartbeat(env = {}, options = {}) {
+  if (!env.DB?.prepare || !env.MEL_GITHUB_TOKEN) return runLoraTrainingHeartbeatUnlocked(env, options);
+  const lease = await acquireD1WorkRunLease(env.DB, 'lora-training-launch', { ttlMs: 60_000 });
+  if (!lease) return { status: 'TRAINING_LAUNCH_PENDING', dispatched: false };
+  let result;
+  try { result = await runLoraTrainingHeartbeatUnlocked(env, options);return result; }
+  finally { if (!result?.dispatched) await releaseD1WorkRunLease(env.DB, lease); }
+}

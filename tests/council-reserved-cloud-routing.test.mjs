@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { withLearnedRuntime } from '../src/learning-entry.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import { withNeuronBudget,readNeuronBudget } from '../src/augmentio/neuron-budget.js';
 import { bindLocalPcWorkersAi } from '../src/models/local-pc-model.js';
@@ -13,13 +14,14 @@ test('real Council through the deployed budget wrapper uses distinct cloud bindi
   try {
     const env=withNeuronBudget({DB,AI:{run:async(model,inputs)=>{cloud.push({model,inputs});return {response:'Independent cloud fixture response for '+model,usage:{prompt_tokens:10,completion_tokens:10}};}}},{localRun:async()=>{budgetLocal.push('local');return {response:'one local model pretending to be every cloud model',model:'pc:qwen3:8b',local:true};}});
     bindLocalPcWorkersAi(env,async()=>{coderLocal.push('coder');return {ok:true,text:'local code',model:'pc:qwen2.5-coder:7b'};});
-    const councilEnv={...env,AI:env.MEL_CLOUD_AI,MEL_INFERENCE:undefined};
+    const councilEnv=withLearnedRuntime({...env,AI:env.MEL_CLOUD_AI,MEL_INFERENCE:undefined});
     const result=await prepareDevelopmentRequest({env:councilEnv,goal:'Inspect the existing bounded module without creating a duplicate'});
     assert.equal(result.council.status,'COMPLETE');
     assert.equal(budgetLocal.length,0,'budget wrapper must never send independent Council votes to the PC');
     assert.equal(coderLocal.length,0,'Council must bypass the coding wrapper');
     assert.ok(new Set(cloud.map(row=>row.model)).size>=2,'actual mocked cloud bindings, not provider labels, supply the distinct votes');
     assert.ok(cloud.every(row=>!Object.hasOwn(row.inputs,'neuron_reserve')),'internal routing marker is consumed by the meter before Cloudflare');
+    assert.ok(cloud.every(row=>row.inputs.max_tokens<=768),'Council must not inherit the 4096-token chat output default');
     assert.equal((await readNeuronBudget(DB)).calls,cloud.length,'cloud Council calls still pass through the budget meter');
     const before=cloud.length;
     assert.equal((await env.AI.run('@cf/qwen/qwen2.5-coder-32b-instruct',{messages:[{role:'user',content:'write the approved function'}]})).local,true);

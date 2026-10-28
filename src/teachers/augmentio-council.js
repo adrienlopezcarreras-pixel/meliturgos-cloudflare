@@ -1,3 +1,4 @@
+import { COUNCIL_CRITIQUE_MAX_TOKENS, COUNCIL_SYNTHESIS_MAX_TOKENS } from './council-inference-policy.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { ZeroEuroGovernor } from '../augmentio/zero-euro-governor.js';
 import { runStateOfPlayCouncil } from './model-council.js';
@@ -78,7 +79,7 @@ function promptFor(member, brief, role) {
     'OBJECTIF:', brief.goal,
     'CONTEXTE:', JSON.stringify(brief.context || {}),
     'QUESTIONS:', ...brief.questions.map((q, i) => `${i + 1}. ${q}`),
-    'Réponds avec: EXISTANT, MANQUES, OPTIONS, RISQUES, RECOMMANDATION, TESTS.',
+    'Réponds en six points courts (EXISTANT, MANQUES, OPTIONS, RISQUES, RECOMMANDATION, TESTS), 200 mots maximum. Conserve les preuves manquantes explicites.',
     `MEMBRE: ${member}`
   ].join('\n');
 }
@@ -227,7 +228,7 @@ async function invokeRoleWithFallback({ assignment, eligible, input, governor, d
     try {
       const result = await invokeMeasured(provider, {
         input,
-        context: { purpose: 'state-of-play-before-development', council_role: assignment.role.id }
+        context: { purpose: 'state-of-play-before-development', council_role: assignment.role.id, inference_settings: { max_tokens: COUNCIL_CRITIQUE_MAX_TOKENS } }
       }, { deadline, callTimeoutMs, attempts, excluded, role: assignment.role.id, governor });
       return {
         content: result?.text ?? String(result || ''),
@@ -269,7 +270,7 @@ function synthesisPrompt({ goal, context, report }) {
     'CONTEXTE:', JSON.stringify(context || {}),
     'AVIS INDÉPENDANTS:', JSON.stringify(independent),
     `CRITIQUES_DIGEST: ${inputDigest}`,
-    'Produis une SYNTHÈSE MEL avec: CONSENSUS, DÉSACCORDS, DÉCISION RECOMMANDÉE, PLAN MINIMAL, TESTS, RISQUES, QUESTIONS POUR LE TEACHER.'
+    'En 300 mots maximum, produis une SYNTHÈSE MEL avec: CONSENSUS, DÉSACCORDS, DÉCISION RECOMMANDÉE, PLAN MINIMAL, TESTS, RISQUES, QUESTIONS POUR LE TEACHER.'
   ].join('\n'),
   };
 }
@@ -285,7 +286,7 @@ async function synthesizeWithFallback({ eligible, goal, context, report, governo
     try {
       const result = await invokeMeasured(provider, {
         input,
-        context: { purpose: 'mel-council-synthesis', coordinator: 'MEL' }
+        context: { purpose: 'mel-council-synthesis', coordinator: 'MEL', inference_settings: { max_tokens: COUNCIL_SYNTHESIS_MAX_TOKENS } }
       }, { deadline, callTimeoutMs, attempts, excluded, role: 'MEL_SYNTHESIS', governor });
       const text = boundedText(result?.text ?? result?.response ?? result, 12000);
       if (!text) continue;

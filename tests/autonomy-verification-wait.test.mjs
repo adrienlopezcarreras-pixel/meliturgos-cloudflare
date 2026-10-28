@@ -169,8 +169,9 @@ test('three identical provider retries rotate the mission without a fourth attem
     await repository.update(rotated.job.id,{status:'COMPLETED'});
     supervisor.roadmap=[roadmap[0]];
     const parked=await supervisor.ensureNextJob();
-    assert.equal(parked.job,null,'expiry alone cannot grant unlimited identical retries');
-    assert.equal(parked.external_progress.reason,'PROVIDER_EXHAUSTED_CONTEXT_REQUIRED');
+    assert.equal(parked.job.id,id,'a demoted mission resumes only after fresh work finishes and its cooldown expires');
+    assert.equal(parked.job.result_json.autonomy_deferral.attempts,0);
+    assert.equal(parked.job.result_json.previous_provider_deferral.attempts,3);
     const current=await repository.get(id);
     await repository.update(id,{result_json:{...current.result_json,implementation_proposal:{...current.result_json.implementation_proposal,candidate_sha:'b'.repeat(40)}}});
     assert.equal((await supervisor.ensureNextJob()).job.id,id,'changed context can be selected, without bypassing runtime SHA gate');

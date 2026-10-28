@@ -392,3 +392,27 @@ test('a pipeline-caused gap becomes a MAX code mission instead of a training run
   assert.match(enqueued.goal, /MEL-LORA-CODE-FIX/);
   assert.equal(fetched, false);
 });
+
+test('manual training continues the verified checkpoint for one cycle without automatic activation', async () => {
+  let payload;
+  const result = await runLoraTrainingHeartbeat(baseEnv, {
+    force:true, manualSingleCycle:true, engine:engineWith([]),
+    fetchImpl:async(url,options={})=>{
+      const href=String(url);
+      if(href.includes('/runs'))return Response.json({workflow_runs:[]});
+      if(href.includes('/releases'))return Response.json([{tag_name:'mel-lora-kaggle-1234567890ab-c008',target_commitish:SHA,published_at:'2026-09-18T09:00:00Z',assets:publishedAssets,body:'Local next stage: LOCAL_GATE_READY_FOR_CANONICAL_BENCHMARK'}]);
+      if(href.endsWith('/dispatches')){payload=JSON.parse(options.body);return new Response(null,{status:204});}
+      throw Error('Unexpected external call '+href);
+    },
+  });
+  assert.equal(result.dispatched,true);assert.equal(result.cycle,9);
+  assert.equal(payload.inputs.source_sha,SHA);assert.equal(payload.inputs.max_cycles,'10');
+  assert.equal(payload.inputs.parent_release_tag,'mel-lora-kaggle-1234567890ab-c008');
+  assert.equal(payload.inputs.benchmark_preview,'false');assert.equal(payload.inputs.activate,undefined);
+});
+
+test('manual launch retains active-run deduplication',async()=>{
+  let calls=0;
+  const result=await runLoraTrainingHeartbeat(baseEnv,{force:true,manualSingleCycle:true,engine:engineWith([]),fetchImpl:async()=>{calls++;return Response.json({workflow_runs:[{id:99,status:'in_progress'}]});}});
+  assert.equal(result.status,'TRAINING_CHAIN_ACTIVE');assert.equal(result.dispatched,false);assert.equal(calls,1);
+});

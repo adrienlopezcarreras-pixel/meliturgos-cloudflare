@@ -1,3 +1,4 @@
+import { staleCouncilDeferral } from '../teachers/council-inference-policy.js';
 import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { approvedEvolutionRoadmap } from '../roadmap/evolution-autonomy-queue.js';
 import { flattenRoadmap, ROADMAP_STATUSES, isClosedRoadmapStatus } from '../roadmap/master-roadmap.js';
@@ -84,6 +85,7 @@ function currentRoadmap() {
 
 // CODEX: a durable, bounded provider delay is passive, not a global MAX lock.
 function providerDeferred(job) {
+  if (staleCouncilDeferral(job)) return false;
   const delay = job?.result_json?.autonomy_deferral;
   if (delay?.context && delay.context !== providerRetryContext(job)) return false;
   // Bridge-phase jobs parked under the old one-round limit (FOUNDER-02..07,
@@ -502,7 +504,21 @@ export class AutonomySupervisor {
           },
         };
       }
-      const exhausted = current.active.find(isRotatableProviderExhaustion);
+      const exhausted = current.active.filter(isRotatableProviderExhaustion)
+        .sort((a,b)=>Number(a.result_json?.autonomy_deferral?.priority_penalty||0)-Number(b.result_json?.autonomy_deferral?.priority_penalty||0)
+          || Number(a.result_json?.autonomy_deferral?.retry_after||0)-Number(b.result_json?.autonomy_deferral?.retry_after||0))[0];
+      if (!passiveOwner && exhausted && Number(exhausted.result_json?.autonomy_deferral?.retry_after||0) <= Date.now()) {
+        // Fresh roadmap work always comes first. Only when that queue is empty
+        // may a demoted entry claim the single slot for another bounded round.
+        const previous = exhausted.result_json.autonomy_deferral;
+        const resumed = await this.repository.update(exhausted.id, { result_json: {
+          ...exhausted.result_json,
+          previous_provider_deferral: previous,
+          autonomy_deferral: { ...previous, attempts: 0, exhausted: false, retry_after: 0 },
+          council_model_exclusions: [],
+        } }, { expected: exhausted });
+        return { created: false, job: resumed, next: null, complete: false };
+      }
       if (!passiveOwner && exhausted) {
         // Preserve the original mission in D1 without retrying its identical
         // provider context or claiming all remaining work complete.

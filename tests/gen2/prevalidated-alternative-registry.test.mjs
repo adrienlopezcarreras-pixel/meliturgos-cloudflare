@@ -29,7 +29,7 @@ test('only complete fresh alternatives are eligible for unattended failover',()=
     {id:'runtime.good',layer:'runtime',provider:'alt',added_cost_eur:0,proof:proof()},
     {id:'runtime.expired',layer:'runtime',provider:'old',added_cost_eur:0,proof:proof({expires_at:new Date(now-1).toISOString()})},
     {id:'runtime.partial',layer:'runtime',provider:'partial',added_cost_eur:0,proof:proof({rollback:false})},
-  ]);
+  ],{now});
   assert.deepEqual(
     eligibleAlternatives(registry,'runtime',{maxAddedCostEur:0,now}).map(x=>x.id),
     ['runtime.good'],
@@ -40,7 +40,7 @@ test('unknown-cost alternatives are not silently selected under zero-cost policy
   const registry=createAlternativeRegistry([
     {id:'ai.unknown',layer:'ai',provider:'alt',proof:proof()},
     {id:'ai.free',layer:'ai',provider:'free',added_cost_eur:0,proof:proof()},
-  ]);
+  ],{now});
   assert.deepEqual(
     eligibleAlternatives(registry,'ai',{maxAddedCostEur:0,now}).map(x=>x.id),
     ['ai.free'],
@@ -51,8 +51,8 @@ test('coverage stays incomplete until all sovereignty layers have at least one p
   const registry=createAlternativeRegistry([
     {id:'backup.gdrive',layer:'backup_restore',provider:'google-drive',added_cost_eur:0,proof:proof()},
     {id:'ai.alt',layer:'ai',provider:'alternate-ai',added_cost_eur:0,proof:proof()},
-  ]);
-  const coverage=sovereigntyCoverageFromRegistry(registry);
+  ],{now});
+  const coverage=sovereigntyCoverageFromRegistry(registry,{now});
   assert.equal(coverage.fully_covered,false);
   assert.ok(coverage.covered_layers.includes('ai'));
   assert.ok(coverage.covered_layers.includes('backup_restore'));
@@ -63,7 +63,7 @@ test('coverage stays incomplete until all sovereignty layers have at least one p
 test('proof expiration automatically removes an alternative from eligible set',()=>{
   const registry=createAlternativeRegistry([
     {id:'git.alt',layer:'source_control',provider:'git-alt',added_cost_eur:0,proof:proof()},
-  ]);
+  ],{now});
   assert.equal(eligibleAlternatives(registry,'source_control',{now}).length,1);
   assert.equal(eligibleAlternatives(registry,'source_control',{now:now+31*24*3600000}).length,0);
 });
