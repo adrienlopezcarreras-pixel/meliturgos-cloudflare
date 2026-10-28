@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { AutonomySupervisor, providerRetryContext } from '../src/evolution/autonomy-supervisor.js';
-import { isRotatableProviderExhaustion } from '../src/evolution/provider-exhaustion-rotation.js';
+import { isRotatableProviderExhaustion, boundedCouncilDeferral } from '../src/evolution/provider-exhaustion-rotation.js';
 
 const roadmap = [
   { id: 'MEL-MANIFEST-01', title: 'Provider blocked roadmap', status: 'PLANNED', priority: 'P0' },
@@ -104,4 +104,34 @@ test('D1 NULL deferral never bypasses the atomic admission fence', async t => {
     id: 'must-not-run-parallel', requested_by: 'mel-autonomy',
     goal: 'Second job', optional_context: { roadmap_id: 'MEL-MANIFEST-02' },
   }), { code: 'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE' });
+});
+
+for (const storage of ['memory', 'sqlite']) test(`Council cooldown polling never spends a model retry, but three real rounds release the next roadmap job on ${storage}`, async t => {
+  const DB = storage === 'sqlite' ? sqliteD1() : null;
+  if (DB) t.after(() => DB.close());
+  const repository = new D1DevJobRepository(DB, { memoryStore: new Map() });
+  const original = await repository.create({ id: 'council-mel-manifest-01',
+    requested_by: 'mel-autonomy', goal: '[MEL-MANIFEST-01] Council unavailable',
+    optional_context: { roadmap_id: 'MEL-MANIFEST-01', source: 'autonomy-supervisor' } });
+  for (let round = 1; round <= 3; round++) {
+    let current = await repository.get(original.id);
+    const failure = boundedCouncilDeferral({ job: current,
+      deferred: { code: 'COUNCIL_INSUFFICIENT_RESPONSES', observed_at: Date.now() },
+      retryAt: Date.now() + 300_000,
+      freshAttempts: [{ provider_id: 'workers-ai:test', status: 'TIMEOUT' }],
+    });
+    await repository.update(original.id, { result_json: { ...current.result_json, autonomy_deferral: failure } });
+    current = await repository.get(original.id);
+    const cooldown = boundedCouncilDeferral({ job: current,
+      deferred: { code: 'COUNCIL_PROVIDER_COOLDOWN_PENDING', observed_at: Date.now() },
+      retryAt: Date.now() + 300_000, freshAttempts: [] });
+    assert.equal(cooldown.attempts, round, 'cooldown is zero new model calls');
+    await repository.update(original.id, { result_json: { ...current.result_json, autonomy_deferral: cooldown } });
+    assert.equal(isRotatableProviderExhaustion(await repository.get(original.id)), round === 3);
+  }
+  const supervisor = new AutonomySupervisor({ repository, roadmap });
+  const next = await supervisor.ensureNextJob();
+  assert.equal(next.created, true);
+  assert.equal(next.job.optional_context.roadmap_id, 'MEL-MANIFEST-02');
+  assert.equal((await repository.get(original.id)).result_json.autonomy_deferral.attempts, 3);
 });
