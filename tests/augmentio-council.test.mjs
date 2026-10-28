@@ -327,3 +327,45 @@ test('Council rejects false quorum and retains bounded model errors on failure',
     },
   );
 });
+
+
+test('Council reports exact cooldown expiry without inventing failed model replies or re-invoking quarantined adapters', async () => {
+  const calls = [];
+  const pool = new ProviderPool([
+    provider('a', 0, calls),
+    provider('b', 0, calls),
+    provider('c', 0, calls),
+  ]);
+  const now = Date.now();
+  const firstExpiry = now + 61_000;
+  const secondExpiry = now + 121_000;
+  const context = { council_excluded_providers: [
+    { id: 'a', until: firstExpiry },
+    { id: 'b', until: secondExpiry },
+  ] };
+  await assert.rejects(
+    () => runAugmentioStateOfPlay({ env: {}, goal: 'resume the same first job', pool, context }),
+    error => {
+      assert.equal(error.code, 'COUNCIL_PROVIDER_COOLDOWN_PENDING');
+      assert.equal(error.authorized_count, 3);
+      assert.equal(error.eligible_count, 1);
+      assert.equal(error.retry_after, firstExpiry);
+      assert.deepEqual(error.council_model_attempts, []);
+      assert.deepEqual(new Set(error.council_model_exclusions), new Set(['a', 'b']));
+      return true;
+    },
+  );
+  assert.equal(calls.length, 0, 'a cooldown never pretends to contact a model');
+  // If every model is still excluded, two providers must recover to form quorum.
+  context.council_excluded_providers.push({ id: 'c', until: now + 181_000 });
+  await assert.rejects(
+    () => runAugmentioStateOfPlay({ env: {}, goal: 'wait for a real quorum', pool, context }),
+    error => {
+      assert.equal(error.code, 'COUNCIL_PROVIDER_COOLDOWN_PENDING');
+      assert.equal(error.eligible_count, 0);
+      assert.equal(error.retry_after, secondExpiry);
+      return true;
+    },
+  );
+  assert.equal(calls.length, 0);
+});

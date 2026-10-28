@@ -334,8 +334,22 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
   const authorized = providerPool.list({ capability }).filter(provider => governor.allows(provider));
   const eligible = authorized.filter(provider => !excluded.has(provider.id));
   if (authorized.length >= minResponses && eligible.length < minResponses) {
-    throw attachDiagnostics(Object.assign(new Error('COUNCIL_INSUFFICIENT_RESPONSES'), {
-      code: 'COUNCIL_INSUFFICIENT_RESPONSES', status: 503, responses: 0, required: minResponses,
+    // This is a cooldown, not a fresh inference failure: no provider was
+    // invoked. The old generic "insufficient responses" replaced the useful
+    // previous provider trace with [] and hid why the first mission stalled.
+    // Wait until enough exact, formerly authorized adapters become eligible.
+    const needed = minResponses - eligible.length;
+    const expirations = (Array.isArray(context?.council_excluded_providers) ? context.council_excluded_providers : [])
+      .filter(row => row && excluded.has(row.id) && authorized.some(provider => provider.id === row.id))
+      .map(row => Number(row.until))
+      .filter(until => Number.isFinite(until) && until > now)
+      .sort((a, b) => a - b);
+    const retryAfter = expirations[needed - 1] || now + 5 * 60_000;
+    throw attachDiagnostics(Object.assign(new Error('COUNCIL_PROVIDER_COOLDOWN_PENDING'), {
+      code: 'COUNCIL_PROVIDER_COOLDOWN_PENDING', status: 503,
+      responses: 0, required: minResponses,
+      authorized_count: authorized.length, eligible_count: eligible.length,
+      retry_after: retryAfter,
     }));
   }
   if (eligible.length < minResponses) {
