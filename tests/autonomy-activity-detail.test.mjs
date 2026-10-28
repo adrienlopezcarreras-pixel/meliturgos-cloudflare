@@ -303,3 +303,15 @@ test('passive queue retains over 60 distinct missions without an execution slot'
   assert.equal(activity.jobs.filter(job=>job.queue_state==='WAITING').length,125);
   assert.equal(new Set(activity.jobs.map(job=>job.id)).size,125);
 });
+
+
+test('scheduler admits only one queued mission while the rest remain unmodified', async () => {
+  const { selectActionableAutonomyJob } = await import('../src/evolution/autonomy-supervisor.js');
+  const queued=Array.from({length:125},(_,i)=>({id:'queue-'+i,requested_by:'mel-autonomy',status:'QUEUED',created_at:now+i,updated_at:now+i,result_json:{}}));
+  const original=JSON.stringify(queued);
+  const selected=selectActionableAutonomyJob(queued,{roadmap:[],epochMs:0});
+  assert.ok(selected);
+  assert.equal(queued.filter(job=>job.id===selected.id).length,1);
+  assert.equal(queued.filter(job=>job.status==='QUEUED').length,125);
+  assert.equal(JSON.stringify(queued),original);
+});
