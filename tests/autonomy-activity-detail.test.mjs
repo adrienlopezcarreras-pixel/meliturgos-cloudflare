@@ -315,3 +315,19 @@ test('scheduler admits only one queued mission while the rest remain unmodified'
   assert.equal(queued.filter(job=>job.status==='QUEUED').length,125);
   assert.equal(JSON.stringify(queued),original);
 });
+
+
+test('automatic error-correction jobs keep their queue category and remain passive until admitted', async () => {
+  const { autonomyQueueCategory, selectActionableAutonomyJob } = await import('../src/evolution/autonomy-supervisor.js');
+  const error={id:'error-ledger-504',requested_by:'mel-autonomy',status:'QUEUED',optional_context:{source:'error-ledger'},created_at:now,updated_at:now,result_json:{}};
+  const roadmap={...error,id:'roadmap-1',optional_context:{source:'roadmap'}};
+  const watch={...error,id:'ecosystem-watch-1',optional_context:{source:'ecosystem-watch'}};
+  assert.equal(autonomyQueueCategory(roadmap),0);
+  assert.equal(autonomyQueueCategory(error),1);
+  assert.equal(autonomyQueueCategory(watch),2);
+  const jobs=[error,roadmap,watch];
+  const before=JSON.stringify(jobs);
+  assert.ok(selectActionableAutonomyJob(jobs,{roadmap:[]}));
+  assert.equal(JSON.stringify(jobs),before);
+  assert.ok(jobs.every(job=>job.status==='QUEUED'));
+});
