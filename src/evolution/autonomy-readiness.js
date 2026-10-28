@@ -2,6 +2,7 @@ import { AutonomySupervisor, isSupervisedAutonomyJob } from './autonomy-supervis
 import { isVerifiedRuntimeWorkProof } from './autonomy-proof-identity.js';
 import { hasDistinctProviderAttempts } from './autonomy-provider-attempts.js';
 import { REQUIRED_COUNCIL_ROLE_IDS } from '../teachers/augmentio-council.js';
+import { manifest01FoundationPrerequisites } from '../roadmap/manifest-01-acceptance.js';
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -271,6 +272,9 @@ export async function getAutonomyReadiness({ repository } = {}) {
   if (!gates.coherent_single_job_loop) blockers.push('COHERENT_SINGLE_JOB_AUTONOMOUS_LOOP_NOT_PROVEN');
 
   const ready = blockers.length === 0;
+  // Expose a separate, bounded admission assessment. Generic
+  // SELF_DEVELOPMENT_READY is NOT proof of all manifesto priorities.
+  const manifest01 = manifest01FoundationPrerequisites();
   const current = state.active
     .filter(isSupervisedAutonomyJob)
     .sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0))[0] || null;
@@ -282,6 +286,7 @@ export async function getAutonomyReadiness({ repository } = {}) {
     evaluated_at: new Date().toISOString(),
     status: ready ? 'SELF_DEVELOPMENT_READY' : 'BUILDING_AUTONOMY',
     self_development_ready: ready,
+    manifest_01: manifest01,
     gates,
     blockers,
     evidence: {
