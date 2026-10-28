@@ -141,7 +141,7 @@ test('retry code matching rejects invented prefix extensions and structural fail
   for(const code of ['MENTOR_PROVIDER_TIMEOUT_UNSAFE','MENTOR_JSON_INVALID_EXTRA','NO_ELIGIBLE_MISSION','MENTOR_UNINSPECTED_PATH','MENTOR_INVALID_CHANGE']) assert.equal(providerDeferral(code),null,code);
 });
 
-test('identical provider retries hold the current mission and wake on a new approved context', async t => {
+test('three identical provider retries rotate the mission without a fourth attempt, then wake on new context', async t => {
   const {persistBridgePreparationDiagnostic}=await import('../src/evolution/autonomy-runtime-core.js');
   const {repository,id}=await fixture(t);
   const now=Date.now;
@@ -158,12 +158,19 @@ test('identical provider retries hold the current mission and wake on a new appr
     const roadmap=[{id:'MEL-FOUNDER-01',title:'A',status:'IN_PROGRESS',priority:'P0'},
       {id:'MEL-FOUNDER-02',title:'B',status:'PLANNED',priority:'P0'}];
     const supervisor=new AutonomySupervisor({repository,roadmap});
-    const waiting=await supervisor.ensureNextJob();
-    assert.equal(waiting.job,null,'exhausted provider retries must not start B');
-    assert.equal(waiting.external_progress?.job_id,id);
-    assert.equal((await repository.list()).length,1);
+    const rotated=await supervisor.ensureNextJob();
+    assert.equal(rotated.created,true,'one unrelated roadmap mission should progress after exhaustion');
+    assert.equal(rotated.job.optional_context.roadmap_id,'MEL-FOUNDER-02');
+    assert.equal((await repository.list()).length,2);
+    assert.equal((await repository.get(id)).result_json.autonomy_deferral.attempts,3,
+      'the parked objective must retain its exact provider failure budget');
+    assert.equal((await supervisor.ensureNextJob()).job.id,rotated.job.id,
+      'one runnable internal job still owns the single-flight slot');
+    await repository.update(rotated.job.id,{status:'COMPLETED'});
     supervisor.roadmap=[roadmap[0]];
-    assert.equal((await supervisor.ensureNextJob()).job,null,'expiry alone cannot grant unlimited identical retries');
+    const parked=await supervisor.ensureNextJob();
+    assert.equal(parked.job,null,'expiry alone cannot grant unlimited identical retries');
+    assert.equal(parked.external_progress.reason,'PROVIDER_EXHAUSTED_CONTEXT_REQUIRED');
     const current=await repository.get(id);
     await repository.update(id,{result_json:{...current.result_json,implementation_proposal:{...current.result_json.implementation_proposal,candidate_sha:'b'.repeat(40)}}});
     assert.equal((await supervisor.ensureNextJob()).job.id,id,'changed context can be selected, without bypassing runtime SHA gate');
