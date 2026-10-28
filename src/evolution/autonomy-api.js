@@ -99,6 +99,7 @@ export async function getAutonomyState(env, { repository = null, autonomyControl
     readiness: {
       status: readiness.status,
       self_development_ready: readiness.self_development_ready,
+      manifest_01: readiness.manifest_01,
       gates: readiness.gates,
       blockers: readiness.blockers,
       next_action: readiness.next_action,
