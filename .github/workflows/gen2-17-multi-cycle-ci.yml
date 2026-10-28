@@ -91,9 +91,10 @@ jobs:
           tests/gen2/capability-watch-production-proof.test.mjs
 
   gen2-17-full-suite:
-    # TEMPORARY DEV-LIGHT MODE: targeted autonomy proof remains automatic;
-    # full repository validation is manual until final closure.
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    # Final closure gate: every PR changing MAX dependencies/capabilities
+    # must also pass the complete repository suite after targeted tests.
+    # workflow_dispatch remains available for manual re-verification.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     needs: gen2-17-targeted
