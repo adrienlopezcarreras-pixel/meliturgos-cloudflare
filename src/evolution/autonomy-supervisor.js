@@ -184,7 +184,7 @@ function compareActiveJobs(left, right) {
     || String(left?.id || '').localeCompare(String(right?.id || ''));
 }
 
-export function selectActionableAutonomyJobs(jobs = [], { epochMs = 0, roadmap = flattenRoadmap(), completedIds = [], verifiedIds = completedIds, excludeIds = [], limit = 4 } = {}) {
+export function selectActionableAutonomyJobs(jobs = [], { epochMs = 0, roadmap = flattenRoadmap(), completedIds = [], verifiedIds = [], excludeIds = [], limit = 4 } = {}) {
   const closedIds = new Set(roadmap.filter(isVerifiedRoadmap).map(item => item.id));
   const epoch = Number(epochMs) || 0;
   const excluded = new Set(excludeIds);
@@ -217,7 +217,7 @@ export function manifestObjective(roadmap = flattenRoadmap()) {
     .slice(0, 900);
 }
 
-export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedIds = [], verifiedIds = completedIds, blockedIds = [] } = {}) {
+export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedIds = [], verifiedIds = [], blockedIds = [] } = {}) {
   const completed = new Set(completedIds);
   const blocked = new Set(blockedIds);
   return roadmap
