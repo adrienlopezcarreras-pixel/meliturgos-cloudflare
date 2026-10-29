@@ -29,6 +29,14 @@ export function validateFounderMissionTestEvidence(receipt, run, { candidateSha,
   if (!Array.isArray(tests) || REQUIRED.some(name => !tests.some(t => t?.name === name && t?.passed === true))) {
     return { ok:false, code:'MISSION_TEST_REQUIRED_CASES_MISSING' };
   }
+  const extraTests = [
+    'Gmail missing authorization does not inherit the last Google Tasks token error',
+    'missing Calendar grant reports a typed auth diagnostic without network calls',
+    'missing Drive grant reports a typed auth diagnostic without network calls',
+    'a completed connected tool response renders human text instead of raw tool-call JSON',
+  ];
+  if (extraTests.some(name => !tests.some(t => t?.name === name && t?.passed === true)))
+    return { ok:false, code:'MISSION_TEST_ADDITIONAL_PROOFS_REQUIRED' };
   // More mission checks (typed auth and no raw JSON) remain obligatory;
   // their absence must not be interpreted as success.
   if (!Array.isArray(receipt.additional_required_proofs)
