@@ -540,6 +540,8 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
           continue;
         }
         founder01Proof = {
+          mission_test_artifact: { candidate_sha: missionEvidence.candidate_sha, ci_run_id: missionEvidence.run_id,
+            archive_sha256: missionEvidence.digest, mandatory_tests_verified: true },
           status: gate.proof_status,
           checked: required.map(capability => {
             const row = liveChecks.find(item => item.capability === capability);
