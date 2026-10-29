@@ -5,6 +5,7 @@ import { createLearningEngine } from '../learning/learning-engine.js';
 import { ingestValidatedHandoffs } from '../learning/handoff-ingestion.js';
 import { manifest01FoundationPrerequisites } from '../roadmap/manifest-01-acceptance.js';
 import { requiredLiveChecks, runLiveChecks, liveProofGate } from '../evolution/verify-existing-live-checks.js';
+import { fetchFounderMissionTestEvidence } from '../evolution/founder-mission-test-evidence.js';
 
 const COMPLETION_KIND = 'MEL_WORK_COMPLETION';
 const SHA_RE = /^[a-f0-9]{40}$/i;
@@ -508,6 +509,19 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
       // Council/Teacher approval + a green code SHA cannot replace that runtime
       // evidence. Do this even for a READY patch (not just VERIFY_EXISTING).
       if (job?.optional_context?.roadmap_id === 'MEL-FOUNDER-01') {
+        const missionEvidence = await fetchFounderMissionTestEvidence({
+          repository: String(env.MEL_GITHUB_REPOSITORY || 'adrienlopezcarreras-pixel/meliturgos-cloudflare'),
+          candidateSha: record.candidate_sha, runId: record.ci_run_id,
+          token: env.MEL_GITHUB_TOKEN, fetchImpl,
+        }).catch(() => ({ ok:false, code:'MISSION_TEST_GITHUB_LOOKUP_FAILED' }));
+        if (!missionEvidence.ok || missionEvidence.mandatory_tests_verified !== true) {
+          rejected.push({
+            job_id: job.id, request_id: record.request_id,
+            code: 'COMPLETION_FOUNDER_01_MISSION_TEST_PROOF_REQUIRED',
+            reason: missionEvidence.code || 'MISSION_TEST_EVIDENCE_REQUIRED',
+          });
+          continue;
+        }
         const required = requiredLiveChecks(job.goal, proposal?.selected?.text);
         let liveChecks;
         try {
@@ -526,6 +540,8 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
           continue;
         }
         founder01Proof = {
+          mission_test_artifact: { candidate_sha: missionEvidence.candidate_sha, ci_run_id: missionEvidence.run_id,
+            archive_sha256: missionEvidence.digest, mandatory_tests_verified: true },
           status: gate.proof_status,
           checked: required.map(capability => {
             const row = liveChecks.find(item => item.capability === capability);

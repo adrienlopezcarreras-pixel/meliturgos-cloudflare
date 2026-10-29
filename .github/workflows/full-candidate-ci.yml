@@ -33,6 +33,22 @@ jobs:
           code=${PIPESTATUS[0]}
           echo "exit_code=$code" >> test-report.log
           exit $code
+      - name: Generate SHA-bound mission test evidence
+        if: always()
+        env:
+          TEST_EVIDENCE_SHA: ${{ github.sha }}
+          TEST_EVIDENCE_RUN_ID: ${{ github.run_id }}
+          TEST_EVIDENCE_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: node scripts/write-founder-test-evidence.mjs
+      - name: Upload mission test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: founder-mission-test-evidence
+          compression-level: 0
+          path: founder-mission-test-evidence.json
+          if-no-files-found: error
+          retention-days: 30
       - name: Runtime dependency security gate
         run: node scripts/runtime-security-gate.mjs
       - name: Upload runtime supply-chain attestation

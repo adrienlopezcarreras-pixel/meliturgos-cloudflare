@@ -132,3 +132,66 @@ test('a Council rejection repairs only the packages whose files are in the revie
   });
   assert.deepEqual([...culprits], ['manifest-06']);
 });
+
+
+test('VERIFY_EXISTING rejection persists exact CI and live checks without changing FAILED verdict', async () => {
+  const { reviewVerificationEvidence } = await import('../src/evolution/council-review.js');
+  const { sqliteD1 } = await import('./helpers/sqlite-d1.mjs');
+  const DB = sqliteD1();
+  try {
+    await DB.prepare('CREATE TABLE dev_bridge_state(bridge_id TEXT PRIMARY KEY, last_seen INTEGER, status TEXT, metadata_json TEXT)').run();
+    await DB.prepare('CREATE TABLE dev_jobs(id TEXT PRIMARY KEY, status TEXT, result_json TEXT, error TEXT, updated_at INTEGER)').run();
+    await DB.prepare('INSERT INTO dev_jobs(id,status,result_json,updated_at) VALUES(?,?,?,?)')
+      .bind('founder-evidence', 'TEACHER_APPROVED', JSON.stringify({ verify_existing: { code: 'FULL_CANDIDATE_CI_REQUIRED', live_checks: [], ci_run_id: null } }), 1).run();
+    const checks = [{ capability: 'gmail.messages.search', ok: true, outcome: 'READ_SUCCEEDED', items: 1 }];
+    const result = await reviewVerificationEvidence({ DB }, {
+      job: { id: 'founder-evidence', goal: 'Gmail' },
+      implementation: { candidate_sha: 'a'.repeat(40), selected: { text: 'DECISION: VERIFY_EXISTING' } },
+      ciRunId: 12345, liveChecks: checks,
+      review: async () => ({ decision: 'REJECTED', reviews: [{ model: 'reviewer', verdict: 'REJECT', blocking: ['auth errors not proven'] }] }),
+    });
+    assert.equal(result.decision, 'REJECTED');
+    const row = await DB.prepare('SELECT status,result_json FROM dev_jobs WHERE id=?').bind('founder-evidence').first();
+    assert.equal(row.status, 'FAILED');
+    const journal = JSON.parse(row.result_json);
+    assert.equal(journal.verify_existing.ci_run_id, 12345);
+    assert.deepEqual(journal.verify_existing.live_checks, checks);
+    assert.equal(journal.verify_existing.code, 'COUNCIL_REJECTED_VERIFY_EXISTING');
+    assert.equal(journal.council_review.decision, 'REJECTED');
+  } finally { DB.close(); }
+});
+
+
+test('VERIFY_EXISTING never reuses Council approval across another CI run or live proof', async () => {
+  const { reviewVerificationEvidence } = await import('../src/evolution/council-review.js');
+  const { sqliteD1 } = await import('./helpers/sqlite-d1.mjs');
+  const DB = sqliteD1();
+  try {
+    await DB.prepare('CREATE TABLE dev_bridge_state(bridge_id TEXT PRIMARY KEY, last_seen INTEGER, status TEXT, metadata_json TEXT)').run();
+    let calls = 0;
+    const review = async () => { calls++; return { decision:'APPROVED', reviews:[] }; };
+    const base = { job:{id:'fresh-evidence',goal:'Gmail'}, implementation:{candidate_sha:'a'.repeat(40),selected:{text:'DECISION: VERIFY_EXISTING'}} };
+    const a = [{capability:'gmail.messages.search',ok:true,outcome:'READ_SUCCEEDED'}];
+    const b = [{capability:'gmail.messages.search',ok:false,outcome:'AUTH_REQUIRED',code:'GMAIL_AUTH_REQUIRED'}];
+    await reviewVerificationEvidence({DB},{...base,ciRunId:111,liveChecks:a,review});
+    const cache = await reviewVerificationEvidence({DB},{...base,ciRunId:111,liveChecks:a,review});
+    assert.equal(cache.cached,true);
+    assert.equal(calls,1);
+    await reviewVerificationEvidence({DB},{...base,ciRunId:222,liveChecks:a,review});
+    await reviewVerificationEvidence({DB},{...base,ciRunId:222,liveChecks:b,review});
+    assert.equal(calls,3,'new run or changed checks always trigger a fresh review');
+  } finally { DB.close(); }
+});
+
+
+test('FOUNDER Council is not invoked without verified runner evidence', async () => {
+  const { reviewVerificationEvidence } = await import('../src/evolution/council-review.js');
+  let called = 0;
+  const result = await reviewVerificationEvidence({ DB: { prepare() { throw Error('DB_MUST_NOT_BE_CALLED'); } } }, {
+    job: { id:'founder-missing', goal:'[MEL-FOUNDER-01] Connected chat proof' },
+    implementation: { candidate_sha:'a'.repeat(40) }, ciRunId: 123, liveChecks:[],
+    review: async () => { called++; return { decision:'APPROVED', reviews:[] }; },
+  });
+  assert.equal(result.decision, 'MISSION_TEST_EVIDENCE_REQUIRED');
+  assert.equal(called,0);
+});

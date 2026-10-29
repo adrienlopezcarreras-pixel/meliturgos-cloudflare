@@ -67,3 +67,28 @@ test('a completed connected read lookup failure stops before models and provider
     assert.equal(calls, 0);
   } finally { DB.close(); }
 });
+
+
+test('a completed connected tool response renders human text instead of raw tool-call JSON', async () => {
+  const DB = sqliteD1();
+  try {
+    const service = createConversationService({ DB });
+    const metadata = { client_message_id:'owner-message-1' };
+    await service.archiveMessage({ conversationId:'connected-replay', role:'user', content:'Lis mes mails Gmail', metadata });
+    await service.archiveMessage({
+      conversationId:'connected-replay', role:'assistant',
+      content:'Gmail : aucun message trouvé dans la boîte de réception.',
+      metadata, capabilitiesUsed:['gmail.messages.search'],
+    });
+    const response = await handleNativeChat(request(), {
+      DB, MELITURGOS_USER:'test', MELITURGOS_PASSWORD:'test-only',
+      AI:{ async run() { throw new Error('MODEL_MUST_NOT_RUN'); } },
+    });
+    assert.equal(response.status,200);
+    const result = await response.json();
+    assert.equal(result.replayed,true);
+    assert.match(result.text,/Gmail : aucun message/);
+    assert.doesNotMatch(result.text,/"(?:tool_calls|function_call|arguments|tool_results)"\s*:/);
+    assert.doesNotMatch(result.text,/^\s*[\[{]/);
+  } finally { DB.close(); }
+});

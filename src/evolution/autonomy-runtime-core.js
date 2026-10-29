@@ -1,3 +1,4 @@
+import { fetchFounderMissionTestEvidence } from './founder-mission-test-evidence.js';
 import { staleCouncilDeferral } from '../teachers/council-inference-policy.js';
 import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
@@ -1017,8 +1018,17 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       const liveChecks = ciRunId ? await runLiveChecks(env, required).catch(() => []) : [];
       const gate = ciLookupFailure ? { ok: false, code: ciLookupFailure }
         : ciRunId ? liveProofGate(required, liveChecks, { goal: job?.goal }) : { ok: false, code: 'FULL_CANDIDATE_CI_REQUIRED' };
-      const council = gate.ok && job ? await reviewVerificationEvidence(env, { job, implementation, ciRunId, liveChecks }).catch(() => null) : null;
-      if (job && (!gate.ok || !council || ['COUNCIL_UNAVAILABLE', 'INSUFFICIENT_REVIEWERS', 'REVIEW_INPUT_INVALID'].includes(council.decision))) {
+      const founderProof = gate.ok && /MEL-FOUNDER-01/i.test(String(job?.goal || ''))
+        ? await fetchFounderMissionTestEvidence({
+          repository: String(env.MEL_GITHUB_REPOSITORY || 'adrienlopezcarreras-pixel/meliturgos-cloudflare'),
+          candidateSha: implementation.candidate_sha, runId: ciRunId,
+          token: env.MEL_GITHUB_TOKEN, fetchImpl,
+        }).catch(() => ({ ok:false, code:'MISSION_TEST_GITHUB_LOOKUP_FAILED' }))
+        : null;
+      const council = gate.ok && job ? await reviewVerificationEvidence(env, {
+        job, implementation, ciRunId, liveChecks, missionTestProof: founderProof,
+      }).catch(() => null) : null;
+      if (job && (!gate.ok || !council || ['COUNCIL_UNAVAILABLE', 'INSUFFICIENT_REVIEWERS', 'REVIEW_INPUT_INVALID', 'MISSION_TEST_EVIDENCE_REQUIRED'].includes(council.decision))) {
         await persistVerificationWait(jobRepository, job.id, {
           code: !gate.ok ? gate.code : (council?.decision || 'COUNCIL_REVIEW_UNAVAILABLE'),
           liveChecks, ciRunId, candidateSha: implementation.candidate_sha,
