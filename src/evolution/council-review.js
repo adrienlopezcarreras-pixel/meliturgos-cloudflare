@@ -235,7 +235,7 @@ export async function reviewVerificationEvidence(env, { job, implementation, ciR
   const cached = await env.DB.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?').bind(key).first().catch(() => null);
   let attempts = 0;
   if (cached?.metadata_json) {
-    try { const prior = JSON.parse(cached.metadata_json); if (!RETRYABLE.has(prior.decision)) return { cached: true, ...prior }; attempts = priorAttempts(prior); } catch {}
+    try { const prior = JSON.parse(cached.metadata_json); const sameInputs = prior.head === head && Number(prior.ci_run_id) === Number(ciRunId) && JSON.stringify(prior.live_checks) === JSON.stringify(liveChecks); if (sameInputs && !RETRYABLE.has(prior.decision)) return { cached: true, ...prior }; attempts = sameInputs ? priorAttempts(prior) : 0; } catch {}
   }
   const inspected = (Array.isArray(implementation?.inspected_files) ? implementation.inspected_files : []).map(row => row?.path).filter(Boolean).slice(0, 8);
   const evidence = [
