@@ -121,3 +121,28 @@ test('UNCENSORED can use Qwen alone if only its approved adapter is accessible',
   assert.equal(calls,1);
   assert.equal(result.text,'Qwen seul.');
 });
+
+
+test('Qwen continuation remains on the same verified model without invoking Mistral', async () => {
+  let primaryCalls=0, qwenCalls=0;
+  const runtime = {
+    ...env(async req => {
+      qwenCalls++;
+      const body=await req.json();
+      return Response.json({
+        text:'Suite de la réponse Qwen.',model:body.model,
+        adapter_id:body.adapter_id,adapter_sha256:body.adapter_sha256,
+        adapter_applied:true,
+      });
+    }),
+    AI:{run:async ()=>{primaryCalls++;return {response:'Unexpected Mistral'};}},
+  };
+  const answer=await runNativeInference({
+    env:runtime, messages, text:'Continue',
+    requireLora:true,activeAdapter:mistral,qwenAdapter:active,
+    preferredModel:'Qwen/Qwen3-14B',deadlineAt:Date.now()+5000,
+  });
+  assert.equal(qwenCalls,1);
+  assert.equal(primaryCalls,0);
+  assert.equal(answer.model,'Qwen/Qwen3-14B');
+});
