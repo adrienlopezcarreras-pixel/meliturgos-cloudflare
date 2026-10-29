@@ -70,6 +70,8 @@ export async function fetchFounderMissionTestEvidence({ repository, candidateSha
         || Number(run.id) !== Number(runId))
       return { ok:false, code:'MISSION_TEST_RUN_MISMATCH' };
     const listing = await read(root + '/actions/runs/' + Number(runId) + '/artifacts?per_page=100');
+    if (!Array.isArray(listing?.artifacts) || Number(listing?.total_count) > 100)
+      return { ok:false, code:'MISSION_TEST_ARTIFACT_LIST_INCOMPLETE' };
     const matches = (listing?.artifacts || []).filter(a => a?.name === 'founder-mission-test-evidence' && !a.expired && Number(a?.workflow_run?.id) === Number(runId) && a?.workflow_run?.head_sha === normalizedSha);
     if (matches.length !== 1) return { ok:false, code:'MISSION_TEST_ARTIFACT_MISSING_OR_AMBIGUOUS' };
     // GitHub returns a short-lived signed archive redirect; only fetch an HTTPS
