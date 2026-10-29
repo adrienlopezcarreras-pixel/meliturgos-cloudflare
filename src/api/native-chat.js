@@ -1396,7 +1396,9 @@ export function resolveContinuationInferenceRoute({ voiceReply = false, professo
 
 export async function runNativeInference({ env, messages, text, parallel = false, maxCandidates = 4, inferenceSettings = null, activeAdapter = null, qwenAdapter = null, runtime = null, taskOverride = null, preferredModel = null, timeoutMs = null, maxCalls = null, deadlineAt = null, requireLora = false } = {}) {
   if (deadlineAt != null && !hasChatBudget(deadlineAt, 1)) throw chatDeadlineError();
+  let secondaryReady = false;
   if (requireLora) {
+    try { requireActiveQwen3Lora(qwenAdapter, env); secondaryReady = true; } catch {}
     let primaryReady = false;
     try { requireChatLora(activeAdapter); primaryReady = true; } catch {}
     if (!primaryReady) return runQwen3LoraInference({env, active:qwenAdapter, messages, deadlineAt});
@@ -1406,7 +1408,13 @@ export async function runNativeInference({ env, messages, text, parallel = false
     error.code = 'AI_BINDING_MISSING';
     throw error;
   }
-  const router = createNativeModelRouter(env, inferenceSettings, activeAdapter, { timeoutMs, maxCalls, deadlineAt, requireLora });
+  // When a verified alternate is ready, bound the first attempt so it cannot
+  // consume the entire chat deadline before Qwen gets a chance to answer.
+  const router = createNativeModelRouter(env, inferenceSettings, activeAdapter, {
+    timeoutMs: secondaryReady ? Math.min(12000, Math.max(1000, Number(timeoutMs) || 12000)) : timeoutMs,
+    maxCalls: secondaryReady ? 1 : maxCalls,
+    deadlineAt, requireLora,
+  });
   const task = taskOverride ? String(taskOverride).toUpperCase() : classifyTask(text || '');
   const boundedCandidates = Math.max(1, Math.min(12, Number(maxCandidates) || 4));
   if (parallel && !activeAdapter) {
@@ -1449,9 +1457,9 @@ export async function runNativeInference({ env, messages, text, parallel = false
   if (!requireLora) return executePrimary();
   try {
     const primary = await executePrimary();
-    if (String(primary?.text || '').trim() || !qwenAdapter) return primary;
+    if (String(primary?.text || '').trim() || !secondaryReady) return primary;
   } catch (error) {
-    if (!qwenAdapter) throw error;
+    if (!secondaryReady) throw error;
   }
   // A fallback is permitted only through the approved Qwen3 service, never
   // an unrelated model from the generic cloud router.
