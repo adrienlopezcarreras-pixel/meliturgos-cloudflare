@@ -20,7 +20,7 @@ jobs:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
       DATASET_SLUG: ${{ inputs.dataset_slug }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Validate gated input and Kaggle credential
         shell: bash
         run: |
@@ -86,7 +86,7 @@ jobs:
           data={'status':'KAGGLE_GPU_DISPATCHED_UNVERIFIED','track':'qwen3','github_run_id':os.environ['GITHUB_RUN_ID'],'source_sha':os.environ['GITHUB_SHA'],'dataset_slug':os.environ['DATASET_SLUG'],'gpu_training_proven':False,'checkpoint_validated':False,'adapter_active':False}
           pathlib.Path('artifacts/qwen-dispatch.json').write_text(json.dumps(data,indent=2)+'\n')
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: success()
         with:
           name: qwen-gpu-dispatch-${{ github.run_id }}
