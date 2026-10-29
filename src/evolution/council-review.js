@@ -228,14 +228,21 @@ export async function pendingOwnerCouncilApprovals(env) {
 // VERIFY_EXISTING: no diff exists, so the Council reviews MEL's no-code
 // evidence for the exact approved candidate SHA whose full-candidate-ci is green.
 // APPROVED is then completed by github-completion-reconciler; REJECTED fails the job.
-export async function reviewVerificationEvidence(env, { job, implementation, ciRunId, liveChecks = [], now = Date.now(), review = runCouncilReview } = {}) {
+export async function reviewVerificationEvidence(env, { job, implementation, ciRunId, liveChecks = [], missionTestProof = null, now = Date.now(), review = runCouncilReview } = {}) {
   const head = String(implementation?.candidate_sha || '').toLowerCase();
   if (!env?.DB?.prepare || !job?.id || !/^[a-f0-9]{40}$/.test(head) || !Number(ciRunId)) return { decision: 'REVIEW_INPUT_INVALID' };
+  // Founder requires a runner-produced, independently verified mission proof.
+  // Missing proof is a resumable wait, never an AI review or an approval.
+  const founder = /MEL-FOUNDER-01/i.test(String(job.goal || ''));
+  if (founder && (missionTestProof?.ok !== true || missionTestProof?.candidate_sha !== head
+      || Number(missionTestProof?.run_id) !== Number(ciRunId)
+      || missionTestProof?.mandatory_tests_verified !== true))
+    return { decision: 'MISSION_TEST_EVIDENCE_REQUIRED' };
   const key = 'council-review:verify:' + job.id + ':' + head;
   const cached = await env.DB.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?').bind(key).first().catch(() => null);
   let attempts = 0;
   if (cached?.metadata_json) {
-    try { const prior = JSON.parse(cached.metadata_json); const sameInputs = prior.head === head && Number(prior.ci_run_id) === Number(ciRunId) && JSON.stringify(prior.live_checks) === JSON.stringify(liveChecks); if (sameInputs && !RETRYABLE.has(prior.decision)) return { cached: true, ...prior }; attempts = sameInputs ? priorAttempts(prior) : 0; } catch {}
+    try { const prior = JSON.parse(cached.metadata_json); const sameInputs = prior.head === head && Number(prior.ci_run_id) === Number(ciRunId) && JSON.stringify(prior.live_checks) === JSON.stringify(liveChecks) && (!founder || prior.mission_test_digest === missionTestProof?.digest); if (sameInputs && !RETRYABLE.has(prior.decision)) return { cached: true, ...prior }; attempts = sameInputs ? priorAttempts(prior) : 0; } catch {}
   }
   const inspected = (Array.isArray(implementation?.inspected_files) ? implementation.inspected_files : []).map(row => row?.path).filter(Boolean).slice(0, 8);
   const evidence = [
@@ -244,6 +251,7 @@ export async function reviewVerificationEvidence(env, { job, implementation, ciR
     'Exception limitée à MEL-FOUNDER-01 : le manifeste autorise un diagnostic EXACT de connexion/authentification manquante comme preuve du parcours d’erreur, PAS comme preuve de lecture Gmail/Agenda/Drive réussie. Les erreurs réseau, permissions ou fournisseurs génériques ne sont jamais des preuves.',
     `SHA candidat exact : ${head}`,
     `full-candidate-ci verte sur ce SHA : run ${Number(ciRunId)}`,
+    ...(founder ? ['Preuve tests mission : ' + JSON.stringify(missionTestProof)] : []),
     `Fichiers inspectés : ${inspected.join(', ') || '(aucun)'}`,
     'PREUVES FONCTIONNELLES EXÉCUTÉES EN PRODUCTION (lecture seule, résultat seulement) :',
     liveChecks.length
@@ -253,7 +261,7 @@ export async function reviewVerificationEvidence(env, { job, implementation, ciR
     String(implementation?.selected?.text || '').slice(0, 20_000),
   ].join('\n');
   const result = await review(env, { diff: evidence, goal: `${job.id} : ${String(job.goal || '')}`, timeoutMs: 45_000, now, attempts, system: VERIFY_SYSTEM });
-  const record = { decision: result.decision, mode: 'VERIFY_EXISTING', head, base: head, jobs: [job.id], ci_run_id: Number(ciRunId), live_checks: liveChecks, reviews: result.reviews, reviewed_at: now, attempts: attempts + 1 };
+  const record = { decision: result.decision, mode: 'VERIFY_EXISTING', head, base: head, jobs: [job.id], ci_run_id: Number(ciRunId), live_checks: liveChecks, mission_test_digest: founder ? missionTestProof.digest : null, reviews: result.reviews, reviewed_at: now, attempts: attempts + 1 };
   await env.DB.prepare(`INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?)
     ON CONFLICT(bridge_id) DO UPDATE SET last_seen=excluded.last_seen,status=excluded.status,metadata_json=excluded.metadata_json`)
     .bind(key, now, result.decision, JSON.stringify(record)).run().catch(() => {});
