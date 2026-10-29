@@ -47,7 +47,7 @@ jobs:
 
       - name: Verify cancellation recovery, owner pause and exact-SHA restore safety
         run: >-
-          node --test tests/release-max-recovery.test.mjs
+          node --test tests/release-gen2-38-replay.test.mjs tests/release-max-recovery.test.mjs
           tests/autonomy-control.test.mjs tests/release-launch-bootstrap.test.mjs
           tests/release-predeploy-backup-reuse.test.mjs tests/release-shardvault-prep.test.mjs tests/autonomy-runtime-lease.test.mjs
           tests/release-outcome-ledger.test.mjs tests/release-outcome-reconcile.test.mjs
