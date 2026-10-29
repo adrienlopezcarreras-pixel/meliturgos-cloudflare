@@ -29,6 +29,7 @@ jobs:
           test -n "${KAGGLE_API_TOKEN:-}" || { echo "KAGGLE_CREDENTIALS_MISSING"; exit 1; }
           python -m py_compile scripts/train-qwen3-lora.py kaggle/qwen3-gated-gpu-entry.py
           python -m unittest discover -s tests -p test_qwen3_training.py -v
+          python -m unittest discover -s tests -p test_qwen_gpu_evidence.py -v
       - name: Install official Kaggle CLI
         run: python -m pip install -q kaggle
       - name: Authenticate Kaggle and submit GPU notebook
