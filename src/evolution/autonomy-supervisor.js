@@ -100,6 +100,18 @@ function providerDeferred(job) {
   return exhausted || Number(delay?.retry_after || 0) > Date.now();
 }
 
+// Expose the bounded provider wait without changing job admission or retry budgets.
+function providerDeferralProgress(job) {
+  const delay = job?.result_json?.autonomy_deferral;
+  const exhausted = delay?.exhausted === true
+    && !(delay?.phase === 'bridge' && Number(delay?.max_attempts) === 1 && Number(delay?.attempts || 0) < BRIDGE_MENTOR_ROUNDS);
+  const retryAfter = Number(delay?.retry_after || 0);
+  return {
+    reason: exhausted ? 'PROVIDER_EXHAUSTED_CONTEXT_REQUIRED' : 'PROVIDER_RETRY_COOLDOWN',
+    retry_after: !exhausted && Number.isFinite(retryAfter) && retryAfter > Date.now() ? retryAfter : null,
+  };
+}
+
 function isPassiveRuntimeJob(job) {
   if (providerDeferred(job)) return true;
   const status = String(job?.status || '').toUpperCase();
@@ -513,6 +525,7 @@ export class AutonomySupervisor {
           external_progress: {
             job_id: activeInternal.id,
             status: providerDeferred(activeInternal) ? 'DEFERRED_PROVIDER_RETRY_PENDING' : 'BRIDGE_EXECUTION_IN_PROGRESS',
+            ...(providerDeferred(activeInternal) ? providerDeferralProgress(activeInternal) : {}),
           },
         };
       }
@@ -542,6 +555,7 @@ export class AutonomySupervisor {
           external_progress: {
             job_id: inFlightInternal.id,
             status: providerDeferred(inFlightInternal) ? 'DEFERRED_PROVIDER_RETRY_PENDING' : 'BRIDGE_EXECUTION_IN_PROGRESS',
+            ...(providerDeferred(inFlightInternal) ? providerDeferralProgress(inFlightInternal) : {}),
           },
         };
       }
@@ -589,6 +603,7 @@ export class AutonomySupervisor {
           external_progress: {
             job_id: passiveOwner.id,
             status: providerDeferred(passiveOwner) ? 'DEFERRED_PROVIDER_RETRY_PENDING' : 'BRIDGE_EXECUTION_IN_PROGRESS',
+            ...(providerDeferred(passiveOwner) ? providerDeferralProgress(passiveOwner) : {}),
           },
         };
       }
