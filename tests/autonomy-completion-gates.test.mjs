@@ -432,15 +432,15 @@ test('FOUNDER-01 keeps the original D1 job uncompleted when runtime evidence is 
       ];
     },
   });
-  assert.equal(checked, 1);
+  assert.equal(checked, 0, 'missing verified test artifact blocks before live probe');
   assert.equal(result.completed.length, 0);
-  assert.equal(result.rejected[0].code, 'COMPLETION_FOUNDER_01_LIVE_PROOF_REQUIRED');
+  assert.equal(result.rejected[0].code, 'COMPLETION_FOUNDER_01_MISSION_TEST_PROOF_REQUIRED');
   assert.equal((await repository.get(JOB)).status, statusBefore);
   assert.equal((await repository.get(JOB)).result_json.autonomy_completion, undefined);
   assert.equal(before.result_json.teacher_bridge.status, 'ANSWERED');
 });
 
-test('FOUNDER-01 records honest read/auth evidence only after Teacher, exact-SHA CI and a real probe', async () => {
+test('FOUNDER-01 refuses an otherwise valid live probe when mission test artifact is missing', async () => {
   const repository = await approvedRepository({ roadmapId: 'MEL-FOUNDER-01' });
   const goal = "[MEL-FOUNDER-01] Prouver en production une lecture Gmail, une lecture Agenda et une lecture Drive, ou l’erreur d’authentification exacte de chacune.";
   await repository.update(JOB, { goal });
@@ -457,15 +457,11 @@ test('FOUNDER-01 records honest read/auth evidence only after Teacher, exact-SHA
       ];
     },
   });
-  assert.equal(result.rejected.length, 0);
-  assert.equal(result.completed.length, 1);
+  assert.equal(result.completed.length, 0);
+  assert.equal(result.rejected[0].code, 'COMPLETION_FOUNDER_01_MISSION_TEST_PROOF_REQUIRED');
   const stored = await repository.get(JOB);
-  assert.equal(stored.status, 'COMPLETED');
-  const proof = stored.result_json.autonomy_completion.founder_01_live_proof;
-  assert.equal(proof.status, 'READS_OR_EXACT_AUTH_DIAGNOSTICS');
-  assert.deepEqual(proof.auth_missing, ['gmail.messages.search']);
-  assert.equal(proof.checked[0].ok, false, 'Gmail still is not connected');
-  assert.equal(proof.checked[0].code, 'PIPEDREAM_GMAIL_ACCOUNT_REQUIRED');
+  assert.notEqual(stored.status, 'COMPLETED');
+  assert.equal(stored.result_json.autonomy_completion, undefined);
 });
 
 
