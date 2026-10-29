@@ -416,3 +416,46 @@ test('manual launch retains active-run deduplication',async()=>{
   const result=await runLoraTrainingHeartbeat(baseEnv,{force:true,manualSingleCycle:true,engine:engineWith([]),fetchImpl:async()=>{calls++;return Response.json({workflow_runs:[{id:99,status:'in_progress'}]});}});
   assert.equal(result.status,'TRAINING_CHAIN_ACTIVE');assert.equal(result.dispatched,false);assert.equal(calls,1);
 });
+
+test('Dolphin source is pinned automatically without weakening the existing launch gate', async () => {
+  const expectedSha='a'.repeat(40);
+  let payload=null;
+  const result=await runLoraTrainingHeartbeat(baseEnv,{
+    force:true,engine:engineWith([]),
+    fetchImpl:async(url,options={})=>{
+      const href=String(url);
+      if(href.includes('/actions/workflows/') && href.includes('/runs'))return Response.json({workflow_runs:[]});
+      if(href.includes('/releases'))return Response.json([]);
+      if(href.includes('/git/ref/heads/'))return Response.json({object:{sha:SHA}});
+      if(href==='https://huggingface.co/api/datasets/QuixiAI/dolphin')return Response.json({
+        id:'QuixiAI/dolphin',sha:expectedSha,tags:['license:apache-2.0'],gated:false,private:false,
+      });
+      if(href.endsWith('/dispatches')){payload=JSON.parse(options.body);return new Response(null,{status:204});}
+      throw Error('Unexpected: '+href);
+    },
+  });
+  assert.equal(result.dispatched,true);
+  assert.equal(result.experimental_source.status,'PINNED');
+  assert.deepEqual(JSON.parse(payload.inputs.uncensored_sources),[{id:'QuixiAI/dolphin',revision:expectedSha}]);
+});
+
+test('Unverified external dataset falls back to baseline rather than blocking training', async () => {
+  let payload=null;
+  const result=await runLoraTrainingHeartbeat(baseEnv,{
+    force:true,engine:engineWith([]),
+    fetchImpl:async(url,options={})=>{
+      const href=String(url);
+      if(href.includes('/actions/workflows/') && href.includes('/runs'))return Response.json({workflow_runs:[]});
+      if(href.includes('/releases'))return Response.json([]);
+      if(href.includes('/git/ref/heads/'))return Response.json({object:{sha:SHA}});
+      if(href==='https://huggingface.co/api/datasets/QuixiAI/dolphin')return Response.json({
+        id:'QuixiAI/dolphin',sha:'bad',tags:['license:apache-2.0'],
+      });
+      if(href.endsWith('/dispatches')){payload=JSON.parse(options.body);return new Response(null,{status:204});}
+      throw Error('Unexpected: '+href);
+    },
+  });
+  assert.equal(result.dispatched,true);
+  assert.equal(result.experimental_source.status,'SOURCE_NOT_ELIGIBLE');
+  assert.equal(Object.hasOwn(payload.inputs,'uncensored_sources'),false);
+});
