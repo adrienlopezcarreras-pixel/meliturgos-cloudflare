@@ -97,3 +97,11 @@ test('GitHub job names provide verified preflight track provenance',async()=>{
  assert.ok(entry.includes("name==='preflight-qwen3'||name==='preflight-abliteration'"));
  assert.ok(entry.includes('attributed:matched.length===1'));
 });
+
+test('GPU launch cannot masquerade as a completed preflight',async()=>{
+ const fs=await import('node:fs/promises');
+ const entry=await fs.readFile(new URL('../src/professor-live-learning-entry.js',import.meta.url),'utf8');
+ assert.ok(entry.includes('QWEN_GPU_DATASET_MANIFEST_AND_KAGGLE_EXECUTOR_REQUIRED'));
+ assert.ok(entry.includes('ABLITERATION_GPU_EXECUTOR_NOT_IMPLEMENTED'));
+ assert.ok(entry.includes('gpu_training_performed:false},409'));
+});
