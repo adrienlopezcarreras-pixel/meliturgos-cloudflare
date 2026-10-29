@@ -57,6 +57,9 @@ test('abliteration is shown as an isolated non-executing experiment with honest 
   assert.deepEqual(MEL_ABLITERATION_STAGES.map(s=>s.id), ['reference','baseline','experiment','compare','promotion']);
   const html=await (await onRequestGet()).text();
   assert.match(html,/Expérience C — Abliteration/);
+  assert.match(html,/id="qwenTrainingState">Non lancé/);
+  assert.match(html,/id="qwenTrainingLastRun">Aucun run GPU vérifié/);
+  assert.match(html,/id="qwenTrainingCheckpoint">Aucun artefact PEFT vérifié/);
   assert.match(html,/id="abliterationTrainingState">Non lancé/);
   assert.match(html,/id="abliterationProgressText">Non mesuré/);
   assert.match(html,/Étapes d'abliteration réellement prouvées/);
