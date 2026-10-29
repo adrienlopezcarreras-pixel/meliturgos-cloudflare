@@ -58,12 +58,12 @@ export async function fetchFounderMissionTestEvidence({ repository, candidateSha
     const normalizedSha = String(candidateSha || '').toLowerCase();
     if (!SHA.test(normalizedSha) || !Number.isSafeInteger(Number(runId)) || Number(runId) <= 0)
       return { ok:false, code:'MISSION_TEST_PROVENANCE_INVALID' };
-    if (run?.name !== 'full-candidate-ci' || run?.status !== 'completed'
+    if (run?.name !== 'full-candidate-ci' || run?.head_branch !== 'candidate/mel-clean-autonomy' || run?.status !== 'completed'
         || run?.conclusion !== 'success' || String(run?.head_sha || '').toLowerCase() !== normalizedSha
         || Number(run.id) !== Number(runId))
       return { ok:false, code:'MISSION_TEST_RUN_MISMATCH' };
     const listing = await read(root + '/actions/runs/' + Number(runId) + '/artifacts?per_page=100');
-    const matches = (listing?.artifacts || []).filter(a => a?.name === 'founder-mission-test-evidence' && !a.expired);
+    const matches = (listing?.artifacts || []).filter(a => a?.name === 'founder-mission-test-evidence' && !a.expired && Number(a?.workflow_run?.id) === Number(runId) && a?.workflow_run?.head_sha === normalizedSha);
     if (matches.length !== 1) return { ok:false, code:'MISSION_TEST_ARTIFACT_MISSING_OR_AMBIGUOUS' };
     // GitHub artifact downloads are ZIP archives requiring validated extraction.
     // Do not return untrusted redirects or interpret a ZIP as a JSON receipt.
