@@ -1594,7 +1594,7 @@ async function experimentalTrainingRefresh(track){
    const data=await jfetch('/api/learning/lora/experimental/status?track='+encodeURIComponent(track));
    if(data.ok!==true)throw new Error(data.error||'État indisponible');
    const run=data.runs?.[0];
-   if(!run){out.textContent='Aucun run GitHub découvert';return;}
+   if(!run){out.textContent=data.unattributed_runs?.length?'Des exécutions GitHub existent, mais aucune preuve ne les attribue à cette piste.':'Aucun run vérifié pour cette piste';return;}
    out.textContent='Dernier workflow GitHub : '+String(run.status||'?')+' / '+String(run.conclusion||'en cours')+' (piste non attestée)';
    const link=document.createElement('a');link.textContent=' · Voir run #'+String(run.id);
    link.href=run.html_url;link.target='_blank';link.rel='noopener noreferrer';out.appendChild(link);
