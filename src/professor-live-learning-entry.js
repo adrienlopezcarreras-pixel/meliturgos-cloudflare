@@ -103,15 +103,27 @@ async function experimentalTrainingStatus(request,env){
   const api='https://api.github.com/repos/'+FREE_LORA_GITHUB_REPO+'/actions/workflows/'+EXPERIMENTAL_TRAINING_WORKFLOW+'/runs?per_page=30';
   const result=await experimentalGitHub(request,env,'GET',api);if(result.denied)return result.denied;
   const runs=(result.data?.workflow_runs||[]).filter(row=>row?.event==='workflow_dispatch');
-  // The workflow's runs endpoint does not return dispatch inputs. Exposing an
-  // unscoped run as the requested track would falsely credit Qwen or Abliteration.
-  // Keep the shared history visible but explicitly unattributed until its
-  // per-run evidence artifact has been inspected and verified.
-  return json({ok:true,track,mode:'preflight',runs:[],unattributed_runs:runs.slice(0,10).map(row=>({
-    id:row.id,status:row.status,conclusion:row.conclusion,created_at:row.created_at,
-    updated_at:row.updated_at,html_url:row.html_url
-  })),run_track_not_proven:true,gpu_training_performed:false,
-  note:'Aucun run attribué à cette piste sans vérification du track dans l artefact associé.'});
+  // GitHub's run list omits workflow_dispatch inputs. Starting with this
+  // workflow revision, the job name carries the server-created track label.
+  // Older runs without that verifiable label remain unattributed.
+  const inspected=await Promise.all(runs.slice(0,10).map(async row=>{
+    const jobs=await experimentalGitHub(request,env,'GET',
+      'https://api.github.com/repos/'+FREE_LORA_GITHUB_REPO+'/actions/runs/'+encodeURIComponent(row.id)+'/jobs?per_page=30');
+    const names=jobs.denied?[]:(jobs.data?.jobs||[]).map(job=>String(job.name||''));
+    const matched=names.filter(name=>name==='preflight-qwen3'||name==='preflight-abliteration');
+    return {row,attributed:matched.length===1?matched[0].slice('preflight-'.length):null};
+  }));
+  const projected=item=>({
+    id:item.row.id,status:item.row.status,conclusion:item.row.conclusion,
+    created_at:item.row.created_at,updated_at:item.row.updated_at,html_url:item.row.html_url
+  });
+  return json({ok:true,track,mode:'preflight',
+    runs:inspected.filter(item=>item.attributed===track).map(projected),
+    unattributed_runs:inspected.filter(item=>!item.attributed).map(projected),
+    run_track_not_proven:inspected.some(item=>!item.attributed),
+    gpu_training_performed:false,
+    note:'Une prévalidation GitHub ne constitue pas une preuve GPU ni un checkpoint.'
+  });
 }
 
 async function freeLoraStatusResponse(request, env) {
