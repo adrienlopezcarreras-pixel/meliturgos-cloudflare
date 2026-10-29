@@ -14,7 +14,7 @@ const names = [
 test('runner receipt binds exact SHA/run and fails closed on absent required test', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'mel-founder-evidence-'));
   try {
-    await writeFile(join(dir, 'test-report.log'), 'ok 1 - ' + names[0] + '\\nexit_code=0\\n');
+    await writeFile(join(dir, 'test-report.log'), 'ok 1 - ' + names[0] + '\nexit_code=0\n');
     const result = spawnSync(process.execPath, [script], {
       cwd: dir, encoding: 'utf8',
       env: { ...process.env, TEST_EVIDENCE_SHA:'a'.repeat(40), TEST_EVIDENCE_RUN_ID:'1234', TEST_EVIDENCE_RUN_ATTEMPT:'2' },
