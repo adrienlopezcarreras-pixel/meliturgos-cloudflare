@@ -103,10 +103,15 @@ async function experimentalTrainingStatus(request,env){
   const api='https://api.github.com/repos/'+FREE_LORA_GITHUB_REPO+'/actions/workflows/'+EXPERIMENTAL_TRAINING_WORKFLOW+'/runs?per_page=30';
   const result=await experimentalGitHub(request,env,'GET',api);if(result.denied)return result.denied;
   const runs=(result.data?.workflow_runs||[]).filter(row=>row?.event==='workflow_dispatch');
-  return json({ok:true,track,mode:'preflight',runs:runs.slice(0,10).map(row=>({
-    id:row.id,status:row.status,conclusion:row.conclusion,created_at:row.created_at,updated_at:row.updated_at,html_url:row.html_url
+  // The workflow's runs endpoint does not return dispatch inputs. Exposing an
+  // unscoped run as the requested track would falsely credit Qwen or Abliteration.
+  // Keep the shared history visible but explicitly unattributed until its
+  // per-run evidence artifact has been inspected and verified.
+  return json({ok:true,track,mode:'preflight',runs:[],unattributed_runs:runs.slice(0,10).map(row=>({
+    id:row.id,status:row.status,conclusion:row.conclusion,created_at:row.created_at,
+    updated_at:row.updated_at,html_url:row.html_url
   })),run_track_not_proven:true,gpu_training_performed:false,
-  note:'GitHub ne fournit pas les inputs dans la liste des runs : le track exact doit être attesté par l artefact du run avant validation.'});
+  note:'Aucun run attribué à cette piste sans vérification du track dans l artefact associé.'});
 }
 
 async function freeLoraStatusResponse(request, env) {
