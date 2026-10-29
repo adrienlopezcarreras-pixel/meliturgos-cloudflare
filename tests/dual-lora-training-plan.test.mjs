@@ -72,11 +72,11 @@ test('experimental controls connect to authenticated server workflow dispatch, n
  for(const id of ['qwenPreflight','qwenRefresh','abliterationPreflight','abliterationRefresh']){
    assert.match(html,new RegExp('id="'+id+'"'));
  }
- assert.match(html,/api\\/learning\\/lora\\/experimental\\/train/);
+ assert.ok(html.includes('/api/learning/lora/experimental/train'));
  assert.match(html,/experimentalTrainingLaunch/);
  assert.match(html,/aucun GPU engagé/);
  const entry=await (await import('node:fs/promises')).readFile(new URL('../src/professor-live-learning-entry.js',import.meta.url),'utf8');
- assert.match(entry,/requireAuth\\(request,env\\)/);
+ assert.ok(entry.includes('requireAuth(request,env)'));
  assert.match(entry,/GITHUB_DISPATCH_TOKEN_NOT_CONFIGURED/);
  assert.match(entry,/workflow_dispatch|dispatches/);
 });
