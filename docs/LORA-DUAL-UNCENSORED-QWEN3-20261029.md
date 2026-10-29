@@ -73,3 +73,40 @@ Quand le propriétaire active « UNCENSORED » :
 Comparer **sur les mêmes exemples de validation jamais entraînés** : taux de réponse aux demandes autorisées, exactitude factuelle, robustesse face aux instructions contradictoires, code exécutable, appels d'outils effectivement réalisés, langage français, qualité longue, latence, coût, réponses dangereuses, confidentialité, refus justifiés et hallucinations. Un score fondé seulement sur la présence de mots-clés ou sur la longueur d'une réponse n'est pas suffisant.
 
 **Ne pas confondre « UNCENSORED » et « qualité garantie »** : la finalité est de réduire les refus excessifs pour les usages autorisés, tout en gardant les frontières des actions dangereuses et les protections des outils de MEL.
+
+## Fiche de paramétrage affichée dans Professeur → Entraînement
+
+La page inclut maintenant **7 jalons successifs** (audit, baseline, smoke QLoRA, comparaison de candidats, benchmark, endpoint, bascule). Ce sont des étapes documentées, **pas un ordonnanceur GPU actif**. Chaque jalon indique un statut non réalisé tant qu'aucune preuve de production ne permet d'afficher autre chose.
+
+### Configuration de référence externe (nicoboss, non MEL)
+
+D'après la carte du modèle publiée sur Hugging Face, la réalisation externe utilisait **2 × RTX 4090 de 24 Go**, Axolotl, QLoRA 4-bit, l'architecture Qwen3-14B, `r=32`, `alpha=16`, `dropout=0.05`, `sequence_len=4096`, `learning_rate=2e-4`, `num_epochs=4`, `micro_batch_size=1`, `gradient_accumulation_steps=4` et le corpus `Guilherme34/uncensor`. Ces valeurs décrivent l'original ; elles **ne constituent pas une configuration prouvée sur GPU gratuit**. L'auteur publie aussi un prompt visant à imposer des réponses sans limites. Ce texte n'est pas une règle de MEL et ne doit pas être recopié comme prompt système de production.
+
+### Profil MEL Qwen3 — smoke *proposé*, non validé
+
+| Paramètre | Hypothèse de départ |
+| --- | --- |
+| Modèle | `Qwen/Qwen3-14B`, révision exacte enregistrée |
+| Entraîneur | Unsloth / PEFT (isolé du trainer Mistral) |
+| Quantification | 4-bit NF4, dépendances et versions gelées |
+| LoRA | r=16, alpha=32, dropout=0,05 ; modules à vérifier sur l'architecture exacte |
+| Mémoire / séquence | batch 1, accumulation 8, séquence 512 à 1024 pour le pilote ; raccourcir si GPU insuffisant |
+| Durée | 1 epoch, maximum 50 steps pour la première preuve (limite de protection, pas objectif de qualité) |
+| Contrôle | gradient checkpointing, GPU CUDA effectif, logs de pertes/VRAM, sha256 des artefacts |
+| Sortie | PEFT safetensors, adapter_config, identité base/tokenizer, trace GPU et résultat d'évaluation indépendant |
+
+Deux pistes séparées : A) apprendre un nouvel adaptateur Qwen à partir de la base ; B) reprendre l'adaptateur `nicoboss` après validation de sa compatibilité. Interdire les écrasements mutuels et comparer sur la même validation hors entraînement. Ne pas entraîner un poids externe sans vérifier le droit d'usage et le contenu.
+
+### Inventaire complémentaire des corpus / expériences
+
+- `Devilishcode/ultrachat-uncensored` : dataset susceptible d'alimenter un corpus après audit. Le script actuel `scripts/prepare-kaggle-lora-shard.py` le référence ; ne pas déduire une compatibilité Qwen immédiate.
+- `anthracite-org/kalo-opus-instruct-22k-no-refusal` : candidat soumis aux mêmes contrôles de provenance, de licences et de qualité.
+- `mlabonne/orpo-dpo-mix-40k` : exemple de préférences pour une phase ORPO/DPO optionnelle ; ce n'est pas un corpus SFT à concaténer brut.
+- [PR #2819](https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/pull/2819) : ajout opt-in de Dolphin au pipeline **Mistral**, sans démarrage GPU ni usage automatique pour Qwen.
+- Notebook Colab du propriétaire : exemple d'**abliteration de Daredevil-8B** via TransformerLens. La technique change les activations ou les poids d'un modèle ; elle n'est **ni** un LoRA compatible Qwen, **ni** une validation du pipeline MEL. Expérience à isoler et benchmarker avant toute adaptation.
+
+### Statuts et politique de lancement
+
+Les mentions « non mesuré », « non lancé », « non hébergé » et « non disponible » restent exactes jusqu'à réception de preuves. Le bouton d'entraînement existant vise Mistral ; la fiche Qwen n'ajoute **aucun faux bouton de lancement**. Pour activer réellement l'entraînement Qwen, il faudra un exécuteur indépendant, une autorisation explicite du budget GPU et du checkpoint cible, et un pipeline de promotion compatible.
+
+Une fois Qwen servi et validé, le routeur pourra essayer l'autre modèle uniquement si le premier a **échoué techniquement** (timeout, fournisseur indisponible, réponse vide), avec le même contexte, sans doublons d'actions externes et avec un reçu `active_lora` reflétant le modèle réellement utilisé. Les refus légitimes ne doivent pas être traités comme des pannes.
