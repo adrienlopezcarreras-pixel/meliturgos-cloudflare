@@ -1600,11 +1600,10 @@ async function experimentalTrainingRefresh(track){
    link.href=run.html_url;link.target='_blank';link.rel='noopener noreferrer';out.appendChild(link);
  }catch(error){out.textContent='État indisponible : '+String(error.message||error);}
 }
-for(const [prefix,track] of [['qwen','qwen3'],['abliteration','abliteration']]){
- const start=qs('#'+prefix+'Preflight'),refresh=qs('#'+prefix+'Refresh');
- if(start)start.onclick=()=>experimentalTrainingLaunch(track);
- if(refresh)refresh.onclick=()=>experimentalTrainingRefresh(track);
-}
+qs('#qwenPreflight').onclick=()=>experimentalTrainingLaunch('qwen3');
+qs('#qwenRefresh').onclick=()=>experimentalTrainingRefresh('qwen3');
+qs('#abliterationPreflight').onclick=()=>experimentalTrainingLaunch('abliteration');
+qs('#abliterationRefresh').onclick=()=>experimentalTrainingRefresh('abliteration');
 
 
 let computerCache={devices:[],selected_id:null,commands:[]};
