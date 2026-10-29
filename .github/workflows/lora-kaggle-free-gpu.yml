@@ -266,6 +266,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install -q "datasets>=2.20" "huggingface_hub>=0.25"
+          python -m unittest discover -s tests -p "test_lora_dolphin_source.py"
           CANONICAL_EXPORT_META="/tmp/mel-canonical-export.json"
           node scripts/export-canonical-lora-dataset.mjs --output /tmp/mel-canonical-50.jsonl > "$CANONICAL_EXPORT_META"
           # Normalize smoke size from the actual export; never discard canonical lessons.
