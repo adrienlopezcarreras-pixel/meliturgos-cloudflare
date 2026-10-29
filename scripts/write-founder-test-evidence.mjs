@@ -22,6 +22,15 @@ const passedNames = new Set([...log.matchAll(/^\s*ok\s+\d+\s+-\s+(.+)$/gm)].map(
 const failedNames = new Set([...log.matchAll(/^\s*not ok\s+\d+\s+-\s+(.+)$/gm)].map(m => m[1].trim()));
 const replayFilePassed = /^✓ tests\/native-chat-connected-replay\.test\.mjs\s*$/m.test(log);
 const tests = required.map(name => ({ name, passed: exitCode === 0 && replayFilePassed && passedNames.has(name) && !failedNames.has(name) }));
+// Require the existing typed-auth regression tests from the same full-suite log.
+const authCases = [
+  'Gmail missing authorization does not inherit the last Google Tasks token error',
+  'missing Calendar grant reports a typed auth diagnostic without network calls',
+];
+const authFilePassed = /^✓ tests\/gen2\/google-workspace-agentic\.test\.mjs\s*$/m.test(log);
+const authTests = authCases.map(name => ({
+  name, passed: exitCode === 0 && authFilePassed && passedNames.has(name) && !failedNames.has(name),
+}));
 const report = {
   schema: 'MEL_FOUNDER_MISSION_TEST_EVIDENCE_V1',
   source: 'full-candidate-ci/full-suite',
@@ -30,10 +39,13 @@ const report = {
   github_run_attempt: attempt,
   log_sha256: createHash('sha256').update(log).digest('hex'),
   exit_code: exitCode,
-  tests,
+  tests: [...tests, ...authTests],
+  auth_test_file_passed: authFilePassed,
   replay_test_file_passed: replayFilePassed,
   mandatory_tests_verified: exitCode === 0 && tests.every(t => t.passed),
   // Deliberately not claiming authentication or raw-JSON rendering coverage.
-  additional_required_proofs: ['GMAIL_CALENDAR_DRIVE_TYPED_AUTH', 'NO_RAW_TOOL_CALL_JSON'],
+  additional_required_proofs: [
+    ...(authTests.every(t => t.passed) ? ['DRIVE_TYPED_AUTH', 'NO_RAW_TOOL_CALL_JSON'] : ['GMAIL_CALENDAR_DRIVE_TYPED_AUTH', 'NO_RAW_TOOL_CALL_JSON']),
+  ],
 };
 await writeFile('founder-mission-test-evidence.json', JSON.stringify(report, null, 2) + '\n');
