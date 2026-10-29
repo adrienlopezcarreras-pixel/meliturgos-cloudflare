@@ -101,7 +101,18 @@ test('GitHub job names provide verified preflight track provenance',async()=>{
 test('GPU launch cannot masquerade as a completed preflight',async()=>{
  const fs=await import('node:fs/promises');
  const entry=await fs.readFile(new URL('../src/professor-live-learning-entry.js',import.meta.url),'utf8');
- assert.ok(entry.includes('QWEN_GPU_DATASET_MANIFEST_AND_KAGGLE_EXECUTOR_REQUIRED'));
+ assert.ok(entry.includes('QWEN_REVIEWED_KAGGLE_DATASET_NOT_CONFIGURED'));
  assert.ok(entry.includes('ABLITERATION_GPU_EXECUTOR_NOT_IMPLEMENTED'));
  assert.ok(entry.includes('gpu_training_performed:false},409'));
+});
+
+test('Qwen GPU control dispatches only reviewed Kaggle workflow and never claims training complete',async()=>{
+ const fs=await import('node:fs/promises');
+ const entry=await fs.readFile(new URL('../src/professor-live-learning-entry.js',import.meta.url),'utf8');
+ const ui=await fs.readFile(new URL('../src/pages/full-interface-v2.js',import.meta.url),'utf8');
+ const workflow=await fs.readFile(new URL('../.github/workflows/professor-qwen-kaggle-gpu.yml',import.meta.url),'utf8');
+ assert.ok(entry.includes('MEL_QWEN_KAGGLE_DATASET_SLUG'));
+ assert.ok(entry.includes('professor-qwen-kaggle-gpu.yml'));
+ assert.ok(ui.includes("qs('#qwenGpuTrain').onclick"));
+ assert.ok(workflow.includes('KAGGLE_GPU_DISPATCHED_UNVERIFIED'));
 });
