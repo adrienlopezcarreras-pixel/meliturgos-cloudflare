@@ -29,3 +29,22 @@ test('runner receipt binds exact SHA/run and fails closed on absent required tes
     assert.ok(data.additional_required_proofs.includes('NO_RAW_TOOL_CALL_JSON'));
   } finally { await rm(dir, { recursive:true, force:true }); }
 });
+
+
+test('runner receipt accepts only complete named TAP and runner file success on exact run', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mel-founder-evidence-positive-'));
+  try {
+    const log = names.map((name, index) => 'ok ' + (index + 1) + ' - ' + name).join('\\n')
+      + '\\n✓ tests/native-chat-connected-replay.test.mjs\\nexit_code=0\\n';
+    await writeFile(join(dir, 'test-report.log'), log);
+    const result = spawnSync(process.execPath, [script], {
+      cwd: dir, encoding: 'utf8',
+      env: { ...process.env, TEST_EVIDENCE_SHA:'a'.repeat(40), TEST_EVIDENCE_RUN_ID:'1234', TEST_EVIDENCE_RUN_ATTEMPT:'1' },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const evidence = JSON.parse(await readFile(join(dir, 'founder-mission-test-evidence.json'), 'utf8'));
+    assert.equal(evidence.mandatory_tests_verified, true);
+    assert.equal(evidence.replay_test_file_passed, true);
+    assert.equal(evidence.tests.length, names.length);
+  } finally { await rm(dir, { recursive:true, force:true }); }
+});
