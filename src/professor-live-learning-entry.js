@@ -86,11 +86,21 @@ async function experimentalTrainingResponse(request,env){
   const track=experimentalTrack(body.track);
   if(!track||!['preflight','gpu'].includes(body.mode))return json({ok:false,error:'UNSUPPORTED_EXPERIMENTAL_TRACK_OR_MODE'},400);
   if(body.mode==='gpu'){
-    // GPU dispatch is deliberately gated until a separate, reviewed and
-    // verifiable executor is wired. Never silently fall back to a preflight.
-    return json({ok:false,error:track==='qwen3'
-      ?'QWEN_GPU_DATASET_MANIFEST_AND_KAGGLE_EXECUTOR_REQUIRED'
-      :'ABLITERATION_GPU_EXECUTOR_NOT_IMPLEMENTED',gpu_training_performed:false},409);
+    if(track!=='qwen3')return json({ok:false,error:'ABLITERATION_GPU_EXECUTOR_NOT_IMPLEMENTED',gpu_training_performed:false},409);
+    const slug=String(env?.MEL_QWEN_KAGGLE_DATASET_SLUG||'').trim();
+    if(!/^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/.test(slug))
+      return json({ok:false,error:'QWEN_REVIEWED_KAGGLE_DATASET_NOT_CONFIGURED',gpu_training_performed:false},409);
+    const workflow='professor-qwen-kaggle-gpu.yml';
+    const api='https://api.github.com/repos/'+FREE_LORA_GITHUB_REPO+'/actions/workflows/'+workflow;
+    const active=await experimentalGitHub(request,env,'GET',api+'/runs?per_page=10');
+    if(active.denied)return active.denied;
+    const ongoing=(active.data?.workflow_runs||[]).find(run=>
+      ['queued','in_progress','waiting','requested','pending'].includes(run.status));
+    if(ongoing)return json({ok:true,dispatched:false,status:'QWEN_GPU_CHAIN_ALREADY_RUNNING',run_id:ongoing.id,run_url:ongoing.html_url,gpu_training_performed:false});
+    const dispatch=await experimentalGitHub(request,env,'POST',api+'/dispatches',{ref:'main',inputs:{dataset_slug:slug}});
+    if(dispatch.denied)return dispatch.denied;
+    return json({ok:true,dispatched:true,status:'QWEN_KAGGLE_GPU_DISPATCH_ACCEPTED',track:'qwen3',mode:'gpu',gpu_training_performed:false,
+      workflow_url:'https://github.com/'+FREE_LORA_GITHUB_REPO+'/actions/workflows/'+workflow});
   }
   const api='https://api.github.com/repos/'+FREE_LORA_GITHUB_REPO+'/actions/workflows/'+EXPERIMENTAL_TRAINING_WORKFLOW;
   // Check active workflows before dispatch; prevent accidental duplicate runs.
