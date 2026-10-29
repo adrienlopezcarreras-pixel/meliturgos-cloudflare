@@ -34,8 +34,8 @@ test('runner receipt binds exact SHA/run and fails closed on absent required tes
 test('runner receipt accepts only complete named TAP and runner file success on exact run', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'mel-founder-evidence-positive-'));
   try {
-    const log = names.map((name, index) => 'ok ' + (index + 1) + ' - ' + name).join('\\n')
-      + '\\n✓ tests/native-chat-connected-replay.test.mjs\\nexit_code=0\\n';
+    const log = names.map((name, index) => 'ok ' + (index + 1) + ' - ' + name).join('\n')
+      + '\n✓ tests/native-chat-connected-replay.test.mjs\nexit_code=0\n';
     await writeFile(join(dir, 'test-report.log'), log);
     const result = spawnSync(process.execPath, [script], {
       cwd: dir, encoding: 'utf8',
@@ -53,8 +53,8 @@ test('runner receipt accepts only complete named TAP and runner file success on 
 test('runner refuses contradictory TAP pass/fail for a required case', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'mel-founder-contradictory-tap-'));
   try {
-    const log = names.map((name, i) => 'ok ' + (i + 1) + ' - ' + name).join('\\n')
-      + '\\nnot ok 4 - ' + names[0] + '\\n✓ tests/native-chat-connected-replay.test.mjs\\nexit_code=0\\n';
+    const log = names.map((name, i) => 'ok ' + (i + 1) + ' - ' + name).join('\n')
+      + '\nnot ok 4 - ' + names[0] + '\n✓ tests/native-chat-connected-replay.test.mjs\nexit_code=0\n';
     await writeFile(join(dir, 'test-report.log'), log);
     const result = spawnSync(process.execPath, [script], {
       cwd:dir, encoding:'utf8',
