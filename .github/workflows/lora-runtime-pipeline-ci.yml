@@ -19,6 +19,8 @@ on:
       - 'tests/*lora*'
       - 'tests/test_qwen3_training.py'
       - 'tests/test_qwen_corpus_packager.py'
+      - 'tests/test_ultrachat_qwen_import.py'
+      - 'scripts/import-ultrachat-qwen.py'
       - 'tests/qwen-kaggle-archive-limits.test.mjs'
       - 'scripts/prepare-qwen-kaggle-corpus.py'
       - 'tests/test_abliteration_plan.py'
@@ -72,6 +74,9 @@ jobs:
 
       - name: Reviewed Qwen3 Kaggle corpus packaging (offline)
         run: python -m unittest discover -s tests -p 'test_qwen_corpus_packager.py' -v
+
+      - name: UltraChat conversion contract (offline)
+        run: python -m unittest discover -s tests -p 'test_ultrachat_qwen_import.py' -v
 
       - name: Qwen3 GPU artifact evidence (offline)
         run: python -m unittest discover -s tests -p 'test_qwen_gpu_evidence.py' -v
