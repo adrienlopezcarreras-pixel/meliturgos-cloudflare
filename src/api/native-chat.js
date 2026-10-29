@@ -1390,7 +1390,7 @@ export function resolveContinuationInferenceRoute({ voiceReply = false, professo
   return {
     task: voiceReply ? 'FAST' : (professorRoute?.task || 'REASONING'),
     model: voiceReply ? '@cf/zai-org/glm-4.7-flash'
-      : (String(previousModel || '').startsWith('@cf/') ? previousModel : (professorRoute?.model || null)),
+      : ((String(previousModel || '').startsWith('@cf/') || previousModel === 'Qwen/Qwen3-14B') ? previousModel : (professorRoute?.model || null)),
   };
 }
 
@@ -1402,6 +1402,9 @@ export async function runNativeInference({ env, messages, text, parallel = false
     let primaryReady = false;
     try { requireChatLora(activeAdapter); primaryReady = true; } catch {}
     if (!primaryReady) return runQwen3LoraInference({env, active:qwenAdapter, messages, deadlineAt});
+  }
+  if (requireLora && secondaryReady && preferredModel === 'Qwen/Qwen3-14B') {
+    return runQwen3LoraInference({env, active:qwenAdapter, messages, deadlineAt});
   }
   if (!env?.AI || typeof env.AI.run !== 'function') {
     const error = new Error('AI_BINDING_MISSING');
