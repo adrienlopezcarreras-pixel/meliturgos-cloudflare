@@ -114,8 +114,8 @@ export const MEL_DUAL_LORA_TRAINING_MARKUP = `
       <small><code>Qwen/Qwen3-14B</code></small>
     </div>
     <div class="lora-step">
-      <b>Routage et secours</b><span class="tag warn">À développer et prouver</span>
-      <small>Quand UNCENSORED est activé : modèle prioritaire, puis l'autre uniquement sur erreur, timeout ou réponse vide. Même conversation, limite de temps globale, traces du modèle réellement utilisé.</small>
+      <b>Routage et secours</b><span class="tag warn">Code prêt · service Qwen non activé</span>
+      <small>Quand UNCENSORED est activé : Mistral d’abord, puis Qwen si erreur, timeout ou réponse vide (ou Qwen seul si Mistral absent). Le mécanisme est codé mais exige un adaptateur Qwen validé et un service cloud dédié.</small>
       <small>Jamais de retour silencieux vers un modèle normal ni de faux reçu LoRA.</small>
     </div>
   </div>
@@ -134,7 +134,7 @@ export const MEL_DUAL_LORA_TRAINING_MARKUP = `
   <div class="status-row"><span>Différences</span><strong>Tokenizers, templates, paramètres, checkpoints et adaptateurs séparés</strong></div>
   <div class="status-row"><span>Validation</span><strong>Qualité, sur-refus, limites de sécurité, JSON/outils, code et absence de régression</strong></div>
   <div class="status-row"><span>Infrastructure</span><strong>Mistral : Workers AI · Qwen3 : hébergeur LoRA compatible à confirmer</strong></div>
-  <p class="footer-note">Planification uniquement : les liens ne lancent pas d'entraînement, ne créent pas de checkpoint et n'autorisent pas d'activation. Le bouton « Lancer un entraînement » ci-dessus concerne toujours Mistral.</p>
+  <p class="footer-note">Le point d’entrée GPU Qwen existe dans <code>scripts/train-qwen3-lora.py</code>, mais aucun entraînement n’a été exécuté ici. Les liens ne lancent rien. Le bouton « Lancer un entraînement » ci-dessus concerne toujours Mistral.</p>
   <details style="margin-top:15px">
     <summary style="cursor:pointer;font-weight:700">Sources et notebooks à intégrer (12 ressources)</summary>
     <ul style="margin:9px 0 0;padding-left:20px;line-height:1.45">${resourceMarkup}</ul>
