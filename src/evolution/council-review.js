@@ -257,16 +257,26 @@ export async function reviewVerificationEvidence(env, { job, implementation, ciR
   await env.DB.prepare(`INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?)
     ON CONFLICT(bridge_id) DO UPDATE SET last_seen=excluded.last_seen,status=excluded.status,metadata_json=excluded.metadata_json`)
     .bind(key, now, result.decision, JSON.stringify(record)).run().catch(() => {});
+  // The Council journal already has the exact CI/live checks; persist the same
+  // evidence in the job snapshot atomically with the verdict. An earlier
+  // WAITING_VERIFICATION diagnostic may predate the actual successful probes.
+  const verificationEvidence = {
+    status: result.decision === 'APPROVED' ? 'COUNCIL_APPROVED' : 'COUNCIL_REVIEWED',
+    objective_assessment: 'ALREADY_IMPLEMENTED_UNVERIFIED',
+    code: result.decision === 'REJECTED' ? 'COUNCIL_REJECTED_VERIFY_EXISTING' : result.decision,
+    ci_run_id: Number(ciRunId), candidate_sha: head, live_checks: liveChecks,
+    observed_at: new Date(now).toISOString(),
+  };
   if (result.decision === 'REJECTED') {
     const objections = result.reviews.filter(r => r.verdict === 'REJECT').flatMap(r => (r.blocking || []).map(b => String(r.model || '').split('/').pop() + ' : ' + b)).slice(0, 12);
-    await env.DB.prepare(`UPDATE dev_jobs SET result_json=json_set(COALESCE(result_json,'{}'),'$.council_review',json(?)), error=?, status=CASE WHEN status='TEACHER_APPROVED' THEN 'FAILED' ELSE status END, updated_at=? WHERE id=?`)
-      .bind(JSON.stringify({ decision: result.decision, head, mode: 'VERIFY_EXISTING', objections, reviewed_at: now }), ('COUNCIL_REJECTED_VERIFY_EXISTING: ' + objections.join(' | ')).slice(0, 900), now, job.id)
+    await env.DB.prepare(`UPDATE dev_jobs SET result_json=json_set(COALESCE(result_json,'{}'),'$.council_review',json(?),'$.verify_existing',json(?)), error=?, status=CASE WHEN status='TEACHER_APPROVED' THEN 'FAILED' ELSE status END, updated_at=? WHERE id=?`)
+      .bind(JSON.stringify({ decision: result.decision, head, mode: 'VERIFY_EXISTING', objections, reviewed_at: now }), JSON.stringify(verificationEvidence), ('COUNCIL_REJECTED_VERIFY_EXISTING: ' + objections.join(' | ')).slice(0, 900), now, job.id)
       .run().catch(() => {});
   } else if (result.decision === OWNER_APPROVAL_REQUIRED) {
     // [Codex] An unavailable Council leaves the active job resumable; the
     // runtime records its bounded verification wait after this review.
-    await env.DB.prepare(`UPDATE dev_jobs SET result_json=json_set(COALESCE(result_json,'{}'),'$.council_review',json(?)), error=?, status=CASE WHEN status='TEACHER_APPROVED' THEN ? ELSE status END, updated_at=? WHERE id=?`)
-      .bind(JSON.stringify({ decision: result.decision, head, mode: 'VERIFY_EXISTING', key, reviewed_at: now }), null, 'READY_FOR_REVIEW', now, job.id)
+    await env.DB.prepare(`UPDATE dev_jobs SET result_json=json_set(COALESCE(result_json,'{}'),'$.council_review',json(?),'$.verify_existing',json(?)), error=?, status=CASE WHEN status='TEACHER_APPROVED' THEN ? ELSE status END, updated_at=? WHERE id=?`)
+      .bind(JSON.stringify({ decision: result.decision, head, mode: 'VERIFY_EXISTING', key, reviewed_at: now }), JSON.stringify(verificationEvidence), null, 'READY_FOR_REVIEW', now, job.id)
       .run().catch(() => {});
   }
   return record;
