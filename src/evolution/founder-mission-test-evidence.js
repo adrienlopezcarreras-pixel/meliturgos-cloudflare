@@ -72,6 +72,10 @@ export async function fetchFounderMissionTestEvidence({ repository, candidateSha
     if (archive.status !== 302) return { ok:false, code:'MISSION_TEST_ARCHIVE_REDIRECT_INVALID' };
     const location = new URL(archive.headers.get('location') || '');
     const host = location.hostname.toLowerCase();
+    // Signed archive URL must not contain embedded credentials, nonstandard ports,
+    // or a hostname that merely ends with a trusted suffix after a lookalike label.
+    if (location.username || location.password || location.port)
+      return { ok:false, code:'MISSION_TEST_ARCHIVE_HOST_INVALID' };
     if (location.protocol !== 'https:' || !(
       host === 'objects.githubusercontent.com' || host.endsWith('.actions.githubusercontent.com')
     )) return { ok:false, code:'MISSION_TEST_ARCHIVE_HOST_INVALID' };
