@@ -953,3 +953,33 @@ test('a new test importing the right module from the wrong folder is pointed at 
   const created = result.proposal.changes.find(change => change.path === 'tests/greet.test.mjs');
   assert.match(created.content, /from '\.\.\/src\/evolution\/greet\.js'/);
 });
+
+test('a slow failed local coder leaves a real cloud fallback window', async () => {
+  let clock = 0;
+  const calls = [];
+  const local = { id: 'pc', providerId: 'local-pc-coder', modelId: 'pc', async invoke() {
+    calls.push('pc');
+    clock += 110_000;
+    throw Object.assign(new Error('empty'), { code: 'LOCAL_MODEL_EMPTY' });
+  } };
+  const cloud = { id: 'online', providerId: 'cloud', modelId: 'online', async invoke() {
+    calls.push('online');
+    return { text: JSON.stringify({ summary: 'Change value', edits: [{ path: 'src/example.js', find: 'return "old";', replace: 'return "new";' }], tests: ['test:smoke'] }) };
+  } };
+  const engine = new MentorEngine({ now: () => clock, providerFactory: async () => [local, cloud] });
+  const result = await engine.propose({ env: {}, goal: 'Change value', inspectedFiles: [{ path: 'src/example.js', content: 'export function read() {\n  return "old";\n}\n' }] });
+  assert.deepEqual(calls, ['pc', 'online']);
+  assert.match(result.proposal.changes[0].content, /return "new";/);
+});
+
+test('the cloud coder works with no local PC provider configured', async () => {
+  const calls = [];
+  const cloud = { id: 'cloud-only', providerId: 'cloud', modelId: 'cloud', async invoke() {
+    calls.push('cloud');
+    return { text: JSON.stringify({ summary: 'Change value', edits: [{ path: 'src/example.js', find: 'return "old";', replace: 'return "new";' }], tests: ['test:smoke'] }) };
+  } };
+  const engine = new MentorEngine({ providerFactory: async () => [cloud] });
+  const result = await engine.propose({ env: {}, goal: 'Change value', inspectedFiles: [{ path: 'src/example.js', content: 'export function read() {\n  return "old";\n}\n' }] });
+  assert.deepEqual(calls, ['cloud']);
+  assert.match(result.proposal.changes[0].content, /return "new";/);
+});
