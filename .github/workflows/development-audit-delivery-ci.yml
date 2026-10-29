@@ -1,0 +1,27 @@
+name: development-audit-delivery-ci
+on:
+  pull_request:
+    paths:
+      - 'src/diagnostics/development-audit.js'
+      - 'tests/development-audit.test.mjs'
+      - '.github/workflows/development-audit-delivery-ci.yml'
+  workflow_dispatch:
+jobs:
+  audit-delivery:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Check source and test syntax
+        run: node --check src/diagnostics/development-audit.js && node --check tests/development-audit.test.mjs
+      - name: Targeted audit tests
+        run: node --test tests/development-audit.test.mjs
+      - name: Full regression suite
+        run: npm test
