@@ -48,6 +48,15 @@ class TestQwen3Training(unittest.TestCase):
         self.assertEqual(result["train_examples"] + result["validation_examples"], 60)
         self.assertFalse(self.output.exists())
 
+    def test_kaggle_entrypoint_contains_adapter_digest_gate(self):
+        entry = Path(__file__).resolve().parents[1] / "kaggle" / "qwen3-gated-gpu-entry.py"
+        source = entry.read_text(encoding="utf-8")
+        compile(source, str(entry), "exec")
+        self.assertIn("QWEN_GPU_ARTIFACT_DIGEST_MISMATCH", source)
+        self.assertIn("QWEN_GPU_ARTIFACT_MISSING", source)
+        self.assertIn("QWEN_GPU_PREMATURE_ACTIVATION_FORBIDDEN", source)
+        self.assertIn("hashlib.sha256(artifact.read_bytes()).hexdigest()", source)
+
     def test_reject_wrong_checksum(self):
         obj = json.loads(self.manifest.read_text())
         obj["dataset_sha256"] = "sha256:" + "0" * 64
