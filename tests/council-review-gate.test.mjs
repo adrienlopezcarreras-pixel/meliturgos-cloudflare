@@ -182,3 +182,16 @@ test('VERIFY_EXISTING never reuses Council approval across another CI run or liv
     assert.equal(calls,3,'new run or changed checks always trigger a fresh review');
   } finally { DB.close(); }
 });
+
+
+test('FOUNDER Council is not invoked without verified runner evidence', async () => {
+  const { reviewVerificationEvidence } = await import('../src/evolution/council-review.js');
+  let called = 0;
+  const result = await reviewVerificationEvidence({ DB: { prepare() { throw Error('DB_MUST_NOT_BE_CALLED'); } } }, {
+    job: { id:'founder-missing', goal:'[MEL-FOUNDER-01] Connected chat proof' },
+    implementation: { candidate_sha:'a'.repeat(40) }, ciRunId: 123, liveChecks:[],
+    review: async () => { called++; return { decision:'APPROVED', reviews:[] }; },
+  });
+  assert.equal(result.decision, 'MISSION_TEST_EVIDENCE_REQUIRED');
+  assert.equal(called,0);
+});
