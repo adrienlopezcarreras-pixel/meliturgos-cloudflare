@@ -40,7 +40,7 @@ Quand le propriétaire active « UNCENSORED » :
 
 ## Références apportées par le propriétaire
 
-1. [Notebook Google Colab communiqué](https://colab.research.google.com/drive/1VYm3hOcvCpbGiqKZb141gJwjdmmCcVpR?usp=sharing) — **contenu inaccessible sans authentification lors de la vérification**. Ne pas supposer quelles cellules il exécute. Lire et auditer le notebook avant toute exécution.
+1. [Notebook Google Colab communiqué](https://colab.research.google.com/drive/1VYm3hOcvCpbGiqKZb141gJwjdmmCcVpR?usp=sharing) — **vérifié via Google Drive** : fichier `Uncensor any LLM with abliteration.ipynb` (10 cellules, version modifiée le 6 juin 2024). Exemple `mlabonne/Daredevil-8B` et `transformer_lens` : collecte d'activations sur jeux de prompts, direction différentielle, orthogonalisation de matrices, sauvegarde du modèle modifié. **Il ne s'agit pas d'un QLoRA Qwen3**. L'adaptation à Qwen est une expérience séparée qui exige un portage architectural, une revue de sécurité et des benchmarks.
 2. [nicoboss/Qwen3-14B-Uncensored-Lora](https://huggingface.co/nicoboss/Qwen3-14B-Uncensored-Lora) — adaptateur PEFT existant, non approuvé pour MEL.
 3. [Eric Hartford, Uncensored Models](https://erichartford.com/uncensored-models) — historique de filtrage des données de refus et limites de l'alignement de modèles (2023).
 4. [Maxime Labonne, Uncensor any LLM with abliteration](https://medium.com/@mlabonne/uncensor-any-llm-with-abliteration-d30148b7d43e) — méthode alternative par direction de refus (2024), pas un LoRA ; **branche expérimentale isolée**, comparaison contrôlée des régressions avant toute utilisation.
