@@ -48,7 +48,7 @@ const report = {
   tests: [...tests, ...authTests, renderTest],
   auth_test_file_passed: authFilePassed,
   replay_test_file_passed: replayFilePassed,
-  mandatory_tests_verified: exitCode === 0 && tests.every(t => t.passed),
+  mandatory_tests_verified: exitCode === 0 && [...tests, ...authTests, renderTest].every(t => t.passed),
   // Deliberately not claiming authentication or raw-JSON rendering coverage.
   additional_required_proofs: [
     ...(authTests.every(t => t.passed) ? [] : ['GMAIL_CALENDAR_DRIVE_TYPED_AUTH']),
