@@ -104,7 +104,7 @@ def run(argv=None):
             and 1 <= args.rank <= 64 and 1 <= args.alpha <= 1024
             and 1e-7 <= args.learning_rate <= 1e-3 and 0 <= args.seed <= 2**32 - 1):
         raise ValueError("QWEN_INVALID_TRAINING_PARAMETERS")
-    if output.exists() and any(output.iterdir()):
+    if output.exists() and (not output.is_dir() or any(output.iterdir())):
         raise ValueError("QWEN_IMMUTABLE_OUTPUT_ALREADY_EXISTS")
 
     digest = sha256(dataset)
@@ -189,7 +189,7 @@ def run(argv=None):
     if any(all(label == tokenizer.pad_token_id for label in row["labels"]) for row in train_ds):
         raise ValueError("QWEN_TOKENIZED_SEQUENCE_EMPTY")
 
-    output.mkdir(parents=True, exist_ok=False)
+    output.mkdir(parents=True, exist_ok=True)
     kwargs = dict(
         output_dir=str(output), max_steps=args.max_steps, per_device_train_batch_size=1,
         per_device_eval_batch_size=1, gradient_accumulation_steps=8, learning_rate=args.learning_rate,
