@@ -19,6 +19,7 @@ on:
       - 'tests/*lora*'
       - 'tests/test_qwen3_training.py'
       - 'tests/test_qwen_corpus_packager.py'
+      - 'tests/qwen-kaggle-archive-limits.test.mjs'
       - 'scripts/prepare-qwen-kaggle-corpus.py'
       - 'tests/test_abliteration_plan.py'
       - 'tests/test_abliteration_gpu.py'
