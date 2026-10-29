@@ -320,7 +320,12 @@ async function runLoraTrainingHeartbeatUnlocked(env = {}, options = {}) {
       };
     }
 
-    const sha = options.manualSingleCycle === true && checkpoint?.target_commitish
+    // A new dataset loader requires code from reviewed main, not an older
+    // checkpoint SHA; the parent adapter is still verified by its own digest.
+    const dolphinExperiment = objective.decision === 'TRAIN_AGENTIC'
+      ? { sources: [], status: 'NOT_APPLICABLE' }
+      : await (options.resolveDolphinSource || resolveDolphinExperiment)(env, fetchImpl);
+    const sha = options.manualSingleCycle === true && checkpoint?.target_commitish && !dolphinExperiment.sources?.length
       ? checkpoint.target_commitish : await candidateHead({ fetchImpl, repository, branch, token });
     const shardSize = String(safeInt(env?.MEL_LORA_KAGGLE_SHARD_SIZE, 750, 50, 3000));
     const maxCyclesNumber = options.manualSingleCycle === true ? (checkpoint ? checkpoint.cycle + 2 : 1) : safeInt(env?.MEL_LORA_KAGGLE_MAX_CYCLES, 100, 1, 100);
@@ -338,11 +343,6 @@ async function runLoraTrainingHeartbeatUnlocked(env = {}, options = {}) {
         impact,
       };
     }
-
-    // Training remains available if the optional Dolphin discovery fails.
-    const dolphinExperiment = objective.decision === 'TRAIN_AGENTIC'
-      ? { sources: [], status: 'NOT_APPLICABLE' }
-      : await (options.resolveDolphinSource || resolveDolphinExperiment)(env, fetchImpl);
 
     await dispatchWorkflow({
       fetchImpl,
