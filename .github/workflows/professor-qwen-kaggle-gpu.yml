@@ -43,12 +43,11 @@ jobs:
           from pathlib import Path
           trainer=Path('scripts/train-qwen3-lora.py').read_bytes()
           entry=Path('kaggle/qwen3-gated-gpu-entry.py').read_text(encoding='utf-8')
-          preamble=("from pathlib import Path as _MELPath\\n"
-                    "import base64 as _mel_b64\\n"
+          preamble=("from pathlib import Path as _MELPath\n"
+                    "import base64 as _mel_b64\n"
                     "_MELPath('/kaggle/working/train-qwen3-lora.py').write_bytes("
-                    "_mel_b64.b64decode("+repr(base64.b64encode(trainer).decode('ascii'))+"))\\n")
+                    "_mel_b64.b64decode("+repr(base64.b64encode(trainer).decode('ascii'))+"))\n")
           # The generated file must be syntactically valid, not just the sources.
-          preamble=preamble.replace('\\\\n','\\n')
           generated=preamble+entry
           compile(generated,'main.py','exec')
           Path('artifacts/qwen-kernel/main.py').write_text(generated,encoding='utf-8')
