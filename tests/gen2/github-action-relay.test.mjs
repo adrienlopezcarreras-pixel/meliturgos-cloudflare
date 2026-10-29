@@ -130,6 +130,73 @@ test('GitHub relay capability refuses to queue while no relay consumer heartbeat
   }
 });
 
+test('live approved GitHub relay takes precedence over a configured but unusable direct token', async () => {
+  const db = sqliteD1();
+  try {
+    const relay = new D1GitHubActionRelayStore(db);
+    await relay.heartbeat({ metadata: { run_id: 42 } });
+    let directCalls = 0;
+    const bus = new CapabilityBus();
+    registerPlatformControlCapabilities(bus, {
+      env: {
+        DB: db,
+        MEL_GITHUB_REPOSITORY: 'owner/repo',
+        MEL_GITHUB_TOKEN: 'stale-direct-token',
+        MEL_GITHUB_WRITABLE_WORKFLOWS: WORKFLOW,
+      },
+      fetchImpl: async () => {
+        directCalls += 1;
+        throw new Error('DIRECT_GITHUB_NETWORK_MUST_NOT_BE_USED_WHILE_RELAY_IS_ONLINE');
+      },
+    });
+
+    assert.equal((await bus.refreshHealth('github.actions.workflow.dispatch')).health, 'HEALTHY');
+    await assert.rejects(
+      () => bus.execute('github.actions.workflow.dispatch', { workflow: WORKFLOW, ref: 'main' }, {
+        owner: 'adrien', permissions: [], requestId: 'relay-approval-denial',
+      }),
+      error => error?.code === 'EXPLICIT_APPROVAL_REQUIRED',
+    );
+    const result = await bus.execute('github.actions.workflow.dispatch', {
+      workflow: WORKFLOW,
+      ref: 'main',
+    }, approved('github.actions.workflow.dispatch'));
+    assert.equal(result.accepted, true);
+    assert.equal(result.transport, 'd1-github-actions-relay');
+    assert.match(result.relay_job_id, /^gh-relay-/);
+    assert.equal(directCalls, 0);
+  } finally {
+    db.close();
+  }
+});
+
+test('offline GitHub relay preserves configured direct-token path without duplicate dispatch', async () => {
+  const db = sqliteD1();
+  try {
+    let dispatchCalls = 0;
+    const bus = new CapabilityBus();
+    registerPlatformControlCapabilities(bus, {
+      env: {
+        DB: db,
+        MEL_GITHUB_REPOSITORY: 'owner/repo',
+        MEL_GITHUB_TOKEN: 'direct-token',
+        MEL_GITHUB_WRITABLE_WORKFLOWS: WORKFLOW,
+      },
+      fetchImpl: async (_url, init) => {
+        if (init?.method === 'POST') dispatchCalls += 1;
+        return new Response(null, { status: 204 });
+      },
+    });
+    const result = await bus.execute('github.actions.workflow.dispatch', {
+      workflow: WORKFLOW, ref: 'main',
+    }, approved('github.actions.workflow.dispatch'));
+    assert.equal(result.transport, 'direct-github-api');
+    assert.equal(dispatchCalls, 1);
+  } finally {
+    db.close();
+  }
+});
+
 test('internal GitHub relay API accepts durable Dev Bridge auth and rejects unrelated bearer auth', async () => {
   const db = sqliteD1();
   try {

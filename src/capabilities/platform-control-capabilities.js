@@ -243,7 +243,7 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
     category: 'development',
     version: '1.0.0',
     provider: 'github',
-    description: 'Triggers one explicitly allowlisted workflow in the configured MELITURGOS repository. Uses a direct GitHub credential when configured, otherwise a durable D1-backed GitHub Actions relay consumed through the authenticated Dev Bridge. Requires exact owner approval.',
+    description: 'Triggers one explicitly allowlisted workflow in the configured MELITURGOS repository. Uses a healthy durable D1-backed GitHub Actions relay when available, otherwise the configured direct GitHub credential. Both transports require exact owner approval and an allowlisted workflow.',
     input_schema: {
       type: 'object',
       properties: {
@@ -260,6 +260,18 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
     approval: { required: true, scope: 'github.actions.workflow.dispatch', reason: 'GITHUB_WORKFLOW_MUTATION' },
     health: githubRepository && githubWorkflows.length && (githubToken || githubRelayConfigured) ? 'DEGRADED' : 'UNAVAILABLE',
     healthcheck: async () => {
+      // A live Actions relay is the preferred GitHub transport even when an
+      // older direct token is configured. A stale Worker token must not make
+      // an otherwise healthy, owner-approved relay appear degraded.
+      if (githubRelayConfigured) {
+        try {
+          const health = await githubRelay.health();
+          if (health.online) return { status: 'HEALTHY' };
+          if (!githubToken) return { status: 'DEGRADED', reason: 'GITHUB_ACTION_RELAY_OFFLINE' };
+        } catch (error) {
+          if (!githubToken) return healthFailure(error);
+        }
+      }
       if (githubRepository && githubToken && githubWorkflows.length) {
         return probeHealth(
           () => requestJson(
@@ -277,16 +289,6 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
           ),
         );
       }
-      if (githubRelayConfigured) {
-        try {
-          const health = await githubRelay.health();
-          return health.online
-            ? { status: 'HEALTHY' }
-            : { status: 'DEGRADED', reason: 'GITHUB_ACTION_RELAY_OFFLINE' };
-        } catch (error) {
-          return healthFailure(error);
-        }
-      }
       return { status: 'UNAVAILABLE', reason: 'GITHUB_CONTROL_NOT_CONFIGURED' };
     },
     enabled: true,
@@ -297,23 +299,28 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
     const ref = safeRef(input.ref);
     const inputs = normalizeWorkflowInputs(input.inputs);
 
-    if (!githubToken && githubRelayConfigured) {
+    if (githubRelayConfigured) {
       const health = await githubRelay.health();
-      if (!health.online) throw capabilityError('GITHUB_ACTION_RELAY_OFFLINE', 503);
-      const job = await githubRelay.enqueue({ workflow, ref, inputs });
-      return {
-        provider: 'github',
-        repository: githubRepository,
-        workflow,
-        ref,
-        accepted: true,
-        status: job.status,
-        transport: githubRelay.transport || 'd1-github-actions-relay',
-        relay_job_id: job.id,
-        workflow_run_id: 0,
-        run_url: '',
-        html_url: '',
-      };
+      // Prefer the existing durable, audited Actions relay over a potentially
+      // stale direct Worker token. No retry after a direct POST is attempted:
+      // that would risk dispatching the same workflow twice.
+      if (health.online) {
+        const job = await githubRelay.enqueue({ workflow, ref, inputs });
+        return {
+          provider: 'github',
+          repository: githubRepository,
+          workflow,
+          ref,
+          accepted: true,
+          status: job.status,
+          transport: githubRelay.transport || 'd1-github-actions-relay',
+          relay_job_id: job.id,
+          workflow_run_id: 0,
+          run_url: '',
+          html_url: '',
+        };
+      }
+      if (!githubToken) throw capabilityError('GITHUB_ACTION_RELAY_OFFLINE', 503);
     }
 
     if (!githubToken) throw capabilityError('GITHUB_CONTROL_NOT_CONFIGURED', 503);
