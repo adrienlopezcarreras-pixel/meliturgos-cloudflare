@@ -19,6 +19,40 @@ from pathlib import Path
 ULTRA_REPO = "Devilishcode/ultrachat-uncensored"
 OPUS_REPO = "anthracite-org/kalo-opus-instruct-22k-no-refusal"
 
+DOLPHIN_REPO = "QuixiAI/dolphin"
+
+def dolphin_messages(mod, row):
+    raw = row.get("conversations", row.get("messages"))
+    if isinstance(raw, list):
+        return mod.sharegpt_messages(raw)
+    prompt = row.get("instruction", row.get("prompt"))
+    answer = row.get("output", row.get("response"))
+    if not isinstance(prompt, str) or not isinstance(answer, str):
+        return None
+    context = row.get("input", "")
+    if isinstance(context, str) and context.strip():
+        prompt += "\n" + context
+    return mod.sharegpt_messages([{"from":"human","value":prompt},{"from":"gpt","value":answer}])
+
+def collect_dolphin(source, *, needed, cycle, mod):
+    import re
+    from datasets import load_dataset
+    from huggingface_hub import HfApi
+    repo = str(source.get("id", ""))
+    revision = str(source.get("revision", ""))
+    if repo != DOLPHIN_REPO or not re.fullmatch(r"[0-9a-fA-F]{40}", revision):
+        raise SystemExit("LORA_DOLPHIN_SOURCE_NOT_PINNED")
+    info = HfApi().dataset_info(repo_id=repo, revision=revision)
+    tags = [str(tag).lower() for tag in (info.tags or [])]
+    if getattr(info, "private", False) or getattr(info, "gated", False) or "license:apache-2.0" not in tags:
+        raise SystemExit("LORA_DOLPHIN_LICENSE_OR_ACCESS_REJECTED")
+    def factory():
+        return iter(load_dataset(repo, revision=revision, split="train", streaming=True))
+    rows, stats = collect_stream(factory, start=cycle * max(1, needed), target=needed,
+        convert=lambda row: dolphin_messages(mod, row), risky=mod.is_high_risk_operational, source_name="dolphin_experimental")
+    return rows, {"repo": repo, "revision": revision, "license": "apache-2.0", **stats}
+
+
 def sha256_bytes(raw: bytes) -> str:
     return "sha256:" + hashlib.sha256(raw).hexdigest()
 
@@ -127,6 +161,7 @@ def main() -> int:
     ap.add_argument("--output", required=True)
     ap.add_argument("--objective", choices=["uncensored", "agentic"], default="uncensored")
     ap.add_argument("--agentic-sources", default="[]")
+    ap.add_argument("--uncensored-sources", default="[]")
     args = ap.parse_args()
 
     if args.cycle < 0:
@@ -187,6 +222,15 @@ def main() -> int:
         output.with_suffix(output.suffix + ".meta.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(json.dumps(metadata, ensure_ascii=False, indent=2))
         return 0
+    # Explicit opt-in, at most one reviewed source and 25% of public examples.
+    experimental = json.loads(args.uncensored_sources or "[]")
+    if not isinstance(experimental, list) or len(experimental) > 1:
+        raise SystemExit("LORA_UNCENSORED_SOURCES_INVALID")
+    dolphin_rows, dolphin_stats = [], None
+    if experimental and public_needed:
+        quota = max(1, public_needed // 4)
+        dolphin_rows, dolphin_stats = collect_dolphin(experimental[0], needed=quota, cycle=args.cycle, mod=mod)
+        public_needed -= quota
     ultra_target = (public_needed + 1) // 2
     opus_target = public_needed - ultra_target
 
@@ -219,7 +263,7 @@ def main() -> int:
         source_name="opus_no_refusal",
     ) if opus_target else ([], {"accepted": 0, "quarantined": 0, "scanned": 0})
 
-    rows = [*ultra_rows, *opus_rows, *mel_rows]
+    rows = [*ultra_rows, *opus_rows, *dolphin_rows, *mel_rows]
     if len(rows) != args.shard_size:
         raise SystemExit(f"LORA_SHARD_COUNT_INVALID:{len(rows)}:{args.shard_size}")
 
@@ -235,10 +279,11 @@ def main() -> int:
         "cycle": args.cycle,
         "shard_size": args.shard_size,
         "canonical_mel_lessons": len(mel_rows),
-        "public_examples": public_needed,
+        "public_examples": args.shard_size - len(mel_rows),
         "sources": {
             "ultrachat_train": {"repo": ULTRA_REPO, "start": ultra_start, **ultra_stats},
             "opus_no_refusal": {"repo": OPUS_REPO, "start": opus_start, **opus_stats},
+            **({"dolphin_experimental": dolphin_stats} if dolphin_stats else {}),
         },
         "policy": {
             "source_text_rewritten": False,
