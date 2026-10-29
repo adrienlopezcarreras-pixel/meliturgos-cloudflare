@@ -24,7 +24,8 @@ test('runner receipt binds exact SHA/run and fails closed on absent required tes
     assert.equal(data.github_run_id, 1234);
     assert.equal(data.candidate_sha, 'a'.repeat(40));
     assert.equal(data.mandatory_tests_verified, false);
-    assert.equal(data.tests.filter(x => x.passed).length, 1);
+    assert.equal(data.tests.filter(x => x.passed).length, 0, 'TAP alone does not prove runner accepted test file');
+    assert.equal(data.replay_test_file_passed, false);
     assert.ok(data.additional_required_proofs.includes('NO_RAW_TOOL_CALL_JSON'));
   } finally { await rm(dir, { recursive:true, force:true }); }
 });
