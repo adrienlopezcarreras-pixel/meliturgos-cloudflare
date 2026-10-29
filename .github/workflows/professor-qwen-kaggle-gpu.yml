@@ -1,0 +1,71 @@
+name: Professor Qwen3 Kaggle GPU (gated)
+on:
+  workflow_dispatch:
+    inputs:
+      dataset_slug:
+        description: "Reviewed private Kaggle dataset owner/name, with dataset.jsonl and sources.json"
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: professor-qwen-kaggle-gpu
+  cancel-in-progress: false
+jobs:
+  launch-qwen-gpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: preview
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      DATASET_SLUG: ${{ inputs.dataset_slug }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate gated input and Kaggle credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$DATASET_SLUG" =~ ^[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+$ ]] || { echo "INVALID_KAGGLE_DATASET_SLUG"; exit 1; }
+          test -n "${KAGGLE_API_TOKEN:-}" || { echo "KAGGLE_CREDENTIALS_MISSING"; exit 1; }
+          python -m py_compile scripts/train-qwen3-lora.py kaggle/qwen3-gated-gpu-entry.py
+          python -m unittest discover -s tests -p test_qwen3_training.py -v
+      - name: Install official Kaggle CLI
+        run: python -m pip install -q kaggle
+      - name: Authenticate Kaggle and submit GPU notebook
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/qwen-kernel
+          cp scripts/train-qwen3-lora.py artifacts/qwen-kernel/train-qwen3-lora.py
+          cp kaggle/qwen3-gated-gpu-entry.py artifacts/qwen-kernel/main.py
+          python - <<'PY'
+          import json,os,pathlib
+          from kagglesdk.kaggle_client import KaggleClient
+          from kagglesdk.kaggle_creds import KaggleCredentials
+          token=os.environ['KAGGLE_API_TOKEN']
+          client=KaggleClient(user_agent="mel-qwen3-gpu/1.0")
+          creds=KaggleCredentials(client=client,access_token=token)
+          username=str(creds.introspect()).strip()
+          if not username or '/' in username: raise SystemExit('KAGGLE_USERNAME_INVALID')
+          meta={'id':username+'/mel-qwen3-gated-gpu','title':'MEL Qwen3 GPU gated candidate','code_file':'main.py','language':'python','kernel_type':'script','is_private':True,'enable_gpu':True,'enable_internet':True,'machine_shape':'NvidiaTeslaT4','dataset_sources':[os.environ['DATASET_SLUG']],'competition_sources':[],'kernel_sources':[],'model_sources':[]}
+          pathlib.Path('artifacts/qwen-kernel/kernel-metadata.json').write_text(json.dumps(meta,indent=2)+'\n')
+          print('KAGGLE_METADATA_VALIDATED')
+          PY
+          # Inject dataset slug without logging its contents or any corpus data.
+          sed -i "s|os.environ.get('MEL_QWEN_DATASET_SLUG','')|'${DATASET_SLUG}'|" artifacts/qwen-kernel/main.py
+          kaggle kernels push -p artifacts/qwen-kernel --accelerator NvidiaTeslaT4
+      - name: Record dispatch (not training success)
+        if: success()
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          python - <<'PY'
+          import json,os,pathlib
+          data={'status':'KAGGLE_GPU_DISPATCHED_UNVERIFIED','track':'qwen3','github_run_id':os.environ['GITHUB_RUN_ID'],'source_sha':os.environ['GITHUB_SHA'],'dataset_slug':os.environ['DATASET_SLUG'],'gpu_training_proven':False,'checkpoint_validated':False,'adapter_active':False}
+          pathlib.Path('artifacts/qwen-dispatch.json').write_text(json.dumps(data,indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: qwen-gpu-dispatch-${{ github.run_id }}
+          path: artifacts/qwen-dispatch.json
