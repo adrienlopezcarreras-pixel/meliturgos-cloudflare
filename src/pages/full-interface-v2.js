@@ -1373,7 +1373,11 @@ async function loadFreeLoraStatus(){
     if(launchLink){
       // Only show the run URL observed by the production GitHub status API.
       const url=String(trainWf.html_url||'');
-      const verified=/^https:\/\/github\.com\/[^/]+\/[^/]+\/actions\/runs\/[0-9]+\/?$/.test(url);
+      const runParts=url.split('/');
+      const verified=runParts.length===8&&runParts[0]==='https:'&&runParts[1]===''
+        &&runParts[2]==='github.com'&&Boolean(runParts[3])&&Boolean(runParts[4])
+        &&runParts[5]==='actions'&&runParts[6]==='runs'
+        &&Number.isSafeInteger(Number(runParts[7]))&&Number(runParts[7])>0;
       launchLink.hidden=!verified;
       launchLink.style.display=verified?'inline-flex':'none';
       if(verified)launchLink.href=url;else launchLink.removeAttribute('href');
