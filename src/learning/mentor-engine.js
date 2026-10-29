@@ -677,6 +677,10 @@ export class MentorEngine {
     }
     const startedAt = this.now();
     const remaining = () => this.proposeBudgetMs - (this.now() - startedAt);
+    // Keep a cloud retry window when the optional PC provider is slow or empty.
+    // A failed local attempt must not consume the entire Mentor invocation budget.
+    const cloudReserveMs = localProviders.length && cloudProviders.length && !problem
+      ? Math.min(20_000, Math.floor(this.proposeBudgetMs / 3)) : 0;
     for (const wave of providerWaves) {
       if (!codeCouncil && proposals.length) break;
       // A new wave never starts once it could not finish inside the budget.
@@ -705,7 +709,7 @@ export class MentorEngine {
             inference_settings: learned.inference,
             ...(lora ? { lora } : {}),
           },
-        }, Math.max(10, Math.min(this.invokeTimeoutMs, remaining()))).then(output => ({ output, visibleScope }));
+        }, Math.max(10, Math.min(this.invokeTimeoutMs, Math.max(10, remaining() - (localIds.has(provider.providerId) ? cloudReserveMs : 0))))).then(output => ({ output, visibleScope }));
       }));
 
       const repairInputs = [];
