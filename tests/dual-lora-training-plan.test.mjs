@@ -48,6 +48,6 @@ test('Professor training screen shows plan and never adds a false Qwen launch ac
 test('Qwen milestones are a non-executing evidence-based schedule', () => {
   assert.deepEqual(MEL_QWEN3_TRAINING_STAGES.map(s => s.id), ['audit','baseline','smoke','train','eval','serve','switch']);
   assert.ok(MEL_QWEN3_TRAINING_STAGES.every(s => s.status !== 'TERMINÉ' && s.status !== 'ACTIVE'));
-  assert.match(MEL_DUAL_LORA_TRAINING_MARKUP, /aucun faux/i);
+  assert.match(MEL_DUAL_LORA_TRAINING_MARKUP, /ni de faux reçu LoRA/i);
   assert.doesNotMatch(MEL_DUAL_LORA_TRAINING_MARKUP, /<script|onclick=|fetch\(/);
 });
