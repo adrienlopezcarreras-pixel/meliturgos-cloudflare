@@ -123,6 +123,19 @@ async function experimentalTrainingResponse(request,env){
   if(dispatched.denied)return dispatched.denied;
   return json({ok:true,dispatched:true,status:'PREFLIGHT_DISPATCH_ACCEPTED',track,mode:'preflight',gpu_training_performed:false,workflow_url:'https://github.com/'+FREE_LORA_GITHUB_REPO+'/actions/workflows/'+EXPERIMENTAL_TRAINING_WORKFLOW});
 }
+async function qwenGpuWorkflowStatus(request,env){
+  const auth=requireAuth(request,env);if(!auth.ok)return auth.response;
+  const api='https://api.github.com/repos/'+FREE_LORA_GITHUB_REPO
+    +'/actions/workflows/professor-qwen-kaggle-gpu.yml/runs?per_page=10';
+  const result=await experimentalGitHub(request,env,'GET',api);
+  if(result.denied)return result.denied;
+  const runs=(result.data?.workflow_runs||[]).filter(row=>row?.event==='workflow_dispatch');
+  return json({ok:true,track:'qwen3',mode:'gpu',runs:runs.map(row=>({
+    id:row.id,status:row.status,conclusion:row.conclusion,created_at:row.created_at,
+    updated_at:row.updated_at,html_url:row.html_url
+  })),gpu_training_verified:false,checkpoint_verified:false,
+  note:'GitHub dispatch and CI completion do not establish that Kaggle finished training or published a valid adapter.'});
+}
 async function experimentalTrainingStatus(request,env){
   const auth=requireAuth(request,env);if(!auth.ok)return auth.response;
   const url=new URL(request.url),track=experimentalTrack(url.searchParams.get('track'));
@@ -565,6 +578,9 @@ export default {
     }
     if (request.method === 'POST' && url.pathname === '/api/learning/lora/experimental/train') {
       return experimentalTrainingResponse(request,env);
+    }
+    if (request.method === 'GET' && url.pathname === '/api/learning/lora/qwen-gpu/status') {
+      return qwenGpuWorkflowStatus(request,env);
     }
     if (request.method === 'GET' && url.pathname === '/api/learning/lora/experimental/status') {
       return experimentalTrainingStatus(request,env);
