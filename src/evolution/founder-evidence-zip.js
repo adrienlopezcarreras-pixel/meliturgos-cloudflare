@@ -9,6 +9,7 @@ export function decodeFounderEvidenceZip(buffer) {
   const packed = view.getUint32(18, true), unpacked = view.getUint32(22, true);
   const nameLength = view.getUint16(26, true), extraLength = view.getUint16(28, true);
   const start = 30 + nameLength + extraLength;
+  if (start > bytes.length) throw new Error('MISSION_TEST_ZIP_HEADER_INVALID');
   const name = new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(30, 30 + nameLength));
   if (flags & 0x0009 || method !== 0 || packed !== unpacked || packed > 128 * 1024
       || name !== 'founder-mission-test-evidence.json' || start + packed > bytes.length) {
@@ -29,7 +30,9 @@ export function decodeFounderEvidenceZip(buffer) {
       || view.getUint32(centralEnd, true) !== 0x06054b50
       || view.getUint16(centralEnd + 8, true) !== 1
       || view.getUint16(centralEnd + 10, true) !== 1
-      || view.getUint16(centralEnd + 20, true) !== 0)
+      || view.getUint16(centralEnd + 20, true) !== 0
+      || view.getUint32(centralEnd + 16, true) !== center
+      || view.getUint32(centralEnd + 12, true) !== centralEnd - center)
     throw new Error('MISSION_TEST_ZIP_DIRECTORY_INVALID');
   let crc = 0xffffffff;
   for (const value of bytes.subarray(start, center)) {
