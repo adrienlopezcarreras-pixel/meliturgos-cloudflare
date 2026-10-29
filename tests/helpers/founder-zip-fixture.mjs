@@ -1,5 +1,5 @@
 const utf8 = new TextEncoder();
-export export function zipOne(name, data) {
+export function zipOne(name, data) {
   const n=utf8.encode(name), d=utf8.encode(JSON.stringify(data));
   let crc=0xffffffff;
   for (const x of d) { crc^=x; for(let k=0;k<8;k++) crc=(crc>>>1)^((crc&1)?0xedb88320:0); }
