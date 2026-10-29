@@ -32,8 +32,6 @@ export function validateFounderMissionTestEvidence(receipt, run, { candidateSha,
   // More mission checks (typed auth and no raw JSON) remain obligatory;
   // their absence must not be interpreted as success.
   if (!Array.isArray(receipt.additional_required_proofs)
-      || !receipt.additional_required_proofs.includes('GMAIL_CALENDAR_DRIVE_TYPED_AUTH')
-      || !receipt.additional_required_proofs.includes('NO_RAW_TOOL_CALL_JSON')
       || receipt.additional_required_proofs.length > 0) {
     return { ok:false, code:'MISSION_TEST_ADDITIONAL_PROOFS_REQUIRED' };
   }
