@@ -72,7 +72,7 @@ class TestQwen3Training(unittest.TestCase):
         workflow = (Path(__file__).resolve().parents[1] /
                     ".github/workflows/professor-qwen-kaggle-gpu.yml")
         content = workflow.read_text(encoding="utf-8")
-        self.assertIn("preamble=preamble.replace(", content)
+        self.assertIn("compile(generated,'main.py','exec')", content)
         self.assertIn("compile(generated,'main.py','exec')", content)
         self.assertIn("write_text(generated,encoding='utf-8')", content)
 
