@@ -143,6 +143,9 @@ export const MEL_DUAL_LORA_TRAINING_MARKUP = `
     <div class="progress" role="progressbar" aria-label="Étapes d'abliteration réellement prouvées" aria-valuemin="0" aria-valuemax="5" aria-valuenow="0"><span style="width:0%"></span></div>
     <details style="margin-top:12px"><summary style="cursor:pointer;font-weight:700">Parcours expérimental (5 jalons)</summary><ol style="padding-left:24px">${abliterationMarkup}</ol></details>
     <div class="actions" style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
+      <button type="button" id="abliterationPreflight">Lancer la prévalidation Abliteration</button>
+      <button type="button" id="abliterationRefresh">Actualiser le dernier run</button>
+      <span id="abliterationPreflightResult" role="status" aria-live="polite">Aucune prévalidation demandée</span>
       <a class="button lora-link" target="_blank" rel="noopener noreferrer" href="https://colab.research.google.com/drive/1VYm3hOcvCpbGiqKZb141gJwjdmmCcVpR?usp=sharing">Ouvrir le notebook d'abliteration</a>
       <a class="button lora-link" target="_blank" rel="noopener noreferrer" href="https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/actions">Consulter les preuves GitHub</a>
     </div>
@@ -157,7 +160,11 @@ export const MEL_DUAL_LORA_TRAINING_MARKUP = `
     <div class="status-row"><span>Dernier entraînement confirmé</span><strong id="qwenTrainingLastRun">Aucun run GPU vérifié</strong></div>
     <div class="status-row"><span>Checkpoint candidat</span><strong id="qwenTrainingCheckpoint">Aucun artefact PEFT vérifié</strong></div>
     <div class="status-row"><span>Évaluation indépendante</span><strong id="qwenTrainingBenchmark">Non mesurée</strong></div>
-    <div class="actions" style="margin-top:12px"><a class="button lora-link" href="https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/blob/main/scripts/train-qwen3-lora.py" target="_blank" rel="noopener noreferrer">Consulter le trainer Qwen</a></div>
+    <div class="actions" style="margin-top:12px">
+      <button type="button" id="qwenPreflight">Lancer la prévalidation Qwen3</button>
+      <button type="button" id="qwenRefresh">Actualiser le dernier run</button>
+      <span id="qwenPreflightResult" role="status" aria-live="polite">Aucune prévalidation demandée</span>
+      <a class="button lora-link" href="https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/blob/main/scripts/train-qwen3-lora.py" target="_blank" rel="noopener noreferrer">Consulter le trainer Qwen</a></div>
     <small class="muted">Aucun bouton de lancement n'est présenté comme opérationnel tant que le dispatch GPU authentifié, le suivi et la conservation des preuves ne sont pas raccordés.</small>
   </section>
   <details open style="margin-top:16px">
