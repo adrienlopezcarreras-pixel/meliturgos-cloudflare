@@ -48,3 +48,21 @@ test('runner receipt accepts only complete named TAP and runner file success on 
     assert.equal(evidence.tests.length, names.length);
   } finally { await rm(dir, { recursive:true, force:true }); }
 });
+
+
+test('runner refuses contradictory TAP pass/fail for a required case', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mel-founder-contradictory-tap-'));
+  try {
+    const log = names.map((name, i) => 'ok ' + (i + 1) + ' - ' + name).join('\\n')
+      + '\\nnot ok 4 - ' + names[0] + '\\n✓ tests/native-chat-connected-replay.test.mjs\\nexit_code=0\\n';
+    await writeFile(join(dir, 'test-report.log'), log);
+    const result = spawnSync(process.execPath, [script], {
+      cwd:dir, encoding:'utf8',
+      env:{...process.env,TEST_EVIDENCE_SHA:'a'.repeat(40),TEST_EVIDENCE_RUN_ID:'1234',TEST_EVIDENCE_RUN_ATTEMPT:'1'},
+    });
+    assert.equal(result.status,0,result.stderr);
+    const receipt=JSON.parse(await readFile(join(dir,'founder-mission-test-evidence.json'),'utf8'));
+    assert.equal(receipt.mandatory_tests_verified,false);
+    assert.equal(receipt.tests[0].passed,false);
+  } finally { await rm(dir,{recursive:true,force:true}); }
+});
