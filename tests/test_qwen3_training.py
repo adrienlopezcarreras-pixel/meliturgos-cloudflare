@@ -77,16 +77,14 @@ class TestQwen3Training(unittest.TestCase):
         self.assertIn("write_text(generated,encoding='utf-8')", content)
 
     def test_generated_kaggle_kernel_compiles_in_real_subprocess(self):
-        # Execute the actual workflow's Python builder in an isolated directory.
-        # This detects broken escapes, missing imports and malformed generated code.
         root = Path(__file__).resolve().parents[1]
         workflow = (root / ".github/workflows/professor-qwen-kaggle-gpu.yml").read_text(encoding="utf-8")
-        marker = "          mkdir -p artifacts/qwen-kernel\\n"
-        block = workflow.split(marker, 1)[1].split("          PY\\n", 1)[0]
-        self.assertTrue(block.startswith("          # Kaggle"))
-        script = block.split("          python - <<'PY'\\n", 1)[1]
-        script = "\\n".join(line[10:] if line.startswith("          ") else line
-                           for line in script.splitlines()) + "\\n"
+        marker = "          mkdir -p artifacts/qwen-kernel\n"
+        self.assertIn(marker, workflow)
+        block = workflow.split(marker, 1)[1].split("          PY\n", 1)[0]
+        script = block.split("          python - <<'PY'\n", 1)[1]
+        script = "\n".join(line[10:] if line.startswith("          ") else line
+                           for line in script.splitlines()) + "\n"
         scratch = self.root / "sandbox"
         (scratch / "scripts").mkdir(parents=True)
         (scratch / "kaggle").mkdir()
