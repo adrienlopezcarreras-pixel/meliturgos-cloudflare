@@ -16,6 +16,7 @@ const receipt = { schema:'MEL_FOUNDER_MISSION_TEST_EVIDENCE_V1', source:'full-ca
 test('rejects stale run and SHA substitution', () => {
   assert.equal(validate(receipt, {...run,head_sha:'c'.repeat(40)}, {candidateSha:sha,runId:id}).code, 'MISSION_TEST_RUN_MISMATCH');
   assert.equal(validate(receipt, run, {candidateSha:'c'.repeat(40),runId:id}).ok, false);
+  assert.equal(validate(receipt, {...run,run_attempt:2}, {candidateSha:sha,runId:id}).code, 'MISSION_TEST_RECEIPT_INVALID');
   assert.equal(validate(receipt, {...run,conclusion:'failure'}, {candidateSha:sha,runId:id}).ok, false);
 });
 test('rejects missing mandatory cases or an unproven mission requirement', () => {
