@@ -57,6 +57,15 @@ class TestQwen3Training(unittest.TestCase):
         self.assertIn("QWEN_GPU_PREMATURE_ACTIVATION_FORBIDDEN", source)
         self.assertIn("hashlib.sha256(artifact.read_bytes()).hexdigest()", source)
 
+    def test_kaggle_gpu_workflow_embeds_trainer_in_main_script(self):
+        workflow = (Path(__file__).resolve().parents[1] /
+                    ".github/workflows/professor-qwen-kaggle-gpu.yml")
+        source = workflow.read_text(encoding="utf-8")
+        self.assertIn("base64.b64encode(trainer)", source)
+        self.assertIn("artifacts/qwen-kernel/main.py", source)
+        self.assertIn("train-qwen3-lora.py').write_bytes(", source)
+        self.assertNotIn("cp scripts/train-qwen3-lora.py artifacts/qwen-kernel/", source)
+
     def test_reject_wrong_checksum(self):
         obj = json.loads(self.manifest.read_text())
         obj["dataset_sha256"] = "sha256:" + "0" * 64
