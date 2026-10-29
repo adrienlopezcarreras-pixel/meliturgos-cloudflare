@@ -18,6 +18,8 @@ on:
       - 'requirements-qwen3-lora.txt'
       - 'tests/*lora*'
       - 'tests/test_qwen3_training.py'
+      - 'tests/test_qwen_corpus_packager.py'
+      - 'scripts/prepare-qwen-kaggle-corpus.py'
       - 'tests/test_abliteration_plan.py'
       - 'tests/test_abliteration_gpu.py'
       - 'tests/test_abliteration_apply.py'
@@ -65,6 +67,9 @@ jobs:
 
       - name: Qwen3 offline evidence contract (no GPU, no model download)
         run: python -m unittest discover -s tests -p 'test_qwen3_training.py' -v
+
+      - name: Reviewed Qwen3 Kaggle corpus packaging (offline)
+        run: python -m unittest discover -s tests -p 'test_qwen_corpus_packager.py' -v
 
       - name: Qwen3 GPU artifact evidence (offline)
         run: python -m unittest discover -s tests -p 'test_qwen_gpu_evidence.py' -v
