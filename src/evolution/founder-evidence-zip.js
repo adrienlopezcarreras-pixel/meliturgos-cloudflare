@@ -24,6 +24,7 @@ export function decodeFounderEvidenceZip(buffer) {
       || view.getUint16(center + 28, true) !== nameLength
       || view.getUint16(center + 8, true) !== flags
       || view.getUint32(center + 12, true) !== view.getUint32(10, true)
+      || view.getUint32(center + 16, true) !== view.getUint32(14, true)
       || new TextDecoder().decode(bytes.subarray(center + 46, center + 46 + nameLength)) !== name) {
     throw new Error('MISSION_TEST_ZIP_CENTRAL_INVALID');
   }
