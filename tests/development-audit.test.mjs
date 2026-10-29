@@ -54,3 +54,14 @@ test('MAX codes only with code models: small ones first, large ones after three 
   assert.ok(!specialists.includes('@cf/zai-org/glm-5.3-flash'));
   assert.ok(standardRegistry.list().filter(m => (m.capabilities || []).includes('CODE_LARGE')).length === 1);
 });
+
+test('verified terminal jobs count as deliveries rather than a week without output', () => {
+  for (const status of ['COMPLETED', 'DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED']) {
+    const report = auditDevelopment({ now: NOW, jobs: [job({ status })] });
+    assert.equal(report.summary.completed, 1, status);
+    assert.ok(!report.findings.some(f => f.code === 'NO_DELIVERY_THIS_WEEK'), status);
+  }
+  const report = auditDevelopment({ now: NOW, jobs: [job({ status: 'QUEUED' }), job({ status: 'WAITING_TEACHER' })] });
+  assert.equal(report.summary.completed, 0);
+  assert.ok(report.findings.some(f => f.code === 'NO_DELIVERY_THIS_WEEK'));
+});
