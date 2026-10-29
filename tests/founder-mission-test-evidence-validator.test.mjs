@@ -24,3 +24,16 @@ test('rejects missing mandatory cases or an unproven mission requirement', () =>
   assert.equal(validate({...receipt,additional_required_proofs:[]},run,{candidateSha:sha,runId:id}).code,'MISSION_TEST_ADDITIONAL_PROOFS_REQUIRED');
   assert.equal(validate({...receipt,tests:receipt.tests.slice(1),additional_required_proofs:[]},run,{candidateSha:sha,runId:id}).code,'MISSION_TEST_REQUIRED_CASES_MISSING');
 });
+
+
+test('accepts a complete exact-run receipt with all named auth and rendering proofs', () => {
+  const additional = [
+    'Gmail missing authorization does not inherit the last Google Tasks token error',
+    'missing Calendar grant reports a typed auth diagnostic without network calls',
+    'missing Drive grant reports a typed auth diagnostic without network calls',
+    'a completed connected tool response renders human text instead of raw tool-call JSON',
+  ];
+  const complete = {...receipt, tests:[...receipt.tests, ...additional.map(name=>({name,passed:true}))], additional_required_proofs:[]};
+  assert.equal(validate(complete, run, {candidateSha:sha,runId:id}).ok, true);
+  assert.equal(validate({...complete,tests:complete.tests.slice(0,-1)},run,{candidateSha:sha,runId:id}).code,'MISSION_TEST_ADDITIONAL_PROOFS_REQUIRED');
+});
