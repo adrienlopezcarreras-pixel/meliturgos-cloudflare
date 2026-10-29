@@ -65,3 +65,20 @@ test('GitHub Actions Azure storage redirect reaches downloader, not a host refus
   }});
   assert.equal(out.code,'MISSION_TEST_ARCHIVE_DOWNLOAD_FAILED');
 });
+
+
+test('signed storage redirect is not followed a second time', async () => {
+  const calls=[];
+  const out=await fetchFounderMissionTestEvidence({...request,fetchImpl:async (url,opts)=>{
+    const address=String(url); calls.push({address,mode:opts?.redirect});
+    if (address.endsWith('/zip')) return new Response(null,{status:302,headers:{location:'https://productionresultssa0.blob.core.windows.net/actions/receipt.zip'}});
+    if (address.startsWith('https://productionresultssa0.blob.core.windows.net/'))
+      return new Response(null,{status:302,headers:{location:'https://attacker.example/steal'}});
+    return reply(address.includes('/artifacts?')
+      ? {artifacts:[{id:456,name:'founder-mission-test-evidence',expired:false,workflow_run:{id:123,head_sha:SHA}}]}
+      : {id:123,name:'full-candidate-ci',head_branch:'candidate/mel-clean-autonomy',head_sha:SHA,status:'completed',conclusion:'success'});
+  }});
+  assert.equal(out.code,'MISSION_TEST_ARCHIVE_DOWNLOAD_FAILED');
+  assert.equal(calls.length,4);
+  assert.equal(calls[3].mode,'manual');
+});
