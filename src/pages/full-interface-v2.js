@@ -1600,6 +1600,16 @@ async function experimentalTrainingRefresh(track){
    link.href=run.html_url;link.target='_blank';link.rel='noopener noreferrer';out.appendChild(link);
  }catch(error){out.textContent='État indisponible : '+String(error.message||error);}
 }
+qs('#qwenGpuTrain').onclick=async()=>{
+ const button=qs('#qwenGpuTrain'),out=qs('#qwenPreflightResult');button.disabled=true;
+ out.textContent='Demande de lancement GPU Qwen3…';
+ try{
+  const result=await jfetch('/api/learning/lora/experimental/train',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({track:'qwen3',mode:'gpu'})});
+  if(result.ok!==true)throw new Error(result.error||'Lancement refusé');
+  out.textContent=result.dispatched?'Demande Kaggle GPU acceptée par GitHub ; entraînement non encore prouvé.':'Un lancement Qwen GPU est déjà en cours.';
+ }catch(error){out.textContent='GPU non lancé : '+String(error.message||error)}
+ finally{button.disabled=false;}
+};
 qs('#qwenPreflight').onclick=()=>experimentalTrainingLaunch('qwen3');
 qs('#qwenRefresh').onclick=()=>experimentalTrainingRefresh('qwen3');
 qs('#abliterationPreflight').onclick=()=>experimentalTrainingLaunch('abliteration');
