@@ -12,7 +12,7 @@ export function validateFounderMissionTestEvidence(receipt, run, { candidateSha,
   const sha = String(candidateSha || '').toLowerCase();
   const id = Number(runId);
   if (!SHA.test(sha) || !Number.isSafeInteger(id) || id <= 0) return { ok:false, code:'MISSION_TEST_PROVENANCE_INVALID' };
-  if (run?.name !== 'full-candidate-ci' || String(run?.head_sha || '').toLowerCase() !== sha
+  if (run?.name !== 'full-candidate-ci' || run?.head_branch !== 'candidate/mel-clean-autonomy' || String(run?.head_sha || '').toLowerCase() !== sha
       || Number(run?.id) !== id || run?.status !== 'completed' || run?.conclusion !== 'success') {
     return { ok:false, code:'MISSION_TEST_RUN_MISMATCH' };
   }
