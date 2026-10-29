@@ -39,7 +39,7 @@ test('Professor training screen shows plan and never adds a false Qwen launch ac
   assert.match(html, /Recette QLoRA et paramètres proposés/);
   assert.match(html, /2 × RTX 4090 24 Go/);
   assert.match(html, /maximum 50 steps/);
-  assert.match(html, /À développer et prouver/);
+  assert.match(html, /Code prêt · service Qwen non activé/);
   assert.match(html, /Le bouton « Lancer un entraînement » ci-dessus concerne toujours Mistral/);
   assert.match(MEL_DUAL_LORA_TRAINING_MARKUP, /href="https:\/\/colab\.research\.google\.com\/drive\//);
   assert.doesNotMatch(MEL_DUAL_LORA_TRAINING_MARKUP, /onclick=|fetch\(|<script/);
