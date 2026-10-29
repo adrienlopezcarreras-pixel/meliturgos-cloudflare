@@ -25,13 +25,16 @@ def pack(input_path,output_dir,license_review_path):
         raise ValueError("QWEN_SOURCE_LICENSE_OR_HASH_REVIEW_REQUIRED")
     trainer=SourceFileLoader("qwen_trainer",str(Path(__file__).with_name("train-qwen3-lora.py"))).load_module()
     rows=trainer.read_corpus(source)
+    encoded=[json.dumps(row,ensure_ascii=False,sort_keys=True)+"\n" for row in rows]
+    if sum(len(line.encode("utf-8")) for line in encoded)>20_000_000:
+        raise ValueError("QWEN_PACKAGED_DATASET_EXCEEDS_KAGGLE_LIMIT")
     out=Path(output_dir)
     if out.exists():
         raise FileExistsError("QWEN_OUTPUT_MUST_NOT_EXIST")
     out.mkdir(parents=True)
     dataset=out/"dataset.jsonl"
     with dataset.open("w",encoding="utf-8") as fh:
-        for row in rows:fh.write(json.dumps(row,ensure_ascii=False,sort_keys=True)+"\n")
+        fh.writelines(encoded)
     manifest={"dataset_sha256":digest(dataset),"license_review_passed":True,
         "sources":[{"id":approval["source_id"],"revision":approval["revision"],
                     "license":approval["license"],"original_sha256":digest(source)}]}
