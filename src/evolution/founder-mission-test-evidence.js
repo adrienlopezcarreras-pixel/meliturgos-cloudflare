@@ -19,6 +19,7 @@ export function validateFounderMissionTestEvidence(receipt, run, { candidateSha,
       || receipt?.source !== 'full-candidate-ci/full-suite'
       || receipt?.candidate_sha !== sha || receipt?.github_run_id !== id
       || !Number.isSafeInteger(receipt?.github_run_attempt) || receipt.github_run_attempt < 1
+      || (Number.isSafeInteger(Number(run?.run_attempt)) && Number(run.run_attempt) > 0 && receipt.github_run_attempt !== Number(run.run_attempt))
       || !/^[a-f0-9]{64}$/.test(String(receipt?.log_sha256 || ''))
       || receipt?.exit_code !== 0 || receipt?.mandatory_tests_verified !== true) {
     return { ok:false, code:'MISSION_TEST_RECEIPT_INVALID' };
