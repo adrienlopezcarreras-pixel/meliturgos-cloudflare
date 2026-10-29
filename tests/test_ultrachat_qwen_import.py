@@ -10,10 +10,10 @@ class TestUltraChat(unittest.TestCase):
         self.assertEqual(len(M.convert_rows(rows,"sha256:"+("a"*64),50)),50)
     def test_rejects_invalid_content(self):
         rows=[{"messages":[{"role":"user","content":"Q"},{"role":"assistant","content":""}]}]*55
-        with self.assertRaisesRegex(ValueError,"TOO_FEW"):M.convert_rows(rows,"x",50)
+        with self.assertRaisesRegex(ValueError,"TOO_FEW"):M.convert_rows(rows,"sha256:"+("a"*64),50)
     def test_deduplication(self):
         rows=[{"messages":[{"role":"user","content":"Q"},{"role":"assistant","content":"A"}]}]*100
-        with self.assertRaisesRegex(ValueError,"TOO_FEW"):M.convert_rows(rows,"x",50)
+        with self.assertRaisesRegex(ValueError,"TOO_FEW"):M.convert_rows(rows,"sha256:"+("a"*64),50)
     def test_refuses_invalid_source_digest(self):
         with self.assertRaisesRegex(ValueError,"QWEN_SOURCE_SHA_INVALID"):
             M.convert_rows([],"unknown",50)
