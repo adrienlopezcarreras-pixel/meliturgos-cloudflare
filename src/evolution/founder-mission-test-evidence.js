@@ -78,6 +78,7 @@ export async function fetchFounderMissionTestEvidence({ repository, candidateSha
       return { ok:false, code:'MISSION_TEST_ARCHIVE_HOST_INVALID' };
     if (location.protocol !== 'https:' || !(
       host === 'objects.githubusercontent.com' || host.endsWith('.actions.githubusercontent.com')
+      || /^productionresultssa[0-9]+\.blob\.core\.windows\.net$/.test(host)
     )) return { ok:false, code:'MISSION_TEST_ARCHIVE_HOST_INVALID' };
     const download = await fetchImpl(location.toString(), { redirect:'error', signal:AbortSignal.timeout(20000) });
     if (!download.ok || Number(download.headers.get('content-length') || 0) > 256 * 1024)
