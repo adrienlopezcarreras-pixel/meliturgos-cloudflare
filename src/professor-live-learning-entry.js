@@ -89,7 +89,7 @@ async function experimentalTrainingResponse(request,env){
     if(track!=='qwen3')return json({ok:false,error:'ABLITERATION_GPU_EXECUTOR_NOT_IMPLEMENTED',gpu_training_performed:false},409);
     const slug=String(env?.MEL_QWEN_KAGGLE_DATASET_SLUG||'').trim();
     if(!/^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/.test(slug))
-      return json({ok:false,error:'QWEN_REVIEWED_KAGGLE_DATASET_NOT_CONFIGURED',gpu_training_performed:false},409);
+      return json({ok:false,error:'QWEN_REVIEWED_KAGGLE_DATASET_NOT_CONFIGURED',gpu_training_performed:false,required_setting:'MEL_QWEN_KAGGLE_DATASET_SLUG',expected_format:'owner/dataset',next_step:'Publish a reviewed Kaggle dataset containing dataset.jsonl and sources.json, verify source licenses and SHA-256, then configure the setting in the Cloudflare Worker. No GPU execution was dispatched.'},409);
     const workflow='professor-qwen-kaggle-gpu.yml';
     const api='https://api.github.com/repos/'+FREE_LORA_GITHUB_REPO+'/actions/workflows/'+workflow;
     const active=await experimentalGitHub(request,env,'GET',api+'/runs?per_page=10');
