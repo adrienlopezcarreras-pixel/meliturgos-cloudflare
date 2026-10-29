@@ -45,6 +45,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: founder-mission-test-evidence
+          compression-level: 0
           path: founder-mission-test-evidence.json
           if-no-files-found: error
           retention-days: 30
