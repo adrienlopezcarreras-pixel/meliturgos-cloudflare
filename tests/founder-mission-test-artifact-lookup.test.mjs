@@ -17,7 +17,7 @@ test('GitHub artifact listing cannot be mistaken for verified test contents',asy
  const out=await fetchFounderMissionTestEvidence({...request,fetchImpl:async url=>
    reply(url.includes('/artifacts?')?{artifacts:[{id:456,name:'founder-mission-test-evidence',expired:false,workflow_run:{id:123,head_sha:SHA}}]}:
      {id:123,name:'full-candidate-ci',head_branch:'candidate/mel-clean-autonomy',head_sha:SHA,status:'completed',conclusion:'success'})});
- assert.equal(out.code,'MISSION_TEST_ARTIFACT_ZIP_READER_REQUIRED');
+ assert.equal(out.code,'MISSION_TEST_ARCHIVE_REDIRECT_INVALID');
  assert.equal(out.ok,false);
 });
 
