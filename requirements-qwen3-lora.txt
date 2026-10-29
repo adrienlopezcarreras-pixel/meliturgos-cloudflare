@@ -1,0 +1,9 @@
+# Independent GPU-only Qwen3-14B QLoRA trainer; Python 3.11 + CUDA.
+# CPU-only --dry-run and associated tests need only the Python standard library.
+torch>=2.4,<3
+transformers>=4.51,<5
+peft>=0.15,<1
+accelerate>=1.0,<2
+bitsandbytes>=0.45,<1
+datasets>=3,<5
+safetensors>=0.4,<1

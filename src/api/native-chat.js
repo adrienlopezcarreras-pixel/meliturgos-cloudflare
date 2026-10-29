@@ -1,4 +1,5 @@
 import { requireChatLora, chatLoraReceipt, isCensorshipRefusal } from '../learning/chat-lora-binding.js';
+import { requireActiveQwen3Lora, runQwen3LoraInference, qwen3LoraReceipt } from '../learning/qwen3-lora-inference.js';
 import { collectChatMedia } from './chat-media.js';
 import { inferChatMediaCapability } from './chat-media-intent.js';
 import {
@@ -1264,6 +1265,15 @@ async function activePromotedAdapter(env) {
   }
 }
 
+async function activePromotedQwen3Adapter(env) {
+  if (!env?.DB) return null;
+  try {
+    const memory = new MentorMemoryRepository(env.DB);
+    const rows = await memory.recent({ limit: 1, kind: 'LORA_QWEN3_ADAPTER_ACTIVE', outcome: 'SUCCEEDED' });
+    return rows[0]?.evidence || null;
+  } catch { return null; }
+}
+
 export function createNativeModelRouter(env, inferenceSettings = null, activeAdapter = null, routerOptions = {}) {
   const generation = inferenceGenerationOptions(inferenceSettings);
   const runtimeModel = String(activeAdapter?.runtime_model || activeAdapter?.adapter?.runtime_model || '').trim();
@@ -1380,18 +1390,34 @@ export function resolveContinuationInferenceRoute({ voiceReply = false, professo
   return {
     task: voiceReply ? 'FAST' : (professorRoute?.task || 'REASONING'),
     model: voiceReply ? '@cf/zai-org/glm-4.7-flash'
-      : (String(previousModel || '').startsWith('@cf/') ? previousModel : (professorRoute?.model || null)),
+      : ((String(previousModel || '').startsWith('@cf/') || previousModel === 'Qwen/Qwen3-14B') ? previousModel : (professorRoute?.model || null)),
   };
 }
 
-export async function runNativeInference({ env, messages, text, parallel = false, maxCandidates = 4, inferenceSettings = null, activeAdapter = null, runtime = null, taskOverride = null, preferredModel = null, timeoutMs = null, maxCalls = null, deadlineAt = null, requireLora = false } = {}) {
+export async function runNativeInference({ env, messages, text, parallel = false, maxCandidates = 4, inferenceSettings = null, activeAdapter = null, qwenAdapter = null, runtime = null, taskOverride = null, preferredModel = null, timeoutMs = null, maxCalls = null, deadlineAt = null, requireLora = false } = {}) {
+  if (deadlineAt != null && !hasChatBudget(deadlineAt, 1)) throw chatDeadlineError();
+  let secondaryReady = false;
+  if (requireLora) {
+    try { requireActiveQwen3Lora(qwenAdapter, env); secondaryReady = true; } catch {}
+    let primaryReady = false;
+    try { requireChatLora(activeAdapter); primaryReady = true; } catch {}
+    if (!primaryReady) return runQwen3LoraInference({env, active:qwenAdapter, messages, deadlineAt});
+  }
+  if (requireLora && secondaryReady && preferredModel === 'Qwen/Qwen3-14B') {
+    return runQwen3LoraInference({env, active:qwenAdapter, messages, deadlineAt});
+  }
   if (!env?.AI || typeof env.AI.run !== 'function') {
     const error = new Error('AI_BINDING_MISSING');
     error.code = 'AI_BINDING_MISSING';
     throw error;
   }
-  if (deadlineAt != null && !hasChatBudget(deadlineAt, 1)) throw chatDeadlineError();
-  const router = createNativeModelRouter(env, inferenceSettings, activeAdapter, { timeoutMs, maxCalls, deadlineAt, requireLora });
+  // When a verified alternate is ready, bound the first attempt so it cannot
+  // consume the entire chat deadline before Qwen gets a chance to answer.
+  const router = createNativeModelRouter(env, inferenceSettings, activeAdapter, {
+    timeoutMs: secondaryReady ? Math.min(12000, Math.max(1000, Number(timeoutMs) || 12000)) : timeoutMs,
+    maxCalls: secondaryReady ? 1 : maxCalls,
+    deadlineAt, requireLora,
+  });
   const task = taskOverride ? String(taskOverride).toUpperCase() : classifyTask(text || '');
   const boundedCandidates = Math.max(1, Math.min(12, Number(maxCandidates) || 4));
   if (parallel && !activeAdapter) {
@@ -1426,13 +1452,21 @@ export async function runNativeInference({ env, messages, text, parallel = false
       usage: best.usage || null,
     };
   }
-  return router.execute({
-    task,
-    messages,
+  const executePrimary = () => router.execute({
+    task, messages,
     model: requireLora ? (activeAdapter.runtime_model || activeAdapter.adapter.runtime_model) : (preferredModel || undefined),
-    parallel: false,
-    maxCandidates: boundedCandidates,
-  }, { source: 'native-chat', inference_settings: inferenceSettings || null });
+    parallel:false, maxCandidates:boundedCandidates,
+  }, { source:'native-chat', inference_settings:inferenceSettings || null });
+  if (!requireLora) return executePrimary();
+  try {
+    const primary = await executePrimary();
+    if (String(primary?.text || '').trim() || !secondaryReady) return primary;
+  } catch (error) {
+    if (!secondaryReady) throw error;
+  }
+  // A fallback is permitted only through the approved Qwen3 service, never
+  // an unrelated model from the generic cloud router.
+  return runQwen3LoraInference({env, active:qwenAdapter, messages, deadlineAt});
 }
 
 function inferDirectCurrentWebCapability(text, intentContext = {}) {
@@ -1475,10 +1509,19 @@ export async function handleNativeChat(request, env, options = {}) {
   if (text.length > 100000) return Response.json({ error: 'MESSAGE_TOO_LONG', code: 'MESSAGE_TOO_LONG', max_input_chars: 100000 }, { status: 413 });
 
   let requireLora = body.lora_mode === 'uncensored';
-  const requestedLora = requireLora ? await activePromotedAdapter(env) : null;
+  const [requestedLora, requestedQwen3] = requireLora
+    ? await Promise.all([activePromotedAdapter(env), activePromotedQwen3Adapter(env)])
+    : [null,null];
   if (requireLora) {
-    try { requireChatLora(requestedLora); }
-    catch (error) { return Response.json({ ok:false, error:error.code, code:error.code, text:'Mode UNCENSORED : c’est le LoRA Mistral entraîné pour ce mode. Aucun adaptateur validé n’est activé, donc aucun autre modèle n’a répondu.', active_lora:null }, { status:409 }); }
+    let a = false, b = false;
+    try { requireChatLora(requestedLora); a = true; } catch {}
+    try { requireActiveQwen3Lora(requestedQwen3, env); b = true; } catch {}
+    if (!a && !b) return Response.json({
+      ok:false, error:'LORA_COMPATIBLE_ACTIVE_ADAPTER_REQUIRED',
+      code:'LORA_COMPATIBLE_ACTIVE_ADAPTER_REQUIRED',
+      text:'Mode UNCENSORED : aucun des deux adaptateurs vérifiés n’est actuellement accessible.',
+      active_lora:null,
+    }, { status:409 });
   }
   const themeContract = getMelThemeContract(body.ui_theme);
   const theme = themeContract.id;
@@ -2501,7 +2544,7 @@ export async function handleNativeChat(request, env, options = {}) {
     // ordinary cloud inference when the PC is offline or too busy.
     const preferLocal=shouldPreferOptionalCompanionCompute({
       prefer:body.prefer_companion_compute,
-      disabled:body.use_companion_compute===false,
+      disabled:body.use_companion_compute===false || requireLora,
       voiceReply,personalProfileIntent,releaseSmoke,
       privateData:privateConnectedDataRequest(activeTaskText),
       hasToolResults:toolResults.length>0,
@@ -2522,6 +2565,7 @@ export async function handleNativeChat(request, env, options = {}) {
       maxCandidates: body.max_candidates ?? env.MEL_AUGMENTIO_MAX_CANDIDATES ?? activeInferenceSettings?.council_min_responses ?? 4,
       inferenceSettings: effectiveInferenceSettings,
       activeAdapter,
+      qwenAdapter: requestedQwen3,
       requireLora,
       runtime,
       taskOverride: voiceReply ? 'FAST' : (professorRoute?.task || (personalProfileIntent ? 'REASONING' : null)),
@@ -2533,7 +2577,7 @@ export async function handleNativeChat(request, env, options = {}) {
       deadlineAt: chatDeadlineAt,
     });
   } catch (error) {
-    if (requireLora) return Response.json({ ok:false, error:'LORA_INFERENCE_UNAVAILABLE', code:'LORA_INFERENCE_UNAVAILABLE', text:'Le modèle associé au LoRA est indisponible. Aucun modèle de remplacement n’a été utilisé.', active_lora:null }, { status:503 });
+    if (requireLora) return Response.json({ ok:false, error:'LORA_INFERENCE_UNAVAILABLE', code:'LORA_INFERENCE_UNAVAILABLE', text:'Mode UNCENSORED : aucun modèle validé disponible. Aucun modèle ordinaire n’a été utilisé.', active_lora:null }, { status:503 });
     if (voiceReply) {
       try {
         const fallbackModel = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
@@ -2743,6 +2787,7 @@ export async function handleNativeChat(request, env, options = {}) {
       maxCandidates: 1,
       inferenceSettings: effectiveInferenceSettings,
       activeAdapter,
+      qwenAdapter: requestedQwen3,
       requireLora,
       runtime,
       taskOverride: continuationRoute.task,
@@ -2853,6 +2898,7 @@ export async function handleNativeChat(request, env, options = {}) {
           maxCandidates:1,
           inferenceSettings:effectiveInferenceSettings,
           activeAdapter,
+      qwenAdapter: requestedQwen3,
       requireLora,
           runtime,
           taskOverride:'REASONING',
@@ -2979,7 +3025,7 @@ export async function handleNativeChat(request, env, options = {}) {
   if (service) {
     try {
       await service.archiveMessage({ conversationId, deviceId, role: 'user', content: text, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now(), provenance: userProvenance, metadata: userMetadata });
-      await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: responseText, model: ai.model, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now() + 1, provenance: automaticCouncilAccepted ? 'native-chat:council-recovery' : (ai.augmentio_used ? 'native-chat:augmentio' : 'native-chat'), metadata: { lora_mode:requireLora ? 'uncensored' : 'automatic', active_lora:chatLoraReceipt(activeAdapter, ai), ...responseMedia, ...(ai.inference_unavailable ? { analysis_available:false,analysis_error:'CHAT_INFERENCE_FAILED' } : {}), ...(automaticCouncilAccepted ? { council_recovery:true, xp_gain:Number(automaticCouncilXp.xp_gain || 0) } : {}) } });
+      await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: responseText, model: ai.model, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now() + 1, provenance: automaticCouncilAccepted ? 'native-chat:council-recovery' : (ai.augmentio_used ? 'native-chat:augmentio' : 'native-chat'), metadata: { lora_mode:requireLora ? 'uncensored' : 'automatic', active_lora:(chatLoraReceipt(activeAdapter, ai) || qwen3LoraReceipt(requestedQwen3, ai)), ...responseMedia, ...(ai.inference_unavailable ? { analysis_available:false,analysis_error:'CHAT_INFERENCE_FAILED' } : {}), ...(automaticCouncilAccepted ? { council_recovery:true, xp_gain:Number(automaticCouncilXp.xp_gain || 0) } : {}) } });
       archiveSaved = true;
     } catch { archiveSaved = false; }
   }
@@ -3063,7 +3109,7 @@ export async function handleNativeChat(request, env, options = {}) {
     memory_reason: memoryWrite.reason || null,
     active_inference_settings: activeInferenceSettings,
     lora_mode: requireLora ? 'uncensored' : 'automatic',
-    active_lora: chatLoraReceipt(activeAdapter, ai),
+    active_lora: (chatLoraReceipt(activeAdapter, ai) || qwen3LoraReceipt(requestedQwen3, ai)),
     inference_settings_applied: activeInferenceSettings ? { generation: ['temperature','top_p','max_tokens'], memory: ['memory_results'], council: parallel ? ['council_min_responses'] : [], review_passes: 'not_supported_in_single-pass-chat' } : null,
     active_theme: theme,
     input_source: inputSource,
