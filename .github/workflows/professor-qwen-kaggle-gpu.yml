@@ -41,6 +41,7 @@ jobs:
           # relying on an undeclared sibling file being uploaded or mounted.
           python - <<'PY'
           import base64
+          import os
           from pathlib import Path
           trainer=Path('scripts/train-qwen3-lora.py').read_bytes()
           entry=Path('kaggle/qwen3-gated-gpu-entry.py').read_text(encoding='utf-8')
@@ -49,6 +50,11 @@ jobs:
                     "_MELPath('/kaggle/working/train-qwen3-lora.py').write_bytes("
                     "_mel_b64.b64decode("+repr(base64.b64encode(trainer).decode('ascii'))+"))\n")
           # The generated file must be syntactically valid, not just the sources.
+          # Pin the immutable Git SHA inside the submitted notebook itself.
+          sha=os.environ.get('GITHUB_SHA','')
+          if len(sha)!=40 or any(ch not in '0123456789abcdef' for ch in sha.lower()):
+              raise SystemExit('QWEN_SOURCE_SHA_INVALID')
+          preamble="import os as _mel_os\n_mel_os.environ['MEL_QWEN_SOURCE_SHA']="+repr(sha)+"\n"+preamble
           generated=preamble+entry
           compile(generated,'main.py','exec')
           Path('artifacts/qwen-kernel/main.py').write_text(generated,encoding='utf-8')

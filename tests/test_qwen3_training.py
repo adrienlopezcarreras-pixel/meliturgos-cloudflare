@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -94,6 +95,7 @@ class TestQwen3Training(unittest.TestCase):
         (scratch / "kaggle/qwen3-gated-gpu-entry.py").write_bytes(
             (root / "kaggle/qwen3-gated-gpu-entry.py").read_bytes())
         subprocess.run([sys.executable, "-c", script], cwd=scratch,
+                       env={**os.environ, "GITHUB_SHA": "a" * 40},
                        check=True, capture_output=True, text=True)
         generated = (scratch / "artifacts/qwen-kernel/main.py").read_text()
         compile(generated, "main.py", "exec")

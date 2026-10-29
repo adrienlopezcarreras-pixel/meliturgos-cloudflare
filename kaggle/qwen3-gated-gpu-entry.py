@@ -26,6 +26,13 @@ proof_file=output/'training-evidence.json'
 if not proof_file.is_file():
     raise SystemExit('QWEN_GPU_PROOF_MISSING')
 proof=json.loads(proof_file.read_text(encoding='utf-8'))
+source_sha=os.environ.get('MEL_QWEN_SOURCE_SHA','')
+if len(source_sha)!=40 or any(ch not in '0123456789abcdef' for ch in source_sha.lower()):
+    raise SystemExit('QWEN_SOURCE_SHA_REQUIRED')
+if proof.get('source_sha') not in (None,source_sha):
+    raise SystemExit('QWEN_SOURCE_SHA_MISMATCH')
+proof['source_sha']=source_sha
+proof_file.write_text(json.dumps(proof,indent=2,sort_keys=True)+'\n',encoding='utf-8')
 if proof.get('status')!='TRAINED_UNBENCHMARKED' or int(proof.get('steps_executed',0))<1:
     raise SystemExit('QWEN_GPU_PROOF_MISSING')
 for filename, field in (('adapter_model.safetensors','adapter_sha256'),
