@@ -156,3 +156,19 @@ python scripts/train-qwen3-lora.py \
 Il refuse l'absence de CUDA, les paramètres hors limites, une licence non revue, un jeu de données trop petit, un manifeste dont le digest ne correspond pas et l'écrasement d'un artefact existant. Sur réussite GPU, il génère `adapter_model.safetensors`, `adapter_config.json` et `training-evidence.json`, avec le SHA-256 de l'adaptateur, les étapes réellement réalisées, le GPU et les pertes d'évaluation. Cela donne **TRAINED_UNBENCHMARKED**, jamais **ACTIVE**. Les benchmarks indépendants, l'endpoint PEFT Qwen3 et la bascule A→B restent des jalons distincts.
 
 Ce script utilise Transformers/PEFT/QLoRA ; Unsloth reste une option d'optimisation future, pas une dépendance prétendument déjà exécutée. Un GPU gratuit n'est ni réservé ni garanti par ce commit.
+
+
+## Routage logiciel de secours ajouté — **encore inactif sans second modèle réellement servi**
+
+La fonction `runQwen3LoraInference` (`src/learning/qwen3-lora-inference.js`) et son raccordement dans `src/api/native-chat.js` permettent une bascule conditionnelle **Mistral → Qwen3-14B** après erreur technique, dépassement de délai ou réponse vide. Ils permettent aussi Qwen seul lorsqu'aucun adaptateur Mistral valide n'est actif. Le basculement conserve les messages utiles, respecte un délai total, n'invoque pas d'autres modèles ordinaires, préserve Qwen pendant une continuation et n'exécute pas les outils une seconde fois. Le mode UNCENSORED explicite exclut le chemin PC facultatif.
+
+Conditions **toutes obligatoires** avant que le chemin Qwen fonctionne réellement :
+
+1. Un checkpoint GPU Qwen réel, benchmarké puis **autorisé/activé par le propriétaire**.
+2. Dans D1, une preuve serveur `LORA_QWEN3_ADAPTER_ACTIVE` (outcome `SUCCEEDED`), portant `base_model: Qwen/Qwen3-14B`, `adapter_id`, `adapter_sha256`, `benchmark.approved: true`, `activation.approved: true` et `activation.approval_id`.
+3. Un binding interne Cloudflare `QWEN3_LORA_SERVICE` dont le service sait appliquer ce LoRA exact ; il attend un `POST /v1/chat` avec le modèle, l'adaptateur, son SHA et les messages, et répond avec `text`, `model`, `adapter_id`, `adapter_sha256`, `adapter_applied: true`.
+4. Le drapeau serveur `MEL_QWEN3_LORA_BUDGET_APPROVED=true`, après acceptation explicite du coût de l'hébergement. Aucun service ni coût ne sont activés par la présente PR.
+
+Le receipt de Qwen n'est accepté que si la **réponse du service interne** confirme toutes ces valeurs. Un service mal implémenté, une réponse vide, un coût non approuvé ou un adaptateur non vérifié ne permettent jamais d'afficher une activation fictive. Le premier essai Mistral est borné à 12 secondes si le secours est réellement disponible, et Qwen a ensuite au plus 10 secondes dans le délai général.
+
+Le code est couvert par `tests/qwen3-lora-inference.test.mjs` avec service mocké. **Ces mocks ne remplacent pas une preuve de GPU, de service déployé ni une validation de production.** Tant que les conditions réelles ne sont pas satisfaites, la fiche Professeur indique Qwen non activé et le mode UNCENSORED existant continue d'utiliser Mistral, sans repli générique.
