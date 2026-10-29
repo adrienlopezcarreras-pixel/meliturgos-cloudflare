@@ -563,3 +563,18 @@ test('missing Calendar grant reports a typed auth diagnostic without network cal
   assert.match(String(health.health_detail), /(?:CALENDAR|GOOGLE_CALENDAR)_AUTH_REQUIRED/);
   assert.equal(calls.length, 0);
 });
+
+
+test('missing Drive grant reports a typed auth diagnostic without network calls', async () => {
+  const calls = [];
+  const bus = new CapabilityBus();
+  registerGoogleWorkspaceCapabilities(bus, {
+    env: { MELITURGOS_USER:'owner' },
+    resolveAccessToken: async () => '',
+    fetchImpl: async (...args) => { calls.push(args); throw new Error('NETWORK_NOT_ALLOWED'); },
+  });
+  const health = await bus.refreshHealth('drive.files.list');
+  assert.equal(health.health, 'UNAVAILABLE');
+  assert.match(String(health.health_detail), /(?:DRIVE|GOOGLE_DRIVE)_AUTH_REQUIRED/);
+  assert.equal(calls.length, 0);
+});
