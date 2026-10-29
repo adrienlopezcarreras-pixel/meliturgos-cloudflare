@@ -26,6 +26,7 @@ const tests = required.map(name => ({ name, passed: exitCode === 0 && replayFile
 const authCases = [
   'Gmail missing authorization does not inherit the last Google Tasks token error',
   'missing Calendar grant reports a typed auth diagnostic without network calls',
+  'missing Drive grant reports a typed auth diagnostic without network calls',
 ];
 const authFilePassed = /^✓ tests\/gen2\/google-workspace-agentic\.test\.mjs\s*$/m.test(log);
 const authTests = authCases.map(name => ({
@@ -45,7 +46,7 @@ const report = {
   mandatory_tests_verified: exitCode === 0 && tests.every(t => t.passed),
   // Deliberately not claiming authentication or raw-JSON rendering coverage.
   additional_required_proofs: [
-    ...(authTests.every(t => t.passed) ? ['DRIVE_TYPED_AUTH', 'NO_RAW_TOOL_CALL_JSON'] : ['GMAIL_CALENDAR_DRIVE_TYPED_AUTH', 'NO_RAW_TOOL_CALL_JSON']),
+    ...(authTests.every(t => t.passed) ? ['NO_RAW_TOOL_CALL_JSON'] : ['GMAIL_CALENDAR_DRIVE_TYPED_AUTH', 'NO_RAW_TOOL_CALL_JSON']),
   ],
 };
 await writeFile('founder-mission-test-evidence.json', JSON.stringify(report, null, 2) + '\n');
