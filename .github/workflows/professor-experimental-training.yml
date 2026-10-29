@@ -19,6 +19,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   audited-preflight:
+    name: preflight-${{ inputs.track }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
