@@ -148,6 +148,18 @@ export const MEL_DUAL_LORA_TRAINING_MARKUP = `
     </div>
     <small class="muted">Aucune commande automatique ni suivi GPU live n'est encore connecté à cette expérience. Un notebook ouvert ne constitue pas une preuve d'exécution.</small>
   </section>
+  <section aria-labelledby="qwenTrainingStatusTitle" style="margin-top:16px;padding:14px;border:1px solid var(--line);border-radius:12px">
+    <div class="skill-head">
+      <div><h3 id="qwenTrainingStatusTitle">Modèle B — Qwen3 14B : progression et preuves</h3><p class="muted" style="margin-top:6px">Exécuteur GPU non raccordé au panneau. Le script d'entraînement existe, mais aucune progression d'apprentissage Qwen n'est attestée.</p></div>
+      <span class="tag warn" id="qwenTrainingState">Non lancé · entraînement GPU non prouvé</span>
+    </div>
+    <div class="lora-progress-label"><span>Progression GPU attestée</span><strong id="qwenTrainingProgressText">Non disponible</strong></div>
+    <div class="status-row"><span>Dernier entraînement confirmé</span><strong id="qwenTrainingLastRun">Aucun run GPU vérifié</strong></div>
+    <div class="status-row"><span>Checkpoint candidat</span><strong id="qwenTrainingCheckpoint">Aucun artefact PEFT vérifié</strong></div>
+    <div class="status-row"><span>Évaluation indépendante</span><strong id="qwenTrainingBenchmark">Non mesurée</strong></div>
+    <div class="actions" style="margin-top:12px"><a class="button lora-link" href="https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/blob/main/scripts/train-qwen3-lora.py" target="_blank" rel="noopener noreferrer">Consulter le trainer Qwen</a></div>
+    <small class="muted">Aucun bouton de lancement n'est présenté comme opérationnel tant que le dispatch GPU authentifié, le suivi et la conservation des preuves ne sont pas raccordés.</small>
+  </section>
   <details open style="margin-top:16px">
     <summary style="cursor:pointer;font-weight:700">Plan de travail du nouveau Qwen3-14B (7 jalons)</summary>
     <ol style="margin:10px 0 0;padding-left:24px;line-height:1.45">${stagesMarkup}</ol>
