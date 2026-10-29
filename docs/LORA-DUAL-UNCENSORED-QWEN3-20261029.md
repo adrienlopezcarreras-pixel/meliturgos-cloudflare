@@ -110,3 +110,49 @@ Deux pistes séparées : A) apprendre un nouvel adaptateur Qwen à partir de la 
 Les mentions « non mesuré », « non lancé », « non hébergé » et « non disponible » restent exactes jusqu'à réception de preuves. Le bouton d'entraînement existant vise Mistral ; la fiche Qwen n'ajoute **aucun faux bouton de lancement**. Pour activer réellement l'entraînement Qwen, il faudra un exécuteur indépendant, une autorisation explicite du budget GPU et du checkpoint cible, et un pipeline de promotion compatible.
 
 Une fois Qwen servi et validé, le routeur pourra essayer l'autre modèle uniquement si le premier a **échoué techniquement** (timeout, fournisseur indisponible, réponse vide), avec le même contexte, sans doublons d'actions externes et avec un reçu `active_lora` reflétant le modèle réellement utilisé. Les refus légitimes ne doivent pas être traités comme des pannes.
+
+
+## Point d'entrée Qwen3 désormais codé — pas encore exécuté sur GPU
+
+Le script `scripts/train-qwen3-lora.py` est **indépendant** du trainer Mistral et des checkpoints Mistral. Le fichier `requirements-qwen3-lora.txt` contient ses dépendances pour CUDA ; le test `tests/test_qwen3_training.py` vérifie hors ligne l'intégrité du manifeste, le dédoublonnage, les limites d'entrée et l'immuabilité des sorties.
+
+### Contrat de préparation des données
+
+Créer un corpus JSONL avec des objets `{"messages":[{"role":"user","content":"..."},{"role":"assistant","content":"..."}]}`, au moins 50 conversations distinctes et un manifeste **revu** listant toutes les sources, leurs révisions et licences. Le fichier `sources-reviewed.json` doit inclure les champs suivants, avec l'empreinte réelle du corpus et les sources effectivement auditées :
+
+```json
+{
+  "dataset_sha256": "sha256:REMPLACER_PAR_64_CARACTERES_HEXADECIMAUX",
+  "license_review_passed": true,
+  "sources": [
+    {"id": "source-auditee", "revision": "commit-source-fige", "license": "licence-verifiee"}
+  ]
+}
+```
+
+Ne pas recopier cet exemple comme attestation de licence : les valeurs doivent être établies à partir du corpus réellement choisi.
+
+### Pré-vérification CPU, sans GPU ni téléchargement de modèle
+
+```bash
+python scripts/train-qwen3-lora.py \
+  --dataset /chemin/vers/dataset.jsonl \
+  --manifest /chemin/vers/sources-reviewed.json \
+  --output /chemin/vers/qwen3-14b/smoke-001 \
+  --dry-run
+```
+
+### Entraînement GPU réel après validation et disponibilité des ressources
+
+```bash
+python -m pip install -r requirements-qwen3-lora.txt
+python scripts/train-qwen3-lora.py \
+  --dataset /chemin/vers/dataset.jsonl \
+  --manifest /chemin/vers/sources-reviewed.json \
+  --output /chemin/vers/qwen3-14b/smoke-001 \
+  --rank 16 --alpha 32 --max-length 512 --max-steps 50
+```
+
+Il refuse l'absence de CUDA, les paramètres hors limites, une licence non revue, un jeu de données trop petit, un manifeste dont le digest ne correspond pas et l'écrasement d'un artefact existant. Sur réussite GPU, il génère `adapter_model.safetensors`, `adapter_config.json` et `training-evidence.json`, avec le SHA-256 de l'adaptateur, les étapes réellement réalisées, le GPU et les pertes d'évaluation. Cela donne **TRAINED_UNBENCHMARKED**, jamais **ACTIVE**. Les benchmarks indépendants, l'endpoint PEFT Qwen3 et la bascule A→B restent des jalons distincts.
+
+Ce script utilise Transformers/PEFT/QLoRA ; Unsloth reste une option d'optimisation future, pas une dépendance prétendument déjà exécutée. Un GPU gratuit n'est ni réservé ni garanti par ce commit.
