@@ -22,6 +22,16 @@ export const MEL_DUAL_LORA_MODELS = Object.freeze([
   }),
 ]);
 
+export const MEL_QWEN3_TRAINING_STAGES = Object.freeze([
+  Object.freeze({"id":"audit","title":"0 — Qualifier les sources","proof":"Fichier Colab, modèles, données, licences et format Qwen ; source gelée par révision SHA.","status":"À préparer"}),
+  Object.freeze({"id":"baseline","title":"1 — Mesurer Qwen3 de base","proof":"Mesures sur questions légitimes sensibles, français, code, JSON, outils, raisonnement, erreurs et latence.","status":"Non mesuré"}),
+  Object.freeze({"id":"smoke","title":"2 — Smoke QLoRA GPU","proof":"Expérience courte, CUDA prouvé, pertes et VRAM tracées, bundle PEFT contrôlé et sans promotion.","status":"Non lancé"}),
+  Object.freeze({"id":"train","title":"3 — Deux candidats comparables","proof":"Qwen MEL entraîné depuis la base et, séparément, continuation éventuelle de nicoboss ; checkpoints isolés.","status":"Non lancé"}),
+  Object.freeze({"id":"eval","title":"4 — Benchmark indépendant","proof":"Jeu de validation absent de l’entraînement ; comparer Mistral, Qwen brut et chaque candidat Qwen.","status":"Non mesuré"}),
+  Object.freeze({"id":"serve","title":"5 — Endpoint Qwen3 et budget","proof":"Confirmer fournisseur compatible PEFT, modèle exact chargé, coût plafonné, santé et traces.","status":"Non hébergé"}),
+  Object.freeze({"id":"switch","title":"6 — Bascule de secours","proof":"UNCENSORED tente A puis B uniquement sur panne/timeout/vide ; contexte et preuve du LoRA exact conservés.","status":"Non disponible"}),
+]);
+
 export const MEL_DUAL_LORA_RESOURCES = Object.freeze([
   Object.freeze({
     id: 'qwen-reference',
@@ -65,6 +75,10 @@ export const MEL_DUAL_LORA_RESOURCES = Object.freeze([
     href: 'https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered',
     note: 'Réutiliser la déduplication et les empreintes SHA du pipeline existant.',
   }),
+  Object.freeze({"id":"ultrachat","label":"UltraChat Uncensored — corpus déjà exploré dans MEL","href":"https://huggingface.co/datasets/Devilishcode/ultrachat-uncensored","note":"Source complémentaire : audit de licence, sélection, déduplication et exclusion des données à risque avant réemploi."}),
+  Object.freeze({"id":"opus","label":"Kalo Opus sans refus — corpus exploré dans MEL","href":"https://huggingface.co/datasets/anthracite-org/kalo-opus-instruct-22k-no-refusal","note":"Comparer la qualité plutôt que considérer « no-refusal » comme une étiquette de réussite."}),
+  Object.freeze({"id":"dpo","label":"Préférences ORPO / DPO (mlabonne, 40k)","href":"https://huggingface.co/datasets/mlabonne/orpo-dpo-mix-40k","note":"Expérience préférentielle facultative, distincte du smoke QLoRA. Licences des sources à auditer."}),
+  Object.freeze({"id":"dolphin-pr","label":"Corpus Dolphin expérimental de MEL — PR #2819","href":"https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/pull/2819","note":"Expérience Mistral à participation explicite : ne pas assimiler cette PR à un entraînement Qwen3."}),
   Object.freeze({
     id: 'mistral-runtime',
     label: 'Cloudflare — Mistral 7B LoRA',
@@ -78,6 +92,9 @@ const resourceMarkup = MEL_DUAL_LORA_RESOURCES.map(({label, href, note}) =>
   `<li style="margin:9px 0"><a target="_blank" rel="noopener noreferrer" href="${safe(href)}">${safe(label)}</a><small style="display:block;color:var(--muted);margin-top:3px">${safe(note)}</small></li>`
 ).join('');
 
+const stagesMarkup = MEL_QWEN3_TRAINING_STAGES.map(({title,proof,status}) =>
+  `<li style="margin:10px 0"><b>${safe(title)}</b> <span class="tag warn">${safe(status)}</span><small style="display:block;color:var(--muted);margin-top:4px">${safe(proof)}</small></li>`
+).join('');
 export const MEL_DUAL_LORA_TRAINING_MARKUP = `
 <article class="card wide" id="dualLoraTrainingPlan" aria-labelledby="dualLoraTitle">
   <div class="skill-head">
@@ -102,13 +119,24 @@ export const MEL_DUAL_LORA_TRAINING_MARKUP = `
       <small>Jamais de retour silencieux vers un modèle normal ni de faux reçu LoRA.</small>
     </div>
   </div>
+  <details open style="margin-top:16px">
+    <summary style="cursor:pointer;font-weight:700">Plan de travail du nouveau Qwen3-14B (7 jalons)</summary>
+    <ol style="margin:10px 0 0;padding-left:24px;line-height:1.45">${stagesMarkup}</ol>
+  </details>
+  <details style="margin-top:13px">
+    <summary style="cursor:pointer;font-weight:700">Recette QLoRA et paramètres proposés</summary>
+    <div class="status-row"><span>Référence nicoboss (historique, non MEL)</span><strong>2 × RTX 4090 24 Go ; QLoRA 4-bit ; r=32 ; alpha=16 ; dropout=0,05 ; longueur 4096 ; 4 epochs ; LR 2e-4. Ce n'est pas une garantie T4.</strong></div>
+    <div class="status-row"><span>Premier essai MEL (hypothèse à valider)</span><strong>Unsloth ; Qwen3-14B ; NF4 ; r=16 ; alpha=32 ; dropout=0,05 ; longueur 512 à 1024 ; batch=1 ; accumulation=8 ; 1 epoch, maximum 50 steps et gradient checkpointing.</strong></div>
+    <div class="status-row"><span>Formats et études</span><strong>Chat template Qwen3, messages avec rôles, séparation train/eval, masquage des messages utilisateur quand supporté, mesure de conservation du raisonnement et essais base vs continuation.</strong></div>
+    <div class="status-row"><span>Données candidates</span><strong>MEL validé et dépersonnalisé, ShareGPT dédupliqué, Guilherme34/uncensor à auditer, UltraChat, Opus ; préférences ORPO/DPO en branche distincte ; Dolphin reste une expérience Mistral.</strong></div>
+  </details>
   <div class="status-row"><span>Corpus commun</span><strong>Conversation MEL, ShareGPT dédupliqué, code, outils, raisonnement FR/EN, cas sensibles légitimes</strong></div>
   <div class="status-row"><span>Différences</span><strong>Tokenizers, templates, paramètres, checkpoints et adaptateurs séparés</strong></div>
   <div class="status-row"><span>Validation</span><strong>Qualité, sur-refus, limites de sécurité, JSON/outils, code et absence de régression</strong></div>
   <div class="status-row"><span>Infrastructure</span><strong>Mistral : Workers AI · Qwen3 : hébergeur LoRA compatible à confirmer</strong></div>
   <p class="footer-note">Planification uniquement : les liens ne lancent pas d'entraînement, ne créent pas de checkpoint et n'autorisent pas d'activation. Le bouton « Lancer un entraînement » ci-dessus concerne toujours Mistral.</p>
   <details style="margin-top:15px">
-    <summary style="cursor:pointer;font-weight:700">Sources et notebooks à intégrer (8 ressources)</summary>
+    <summary style="cursor:pointer;font-weight:700">Sources et notebooks à intégrer (12 ressources)</summary>
     <ul style="margin:9px 0 0;padding-left:20px;line-height:1.45">${resourceMarkup}</ul>
   </details>
 </article>`;
