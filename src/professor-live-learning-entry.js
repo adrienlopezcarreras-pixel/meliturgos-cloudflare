@@ -84,7 +84,14 @@ async function experimentalGitHub(request,env,method,url,body){
 async function experimentalTrainingResponse(request,env){
   const body=await safeJsonBody(request);
   const track=experimentalTrack(body.track);
-  if(!track||body.mode!=='preflight')return json({ok:false,error:'UNSUPPORTED_EXPERIMENTAL_TRACK_OR_MODE'},400);
+  if(!track||!['preflight','gpu'].includes(body.mode))return json({ok:false,error:'UNSUPPORTED_EXPERIMENTAL_TRACK_OR_MODE'},400);
+  if(body.mode==='gpu'){
+    // GPU dispatch is deliberately gated until a separate, reviewed and
+    // verifiable executor is wired. Never silently fall back to a preflight.
+    return json({ok:false,error:track==='qwen3'
+      ?'QWEN_GPU_DATASET_MANIFEST_AND_KAGGLE_EXECUTOR_REQUIRED'
+      :'ABLITERATION_GPU_EXECUTOR_NOT_IMPLEMENTED',gpu_training_performed:false},409);
+  }
   const api='https://api.github.com/repos/'+FREE_LORA_GITHUB_REPO+'/actions/workflows/'+EXPERIMENTAL_TRAINING_WORKFLOW;
   // Check active workflows before dispatch; prevent accidental duplicate runs.
   const active=await experimentalGitHub(request,env,'GET',api+'/runs?per_page=30');
