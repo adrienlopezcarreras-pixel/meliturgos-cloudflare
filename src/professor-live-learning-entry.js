@@ -64,6 +64,51 @@ async function liveLearningProgressResponse(request, env) {
 }
 
 
+const EXPERIMENTAL_TRAINING_WORKFLOW='professor-experimental-training.yml';
+function experimentalTrack(value){return ['qwen3','abliteration'].includes(value)?value:null;}
+async function experimentalGitHub(request,env,method,url,body){
+  const auth=requireAuth(request,env);
+  if(!auth.ok)return {denied:auth.response};
+  const token=String(env?.MEL_GITHUB_TOKEN||'').trim();
+  if(!token)return {denied:json({ok:false,error:'GITHUB_DISPATCH_TOKEN_NOT_CONFIGURED'},503)};
+  try{
+    const response=await fetch(url,{
+      method,headers:{'accept':'application/vnd.github+json','authorization':'Bearer '+token,'user-agent':'mel-professor-training/1.0','content-type':'application/json'},
+      ...(body?{body:JSON.stringify(body)}:{})
+    });
+    const data=response.status===204?{}:await response.json().catch(()=>({}));
+    if(!response.ok)return {denied:json({ok:false,error:'GITHUB_TRAINING_API_FAILED',http_status:response.status},response.status===401||response.status===403?503:502)};
+    return {data};
+  }catch{return {denied:json({ok:false,error:'GITHUB_TRAINING_API_UNREACHABLE'},503)};}
+}
+async function experimentalTrainingResponse(request,env){
+  const body=await safeJsonBody(request);
+  const track=experimentalTrack(body.track);
+  if(!track||body.mode!=='preflight')return json({ok:false,error:'UNSUPPORTED_EXPERIMENTAL_TRACK_OR_MODE'},400);
+  const api='https://api.github.com/repos/'+FREE_LORA_GITHUB_REPO+'/actions/workflows/'+EXPERIMENTAL_TRAINING_WORKFLOW;
+  // Check active workflows before dispatch; prevent accidental duplicate runs.
+  const active=await experimentalGitHub(request,env,'GET',api+'/runs?per_page=30');
+  if(active.denied)return active.denied;
+  const existing=(active.data?.workflow_runs||[]).find(run=>
+    ['queued','in_progress','waiting','requested','pending'].includes(run.status));
+  if(existing)return json({ok:true,dispatched:false,status:'TRAINING_PREFLIGHT_ALREADY_RUNNING',run_id:existing.id,run_url:existing.html_url});
+  const dispatched=await experimentalGitHub(request,env,'POST',api+'/dispatches',{ref:'main',inputs:{track,mode:'preflight'}});
+  if(dispatched.denied)return dispatched.denied;
+  return json({ok:true,dispatched:true,status:'PREFLIGHT_DISPATCH_ACCEPTED',track,mode:'preflight',gpu_training_performed:false,workflow_url:'https://github.com/'+FREE_LORA_GITHUB_REPO+'/actions/workflows/'+EXPERIMENTAL_TRAINING_WORKFLOW});
+}
+async function experimentalTrainingStatus(request,env){
+  const auth=requireAuth(request,env);if(!auth.ok)return auth.response;
+  const url=new URL(request.url),track=experimentalTrack(url.searchParams.get('track'));
+  if(!track)return json({ok:false,error:'INVALID_EXPERIMENTAL_TRACK'},400);
+  const api='https://api.github.com/repos/'+FREE_LORA_GITHUB_REPO+'/actions/workflows/'+EXPERIMENTAL_TRAINING_WORKFLOW+'/runs?per_page=30';
+  const result=await experimentalGitHub(request,env,'GET',api);if(result.denied)return result.denied;
+  const runs=(result.data?.workflow_runs||[]).filter(row=>row?.event==='workflow_dispatch');
+  return json({ok:true,track,mode:'preflight',runs:runs.slice(0,10).map(row=>({
+    id:row.id,status:row.status,conclusion:row.conclusion,created_at:row.created_at,updated_at:row.updated_at,html_url:row.html_url
+  })),run_track_not_proven:true,gpu_training_performed:false,
+  note:'GitHub ne fournit pas les inputs dans la liste des runs : le track exact doit être attesté par l artefact du run avant validation.'});
+}
+
 async function freeLoraStatusResponse(request, env) {
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
@@ -473,6 +518,12 @@ export default {
     }
     if (request.method === 'POST' && url.pathname === '/api/learning/benchmark/run') {
       return operatorBenchmarkResponse(request, env);
+    }
+    if (request.method === 'POST' && url.pathname === '/api/learning/lora/experimental/train') {
+      return experimentalTrainingResponse(request,env);
+    }
+    if (request.method === 'GET' && url.pathname === '/api/learning/lora/experimental/status') {
+      return experimentalTrainingStatus(request,env);
     }
     if (request.method === 'POST' && url.pathname === '/api/learning/lora/train') {
       const auth = requireAuth(request, env);

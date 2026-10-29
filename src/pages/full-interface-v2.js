@@ -1574,6 +1574,37 @@ qs('#freeLoraTrain').onclick=async()=>{
   }catch(e){message.textContent='Entraînement non lancé : '+String(e.message||e);}finally{b.disabled=false;}
 };
 qs('#freeLoraRefresh').onclick=()=>{panelLoadedAt.delete('lora');loadFreeLoraStatus().then(()=>panelLoadedAt.set('lora',Date.now())).catch(()=>{})};
+async function experimentalTrainingLaunch(track){
+ const prefix=track==='qwen3'?'qwen':'abliteration';
+ const btn=qs('#'+prefix+'Preflight'),out=qs('#'+prefix+'PreflightResult');
+ if(!btn||!out)return;
+ btn.disabled=true;out.textContent='Prévalidation demandée…';
+ try{
+   const result=await jfetch('/api/learning/lora/experimental/train',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({track,mode:'preflight'})});
+   if(result.ok!==true)throw new Error(result.error||'Envoi refusé');
+   out.textContent=result.dispatched?'Prévalidation transmise à GitHub (aucun GPU engagé).':'Une prévalidation est déjà active.';
+   await experimentalTrainingRefresh(track);
+ }catch(error){out.textContent='Non lancé : '+String(error.message||error);}
+ finally{btn.disabled=false;}
+}
+async function experimentalTrainingRefresh(track){
+ const prefix=track==='qwen3'?'qwen':'abliteration',out=qs('#'+prefix+'PreflightResult');
+ if(!out)return;
+ try{
+   const data=await jfetch('/api/learning/lora/experimental/status?track='+encodeURIComponent(track));
+   if(data.ok!==true)throw new Error(data.error||'État indisponible');
+   const run=data.runs?.[0];
+   if(!run){out.textContent='Aucun run GitHub découvert';return;}
+   out.textContent='Dernier workflow GitHub : '+String(run.status||'?')+' / '+String(run.conclusion||'en cours')+' (piste non attestée)';
+   const link=document.createElement('a');link.textContent=' · Voir run #'+String(run.id);
+   link.href=run.html_url;link.target='_blank';link.rel='noopener noreferrer';out.appendChild(link);
+ }catch(error){out.textContent='État indisponible : '+String(error.message||error);}
+}
+qs('#qwenPreflight').onclick=()=>experimentalTrainingLaunch('qwen3');
+qs('#qwenRefresh').onclick=()=>experimentalTrainingRefresh('qwen3');
+qs('#abliterationPreflight').onclick=()=>experimentalTrainingLaunch('abliteration');
+qs('#abliterationRefresh').onclick=()=>experimentalTrainingRefresh('abliteration');
+
 
 let computerCache={devices:[],selected_id:null,commands:[]};
 function selectedComputer(){const id=qs('#computerSelect')?.value||computerCache?.selected_id;const list=Array.isArray(computerCache?.devices)?computerCache.devices:[];return list.find(x=>x.id===id)||list[0]||null}

@@ -1,0 +1,68 @@
+name: Professor experimental training (Qwen3 / Abliteration)
+on:
+  workflow_dispatch:
+    inputs:
+      track:
+        description: "qwen3 or abliteration"
+        required: true
+        type: choice
+        options: [qwen3, abliteration]
+      mode:
+        description: "preflight; GPU requires separately reviewed pipeline"
+        required: true
+        type: choice
+        options: [preflight]
+permissions:
+  contents: read
+concurrency:
+  group: professor-experimental-${{ inputs.track }}
+  cancel-in-progress: false
+jobs:
+  audited-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify isolated experiment contract
+        env:
+          TRACK: ${{ inputs.track }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          test "$MODE" = preflight
+          case "$TRACK" in
+            qwen3)
+              python -m py_compile scripts/train-qwen3-lora.py
+              python -m unittest discover -s tests -p 'test_qwen3_training.py' -v
+              ;;
+            abliteration)
+              python - <<'PY'
+          import json
+          from pathlib import Path
+          doc = Path("docs/LORA-DUAL-UNCENSORED-QWEN3-20261029.md").read_text()
+          assert "Daredevil-8B" in doc and "abliteration" in doc.lower()
+          print("Abliteration source reviewed in runbook; no GPU or weight mutation.")
+          PY
+              ;;
+            *) exit 2;;
+          esac
+      - name: Emit explicit preflight evidence
+        if: always()
+        env:
+          TRACK: ${{ inputs.track }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          mkdir -p artifacts
+          python - <<'PY'
+          import json,os,pathlib,datetime
+          data={"schema":"mel.experimental-training.preflight.v1","track":os.environ["TRACK"],"mode":os.environ["MODE"],"source_sha":os.environ["GITHUB_SHA"],"workflow_run_id":os.environ["GITHUB_RUN_ID"],"gpu_training_performed":False,"checkpoint_created":False,"adapter_active":False,"time":datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          pathlib.Path("artifacts/preflight-evidence.json").write_text(json.dumps(data,indent=2)+"\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: experimental-preflight-${{ inputs.track }}
+          path: artifacts/preflight-evidence.json
