@@ -89,9 +89,19 @@ async function experimentalTrainingResponse(request,env){
   // Check active workflows before dispatch; prevent accidental duplicate runs.
   const active=await experimentalGitHub(request,env,'GET',api+'/runs?per_page=30');
   if(active.denied)return active.denied;
-  const existing=(active.data?.workflow_runs||[]).find(run=>
-    ['queued','in_progress','waiting','requested','pending'].includes(run.status));
-  if(existing)return json({ok:true,dispatched:false,status:'TRAINING_PREFLIGHT_ALREADY_RUNNING',run_id:existing.id,run_url:existing.html_url});
+  // Distinguish the two isolated tracks using the workflow job name.
+  // A different track must not block a legitimate launch, while an
+  // uninspectable in-flight run fails closed to avoid duplicate dispatch.
+  let existing=null;
+  for(const run of (active.data?.workflow_runs||[])){
+    if(!['queued','in_progress','waiting','requested','pending'].includes(run.status))continue;
+    const jobs=await experimentalGitHub(request,env,'GET',
+      'https://api.github.com/repos/'+FREE_LORA_GITHUB_REPO+'/actions/runs/'+encodeURIComponent(run.id)+'/jobs?per_page=30');
+    if(jobs.denied){existing=run;break;}
+    const names=(jobs.data?.jobs||[]).map(job=>String(job.name||''));
+    if(names.includes('preflight-'+track)||names.length===0){existing=run;break;}
+  }
+  if(existing)return json({ok:true,dispatched:false,status:'TRAINING_PREFLIGHT_ALREADY_RUNNING_OR_UNVERIFIED',run_id:existing.id,run_url:existing.html_url});
   const dispatched=await experimentalGitHub(request,env,'POST',api+'/dispatches',{ref:'main',inputs:{track,mode:'preflight'}});
   if(dispatched.denied)return dispatched.denied;
   return json({ok:true,dispatched:true,status:'PREFLIGHT_DISPATCH_ACCEPTED',track,mode:'preflight',gpu_training_performed:false,workflow_url:'https://github.com/'+FREE_LORA_GITHUB_REPO+'/actions/workflows/'+EXPERIMENTAL_TRAINING_WORKFLOW});
