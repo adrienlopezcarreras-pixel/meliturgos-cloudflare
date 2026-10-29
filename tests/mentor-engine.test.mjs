@@ -959,7 +959,7 @@ test('a slow failed local coder leaves a real cloud fallback window', async () =
   const calls = [];
   const local = { id: 'pc', providerId: 'local-pc-coder', modelId: 'pc', async invoke() {
     calls.push('pc');
-    clock += 130_000;
+    clock += 110_000;
     throw Object.assign(new Error('empty'), { code: 'LOCAL_MODEL_EMPTY' });
   } };
   const cloud = { id: 'online', providerId: 'cloud', modelId: 'online', async invoke() {
