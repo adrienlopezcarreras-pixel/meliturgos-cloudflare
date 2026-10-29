@@ -116,3 +116,13 @@ test('Qwen GPU control dispatches only reviewed Kaggle workflow and never claims
  assert.ok(ui.includes("qs('#qwenGpuTrain').onclick"));
  assert.ok(workflow.includes('KAGGLE_GPU_DISPATCHED_UNVERIFIED'));
 });
+
+test('Qwen GPU status is sourced from GitHub and never claims Kaggle training proof',async()=>{
+ const fs=await import('node:fs/promises');
+ const entry=await fs.readFile(new URL('../src/professor-live-learning-entry.js',import.meta.url),'utf8');
+ const page=await fs.readFile(new URL('../src/pages/full-interface-v2.js',import.meta.url),'utf8');
+ assert.ok(entry.includes('async function qwenGpuWorkflowStatus('));
+ assert.ok(entry.includes("'/api/learning/lora/qwen-gpu/status'"));
+ assert.ok(entry.includes('gpu_training_verified:false,checkpoint_verified:false'));
+ assert.ok(page.includes("qs('#qwenGpuRefresh').onclick"));
+});
