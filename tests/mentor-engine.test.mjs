@@ -979,7 +979,7 @@ test('the cloud coder works with no local PC provider configured', async () => {
     return { text: JSON.stringify({ summary: 'Change value', edits: [{ path: 'src/example.js', find: 'return "old";', replace: 'return "new";' }], tests: ['test:smoke'] }) };
   } };
   const engine = new MentorEngine({ providerFactory: async () => [cloud] });
-  const result = await engine.propose({ env: {}, goal: 'Change value', inspectedFiles: [{ path: 'src/example.js', content: 'export function read() {\\n  return "old";\\n}\\n' }] });
+  const result = await engine.propose({ env: {}, goal: 'Change value', inspectedFiles: [{ path: 'src/example.js', content: 'export function read() {\n  return "old";\n}\n' }] });
   assert.deepEqual(calls, ['cloud']);
   assert.match(result.proposal.changes[0].content, /return "new";/);
 });
