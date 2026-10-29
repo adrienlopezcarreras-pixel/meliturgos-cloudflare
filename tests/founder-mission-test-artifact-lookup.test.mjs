@@ -37,3 +37,17 @@ test('artifact belonging to another run is rejected even if its name matches', a
       {id:123,name:'full-candidate-ci',head_branch:'candidate/mel-clean-autonomy',head_sha:SHA,status:'completed',conclusion:'success'})});
   assert.equal(out.code,'MISSION_TEST_ARTIFACT_MISSING_OR_AMBIGUOUS');
 });
+
+
+test('signed archive redirect refuses an untrusted host before downloading', async () => {
+  const calls=[];
+  const out=await fetchFounderMissionTestEvidence({...request,fetchImpl:async url=>{
+    calls.push(String(url));
+    if (String(url).endsWith('/zip')) return new Response(null,{status:302,headers:{location:'https://attacker.example/receipt.zip'}});
+    return reply(String(url).includes('/artifacts?')
+      ? {artifacts:[{id:456,name:'founder-mission-test-evidence',expired:false,workflow_run:{id:123,head_sha:SHA}}]}
+      : {id:123,name:'full-candidate-ci',head_branch:'candidate/mel-clean-autonomy',head_sha:SHA,status:'completed',conclusion:'success'});
+  }});
+  assert.equal(out.code,'MISSION_TEST_ARCHIVE_HOST_INVALID');
+  assert.equal(calls.length,3,'must never contact untrusted redirect destination');
+});
