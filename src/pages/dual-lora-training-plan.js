@@ -161,6 +161,7 @@ export const MEL_DUAL_LORA_TRAINING_MARKUP = `
     <div class="status-row"><span>Checkpoint candidat</span><strong id="qwenTrainingCheckpoint">Aucun artefact PEFT vérifié</strong></div>
     <div class="status-row"><span>Évaluation indépendante</span><strong id="qwenTrainingBenchmark">Non mesurée</strong></div>
     <div class="actions" style="margin-top:12px">
+      <button type="button" id="qwenGpuRefresh">Suivre Qwen3 GPU</button>
       <button type="button" id="qwenGpuTrain">Lancer Qwen3 GPU Kaggle (si corpus validé)</button>
       <button type="button" id="qwenPreflight">Lancer la prévalidation Qwen3</button>
       <button type="button" id="qwenRefresh">Actualiser le dernier run</button>
