@@ -84,6 +84,10 @@ jobs:
             echo "Autonomous release policy authorized for dedicated release pointer."
           elif [ "$AUTONOMOUS_DISPATCH" = "true" ]; then
             test "$AUTONOMOUS_RELEASE_POLICY" = "enabled"
+            if [ "$APPROVAL" != "AUTONOMOUS_POLICY" ]; then
+              echo "::error title=Autonomous dispatch input mismatch::autonomous_release=true requires approval=AUTONOMOUS_POLICY; use autonomous_release=false for an owner-approved DEPLOY_APPROVED manual release."
+              exit 2
+            fi
             test "$APPROVAL" = "AUTONOMOUS_POLICY"
             test "$RELEASE_BRANCH" = "release/mel-hardware-v0.1.0"
             case "$GITHUB_ACTOR" in
