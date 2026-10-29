@@ -19,7 +19,8 @@ const required = [
   'a completed connected read lookup failure stops before models and providers',
 ];
 const passedNames = new Set([...log.matchAll(/^\s*ok\s+\d+\s+-\s+(.+)$/gm)].map(m => m[1].trim()));
-const tests = required.map(name => ({ name, passed: exitCode === 0 && passedNames.has(name) }));
+const replayFilePassed = /^✓ tests\/native-chat-connected-replay\.test\.mjs\s*$/m.test(log);
+const tests = required.map(name => ({ name, passed: exitCode === 0 && replayFilePassed && passedNames.has(name) }));
 const report = {
   schema: 'MEL_FOUNDER_MISSION_TEST_EVIDENCE_V1',
   source: 'full-candidate-ci/full-suite',
@@ -29,6 +30,7 @@ const report = {
   log_sha256: createHash('sha256').update(log).digest('hex'),
   exit_code: exitCode,
   tests,
+  replay_test_file_passed: replayFilePassed,
   mandatory_tests_verified: exitCode === 0 && tests.every(t => t.passed),
   // Deliberately not claiming authentication or raw-JSON rendering coverage.
   additional_required_proofs: ['GMAIL_CALENDAR_DRIVE_TYPED_AUTH', 'NO_RAW_TOOL_CALL_JSON'],
