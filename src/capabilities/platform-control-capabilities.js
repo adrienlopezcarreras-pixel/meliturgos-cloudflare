@@ -306,18 +306,18 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
       // that would risk dispatching the same workflow twice.
       if (health.online) {
         const job = await githubRelay.enqueue({ workflow, ref, inputs });
-      return {
-        provider: 'github',
-        repository: githubRepository,
-        workflow,
-        ref,
-        accepted: true,
-        status: job.status,
-        transport: githubRelay.transport || 'd1-github-actions-relay',
-        relay_job_id: job.id,
-        workflow_run_id: 0,
-        run_url: '',
-        html_url: '',
+        return {
+          provider: 'github',
+          repository: githubRepository,
+          workflow,
+          ref,
+          accepted: true,
+          status: job.status,
+          transport: githubRelay.transport || 'd1-github-actions-relay',
+          relay_job_id: job.id,
+          workflow_run_id: 0,
+          run_url: '',
+          html_url: '',
         };
       }
       if (!githubToken) throw capabilityError('GITHUB_ACTION_RELAY_OFFLINE', 503);
