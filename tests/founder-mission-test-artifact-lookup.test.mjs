@@ -114,3 +114,12 @@ test('full authenticated run artifact download validates and returns proof diges
   assert.match(out.digest,/^[a-f0-9]{64}$/);
   assert.equal(out.tests.length,7);
 });
+
+
+test('paginated GitHub artifact list never establishes unique mission evidence', async () => {
+  const out=await fetchFounderMissionTestEvidence({...request,fetchImpl:async url=>
+    reply(String(url).includes('/artifacts?')
+      ? {total_count:101,artifacts:[{id:456,name:'founder-mission-test-evidence',expired:false,workflow_run:{id:123,head_sha:SHA}}]}
+      : {id:123,name:'full-candidate-ci',head_branch:'candidate/mel-clean-autonomy',head_sha:SHA,status:'completed',conclusion:'success'})});
+  assert.equal(out.code,'MISSION_TEST_ARTIFACT_LIST_INCOMPLETE');
+});
