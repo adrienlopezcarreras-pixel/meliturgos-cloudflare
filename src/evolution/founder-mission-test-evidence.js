@@ -88,8 +88,11 @@ export async function fetchFounderMissionTestEvidence({ repository, candidateSha
       host === 'objects.githubusercontent.com' || host.endsWith('.actions.githubusercontent.com')
       || /^productionresultssa[0-9]+\.blob\.core\.windows\.net$/.test(host)
     )) return { ok:false, code:'MISSION_TEST_ARCHIVE_HOST_INVALID' };
-    const download = await fetchImpl(location.toString(), { redirect:'error', signal:AbortSignal.timeout(20000) });
-    if (!download.ok || Number(download.headers.get('content-length') || 0) > 256 * 1024)
+    const download = await fetchImpl(location.toString(), { redirect:'manual', signal:AbortSignal.timeout(20000) });
+    // Cloudflare Workers does not support redirect:'error'; manual mode also
+    // prevents signed storage URLs from silently redirecting to another host.
+    if (!download.ok || download.status >= 300 && download.status < 400
+        || Number(download.headers.get('content-length') || 0) > 256 * 1024)
       return { ok:false, code:'MISSION_TEST_ARCHIVE_DOWNLOAD_FAILED' };
     const bytes = await download.arrayBuffer();
     if (bytes.byteLength > 256 * 1024) return { ok:false, code:'MISSION_TEST_ARCHIVE_TOO_LARGE' };
