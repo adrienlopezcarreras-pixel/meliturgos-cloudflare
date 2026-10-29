@@ -47,7 +47,11 @@ jobs:
                     "import base64 as _mel_b64\\n"
                     "_MELPath('/kaggle/working/train-qwen3-lora.py').write_bytes("
                     "_mel_b64.b64decode("+repr(base64.b64encode(trainer).decode('ascii'))+"))\\n")
-          Path('artifacts/qwen-kernel/main.py').write_text(preamble+entry,encoding='utf-8')
+          # The generated file must be syntactically valid, not just the sources.
+          preamble=preamble.replace('\\\\n','\\n')
+          generated=preamble+entry
+          compile(generated,'main.py','exec')
+          Path('artifacts/qwen-kernel/main.py').write_text(generated,encoding='utf-8')
           print('QWEN_SELF_CONTAINED_KERNEL_CREATED')
           PY
           python - <<'PY'
