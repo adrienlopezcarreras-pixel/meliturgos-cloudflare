@@ -185,4 +185,28 @@ test('MAX does not restart exhausted identical provider retries when cooldown ex
   const parked = await supervisor.ensureNextJob();
   assert.equal(parked.job, null);
   assert.equal(parked.external_progress?.status, 'DEFERRED_PROVIDER_RETRY_PENDING');
+  assert.equal(parked.external_progress?.reason, 'PROVIDER_EXHAUSTED_CONTEXT_REQUIRED');
+  assert.equal(parked.external_progress?.retry_after, null);
+});
+
+test('MAX provider deferral reports bounded cooldown without pretending to complete', async () => {
+  const repository = repo();
+  const retryAfter = Date.now() + 120_000;
+  const job = await repository.create({
+    id: 'mel-autonomy-manifest-01-cooldown', requested_by: 'mel-autonomy',
+    goal: '[MEL-MANIFEST-01] Provider temporarily unavailable',
+    optional_context: { roadmap_id: 'MEL-MANIFEST-01', source: 'autonomy-supervisor' },
+  });
+  await repository.update(job.id, { result_json: { autonomy_deferral: {
+    exhausted: false, phase: 'mentor', attempts: 1, max_attempts: 3,
+    retry_after: retryAfter,
+  } } });
+  const supervisor = new AutonomySupervisor({ repository, roadmap: [
+    { id: 'MEL-MANIFEST-01', title: 'Retry provider', status: 'PLANNED', priority: 'P0' },
+  ] });
+  const parked = await supervisor.ensureNextJob();
+  assert.equal(parked.job, null);
+  assert.equal(parked.external_progress?.status, 'DEFERRED_PROVIDER_RETRY_PENDING');
+  assert.equal(parked.external_progress?.reason, 'PROVIDER_RETRY_COOLDOWN');
+  assert.equal(parked.external_progress?.retry_after, retryAfter);
 });
