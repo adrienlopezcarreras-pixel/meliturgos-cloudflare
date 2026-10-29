@@ -83,6 +83,7 @@ export async function fetchFounderMissionTestEvidence({ repository, candidateSha
     if (!download.ok || Number(download.headers.get('content-length') || 0) > 256 * 1024)
       return { ok:false, code:'MISSION_TEST_ARCHIVE_DOWNLOAD_FAILED' };
     const bytes = await download.arrayBuffer();
+    if (bytes.byteLength > 256 * 1024) return { ok:false, code:'MISSION_TEST_ARCHIVE_TOO_LARGE' };
     const receipt = decodeFounderEvidenceZip(bytes);
     const verdict = validateFounderMissionTestEvidence(receipt,run,{candidateSha,runId});
     if (!verdict.ok) return verdict;
