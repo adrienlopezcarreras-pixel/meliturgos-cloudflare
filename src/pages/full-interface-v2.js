@@ -1375,6 +1375,7 @@ async function loadFreeLoraStatus(){
       const url=String(trainWf.html_url||'');
       const verified=/^https:\/\/github\.com\/[^/]+\/[^/]+\/actions\/runs\/[0-9]+\/?$/.test(url);
       launchLink.hidden=!verified;
+      launchLink.style.display=verified?'inline-flex':'none';
       if(verified)launchLink.href=url;else launchLink.removeAttribute('href');
     }
     const launchStage=trainStatus==='QUEUED'||trainStatus==='PENDING'||trainStatus==='WAITING'?'En file d’attente'
@@ -1529,7 +1530,7 @@ async function loadFreeLoraStatus(){
     // cache entry. Clear all live-proof fields before permitting a retry.
     setLoraTag('#freeLoraLaunchState','État GitHub indisponible','bad');
     setLoraTag('#freeLoraDeployState','Déploiement non vérifié','bad');
-    const launchLink=qs('#freeLoraActiveRun');if(launchLink)launchLink.hidden=true;
+    const launchLink=qs('#freeLoraActiveRun');if(launchLink){launchLink.hidden=true;launchLink.style.display='none';}
     setLoraTag('#freeGpuState','Indisponible','bad');
     setLoraTag('#freeHfState','Indisponible','bad');
     setLoraTag('#freeValidationState','Indisponible','bad');
