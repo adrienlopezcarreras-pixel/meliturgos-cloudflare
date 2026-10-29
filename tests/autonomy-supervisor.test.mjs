@@ -39,7 +39,7 @@ test('autonomy supervisor creates one persistent deterministic job and does not 
   assert.equal((await repo.list()).length, 1);
 });
 
-test('explicit owner-chat development is supervised autonomy and outranks background roadmap work', async () => {
+test('explicit owner-chat work is preserved behind the absolute roadmap priority', async () => {
   const repo = isolatedRepo();
   const supervisor = new AutonomySupervisor({ repository: repo, roadmap });
   const background = await supervisor.ensureNextJob();
@@ -55,11 +55,11 @@ test('explicit owner-chat development is supervised autonomy and outranks backgr
 
   const selected = await supervisor.ensureNextJob();
   assert.equal(selected.created, false);
-  assert.equal(selected.job.id, owner.id);
-  assert.equal(selected.job.requested_by, 'owner-chat');
+  assert.equal(selected.job.id, background.job.id);
+  assert.equal(selected.job.requested_by, 'mel-autonomy');
 });
 
-test('owner-chat work prevents creation of a new background roadmap job while it is active', async () => {
+test('a queued owner request does not prevent a ready roadmap prerequisite from starting', async () => {
   const repo = isolatedRepo();
   await repo.create({
     id: 'owner-only',
@@ -69,9 +69,9 @@ test('owner-chat work prevents creation of a new background roadmap job while it
   });
   const supervisor = new AutonomySupervisor({ repository: repo, roadmap });
   const selected = await supervisor.ensureNextJob();
-  assert.equal(selected.created, false);
-  assert.equal(selected.job.id, 'owner-only');
-  assert.equal((await repo.list()).filter((job) => job.requested_by === 'mel-autonomy').length, 0);
+  assert.equal(selected.created, true);
+  assert.equal(selected.job.optional_context.roadmap_id, 'MEL-WORK-01');
+  assert.equal((await repo.list()).filter((job) => job.requested_by === 'mel-autonomy').length, 1);
 });
 
 test('a passive owner WAITING_TEACHER job does not starve an actionable approved internal roadmap job', async () => {
@@ -130,7 +130,7 @@ test('a passive owner READY_FOR_REVIEW awaiting completion does not starve an ap
   assert.equal((await repo.get(owner.id)).status, 'READY_FOR_REVIEW');
 });
 
-test('an owner READY_FOR_REVIEW that needs repair remains actionable and keeps owner priority', async () => {
+test('an owner repair remains preserved while roadmap work owns the execution lane', async () => {
   const repo = isolatedRepo();
   const internal = await repo.create({
     id: 'mel-autonomy-gen2-17-1',
@@ -154,7 +154,7 @@ test('an owner READY_FOR_REVIEW that needs repair remains actionable and keeps o
   const supervisor = new AutonomySupervisor({ repository: repo, roadmap });
   const selected = await supervisor.ensureNextJob();
   assert.equal(selected.created, false);
-  assert.equal(selected.job.id, owner.id);
+  assert.equal(selected.job.id, internal.id);
 });
 
 test('an internal READY_FOR_REVIEW awaiting completion remains the roadmap gate', async () => {
@@ -241,7 +241,7 @@ test('passive owner review remains untouched across two consecutive autonomous r
   assert.equal((await repo.get(owner.id)).status, 'WAITING_TEACHER');
 });
 
-test('an actionable owner job still outranks an actionable internal roadmap job', async () => {
+test('an actionable roadmap job outranks an unrelated owner queue entry', async () => {
   const repo = isolatedRepo();
   const internal = await repo.create({
     id: 'mel-autonomy-gen2-17-1',
@@ -262,8 +262,8 @@ test('an actionable owner job still outranks an actionable internal roadmap job'
   const supervisor = new AutonomySupervisor({ repository: repo, roadmap });
   const selected = await supervisor.ensureNextJob();
   assert.equal(selected.created, false);
-  assert.equal(selected.job.id, owner.id);
-  assert.equal(selected.job.requested_by, 'owner-chat');
+  assert.equal(selected.job.id, internal.id);
+  assert.equal(selected.job.requested_by, 'mel-autonomy');
 });
 
 test('owner priority is preserved when every active job is passively waiting for Teacher', async () => {

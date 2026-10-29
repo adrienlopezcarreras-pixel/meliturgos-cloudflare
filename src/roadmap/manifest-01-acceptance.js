@@ -15,7 +15,7 @@ export function manifest01FoundationPrerequisites(roadmap = flattenRoadmap()) {
   const items = new Map((Array.isArray(roadmap) ? roadmap : []).map(item => [item?.id, item]));
   const priorities = MANIFEST_01_FOUNDATION.map(requirement => {
     const found = items.get(requirement.roadmap_id);
-    const status = String(found?.status || 'NOT_FOUND').trim().toUpperCase();
+    const status = String((requirement.priority === 4 ? found?.external_acceptance?.status : null) || found?.status || 'NOT_FOUND').trim().toUpperCase();
     const verified = status === ROADMAP_STATUSES.VERIFIED;
     return {
       ...requirement,
