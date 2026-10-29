@@ -84,7 +84,16 @@ test('experimental controls connect to authenticated server workflow dispatch, n
 test('unattributed GitHub preflight runs never become Qwen or Abliteration progress',async()=>{
  const entry=await (await import('node:fs/promises')).readFile(new URL('../src/professor-live-learning-entry.js',import.meta.url),'utf8');
  const ui=await (await import('node:fs/promises')).readFile(new URL('../src/pages/full-interface-v2.js',import.meta.url),'utf8');
- assert.ok(entry.includes('runs:[],unattributed_runs:'));
- assert.ok(entry.includes('run_track_not_proven:true'));
+ assert.ok(entry.includes('runs:inspected.filter(item=>item.attributed===track).map(projected)'));
+ assert.ok(entry.includes('run_track_not_proven:inspected.some(item=>!item.attributed)'));
  assert.ok(ui.includes('aucune preuve ne les attribue à cette piste'));
+});
+
+test('GitHub job names provide verified preflight track provenance',async()=>{
+ const fs=await import('node:fs/promises');
+ const workflow=await fs.readFile(new URL('../.github/workflows/professor-experimental-training.yml',import.meta.url),'utf8');
+ const entry=await fs.readFile(new URL('../src/professor-live-learning-entry.js',import.meta.url),'utf8');
+ assert.ok(workflow.includes('name: preflight-'));
+ assert.ok(entry.includes("name==='preflight-qwen3'||name==='preflight-abliteration'"));
+ assert.ok(entry.includes('attributed:matched.length===1'));
 });
