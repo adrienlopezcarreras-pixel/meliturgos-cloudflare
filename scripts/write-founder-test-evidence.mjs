@@ -19,8 +19,9 @@ const required = [
   'a completed connected read lookup failure stops before models and providers',
 ];
 const passedNames = new Set([...log.matchAll(/^\s*ok\s+\d+\s+-\s+(.+)$/gm)].map(m => m[1].trim()));
+const failedNames = new Set([...log.matchAll(/^\s*not ok\s+\d+\s+-\s+(.+)$/gm)].map(m => m[1].trim()));
 const replayFilePassed = /^✓ tests\/native-chat-connected-replay\.test\.mjs\s*$/m.test(log);
-const tests = required.map(name => ({ name, passed: exitCode === 0 && replayFilePassed && passedNames.has(name) }));
+const tests = required.map(name => ({ name, passed: exitCode === 0 && replayFilePassed && passedNames.has(name) && !failedNames.has(name) }));
 const report = {
   schema: 'MEL_FOUNDER_MISSION_TEST_EVIDENCE_V1',
   source: 'full-candidate-ci/full-suite',
