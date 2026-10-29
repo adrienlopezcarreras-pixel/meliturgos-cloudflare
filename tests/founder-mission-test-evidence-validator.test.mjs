@@ -8,7 +8,7 @@ const names = [
   'a partial turn and another conversation cannot be mistaken for a completed read receipt',
   'a completed connected read lookup failure stops before models and providers',
 ];
-const run = { id, name:'full-candidate-ci', head_sha:sha, status:'completed', conclusion:'success' };
+const run = { id, name:'full-candidate-ci', head_branch:'candidate/mel-clean-autonomy', head_sha:sha, status:'completed', conclusion:'success' };
 const receipt = { schema:'MEL_FOUNDER_MISSION_TEST_EVIDENCE_V1', source:'full-candidate-ci/full-suite',
   candidate_sha:sha, github_run_id:id, github_run_attempt:1, log_sha256:'b'.repeat(64),
   exit_code:0, mandatory_tests_verified:true, tests:names.map(name=>({name,passed:true})),
