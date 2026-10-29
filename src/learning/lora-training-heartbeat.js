@@ -10,6 +10,32 @@ const DEFAULT_BRANCH = 'main';
 const DEFAULT_WORKFLOW = 'lora-kaggle-free-gpu.yml';
 const ACTIVE_RUN_STATES = new Set(['queued', 'in_progress', 'waiting', 'pending', 'requested']);
 
+// Independent opt-in dataset experiment. Resolve a SHA from Hugging Face for
+// each new chain; the workflow carries that immutable revision to later cycles.
+export async function resolveDolphinExperiment(env = {}, fetchImpl = fetch) {
+  if (String(env.MEL_LORA_DOLPHIN_EXPERIMENT ?? 'true').toLowerCase() === 'false') {
+    return { sources: [], status: 'DISABLED' };
+  }
+  try {
+    const response = await fetchImpl('https://huggingface.co/api/datasets/QuixiAI/dolphin', {
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!response.ok) return { sources: [], status: 'HF_UNAVAILABLE' };
+    const info = await response.json();
+    const revision = String(info?.sha || '').toLowerCase();
+    const tags = Array.isArray(info?.tags) ? info.tags : [];
+    if (info?.id !== 'QuixiAI/dolphin' || !/^[a-f0-9]{40}$/.test(revision)
+      || info?.private === true || Boolean(info?.gated) || !tags.includes('license:apache-2.0')) {
+      return { sources: [], status: 'SOURCE_NOT_ELIGIBLE' };
+    }
+    return { sources: [{ id: 'QuixiAI/dolphin', revision }], status: 'PINNED' };
+  } catch {
+    return { sources: [], status: 'HF_UNAVAILABLE' };
+  }
+}
+
+
 function ghHeaders(token) {
   return {
     accept: 'application/vnd.github+json',
@@ -294,7 +320,12 @@ async function runLoraTrainingHeartbeatUnlocked(env = {}, options = {}) {
       };
     }
 
-    const sha = options.manualSingleCycle === true && checkpoint?.target_commitish
+    // A new dataset loader requires code from reviewed main, not an older
+    // checkpoint SHA; the parent adapter is still verified by its own digest.
+    const dolphinExperiment = objective.decision === 'TRAIN_AGENTIC'
+      ? { sources: [], status: 'NOT_APPLICABLE' }
+      : await (options.resolveDolphinSource || resolveDolphinExperiment)(env, fetchImpl);
+    const sha = options.manualSingleCycle === true && checkpoint?.target_commitish && !dolphinExperiment.sources?.length
       ? checkpoint.target_commitish : await candidateHead({ fetchImpl, repository, branch, token });
     const shardSize = String(safeInt(env?.MEL_LORA_KAGGLE_SHARD_SIZE, 750, 50, 3000));
     const maxCyclesNumber = options.manualSingleCycle === true ? (checkpoint ? checkpoint.cycle + 2 : 1) : safeInt(env?.MEL_LORA_KAGGLE_MAX_CYCLES, 100, 1, 100);
@@ -327,6 +358,7 @@ async function runLoraTrainingHeartbeatUnlocked(env = {}, options = {}) {
         max_cycles: maxCycles,
         benchmark_preview: 'false',
         ...(objective.decision === 'TRAIN_AGENTIC' ? { objective: 'agentic', agentic_sources: JSON.stringify(agenticSources) } : {}),
+        ...(dolphinExperiment.sources?.length ? { uncensored_sources: JSON.stringify(dolphinExperiment.sources) } : {}),
       },
     });
 
@@ -347,6 +379,8 @@ async function runLoraTrainingHeartbeatUnlocked(env = {}, options = {}) {
       checkpoint,
       impact,
       zero_cost_only: true,
+      experimental_source: { status: dolphinExperiment.status, dataset: dolphinExperiment.sources?.[0]?.id || null,
+        revision: dolphinExperiment.sources?.[0]?.revision || null },
     };
   } catch (error) {
     return {

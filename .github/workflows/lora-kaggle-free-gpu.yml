@@ -53,6 +53,11 @@ on:
         required: false
         default: "[]"
         type: string
+      uncensored_sources:
+        description: "Experimental pinned Dolphin source JSON (optional; [] preserves baseline)"
+        required: false
+        default: "[]"
+        type: string
       smoke_only:
         description: "Run exactly one optimizer step and stop before checkpoint/benchmark/promotion"
         required: true
@@ -111,6 +116,7 @@ jobs:
           INPUT_SMOKE_ONLY: ${{ inputs.smoke_only }}
           INPUT_OBJECTIVE: ${{ inputs.objective }}
           INPUT_AGENTIC_SOURCES: ${{ inputs.agentic_sources }}
+          INPUT_UNCENSORED_SOURCES: ${{ inputs.uncensored_sources }}
         run: |
           set -euo pipefail
           SOURCE_SHA="${INPUT_SOURCE_SHA:-$GITHUB_SHA}"
@@ -154,6 +160,8 @@ jobs:
           AGENTIC_SOURCES="$(printf '%s' "${INPUT_AGENTIC_SOURCES:-[]}" | jq -c 'if type=="array" then .[:3] else [] end')"
           echo "OBJECTIVE=$OBJECTIVE" >> "$GITHUB_ENV"
           echo "AGENTIC_SOURCES=$AGENTIC_SOURCES" >> "$GITHUB_ENV"
+          UNCENSORED_SOURCES="$(printf '%s' "${INPUT_UNCENSORED_SOURCES:-[]}" | jq -c 'if type=="array" then .[:1] else [] end')"
+          echo "UNCENSORED_SOURCES=$UNCENSORED_SOURCES" >> "$GITHUB_ENV"
           echo "SMOKE_ONLY=$SMOKE_ONLY" >> "$GITHUB_ENV"
           echo "MAX_STEPS=$MAX_STEPS" >> "$GITHUB_ENV"
           echo "KAGGLE_KERNEL_TIMEOUT_SECONDS=$KAGGLE_KERNEL_TIMEOUT_SECONDS" >> "$GITHUB_ENV"
@@ -258,6 +266,10 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install -q "datasets>=2.20" "huggingface_hub>=0.25"
+          # Existing checkpoint source SHAs predate the optional Dolphin test.
+          if [[ -f tests/test_lora_dolphin_source.py ]]; then
+            python -m unittest discover -s tests -p "test_lora_dolphin_source.py"
+          fi
           CANONICAL_EXPORT_META="/tmp/mel-canonical-export.json"
           node scripts/export-canonical-lora-dataset.mjs --output /tmp/mel-canonical-50.jsonl > "$CANONICAL_EXPORT_META"
           # Normalize smoke size from the actual export; never discard canonical lessons.
@@ -272,7 +284,14 @@ jobs:
             echo "Smoke shard includes all $CANONICAL_MEL_COUNT canonical lessons."
           fi
           # Build deterministic shard with the effective size used by later stages.
-          python scripts/prepare-kaggle-lora-shard.py             --cycle "$CYCLE"             --shard-size "$SHARD_SIZE"             --mel-lessons /tmp/mel-canonical-50.jsonl             --output /tmp/mel-training-shard.jsonl             --objective "$OBJECTIVE"             --agentic-sources "$AGENTIC_SOURCES"
+          # A resumed checkpoint may still use an older exact training SHA.
+          # Keep its baseline compatible; never silently ignore a requested experiment.
+          if grep -q -- '--uncensored-sources' scripts/prepare-kaggle-lora-shard.py; then
+            python scripts/prepare-kaggle-lora-shard.py --cycle "$CYCLE" --shard-size "$SHARD_SIZE" --mel-lessons /tmp/mel-canonical-50.jsonl --output /tmp/mel-training-shard.jsonl --objective "$OBJECTIVE" --agentic-sources "$AGENTIC_SOURCES" --uncensored-sources "$UNCENSORED_SOURCES"
+          else
+            [[ "$UNCENSORED_SOURCES" == '[]' ]] || { echo "DOLPHIN_REQUIRES_NEW_TRAINING_SHA"; exit 1; }
+            python scripts/prepare-kaggle-lora-shard.py --cycle "$CYCLE" --shard-size "$SHARD_SIZE" --mel-lessons /tmp/mel-canonical-50.jsonl --output /tmp/mel-training-shard.jsonl --objective "$OBJECTIVE" --agentic-sources "$AGENTIC_SOURCES"
+          fi
           gzip -9 -c /tmp/mel-training-shard.jsonl > /tmp/mel-training-shard.jsonl.gz
           test -s /tmp/mel-training-shard.jsonl.gz
           test -s /tmp/mel-training-shard.jsonl.meta.json
@@ -1149,7 +1168,7 @@ jobs:
 
           NEXT_BENCHMARK_PREVIEW="$BENCHMARK_PREVIEW"
           if [[ "$CYCLE" == "6" ]]; then NEXT_BENCHMARK_PREVIEW="false"; fi
-          gh workflow run lora-kaggle-free-gpu.yml             --repo "$GITHUB_REPOSITORY"             --ref main             -f source_sha="$SOURCE_SHA"             -f cycle="$NEXT_CYCLE"             -f parent_release_tag="$CHECKPOINT_TAG"             -f shard_size="$SHARD_SIZE"             -f max_cycles="$MAX_CYCLES"             -f benchmark_preview="$NEXT_BENCHMARK_PREVIEW"             -f objective="$OBJECTIVE"             -f agentic_sources="$AGENTIC_SOURCES"
+          gh workflow run lora-kaggle-free-gpu.yml             --repo "$GITHUB_REPOSITORY"             --ref main             -f source_sha="$SOURCE_SHA"             -f cycle="$NEXT_CYCLE"             -f parent_release_tag="$CHECKPOINT_TAG"             -f shard_size="$SHARD_SIZE"             -f max_cycles="$MAX_CYCLES"             -f benchmark_preview="$NEXT_BENCHMARK_PREVIEW"             -f objective="$OBJECTIVE"             -f agentic_sources="$AGENTIC_SOURCES"             -f uncensored_sources="$UNCENSORED_SOURCES"
           echo "Submitted next cycle: $NEXT_CYCLE (benchmark_preview=$NEXT_BENCHMARK_PREVIEW)"
 
       - name: Verify actual Kaggle one-step smoke evidence before recording success
