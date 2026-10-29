@@ -18,6 +18,8 @@ on:
       - 'requirements-qwen3-lora.txt'
       - 'tests/*lora*'
       - 'tests/test_qwen3_training.py'
+      - 'tests/test_abliteration_plan.py'
+      - 'scripts/abliteration-gated-preflight.py'
       - 'tests/test_qwen_gpu_evidence.py'
       - 'scripts/verify-qwen-gpu-artifacts.py'
       - 'tests/learning-engine.test.mjs'
@@ -62,6 +64,9 @@ jobs:
 
       - name: Qwen3 GPU artifact evidence (offline)
         run: python -m unittest discover -s tests -p 'test_qwen_gpu_evidence.py' -v
+
+      - name: Abliteration reviewed offline plan (no GPU)
+        run: python -m unittest discover -s tests -p 'test_abliteration_plan.py' -v
 
       - name: Targeted LoRA runtime tests
         run: >-
