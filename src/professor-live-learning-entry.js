@@ -142,9 +142,10 @@ async function freeLoraStatusResponse(request, env) {
     }
   }
 
-  const [workflow, trainingWorkflow] = await Promise.all([
+  const [workflow, trainingWorkflow, deploymentWorkflow] = await Promise.all([
     latestWorkflowRun(FREE_LORA_WORKFLOW),
     latestWorkflowRun(FREE_LORA_TRAINING_WORKFLOW),
+    latestWorkflowRun('deploy-cloudflare-release.yml'),
   ]);
 
   let checkpoint = null;
@@ -294,6 +295,7 @@ async function freeLoraStatusResponse(request, env) {
     workflow_url: `https://github.com/${FREE_LORA_GITHUB_REPO}/actions/workflows/${FREE_LORA_WORKFLOW}`,
     training_workflow: trainingWorkflow || { status: 'UNKNOWN', conclusion: null },
     training_workflow_url: `https://github.com/${FREE_LORA_GITHUB_REPO}/actions/workflows/${FREE_LORA_TRAINING_WORKFLOW}`,
+    deployment_workflow: deploymentWorkflow || { status: 'UNKNOWN', conclusion: null },
     kaggle_url: 'https://www.kaggle.com/code/adrienlopezcarreras/mel-lora-uncensored-notebook-t4',
     checkpoint,
     checkpoint_discovery: checkpointDiscovery,
