@@ -1600,6 +1600,17 @@ async function experimentalTrainingRefresh(track){
    link.href=run.html_url;link.target='_blank';link.rel='noopener noreferrer';out.appendChild(link);
  }catch(error){out.textContent='État indisponible : '+String(error.message||error);}
 }
+qs('#qwenGpuRefresh').onclick=async()=>{
+ const out=qs('#qwenPreflightResult');out.textContent='Lecture du workflow Qwen3 GPU…';
+ try{
+  const data=await jfetch('/api/learning/lora/qwen-gpu/status');
+  if(data.ok!==true)throw new Error(data.error||'Suivi indisponible');
+  const run=data.runs?.[0];
+  if(!run){out.textContent='Aucun lancement Qwen3 GPU retrouvé';return;}
+  out.textContent='Qwen3 GPU GitHub : '+String(run.status||'?')+' / '+String(run.conclusion||'en cours')+' ; succès GPU et checkpoint non vérifiés';
+  if(run.html_url){const link=document.createElement('a');link.href=run.html_url;link.textContent=' · Run #'+run.id;link.rel='noopener noreferrer';link.target='_blank';out.appendChild(link);}
+ }catch(error){out.textContent='Suivi Qwen3 indisponible : '+String(error.message||error);}
+};
 qs('#qwenGpuTrain').onclick=async()=>{
  const button=qs('#qwenGpuTrain'),out=qs('#qwenPreflightResult');button.disabled=true;
  out.textContent='Demande de lancement GPU Qwen3…';
