@@ -49,10 +49,18 @@ jobs:
               names=[e.filename for e in entries]
               if len(names)!=2 or sorted(names)!=['dataset.jsonl','sources.json']:
                   raise SystemExit('QWEN_DATASET_EXACT_FILES_REQUIRED')
-              if any(e.is_dir() or e.file_size > 20_000_000 for e in entries):
+              if any(e.is_dir() or e.file_size > 20_000_000 or e.compress_size > 20_000_000 for e in entries):
                   raise SystemExit('QWEN_DATASET_FILE_SIZE_INVALID')
               for entry in entries:
-                  (root/entry.filename).write_bytes(archive.read(entry))
+                  # Reject zip bombs / malformed archives with streamed bounded reads.
+                  with archive.open(entry) as src, (root/entry.filename).open('wb') as dst:
+                      total=0
+                      while True:
+                          chunk=src.read(65536)
+                          if not chunk: break
+                          total+=len(chunk)
+                          if total>20_000_000: raise SystemExit('QWEN_DATASET_FILE_SIZE_INVALID')
+                          dst.write(chunk)
           PY
           python scripts/train-qwen3-lora.py --dataset artifacts/qwen-preflight/dataset.jsonl --manifest artifacts/qwen-preflight/sources.json --output artifacts/qwen-preflight/candidate --dry-run > /dev/null
           echo "QWEN_REVIEWED_DATASET_PREFLIGHT_OK"
