@@ -80,3 +80,11 @@ test('experimental controls connect to authenticated server workflow dispatch, n
  assert.match(entry,/GITHUB_DISPATCH_TOKEN_NOT_CONFIGURED/);
  assert.match(entry,/workflow_dispatch|dispatches/);
 });
+
+test('unattributed GitHub preflight runs never become Qwen or Abliteration progress',async()=>{
+ const entry=await (await import('node:fs/promises')).readFile(new URL('../src/professor-live-learning-entry.js',import.meta.url),'utf8');
+ const ui=await (await import('node:fs/promises')).readFile(new URL('../src/pages/full-interface-v2.js',import.meta.url),'utf8');
+ assert.ok(entry.includes('runs:[],unattributed_runs:'));
+ assert.ok(entry.includes('run_track_not_proven:true'));
+ assert.ok(ui.includes('aucune preuve ne les attribue à cette piste'));
+});
