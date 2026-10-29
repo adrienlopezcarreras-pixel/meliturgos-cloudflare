@@ -566,15 +566,20 @@ test('missing Calendar grant reports a typed auth diagnostic without network cal
 
 
 test('missing Drive grant reports a typed auth diagnostic without network calls', async () => {
-  const calls = [];
+  const { registerPipedreamLinkedCapabilities } = await import('../../src/capabilities/pipedream-linked-capabilities.js');
   const bus = new CapabilityBus();
-  registerGoogleWorkspaceCapabilities(bus, {
-    env: { MELITURGOS_USER:'owner' },
-    resolveAccessToken: async () => '',
-    fetchImpl: async (...args) => { calls.push(args); throw new Error('NETWORK_NOT_ALLOWED'); },
+  let calls = 0;
+  registerPipedreamLinkedCapabilities(bus, {
+    pipedreamRuntime: { async proxy({app}) {
+      calls++;
+      assert.equal(app, 'google_drive');
+      const error = new Error('PIPEDREAM_GOOGLE_DRIVE_ACCOUNT_REQUIRED');
+      error.code = 'PIPEDREAM_GOOGLE_DRIVE_ACCOUNT_REQUIRED';
+      throw error;
+    } },
   });
   const health = await bus.refreshHealth('drive.files.list');
   assert.equal(health.health, 'UNAVAILABLE');
-  assert.match(String(health.health_detail), /(?:DRIVE|GOOGLE_DRIVE)_AUTH_REQUIRED/);
-  assert.equal(calls.length, 0);
+  assert.equal(health.health_detail, 'PIPEDREAM_GOOGLE_DRIVE_ACCOUNT_REQUIRED');
+  assert.equal(calls, 1, 'only an authenticated linked-account health probe, not a file listing');
 });
