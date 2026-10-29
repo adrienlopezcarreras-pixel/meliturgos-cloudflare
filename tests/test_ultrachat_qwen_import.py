@@ -14,4 +14,8 @@ class TestUltraChat(unittest.TestCase):
     def test_deduplication(self):
         rows=[{"messages":[{"role":"user","content":"Q"},{"role":"assistant","content":"A"}]}]*100
         with self.assertRaisesRegex(ValueError,"TOO_FEW"):M.convert_rows(rows,"x",50)
+    def test_importer_has_same_size_limit_as_kaggle(self):
+        source=P.read_text(encoding="utf-8")
+        self.assertIn("QWEN_CORPUS_EXCEEDS_KAGGLE_PREFLIGHT_LIMIT",source)
+        self.assertIn("20_000_000",source)
 if __name__=="__main__":unittest.main()
