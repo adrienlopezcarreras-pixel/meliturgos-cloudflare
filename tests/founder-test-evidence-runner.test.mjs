@@ -45,7 +45,8 @@ test('runner receipt accepts only complete named TAP and runner file success on 
     const evidence = JSON.parse(await readFile(join(dir, 'founder-mission-test-evidence.json'), 'utf8'));
     assert.equal(evidence.mandatory_tests_verified, false, 'replay-only success is not full Founder proof');
     assert.equal(evidence.replay_test_file_passed, true);
-    assert.equal(evidence.tests.length, names.length);
+    assert.equal(evidence.tests.length, 7, 'receipt includes all four additional auth/render requirements');
+    assert.equal(evidence.tests.filter(t => t.passed).length, names.length);
   } finally { await rm(dir, { recursive:true, force:true }); }
 });
 
