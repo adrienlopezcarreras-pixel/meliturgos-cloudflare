@@ -843,7 +843,14 @@ else
 fi
 
 # GEN2-38: prove pure planning, zero-cost provider planning, and durable D1 Goal/Task persistence.
-PLAN_ID="release-proof-${EXPECTED_SHA:0:12}"
+# Every workflow attempt must create its own D1 proof record. A failed release
+# can leave the plan persisted even when its Worker is rolled back; replaying
+# that same SHA must not collide with the existing durable plan.
+: "${GITHUB_RUN_ID:?GEN2_38_GITHUB_RUN_ID_REQUIRED}"
+: "${GITHUB_RUN_ATTEMPT:?GEN2_38_GITHUB_RUN_ATTEMPT_REQUIRED}"
+[[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ ]]
+[[ "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]]
+PLAN_ID="release-proof-${EXPECTED_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 PLAN_CODE="$(curl --silent --show-error --max-time 60 \
   --header "x-mel-release-smoke: 1" \
   --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
@@ -910,6 +917,16 @@ SAVE_CODE="$(curl --silent --show-error --max-time 60 \
   "${BASE_URL}/api/gen2/capabilities/execute")"
 if [ "$SAVE_CODE" != "200" ]; then
   echo "GEN2-38 durable plan save returned HTTP ${SAVE_CODE}."
+  # Emit only a bounded allowlisted error code; never print request/response bodies.
+  node --input-type=module -e '
+    import { readFileSync } from "node:fs";
+    let body = {};
+    try { body = JSON.parse(readFileSync("production-gen2-38-saved.json", "utf8")); } catch {}
+    const candidates = [body?.code, body?.error?.code, body?.result?.code];
+    const allowed = /^(WORK_PLAN_[A-Z0-9_]+|CAPABILITY_[A-Z0-9_]+|VALIDATION_[A-Z0-9_]+)$/;
+    const code = candidates.find(value => typeof value === "string" && allowed.test(value));
+    console.log("GEN2-38 sanitized save error code:", code || "UNAVAILABLE");
+  '
   echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
   exit 53
 fi
