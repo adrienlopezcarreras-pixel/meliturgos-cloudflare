@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fetchFounderMissionTestEvidence } from '../src/evolution/founder-mission-test-evidence.js';
+import { zipOne } from './founder-evidence-zip.test.mjs';
 const SHA='a'.repeat(40);
 const request={repository:'owner/repo',candidateSha:SHA,runId:123};
 const reply=value=>new Response(JSON.stringify(value),{status:200,headers:{'content-type':'application/json'}});
@@ -81,4 +82,35 @@ test('signed storage redirect is not followed a second time', async () => {
   assert.equal(out.code,'MISSION_TEST_ARCHIVE_DOWNLOAD_FAILED');
   assert.equal(calls.length,4);
   assert.equal(calls[3].mode,'manual');
+});
+
+
+test('full authenticated run artifact download validates and returns proof digest', async () => {
+  const names=[
+    'a completed connected read replays its archived response without any model, provider or archive duplicate',
+    'a partial turn and another conversation cannot be mistaken for a completed read receipt',
+    'a completed connected read lookup failure stops before models and providers',
+    'Gmail missing authorization does not inherit the last Google Tasks token error',
+    'missing Calendar grant reports a typed auth diagnostic without network calls',
+    'missing Drive grant reports a typed auth diagnostic without network calls',
+    'a completed connected tool response renders human text instead of raw tool-call JSON',
+  ];
+  const receipt={schema:'MEL_FOUNDER_MISSION_TEST_EVIDENCE_V1',source:'full-candidate-ci/full-suite',
+    candidate_sha:SHA,github_run_id:123,github_run_attempt:1,log_sha256:'b'.repeat(64),
+    exit_code:0,mandatory_tests_verified:true,additional_required_proofs:[],
+    tests:names.map(name=>({name,passed:true}))};
+  const archive=zipOne('founder-mission-test-evidence.json',receipt);
+  const out=await fetchFounderMissionTestEvidence({...request,fetchImpl:async url=>{
+    const address=String(url);
+    if(address.endsWith('/zip')) return new Response(null,{status:302,headers:{location:'https://productionresultssa0.blob.core.windows.net/actions/receipt.zip'}});
+    if(address.startsWith('https://productionresultssa0.blob.core.windows.net/')) return new Response(archive,{status:200});
+    return reply(address.includes('/artifacts?')
+      ? {artifacts:[{id:456,name:'founder-mission-test-evidence',expired:false,workflow_run:{id:123,head_sha:SHA}}]}
+      : {id:123,name:'full-candidate-ci',head_branch:'candidate/mel-clean-autonomy',head_sha:SHA,
+         status:'completed',conclusion:'success',run_attempt:1});
+  }});
+  assert.equal(out.ok,true,JSON.stringify(out));
+  assert.equal(out.mandatory_tests_verified,true);
+  assert.match(out.digest,/^[a-f0-9]{64}$/);
+  assert.equal(out.tests.length,7);
 });
