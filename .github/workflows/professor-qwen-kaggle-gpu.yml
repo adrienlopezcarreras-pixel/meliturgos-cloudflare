@@ -36,8 +36,20 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/qwen-kernel
-          cp scripts/train-qwen3-lora.py artifacts/qwen-kernel/train-qwen3-lora.py
-          cp kaggle/qwen3-gated-gpu-entry.py artifacts/qwen-kernel/main.py
+          # Kaggle pushes the declared code_file; embed trainer bytes to avoid
+          # relying on an undeclared sibling file being uploaded or mounted.
+          python - <<'PY'
+          import base64
+          from pathlib import Path
+          trainer=Path('scripts/train-qwen3-lora.py').read_bytes()
+          entry=Path('kaggle/qwen3-gated-gpu-entry.py').read_text(encoding='utf-8')
+          preamble=("from pathlib import Path as _MELPath\\n"
+                    "import base64 as _mel_b64\\n"
+                    "_MELPath('/kaggle/working/train-qwen3-lora.py').write_bytes("
+                    "_mel_b64.b64decode("+repr(base64.b64encode(trainer).decode('ascii'))+"))\\n")
+          Path('artifacts/qwen-kernel/main.py').write_text(preamble+entry,encoding='utf-8')
+          print('QWEN_SELF_CONTAINED_KERNEL_CREATED')
+          PY
           python - <<'PY'
           import json,os,pathlib
           from kagglesdk.kaggle_client import KaggleClient
