@@ -15,7 +15,9 @@ on:
       - 'src/api/native-chat.js'
       - 'src/professor-live-learning-entry.js'
       - 'scripts/*lora*'
+      - 'requirements-qwen3-lora.txt'
       - 'tests/*lora*'
+      - 'tests/test_qwen3_training.py'
       - 'tests/learning-engine.test.mjs'
       - 'notebooks/MEL-QLORA-SMOKE-COLAB.ipynb'
       - 'docs/LORA-FREE-GPU-RUNBOOK.md'
@@ -51,7 +53,10 @@ jobs:
         run: npm run check
 
       - name: Python trainer syntax
-        run: python -m py_compile scripts/train-mel-lora.py
+        run: python -m py_compile scripts/train-mel-lora.py scripts/train-qwen3-lora.py tests/test_qwen3_training.py
+
+      - name: Qwen3 offline evidence contract (no GPU, no model download)
+        run: python -m unittest discover -s tests -p 'test_qwen3_training.py' -v
 
       - name: Targeted LoRA runtime tests
         run: >-
