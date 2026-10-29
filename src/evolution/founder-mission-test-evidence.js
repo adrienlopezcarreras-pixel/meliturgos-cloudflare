@@ -61,10 +61,10 @@ export async function fetchFounderMissionTestEvidence({ repository, candidateSha
     return response.json();
   };
   try {
-    const run = await read(root + '/actions/runs/' + Number(runId));
     const normalizedSha = String(candidateSha || '').toLowerCase();
     if (!SHA.test(normalizedSha) || !Number.isSafeInteger(Number(runId)) || Number(runId) <= 0)
       return { ok:false, code:'MISSION_TEST_PROVENANCE_INVALID' };
+    const run = await read(root + '/actions/runs/' + Number(runId));
     if (run?.name !== 'full-candidate-ci' || run?.head_branch !== 'candidate/mel-clean-autonomy' || run?.status !== 'completed'
         || run?.conclusion !== 'success' || String(run?.head_sha || '').toLowerCase() !== normalizedSha
         || Number(run.id) !== Number(runId))
