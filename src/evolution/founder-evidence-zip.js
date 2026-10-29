@@ -24,6 +24,13 @@ export function decodeFounderEvidenceZip(buffer) {
       || new TextDecoder().decode(bytes.subarray(center + 46, center + 46 + nameLength)) !== name) {
     throw new Error('MISSION_TEST_ZIP_CENTRAL_INVALID');
   }
+  const centralEnd = center + 46 + nameLength + view.getUint16(center + 30, true) + view.getUint16(center + 32, true);
+  if (view.getUint32(center + 42, true) !== 0 || centralEnd + 22 !== bytes.length
+      || view.getUint32(centralEnd, true) !== 0x06054b50
+      || view.getUint16(centralEnd + 8, true) !== 1
+      || view.getUint16(centralEnd + 10, true) !== 1
+      || view.getUint16(centralEnd + 20, true) !== 0)
+    throw new Error('MISSION_TEST_ZIP_DIRECTORY_INVALID');
   let crc = 0xffffffff;
   for (const value of bytes.subarray(start, center)) {
     crc ^= value;
