@@ -20,6 +20,8 @@ on:
       - 'tests/test_qwen3_training.py'
       - 'tests/test_abliteration_plan.py'
       - 'tests/test_abliteration_gpu.py'
+      - 'tests/test_abliteration_apply.py'
+      - 'scripts/abliteration-apply-gated.py'
       - 'scripts/abliteration-direction-gpu.py'
       - 'scripts/abliteration-gated-preflight.py'
       - 'tests/test_qwen_gpu_evidence.py'
@@ -72,6 +74,9 @@ jobs:
 
       - name: Abliteration GPU estimator offline contracts
         run: python -m unittest discover -s tests -p 'test_abliteration_gpu.py' -v
+
+      - name: Abliteration weight projection offline contracts
+        run: python -m unittest discover -s tests -p 'test_abliteration_apply.py' -v
 
       - name: Targeted LoRA runtime tests
         run: >-
