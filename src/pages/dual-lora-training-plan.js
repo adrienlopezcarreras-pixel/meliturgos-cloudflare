@@ -33,7 +33,7 @@ export const MEL_DUAL_LORA_RESOURCES = Object.freeze([
     id: 'owner-colab',
     label: 'Notebook Colab communiqué',
     href: 'https://colab.research.google.com/drive/1VYm3hOcvCpbGiqKZb141gJwjdmmCcVpR?usp=sharing',
-    note: 'Contenu non vérifié car accès Google requis; examiner les cellules et les permissions avant exécution.',
+    note: 'Notebook consulté (10 cellules, 6 juin 2024) : abliteration expérimentale de Daredevil-8B avec TransformerLens, pas QLoRA Qwen3. Ne pas exécuter sur Qwen sans portage et benchmark.',
   }),
   Object.freeze({
     id: 'hartford',
