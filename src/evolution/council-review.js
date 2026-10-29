@@ -228,9 +228,19 @@ export async function pendingOwnerCouncilApprovals(env) {
 // VERIFY_EXISTING: no diff exists, so the Council reviews MEL's no-code
 // evidence for the exact approved candidate SHA whose full-candidate-ci is green.
 // APPROVED is then completed by github-completion-reconciler; REJECTED fails the job.
-export async function reviewVerificationEvidence(env, { job, implementation, ciRunId, liveChecks = [], now = Date.now(), review = runCouncilReview } = {}) {
+export async function reviewVerificationEvidence(env, { job, implementation, ciRunId, liveChecks = [], missionTestEvidence = null, now = Date.now(), review = runCouncilReview } = {}) {
   const head = String(implementation?.candidate_sha || '').toLowerCase();
   if (!env?.DB?.prepare || !job?.id || !/^[a-f0-9]{40}$/.test(head) || !Number(ciRunId)) return { decision: 'REVIEW_INPUT_INVALID' };
+  // A run ID alone is not a mission-specific test receipt. Never review an
+  // unverifiable report as proof of objective completion.
+  if (!missionTestEvidence || missionTestEvidence.candidate_sha !== head
+      || missionTestEvidence.github_run_id !== Number(ciRunId)
+      || missionTestEvidence.mandatory_tests_verified !== true
+      || !Array.isArray(missionTestEvidence.tests)
+      || missionTestEvidence.tests.length < 3
+      || missionTestEvidence.tests.some(t => t?.passed !== true)) {
+    return { decision: 'MISSION_TEST_EVIDENCE_REQUIRED' };
+  }
   const key = 'council-review:verify:' + job.id + ':' + head;
   const cached = await env.DB.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?').bind(key).first().catch(() => null);
   let attempts = 0;
@@ -244,6 +254,8 @@ export async function reviewVerificationEvidence(env, { job, implementation, ciR
     'Exception limitée à MEL-FOUNDER-01 : le manifeste autorise un diagnostic EXACT de connexion/authentification manquante comme preuve du parcours d’erreur, PAS comme preuve de lecture Gmail/Agenda/Drive réussie. Les erreurs réseau, permissions ou fournisseurs génériques ne sont jamais des preuves.',
     `SHA candidat exact : ${head}`,
     `full-candidate-ci verte sur ce SHA : run ${Number(ciRunId)}`,
+    'RÉSULTATS TESTS MISSION (provenance vérifiée requise) :',
+    JSON.stringify(missionTestEvidence.tests),
     `Fichiers inspectés : ${inspected.join(', ') || '(aucun)'}`,
     'PREUVES FONCTIONNELLES EXÉCUTÉES EN PRODUCTION (lecture seule, résultat seulement) :',
     liveChecks.length
