@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fetchFounderMissionTestEvidence } from '../src/evolution/founder-mission-test-evidence.js';
-import { zipOne } from './founder-evidence-zip.test.mjs';
+import { zipOne } from './helpers/founder-zip-fixture.mjs';
 const SHA='a'.repeat(40);
 const request={repository:'owner/repo',candidateSha:SHA,runId:123};
 const reply=value=>new Response(JSON.stringify(value),{status:200,headers:{'content-type':'application/json'}});
