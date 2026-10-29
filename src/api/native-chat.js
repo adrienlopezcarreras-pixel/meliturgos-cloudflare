@@ -2533,7 +2533,7 @@ export async function handleNativeChat(request, env, options = {}) {
     // ordinary cloud inference when the PC is offline or too busy.
     const preferLocal=shouldPreferOptionalCompanionCompute({
       prefer:body.prefer_companion_compute,
-      disabled:body.use_companion_compute===false,
+      disabled:body.use_companion_compute===false || requireLora,
       voiceReply,personalProfileIntent,releaseSmoke,
       privateData:privateConnectedDataRequest(activeTaskText),
       hasToolResults:toolResults.length>0,
