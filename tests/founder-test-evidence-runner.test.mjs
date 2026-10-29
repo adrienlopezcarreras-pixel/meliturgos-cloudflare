@@ -66,3 +66,31 @@ test('runner refuses contradictory TAP pass/fail for a required case', async () 
     assert.equal(receipt.tests[0].passed,false);
   } finally { await rm(dir,{recursive:true,force:true}); }
 });
+
+
+test('runner marks complete only when replay, Gmail, Calendar, Drive and rendered-text tests pass', async () => {
+  const dir=await mkdtemp(join(tmpdir(),'mel-founder-full-proof-'));
+  const auth=[
+    'Gmail missing authorization does not inherit the last Google Tasks token error',
+    'missing Calendar grant reports a typed auth diagnostic without network calls',
+    'missing Drive grant reports a typed auth diagnostic without network calls',
+  ];
+  const rendering='a completed connected tool response renders human text instead of raw tool-call JSON';
+  try {
+    const all=[...names,...auth,rendering];
+    const log=all.map((name,i)=>'ok '+(i+1)+' - '+name).join('\n')
+      +'\n✓ tests/native-chat-connected-replay.test.mjs'
+      +'\n✓ tests/gen2/google-workspace-agentic.test.mjs'
+      +'\nexit_code=0\n';
+    await writeFile(join(dir,'test-report.log'),log);
+    const result=spawnSync(process.execPath,[script],{
+      cwd:dir,encoding:'utf8',
+      env:{...process.env,TEST_EVIDENCE_SHA:'a'.repeat(40),TEST_EVIDENCE_RUN_ID:'1234',TEST_EVIDENCE_RUN_ATTEMPT:'1'},
+    });
+    assert.equal(result.status,0,result.stderr);
+    const evidence=JSON.parse(await readFile(join(dir,'founder-mission-test-evidence.json'),'utf8'));
+    assert.equal(evidence.mandatory_tests_verified,true);
+    assert.deepEqual(evidence.additional_required_proofs,[]);
+    assert.equal(evidence.tests.length,all.length);
+  } finally { await rm(dir,{recursive:true,force:true}); }
+});
