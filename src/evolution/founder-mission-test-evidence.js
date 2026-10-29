@@ -54,14 +54,13 @@ export async function fetchFounderMissionTestEvidence({ repository, candidateSha
   };
   try {
     const run = await read(root + '/actions/runs/' + Number(runId));
-    const preliminary = validateFounderMissionTestEvidence({
-      schema:'MEL_FOUNDER_MISSION_TEST_EVIDENCE_V1', source:'full-candidate-ci/full-suite',
-      candidate_sha:candidateSha, github_run_id:Number(runId), github_run_attempt:1,
-      log_sha256:'a'.repeat(64), exit_code:0, mandatory_tests_verified:true,
-      tests:REQUIRED.map(name => ({name,passed:true})), additional_required_proofs:['pending'],
-    },run,{candidateSha,runId});
-    if (preliminary.code === 'MISSION_TEST_RUN_MISMATCH' || preliminary.code === 'MISSION_TEST_PROVENANCE_INVALID')
-      return preliminary;
+    const normalizedSha = String(candidateSha || '').toLowerCase();
+    if (!SHA.test(normalizedSha) || !Number.isSafeInteger(Number(runId)) || Number(runId) <= 0)
+      return { ok:false, code:'MISSION_TEST_PROVENANCE_INVALID' };
+    if (run?.name !== 'full-candidate-ci' || run?.status !== 'completed'
+        || run?.conclusion !== 'success' || String(run?.head_sha || '').toLowerCase() !== normalizedSha
+        || Number(run.id) !== Number(runId))
+      return { ok:false, code:'MISSION_TEST_RUN_MISMATCH' };
     const listing = await read(root + '/actions/runs/' + Number(runId) + '/artifacts?per_page=100');
     const matches = (listing?.artifacts || []).filter(a => a?.name === 'founder-mission-test-evidence' && !a.expired);
     if (matches.length !== 1) return { ok:false, code:'MISSION_TEST_ARTIFACT_MISSING_OR_AMBIGUOUS' };
