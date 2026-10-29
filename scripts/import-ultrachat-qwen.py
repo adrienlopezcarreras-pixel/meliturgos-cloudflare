@@ -44,8 +44,11 @@ def main(args):
             yield from batch.to_pylist()
     selected=convert_rows(rows(),digest(source),args.limit)
     output.parent.mkdir(parents=True,exist_ok=True)
+    lines=[json.dumps(row,sort_keys=True,ensure_ascii=False)+"\n" for row in selected]
+    if sum(len(line.encode("utf-8")) for line in lines)>20_000_000:
+        raise ValueError("QWEN_CORPUS_EXCEEDS_KAGGLE_PREFLIGHT_LIMIT")
     with output.open("w",encoding="utf-8") as fh:
-        for row in selected:fh.write(json.dumps(row,sort_keys=True,ensure_ascii=False)+"\n")
+        fh.writelines(lines)
     print(json.dumps({"status":"QWEN_UNREVIEWED_SOURCE_CONVERTED_NOT_PUBLISHED",
       "origin":"HuggingFaceH4/ultrachat_200k","source_parquet_sha256":digest(source),
       "dataset_sha256":digest(output),"examples":len(selected),"license_review_passed":False,
