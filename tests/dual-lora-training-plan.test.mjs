@@ -4,6 +4,7 @@ import {
   MEL_DUAL_LORA_MODELS,
   MEL_DUAL_LORA_RESOURCES,
   MEL_QWEN3_TRAINING_STAGES,
+  MEL_ABLITERATION_STAGES,
   MEL_DUAL_LORA_TRAINING_MARKUP,
 } from '../src/pages/dual-lora-training-plan.js';
 import { onRequestGet } from '../src/pages/full-interface-v2.js';
@@ -50,4 +51,18 @@ test('Qwen milestones are a non-executing evidence-based schedule', () => {
   assert.ok(MEL_QWEN3_TRAINING_STAGES.every(s => s.status !== 'TERMINÉ' && s.status !== 'ACTIVE'));
   assert.match(MEL_DUAL_LORA_TRAINING_MARKUP, /ni de faux reçu LoRA/i);
   assert.doesNotMatch(MEL_DUAL_LORA_TRAINING_MARKUP, /<script|onclick=|fetch\(/);
+});
+
+test('abliteration is shown as an isolated non-executing experiment with honest progress', async () => {
+  assert.deepEqual(MEL_ABLITERATION_STAGES.map(s=>s.id), ['reference','baseline','experiment','compare','promotion']);
+  const html=await (await onRequestGet()).text();
+  assert.match(html,/Expérience C — Abliteration/);
+  assert.match(html,/id="qwenTrainingState">Non lancé/);
+  assert.match(html,/id="qwenTrainingLastRun">Aucun run GPU vérifié/);
+  assert.match(html,/id="qwenTrainingCheckpoint">Aucun artefact PEFT vérifié/);
+  assert.match(html,/id="abliterationTrainingState">Non lancé/);
+  assert.match(html,/id="abliterationProgressText">Non mesuré/);
+  assert.match(html,/Étapes d'abliteration réellement prouvées/);
+  assert.match(html,/Aucune commande automatique ni suivi GPU live/);
+  assert.doesNotMatch(MEL_DUAL_LORA_TRAINING_MARKUP,/<script|onclick=|fetch\(/);
 });

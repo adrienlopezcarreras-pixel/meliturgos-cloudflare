@@ -32,6 +32,14 @@ export const MEL_QWEN3_TRAINING_STAGES = Object.freeze([
   Object.freeze({"id":"switch","title":"6 — Bascule de secours","proof":"UNCENSORED tente A puis B uniquement sur panne/timeout/vide ; contexte et preuve du LoRA exact conservés.","status":"Non disponible"}),
 ]);
 
+export const MEL_ABLITERATION_STAGES = Object.freeze([
+  Object.freeze({id:'reference',title:'1 — Vérifier le notebook et les sources',proof:'Notebook Colab original, version du modèle de base, licences, jeux de prompts autorisés et SHA du corpus.',status:'À préparer'}),
+  Object.freeze({id:'baseline',title:'2 — Mesurer le modèle avant modification',proof:'Évaluation indépendante : qualité FR/EN, raisonnement, code, outils, sur-refus et garde-fous.',status:'Non mesuré'}),
+  Object.freeze({id:'experiment',title:'3 — Expérience d’abliteration isolée',proof:'GPU et architecture compatibles, direction mesurée, couches modifiées identifiées, trace et modèle candidat immuable.',status:'Non lancé'}),
+  Object.freeze({id:'compare',title:'4 — Comparer au QLoRA et à la base',proof:'Même jeu de validation hors entraînement, coût, pertes de capacité, refus injustifiés, tests de sécurité et régressions.',status:'Non mesuré'}),
+  Object.freeze({id:'promotion',title:'5 — Décider de la publication',proof:'Validation humaine, budget approuvé, checkpoint vérifié, service isolé, rollback et preuves runtime avant activation.',status:'Non activé'}),
+]);
+
 export const MEL_DUAL_LORA_RESOURCES = Object.freeze([
   Object.freeze({
     id: 'qwen-reference',
@@ -92,6 +100,10 @@ const resourceMarkup = MEL_DUAL_LORA_RESOURCES.map(({label, href, note}) =>
   `<li style="margin:9px 0"><a target="_blank" rel="noopener noreferrer" href="${safe(href)}">${safe(label)}</a><small style="display:block;color:var(--muted);margin-top:3px">${safe(note)}</small></li>`
 ).join('');
 
+const abliterationMarkup = MEL_ABLITERATION_STAGES.map(({title,proof,status}) =>
+  `<li style="margin:10px 0"><b>${safe(title)}</b> <span class="tag warn">${safe(status)}</span><small style="display:block;color:var(--muted);margin-top:4px">${safe(proof)}</small></li>`
+).join('');
+
 const stagesMarkup = MEL_QWEN3_TRAINING_STAGES.map(({title,proof,status}) =>
   `<li style="margin:10px 0"><b>${safe(title)}</b> <span class="tag warn">${safe(status)}</span><small style="display:block;color:var(--muted);margin-top:4px">${safe(proof)}</small></li>`
 ).join('');
@@ -119,6 +131,35 @@ export const MEL_DUAL_LORA_TRAINING_MARKUP = `
       <small>Jamais de retour silencieux vers un modèle normal ni de faux reçu LoRA.</small>
     </div>
   </div>
+  <section aria-labelledby="abliterationTrainingTitle" style="margin-top:18px;padding:14px;border:1px solid var(--line);border-radius:12px">
+    <div class="skill-head">
+      <div>
+        <h3 id="abliterationTrainingTitle">Expérience C — Abliteration (distincte du QLoRA)</h3>
+        <p class="muted" style="margin-top:6px">Le notebook fourni modifie les directions de refus d'un modèle Daredevil-8B. Aucun résultat sur MEL/Qwen3 n'est prouvé. Ce parcours expérimental est isolé des checkpoints Mistral et Qwen.</p>
+      </div>
+      <span class="tag warn" id="abliterationTrainingState">Non lancé · aucune trace GPU</span>
+    </div>
+    <div class="lora-progress-label"><span>Avancement vérifié de l'expérience</span><strong id="abliterationProgressText">Non mesuré</strong></div>
+    <div class="progress" role="progressbar" aria-label="Étapes d'abliteration réellement prouvées" aria-valuemin="0" aria-valuemax="5" aria-valuenow="0"><span style="width:0%"></span></div>
+    <details style="margin-top:12px"><summary style="cursor:pointer;font-weight:700">Parcours expérimental (5 jalons)</summary><ol style="padding-left:24px">${abliterationMarkup}</ol></details>
+    <div class="actions" style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
+      <a class="button lora-link" target="_blank" rel="noopener noreferrer" href="https://colab.research.google.com/drive/1VYm3hOcvCpbGiqKZb141gJwjdmmCcVpR?usp=sharing">Ouvrir le notebook d'abliteration</a>
+      <a class="button lora-link" target="_blank" rel="noopener noreferrer" href="https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/actions">Consulter les preuves GitHub</a>
+    </div>
+    <small class="muted">Aucune commande automatique ni suivi GPU live n'est encore connecté à cette expérience. Un notebook ouvert ne constitue pas une preuve d'exécution.</small>
+  </section>
+  <section aria-labelledby="qwenTrainingStatusTitle" style="margin-top:16px;padding:14px;border:1px solid var(--line);border-radius:12px">
+    <div class="skill-head">
+      <div><h3 id="qwenTrainingStatusTitle">Modèle B — Qwen3 14B : progression et preuves</h3><p class="muted" style="margin-top:6px">Exécuteur GPU non raccordé au panneau. Le script d'entraînement existe, mais aucune progression d'apprentissage Qwen n'est attestée.</p></div>
+      <span class="tag warn" id="qwenTrainingState">Non lancé · entraînement GPU non prouvé</span>
+    </div>
+    <div class="lora-progress-label"><span>Progression GPU attestée</span><strong id="qwenTrainingProgressText">Non disponible</strong></div>
+    <div class="status-row"><span>Dernier entraînement confirmé</span><strong id="qwenTrainingLastRun">Aucun run GPU vérifié</strong></div>
+    <div class="status-row"><span>Checkpoint candidat</span><strong id="qwenTrainingCheckpoint">Aucun artefact PEFT vérifié</strong></div>
+    <div class="status-row"><span>Évaluation indépendante</span><strong id="qwenTrainingBenchmark">Non mesurée</strong></div>
+    <div class="actions" style="margin-top:12px"><a class="button lora-link" href="https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/blob/main/scripts/train-qwen3-lora.py" target="_blank" rel="noopener noreferrer">Consulter le trainer Qwen</a></div>
+    <small class="muted">Aucun bouton de lancement n'est présenté comme opérationnel tant que le dispatch GPU authentifié, le suivi et la conservation des preuves ne sont pas raccordés.</small>
+  </section>
   <details open style="margin-top:16px">
     <summary style="cursor:pointer;font-weight:700">Plan de travail du nouveau Qwen3-14B (7 jalons)</summary>
     <ol style="margin:10px 0 0;padding-left:24px;line-height:1.45">${stagesMarkup}</ol>
