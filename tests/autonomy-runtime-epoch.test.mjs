@@ -228,10 +228,10 @@ test('the supervisor creates one job per objective in each epoch without reusing
 
 test('the epoch includes new work at the reset instant but never cancelled work', () => {
   const row = { id: 'boundary', status: 'QUEUED', created_at: 4000, requested_by: 'mel-autonomy' };
-  assert.equal(selectActionableAutonomyJob([row], { epochMs: 4000 }).id, row.id);
-  assert.equal(selectActionableAutonomyJob([{ ...row, created_at: 3999 }], { epochMs: 4000 }), null);
-  assert.equal(selectActionableAutonomyJob([{ ...row, status: 'CANCELLED', created_at: 5000 }], { epochMs: 4000 }), null);
-  assert.equal(selectActionableAutonomyJob([{ ...row, created_at: 4001 }], { epochMs: 4000 }).id, row.id);
+  assert.equal(selectActionableAutonomyJob([row], { epochMs: 4000, roadmap: [] }).id, row.id);
+  assert.equal(selectActionableAutonomyJob([{ ...row, created_at: 3999 }], { epochMs: 4000, roadmap: [] }), null);
+  assert.equal(selectActionableAutonomyJob([{ ...row, status: 'CANCELLED', created_at: 5000 }], { epochMs: 4000, roadmap: [] }), null);
+  assert.equal(selectActionableAutonomyJob([{ ...row, created_at: 4001 }], { epochMs: 4000, roadmap: [] }).id, row.id);
 });
 
 test('a job created in the same millisecond as the epoch resumes without creating a second job', async () => {

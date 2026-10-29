@@ -1,3 +1,4 @@
+import { createRoadmapCodeAcceptance } from '../roadmap/roadmap-code-acceptance.js';
 import { createMentorEngine } from '../learning/mentor-engine.js';
 import { hasDistinctProviderAttempts } from '../evolution/autonomy-provider-attempts.js';
 import { createLearningEngine } from '../learning/learning-engine.js';
@@ -571,6 +572,8 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
         ci,
         completed_at: new Date().toISOString(),
       };
+      const codeAcceptance = createRoadmapCodeAcceptance(job, record, ci);
+      if (codeAcceptance) result.roadmap_code_acceptance = codeAcceptance;
       // [Codex] Only the existing correlated Council/exact-CI completion gate
       // may promote a no-code assessment; neither planner nor wait can do so.
       if (proposal.decision === 'VERIFY_EXISTING') {

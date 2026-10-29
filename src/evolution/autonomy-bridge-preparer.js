@@ -1,3 +1,4 @@
+import { assertRoadmapCodeChanges } from '../roadmap/roadmap-code-contracts.js';
 import { createGitHubCodeReader } from '../capabilities/github-code-capabilities.js';
 import { assertMentorCodeContract } from '../learning/mentor-code-contract.js';
 import { createMentorEngine } from '../learning/mentor-engine.js';
@@ -196,6 +197,7 @@ export async function prepareApprovedBridgePackage({
   const code = await inspectSources(env, implementation, { fetchImpl });
   const reused = reusablePackage(current, implementation);
   if (reused) {
+    assertRoadmapCodeChanges(current, current.files_json);
     for (const file of current.files_json) {
       const inspected = code.files.find(source => source.path === file.path);
       if (!inspected) throw Object.assign(new Error('MENTOR_UNINSPECTED_PATH'), { code: 'MENTOR_UNINSPECTED_PATH' });
@@ -247,6 +249,7 @@ export async function prepareApprovedBridgePackage({
     content: String(change.content || ''),
     reason: String(change.reason || '').slice(0, 1200),
   }));
+  assertRoadmapCodeChanges(current, files);
   const tests = normalizeTests(proposal.tests);
   const bridgePreparation = {
     status: 'READY',

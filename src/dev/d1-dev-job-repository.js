@@ -340,19 +340,25 @@ export class D1DevJobRepository {
 
   // Retry limits must include failed attempts outside the UI's most recent
   // 100 rows. Otherwise an old objective can escape its safety quarantine.
-  async failedAutonomyObjectiveCounts() {
+  async failedAutonomyObjectiveCounts({ contractRevisions = {} } = {}) {
     await this.init();
     if (!this.db) {
       const counts = {};
       for (const job of this.memory.values()) {
         if (job.requested_by !== 'mel-autonomy' || String(job.status || '').toUpperCase() !== 'FAILED') continue;
         const id = objectiveId(job);
+        if (contractRevisions[id] && job.optional_context?.roadmap_contract_revision !== contractRevisions[id]) continue;
         if (id) counts[id] = (counts[id] || 0) + 1;
       }
       return counts;
     }
-    const rows = (await this.db.prepare("SELECT json_extract(optional_context,'$.roadmap_id') AS objective, COUNT(*) AS failures FROM dev_jobs WHERE requested_by='mel-autonomy' AND status='FAILED' AND json_valid(optional_context) GROUP BY json_extract(optional_context,'$.roadmap_id')").all()).results || [];
-    return Object.fromEntries(rows.filter(row => row.objective).map(row => [row.objective, Number(row.failures || 0)]));
+    const rows = (await this.db.prepare("SELECT json_extract(optional_context,'$.roadmap_id') AS objective, json_extract(optional_context,'$.roadmap_contract_revision') AS revision, COUNT(*) AS failures FROM dev_jobs WHERE requested_by='mel-autonomy' AND status='FAILED' AND json_valid(optional_context) GROUP BY json_extract(optional_context,'$.roadmap_id'),json_extract(optional_context,'$.roadmap_contract_revision')").all()).results || [];
+    const counts = {};
+    for (const row of rows) {
+      if (!row.objective || (contractRevisions[row.objective] && row.revision !== contractRevisions[row.objective])) continue;
+      counts[row.objective] = (counts[row.objective] || 0) + Number(row.failures || 0);
+    }
+    return counts;
   }
 
   async update(id, patch, { expected = null } = {}) {
@@ -380,8 +386,8 @@ export class D1DevJobRepository {
       this.memory.set(id, n);
       return n;
     }
-    const write = await this.db.prepare('UPDATE dev_jobs SET updated_at=?,status=?,plan_json=?,files_json=?,patch_json=?,tests_json=?,result_json=?,candidate_branch=?,approval_status=?,error=? WHERE id=? AND (status IS NULL OR status<>\'CANCELLED\') AND updated_at=? AND status IS ? AND COALESCE(result_json,\'null\')=? AND COALESCE(plan_json,\'null\')=?')
-      .bind(n.updated_at, n.status, JSON.stringify(n.plan_json), JSON.stringify(n.files_json || []), JSON.stringify(n.patch_json), JSON.stringify(n.tests_json || []), JSON.stringify(n.result_json), n.candidate_branch, n.approval_status, n.error, id, raw.updated_at, raw.status, raw.result_json ?? 'null', raw.plan_json ?? 'null')
+    const write = await this.db.prepare('UPDATE dev_jobs SET goal=?,optional_context=?,updated_at=?,status=?,plan_json=?,files_json=?,patch_json=?,tests_json=?,result_json=?,candidate_branch=?,approval_status=?,error=? WHERE id=? AND (status IS NULL OR status<>\'CANCELLED\') AND updated_at=? AND status IS ? AND COALESCE(result_json,\'null\')=? AND COALESCE(plan_json,\'null\')=?')
+      .bind(n.goal, JSON.stringify(n.optional_context), n.updated_at, n.status, JSON.stringify(n.plan_json), JSON.stringify(n.files_json || []), JSON.stringify(n.patch_json), JSON.stringify(n.tests_json || []), JSON.stringify(n.result_json), n.candidate_branch, n.approval_status, n.error, id, raw.updated_at, raw.status, raw.result_json ?? 'null', raw.plan_json ?? 'null')
       .run();
     if (write.meta?.changes === 0) throw conflict();
     const updated = await this.get(id);
@@ -411,7 +417,7 @@ export class D1DevJobRepository {
     if (job?.status !== 'WAITING_DEPENDENCY') return null;
     if (expected && (expected.updated_at !== job.updated_at || expected.status !== job.status)) return null;
     const prior = String(job.result_json?.dependency_wait?.previous_status || '');
-    if (!['QUEUED', 'TEACHER_APPROVED'].includes(prior)) return null;
+    if (!['QUEUED','TEACHER_APPROVED','WAITING_TEACHER','COUNCIL_COMPLETE','REPAIR_REQUIRED'].includes(prior)) return null;
     const result = { ...(job.result_json || {}) };
     delete result.dependency_wait;
     if (!this.db) {

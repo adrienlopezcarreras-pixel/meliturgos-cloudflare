@@ -136,12 +136,13 @@ test('MAX selects the open founder cycle instead of treating the historical regi
     completedIds: ['MEL-FOUNDER-01', 'MEL-FOUNDER-02', 'MEL-FOUNDER-03', 'MEL-FOUNDER-04', 'MEL-FOUNDER-05', 'MEL-FOUNDER-07', 'MEL-FOUNDER-08'],
     verifiedIds: ['MEL-FOUNDER-01', 'MEL-FOUNDER-02', 'MEL-FOUNDER-03', 'MEL-FOUNDER-04', 'MEL-FOUNDER-05', 'MEL-FOUNDER-07', 'MEL-FOUNDER-08'],
   });
-  assert.equal(followed.id, 'MEL-MANIFEST-01');
+  assert.equal(followed.id, 'MEL-FOUNDER-06', 'the software device-protocol harness is schedulable without physical hardware');
   const objective = manifestObjective();
   assert.match(objective, /MEL-FOUNDER-01:IN_PROGRESS/);
   assert.match(objective, /MEL-MANIFEST-10:PLANNED/);
-  assert.match(objective, /MEL-FOUNDER-06:BLOCKED_HUMAN/);
+  assert.match(objective, /MEL-FOUNDER-06:PLANNED/);
   const decisionIds = ['MEL-FOUNDER-01','MEL-FOUNDER-02','MEL-FOUNDER-03','MEL-FOUNDER-04','MEL-FOUNDER-05'];
   for (const id of decisionIds) assert.notEqual(byId(id).status, 'DONE_VERIFIED', id);
-  assert.equal(byId('MEL-FOUNDER-06').status, 'BLOCKED_HUMAN');
+  assert.equal(byId('MEL-FOUNDER-06').status, 'PLANNED');
+  assert.equal(byId('MEL-FOUNDER-06').external_acceptance.status, 'BLOCKED_HUMAN');
 });

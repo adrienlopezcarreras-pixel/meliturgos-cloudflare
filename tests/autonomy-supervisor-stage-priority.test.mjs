@@ -38,7 +38,7 @@ test('an approved internal implementation outranks an owner job that is only in 
   assert.equal((await repository.get(owner.id)).status, 'CLAIMED');
 });
 
-test('owner priority remains intact when owner and internal jobs are both implementation-ready', async () => {
+test('roadmap priority remains absolute when both jobs are implementation-ready', async () => {
   const repository = repo();
   const internal = await repository.create({
     id: 'mel-autonomy-gen2-17-1',
@@ -59,8 +59,8 @@ test('owner priority remains intact when owner and internal jobs are both implem
   const supervisor = new AutonomySupervisor({ repository, roadmap });
   const selected = await supervisor.ensureNextJob();
 
-  assert.equal(selected.job.id, owner.id);
-  assert.equal(selected.job.requested_by, 'owner-chat');
+  assert.equal(selected.job.id, internal.id);
+  assert.equal(selected.job.requested_by, 'mel-autonomy');
 });
 
 
@@ -150,9 +150,9 @@ test('jobs created before the activity epoch are ignored by the selector', () =>
     created_at: 5000,
     optional_context: { roadmap_id: 'MEL-FOUNDER-01' },
   };
-  assert.equal(selectActionableAutonomyJob([old, fresh], { epochMs: 4000, roadmap }).id, 'fresh-job');
-  assert.equal(selectActionableAutonomyJob([old], { epochMs: 4000, roadmap }), null);
-  assert.equal(selectActionableAutonomyJob([old, fresh], { roadmap }).id, 'old-job');
+  assert.equal(selectActionableAutonomyJob([old, fresh], { epochMs: 4000, roadmap: [] }).id, 'fresh-job');
+  assert.equal(selectActionableAutonomyJob([old], { epochMs: 4000, roadmap: [] }), null);
+  assert.equal(selectActionableAutonomyJob([old, fresh], { roadmap: [] }).id, 'old-job');
 });
 
 

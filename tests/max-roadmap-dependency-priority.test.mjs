@@ -19,23 +19,23 @@ test('all canonical roadmap edges reference existing IDs and never form cycles',
   assert.deepEqual(validateRoadmapTechnicalWork(items), []);
   const open = items.filter(row => row.status !== 'DONE_VERIFIED');
   assert.equal(open.length, 43);
-  assert.equal(open.filter(row => ['IMPLEMENT','FIX','VERIFY'].includes(row.mode)).length, 38);
-  assert.equal(open.filter(row => row.mode === 'EXTERNAL').length, 5);
+  assert.equal(open.filter(row => ['IMPLEMENT','FIX'].includes(row.mode)).length, 43);
+  assert.equal(open.filter(row => row.mode === 'EXTERNAL').length, 0);
   assert.ok(open.every(row => row.required_proof), 'every open roadmap item has an acceptance contract');
   const promoted = items.map(row => row.id === 'MEL-FOUNDER-06'
     ? { ...row, status: 'DONE_VERIFIED' } : row);
   assert.deepEqual(validateRoadmapTechnicalWork(promoted), [],
     'when a formerly external mission is truly verified, its immutable contract stays valid');
   const serialized = getRoadmapPayload().phases.flatMap(phase => phase.items);
-  assert.equal(serialized.find(row => row.id === 'MEL-MANIFEST-03').mode, 'VERIFY');
+  assert.equal(serialized.find(row => row.id === 'MEL-MANIFEST-03').mode, 'IMPLEMENT');
   assert.deepEqual(serialized.find(row => row.id === 'MEL-MANIFEST-03').depends_on,
-    ['MEL-FOUNDER-03','MEL-FOUNDER-04']);
+    ['MEL-FOUNDER-03']);
   const manifest = items.find(item => item.id === 'MEL-MANIFEST-01');
-  assert.deepEqual(manifest.depends_on, [],
-    'MANIFEST-01 may account for pending founder states before they are verified');
-  assert.ok(!items.find(item => item.id === 'MEL-FOUNDER-06').depends_on.length,
-    'paused hardware must not be added as a cloud dependency');
-  assert.deepEqual(unmetRoadmapPrerequisites(manifest, items), []);
+  assert.deepEqual(manifest.depends_on, ['MEL-FOUNDER-02'],
+    'the accounting implementation follows the durable foundation it consumes');
+  assert.equal(items.find(item => item.id === 'MEL-FOUNDER-06').external_acceptance.blocking_code, false,
+    'software protocol tests do not require physical acceptance');
+  assert.deepEqual(unmetRoadmapPrerequisites(manifest, items), ['MEL-FOUNDER-02']);
   const closure = items.find(item => item.id === 'MEL-MANIFEST-10');
   assert.ok(unmetRoadmapPrerequisites(closure, items).length >= 4,
     'final manifesto closure still requires verified cloud foundations');

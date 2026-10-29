@@ -1,3 +1,4 @@
+import { codeContractForRoadmapJob } from '../roadmap/roadmap-code-contracts.js';
 import { createGitHubCodeReader } from '../capabilities/github-code-capabilities.js';
 import { hasObjectiveBoundVerificationChecks } from './verify-existing-live-checks.js';
 import { hasDistinctProviderAttempts } from './autonomy-provider-attempts.js';
@@ -317,7 +318,8 @@ async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) 
   const repairPaths = job?.result_json?.dev_bridge?.needs_repair === true
     && Array.isArray(job?.result_json?.candidate_ci_failure?.files)
     ? job.result_json.candidate_ci_failure.files.filter(path => fromInspection.includes(path)) : [];
-  const paths = uniquePaths([...repairPaths, ...goalPaths, ...fromSearch, ...fromInspection, ...fallbacks]);
+  const contract = codeContractForRoadmapJob(job);
+  const paths = uniquePaths([...(contract ? [...contract.code_paths, ...contract.test_paths] : []), ...repairPaths, ...goalPaths, ...fromSearch, ...fromInspection, ...fallbacks]);
   const files = [];
   for (const path of paths) {
     try {

@@ -1,3 +1,5 @@
+import { isAcceptedRoadmapCodeJob } from '../roadmap/roadmap-code-acceptance.js';
+import { roadmapCodeMissionContext, roadmapCodeMissionGoal, refreshRoadmapCodeMissions } from './roadmap-code-missions.js';
 import { staleCouncilDeferral } from '../teachers/council-inference-policy.js';
 import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { approvedEvolutionRoadmap } from '../roadmap/evolution-autonomy-queue.js';
@@ -74,7 +76,7 @@ function isWaitingTeacher(job) {
 }
 
 // Mentor rounds a bridge-phase job gets: 3 small-model rounds, then the large one.
-export const BRIDGE_MENTOR_ROUNDS = 4;
+export const BRIDGE_MENTOR_ROUNDS = 3;
 
 // Set at the start of each tick from the monthly re-verification.
 let runtimeRegressions = new Set();
@@ -193,6 +195,7 @@ export function selectActionableAutonomyJobs(jobs = [], { epochMs = 0, roadmap =
     .filter(job => !closedIds.has(roadmapIdFromJob(job)))
     .filter(job => {
       const item = roadmap.find(row => row.id === roadmapIdFromJob(job));
+      if (!item && roadmap.some(row => !isVerifiedRoadmap(row) && !verifiedIds.includes(row.id))) return false;
       return !item || (!BLOCKED_ROADMAP.has(String(item.status || '').toUpperCase())
         && !unmetRoadmapPrerequisites(item, roadmap, verifiedIds).length);
     })
@@ -299,12 +302,15 @@ export class AutonomySupervisor {
       }
     };
     if (this.evolutionLoader && supervisedJobs.some(job => String(roadmapIdFromJob(job) || '').startsWith('EVOLUTION-'))) await readEvolution();
+    const contractRevisions = Object.fromEntries(this.roadmap.filter(row => row.contract_revision).map(row => [row.id, row.contract_revision]));
     const verifiedRoadmapIds = new Set(this.roadmap.filter(isVerifiedRoadmap).map(item => item.id));
+    for (const job of jobs) if (isAcceptedRoadmapCodeJob(job)
+      && this.roadmap.find(row => row.id === roadmapIdFromJob(job))?.status !== 'REGRESSED') verifiedRoadmapIds.add(roadmapIdFromJob(job));
     for (const item of evolutionItems || []) if (isClosedRoadmapStatus(item.status)) verifiedRoadmapIds.add('EVOLUTION-' + item.id);
     const reopenedIds = new Set(this.roadmap.filter(item => String(item.status).toUpperCase() === 'REGRESSED').map(item => item.id));
     for (const item of evolutionItems || []) if (item.status === 'REGRESSED') reopenedIds.add('EVOLUTION-' + item.id);
     const completedIds = supervisedJobs
-      .filter(job => ['COMPLETED'].includes(String(job.status).toUpperCase()) || isClosedRoadmapStatus(job.status))
+      .filter(job => contractRevisions[roadmapIdFromJob(job)] ? isAcceptedRoadmapCodeJob(job) : ['COMPLETED'].includes(String(job.status).toUpperCase()) || isClosedRoadmapStatus(job.status))
       .map(roadmapIdFromJob).filter(id => id && !reopenedIds.has(id));
     const completedSet = new Set(completedIds);
     // Terminal code delivery is not an acceptance verdict. Only exact roadmap
@@ -325,13 +331,14 @@ export class AutonomySupervisor {
       if (job?.requested_by !== 'mel-autonomy') continue;
       if (String(job?.status || '').toUpperCase() !== 'FAILED') continue;
       const roadmapId = roadmapIdFromJob(job);
+      if (contractRevisions[roadmapId] && job.optional_context?.roadmap_contract_revision !== contractRevisions[roadmapId]) continue;
       if (!roadmapId) continue;
       failedAttemptsByRoadmap.set(roadmapId, (failedAttemptsByRoadmap.get(roadmapId) || 0) + 1);
     }
     // The recent UI window omits old terminal failures. Use the complete D1
     // counts for quarantine without duplicating failures present in this list.
     if (typeof this.repository.failedAutonomyObjectiveCounts === 'function') {
-      const persisted = await this.repository.failedAutonomyObjectiveCounts();
+      const persisted = await this.repository.failedAutonomyObjectiveCounts({ contractRevisions });
       for (const [id, count] of Object.entries(persisted || {})) {
         failedAttemptsByRoadmap.set(id, Math.max(failedAttemptsByRoadmap.get(id) || 0, Number(count) || 0));
       }
@@ -347,7 +354,7 @@ export class AutonomySupervisor {
       verifiedIds: verifiedDependencyIds,
       blockedIds: excludedIds,
     });
-    if (!next && this.evolutionLoader) {
+    if (!next && this.evolutionLoader && this.roadmap.every(row => verifiedRoadmapIds.has(row.id))) {
       const items = evolutionItems === null ? await readEvolution() : approvedEvolutionRoadmap(evolutionItems);
       next = selectNextAutonomyItem({ roadmap: items, completedIds, blockedIds: excludedIds });
     }
@@ -367,6 +374,7 @@ export class AutonomySupervisor {
   }
 
   async ensureNextJob() {
+    await refreshRoadmapCodeMissions(this.repository, await this.listSchedulerJobs(), this.roadmap);
     // Release stale non-executing D1 jobs only when the canonical roadmap
     // explicitly marks their objective verified. Never delete history or
     // interrupt Teacher, Bridge or review lanes.
@@ -401,6 +409,21 @@ export class AutonomySupervisor {
       }
     }
     const current = await this.state();
+    const unfinishedRoadmap = this.roadmap.filter(row => !current.verifiedDependencyIds.includes(row.id));
+    if (unfinishedRoadmap.length && !this.onlyJobId) {
+      const lower = current.active.find(job => job.requested_by === 'mel-autonomy'
+        && !this.roadmap.some(row => row.id === roadmapIdFromJob(job))
+        && ['QUEUED','TEACHER_APPROVED','WAITING_TEACHER','COUNCIL_COMPLETE','REPAIR_REQUIRED'].includes(job.status)
+        && !['RUNNING','IN_PROGRESS','CLAIMED','READY_FOR_REVIEW'].includes(job.result_json?.dev_bridge?.status));
+      if (lower) {
+        await this.repository.update(lower.id, { status: 'WAITING_DEPENDENCY', result_json: {
+          ...(lower.result_json || {}), dependency_wait: { previous_status: lower.status,
+            reason: 'ROADMAP_PRIORITY_ABSOLUTE', prerequisites: unfinishedRoadmap.map(row => row.id),
+            observed_at: new Date().toISOString() },
+        } }, { expected: lower });
+        return this.ensureNextJob();
+      }
+    }
     // Preflight: if an old internal mission was selected before its foundations
     // were proved, park it durably instead of repeatedly running Mentor.
     // Only QUEUED / TEACHER_APPROVED are safe to park here; a published or
@@ -448,6 +471,7 @@ export class AutonomySupervisor {
           external_progress: { job_id: holder?.id || null, status: 'AUTONOMY_SINGLE_FLIGHT_BUSY' } };
       }
       const item = this.roadmap.find(row => row.id === roadmapIdFromJob(wanted));
+      if (wanted && !item && unfinishedRoadmap.length) return { created: false, job: null, next: current.next, complete: false, external_progress: { job_id: wanted.id, status: 'ROADMAP_PRIORITY_ABSOLUTE' } };
       if (item && (BLOCKED_ROADMAP.has(String(item.status || '').toUpperCase())
         || unmetRoadmapPrerequisites(item, this.roadmap, current.verifiedDependencyIds).length)) {
         return { created: false, job: null, next: current.next, complete: false,
@@ -539,6 +563,13 @@ export class AutonomySupervisor {
       return { created: false, job: passiveInternal, next: current.next };
     }
 
+    if (!current.next && !unfinishedRoadmap.length) {
+      const lower = current.waiting.find(job => job.result_json?.dependency_wait?.reason === 'ROADMAP_PRIORITY_ABSOLUTE');
+      if (lower) {
+        const resumed = await this.repository.resumeWaitingDependency(lower.id, { expected: lower });
+        if (resumed) return { created: false, job: resumed, next: null, complete: false };
+      }
+    }
     if (!current.next) {
       const passiveOwner = current.active
         .filter(isSupervisedAutonomyJob)
@@ -586,7 +617,7 @@ export class AutonomySupervisor {
       // No runnable entry does not mean all work is verified. Paused devices,
       // unmet hard dependencies and parked jobs are still open obligations.
       // Never publish 100 % completion from an empty runnable queue.
-      const outstanding = this.roadmap.filter(item => item?.id && !isVerifiedRoadmap(item));
+      const outstanding = unfinishedRoadmap;
       const waiting = current.waiting.find(job => job.requested_by === 'mel-autonomy') || null;
       if (!passiveOwner && (outstanding.length > 0 || waiting)) {
         return {
@@ -622,13 +653,14 @@ export class AutonomySupervisor {
     const deterministicId = jobAttemptId(item.id, attempts + 1, this.epochMs);
     const technicalMode = String(item.mode || 'IMPLEMENT').toUpperCase();
     const requiredProof = String(item.required_proof || 'DIFF_TESTS_EXACT_SHA_CI');
-    const goal = `[${item.id}] ${item.title}${item.next ? ` — ${item.next}` : ''} | MODE_TECHNIQUE ${technicalMode} | PREUVE_REQUISE ${requiredProof} | OBJECTIF ${manifestObjective(this.roadmap)}`;
+    const goal = roadmapCodeMissionGoal(item);
     const input = {
       id: deterministicId,
       requested_by: 'mel-autonomy',
       goal,
       optional_context: {
         roadmap_id: item.id,
+        ...roadmapCodeMissionContext(item),
         phase_id: item.phase_id,
         phase: item.phase,
         priority: item.priority,

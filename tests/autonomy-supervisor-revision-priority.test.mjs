@@ -72,7 +72,7 @@ test('a branch-mismatch revision outruns an already CLAIMED owner preflight matc
   assert.equal((await repository.get(owner.id)).status, 'CLAIMED');
 });
 
-test('implementation-ready owner work still outruns a requeued internal revision', async () => {
+test('a roadmap revision retains priority over unrelated approved owner work', async () => {
   const repository = repo();
   await createRequeuedInternal(repository);
   const owner = await repository.create({
@@ -85,11 +85,11 @@ test('implementation-ready owner work still outruns a requeued internal revision
 
   const supervisor = new AutonomySupervisor({ repository, roadmap });
   const selected = await supervisor.ensureNextJob();
-  assert.equal(selected.job.id, owner.id);
-  assert.equal(selected.job.requested_by, 'owner-chat');
+  assert.equal(selected.job.id, 'mel-autonomy-gen2-17-1');
+  assert.equal(selected.job.requested_by, 'mel-autonomy');
 });
 
-test('fresh internal preflight does not bypass ordinary owner priority', async () => {
+test('a fresh roadmap preflight retains priority over an unrelated owner request', async () => {
   const repository = repo();
   const owner = await repository.create({
     id: 'owner-normal-priority',
@@ -107,6 +107,6 @@ test('fresh internal preflight does not bypass ordinary owner priority', async (
 
   const supervisor = new AutonomySupervisor({ repository, roadmap });
   const selected = await supervisor.ensureNextJob();
-  assert.equal(selected.job.id, owner.id);
+  assert.equal(selected.job.id, 'mel-autonomy-gen2-17-1');
 });
 

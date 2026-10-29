@@ -439,7 +439,7 @@ test('D1 update rejects a concurrent executor write between read and SQL update'
     let intercept = true;
     db.prepare = sql => {
       const statement = prepare(sql);
-      if (sql.startsWith('UPDATE dev_jobs SET updated_at=') && intercept) {
+      if (sql.startsWith('UPDATE dev_jobs SET ') && sql.includes('COALESCE(result_json') && intercept) {
         const run = statement.run.bind(statement);
         statement.run = async () => {
           intercept = false;
