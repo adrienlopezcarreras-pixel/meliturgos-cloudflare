@@ -20,5 +20,6 @@ test('rejects stale run and SHA substitution', () => {
 });
 test('rejects missing mandatory cases or an unproven mission requirement', () => {
   assert.equal(validate(receipt,run,{candidateSha:sha,runId:id}).code,'MISSION_TEST_ADDITIONAL_PROOFS_REQUIRED');
+  assert.equal(validate({...receipt,additional_required_proofs:[]},run,{candidateSha:sha,runId:id}).code,'MISSION_TEST_ADDITIONAL_PROOFS_REQUIRED');
   assert.equal(validate({...receipt,tests:receipt.tests.slice(1),additional_required_proofs:[]},run,{candidateSha:sha,runId:id}).code,'MISSION_TEST_REQUIRED_CASES_MISSING');
 });
