@@ -41,6 +41,7 @@ jobs:
           # relying on an undeclared sibling file being uploaded or mounted.
           python - <<'PY'
           import base64
+          import os
           from pathlib import Path
           trainer=Path('scripts/train-qwen3-lora.py').read_bytes()
           entry=Path('kaggle/qwen3-gated-gpu-entry.py').read_text(encoding='utf-8')
