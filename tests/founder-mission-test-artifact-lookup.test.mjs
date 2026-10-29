@@ -51,3 +51,17 @@ test('signed archive redirect refuses an untrusted host before downloading', asy
   assert.equal(out.code,'MISSION_TEST_ARCHIVE_HOST_INVALID');
   assert.equal(calls.length,3,'must never contact untrusted redirect destination');
 });
+
+
+test('GitHub Actions Azure storage redirect reaches downloader, not a host refusal', async () => {
+  const out=await fetchFounderMissionTestEvidence({...request,fetchImpl:async url=>{
+    const address=String(url);
+    if (address.endsWith('/zip')) return new Response(null,{status:302,headers:{location:'https://productionresultssa0.blob.core.windows.net/actions/receipt.zip'}});
+    if (address.startsWith('https://productionresultssa0.blob.core.windows.net/'))
+      return new Response(null,{status:503});
+    return reply(address.includes('/artifacts?')
+      ? {artifacts:[{id:456,name:'founder-mission-test-evidence',expired:false,workflow_run:{id:123,head_sha:SHA}}]}
+      : {id:123,name:'full-candidate-ci',head_branch:'candidate/mel-clean-autonomy',head_sha:SHA,status:'completed',conclusion:'success'});
+  }});
+  assert.equal(out.code,'MISSION_TEST_ARCHIVE_DOWNLOAD_FAILED');
+});
