@@ -47,7 +47,7 @@ def collect_dolphin(source, *, needed, cycle, mod):
     if getattr(info, "private", False) or getattr(info, "gated", False) or "license:apache-2.0" not in tags:
         raise SystemExit("LORA_DOLPHIN_LICENSE_OR_ACCESS_REJECTED")
     def factory():
-        return iter(load_dataset(repo, revision=revision, split="train", streaming=True))
+        return iter(load_dataset(repo, name="flan1m-alpaca-uncensored", revision=revision, split="train", streaming=True))
     rows, stats = collect_stream(factory, start=cycle * max(1, needed), target=needed,
         convert=lambda row: dolphin_messages(mod, row), risky=mod.is_high_risk_operational, source_name="dolphin_experimental")
     return rows, {"repo": repo, "revision": revision, "license": "apache-2.0", **stats}
