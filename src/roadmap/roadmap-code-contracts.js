@@ -104,7 +104,7 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
       "tests/native-chat-connected-replay.test.mjs"
     ],
     "acceptance": [
-      "Les trois lectures passent par les connecteurs réels ou leurs erreurs d’authentification typées; reprise sans double message ni double action et aucun JSON d’appel brut rendu."
+      "Les lectures Gmail, Agenda et Drive passent par les connecteurs réels ou leurs erreurs d’authentification typées; reprise sans double message ni double action et aucun JSON d’appel brut rendu."
     ],
     "max_attempts": 3
   },

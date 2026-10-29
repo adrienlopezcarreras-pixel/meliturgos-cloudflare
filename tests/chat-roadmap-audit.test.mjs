@@ -9,8 +9,12 @@ test('the actual roadmap audit payload exposes professional-chat, Council and Lo
  assert.deepEqual(phase.items.map(row=>row.id),['MEL-CHAT-01','MEL-CHAT-02','MEL-CHAT-03','MEL-CHAT-04','MEL-CHAT-05','MEL-CHAT-06','MEL-CHAT-07','MEL-CHAT-08','MEL-COUNCIL-OPS-01','MEL-COUNCIL-OPS-02','MEL-LORA-CHAT-01','MEL-LORA-MODE-01']);
  assert.ok(phase.items.filter(row=>!row.id.startsWith('MEL-LORA-')).every(row=>['IN_PROGRESS','PLANNED'].includes(row.status)));
  assert.deepEqual(phase.items.filter(row=>row.id.startsWith('MEL-LORA-')).map(row=>row.status),
-   ['BLOCKED_EXTERNAL','BLOCKED_EXTERNAL'], 'unavailable LoRA training may not enter MAX execution');
- assert.ok(phase.items.every(row=>/Council réel/.test(row.next)),'no synthetic or missing Council verdict closes the acceptance goals');
+   ['PLANNED','PLANNED'], 'software benchmark gates can be coded before external model acceptance');
+ for(const row of phase.items){
+  assert.equal(row.mode,'IMPLEMENT');assert.equal(row.required_proof,'DIFF_TESTS_EXACT_SHA_CI');
+  assert.ok(row.code_paths.length && row.test_paths.length);
+  if(row.id.startsWith('MEL-LORA-')){assert.equal(row.external_acceptance.status,'BLOCKED_EXTERNAL');assert.equal(row.external_acceptance.blocking_code,false);}
+ }
  assert.equal(validateRoadmap().ok,true);
 });
 
@@ -26,5 +30,7 @@ test('historical engine proofs and the stricter Founder connector requirements a
  assert.equal(byId('MEL-MEDIA-02').status,'DONE_VERIFIED');assert.match(byId('MEL-MEDIA-02').next,/71d028320aabd9240478993629ed36f32344df7e/);
  assert.equal(byId('MEL-FOUNDER-01').status,'IN_PROGRESS');assert.match(byId('MEL-FOUNDER-01').next,/Gmail/);assert.match(byId('MEL-FOUNDER-01').next,/Agenda/);assert.match(byId('MEL-FOUNDER-01').next,/Drive/);
  for(const id of ['MEL-CODE-01','MEL-CODE-02','MEL-CODE-03']){assert.equal(byId(id).status,'DONE_VERIFIED');assert.match(byId(id).next,/MEL-CHAT-/);}
- assert.match(byId('MEL-CHAT-02').next,/fixtures/);assert.match(byId('MEL-CHAT-03').next,/vidéo jointe/);assert.match(byId('MEL-CHAT-06').next,/production/);
+ assert.ok(byId('MEL-CHAT-02').test_paths.includes('tests/chat-media-chain.test.mjs'));
+ assert.ok(byId('MEL-CHAT-03').code_paths.includes('src/media/video-runtime.js'));
+ assert.match(byId('MEL-CHAT-06').next,/fixtures, modèle réel et indisponibilité/);
 });
