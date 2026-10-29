@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   MEL_DUAL_LORA_MODELS,
   MEL_DUAL_LORA_RESOURCES,
+  MEL_QWEN3_TRAINING_STAGES,
   MEL_DUAL_LORA_TRAINING_MARKUP,
 } from '../src/pages/dual-lora-training-plan.js';
 import { onRequestGet } from '../src/pages/full-interface-v2.js';
@@ -17,7 +18,7 @@ test('separate Mistral and Qwen3 model plans never claim a Qwen MEL checkpoint',
 });
 
 test('owner-supplied reference links are curated and lead to real HTTPS addresses', () => {
-  assert.equal(MEL_DUAL_LORA_RESOURCES.length, 8);
+  assert.equal(MEL_DUAL_LORA_RESOURCES.length, 12);
   const hrefs = MEL_DUAL_LORA_RESOURCES.map(item => item.href);
   for (const href of hrefs) assert.ok(href.startsWith('https://'), href);
   for (const link of [
@@ -34,8 +35,19 @@ test('Professor training screen shows plan and never adds a false Qwen launch ac
   assert.equal((html.match(/id="freeLoraTrain"/g)||[]).length, 1);
   assert.match(html, /Qwen3 : planifié, non activé/);
   assert.match(html, /Routage et secours/);
+  assert.match(html, /Plan de travail du nouveau Qwen3-14B/);
+  assert.match(html, /Recette QLoRA et paramètres proposés/);
+  assert.match(html, /2 × RTX 4090 24 Go/);
+  assert.match(html, /maximum 50 steps/);
   assert.match(html, /À développer et prouver/);
   assert.match(html, /Le bouton « Lancer un entraînement » ci-dessus concerne toujours Mistral/);
   assert.match(MEL_DUAL_LORA_TRAINING_MARKUP, /href="https:\/\/colab\.research\.google\.com\/drive\//);
   assert.doesNotMatch(MEL_DUAL_LORA_TRAINING_MARKUP, /onclick=|fetch\(|<script/);
+});
+
+test('Qwen milestones are a non-executing evidence-based schedule', () => {
+  assert.deepEqual(MEL_QWEN3_TRAINING_STAGES.map(s => s.id), ['audit','baseline','smoke','train','eval','serve','switch']);
+  assert.ok(MEL_QWEN3_TRAINING_STAGES.every(s => s.status !== 'TERMINÉ' && s.status !== 'ACTIVE'));
+  assert.match(MEL_DUAL_LORA_TRAINING_MARKUP, /aucun faux/i);
+  assert.doesNotMatch(MEL_DUAL_LORA_TRAINING_MARKUP, /<script|onclick=|fetch\(/);
 });
