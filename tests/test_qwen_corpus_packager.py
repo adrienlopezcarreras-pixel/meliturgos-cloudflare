@@ -30,6 +30,15 @@ class TestPack(unittest.TestCase):
         self.source.write_text(self.source.read_text()+"\n")
         with self.assertRaisesRegex(ValueError,"LICENSE_OR_HASH_REVIEW_REQUIRED"):
             M.pack(self.source,self.root/"out",self.review)
+    def test_package_rejects_oversized_normalized_output(self):
+        from unittest.mock import patch
+        with patch.object(M, "json") as mock_json:
+            import json as real_json
+            mock_json.loads.side_effect=real_json.loads
+            mock_json.dumps.return_value="x"*500000
+            with self.assertRaisesRegex(ValueError,"EXCEEDS_KAGGLE_LIMIT"):
+                M.pack(self.source,self.root/"out",self.review)
+        self.assertFalse((self.root/"out").exists())
     def test_offline_package_contract(self):
         result=M.pack(self.source,self.root/"out",self.review)
         self.assertEqual(result["rows"],50)
