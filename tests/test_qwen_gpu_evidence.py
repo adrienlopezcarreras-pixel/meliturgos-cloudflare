@@ -25,6 +25,17 @@ class TestQwenGpuEvidence(unittest.TestCase):
         self.write()
     def write(self):
         (self.folder/"training-evidence.json").write_text(json.dumps(self.proof))
+    def test_result_collection_workflow_is_strict_and_non_promoting(self):
+        workflow=(Path(__file__).resolve().parents[1] /
+                  ".github/workflows/professor-qwen-kaggle-result-verify.yml")
+        source=workflow.read_text(encoding="utf-8")
+        self.assertIn('kaggle kernels output "$KERNEL_SLUG"',source)
+        self.assertIn('--source-sha "$EXPECTED_SHA"',source)
+        self.assertIn('scripts/verify-qwen-gpu-artifacts.py',source)
+        self.assertIn('path: artifacts/qwen-verification.json',source)
+        self.assertNotIn('adapter_model.safetensors\n',source)
+        self.assertNotIn('kaggle kernels push',source)
+
     def test_valid_unpromoted_candidate(self):
         self.assertTrue(M.verify(self.folder)["verified"])
     def test_reject_changed_weights(self):
