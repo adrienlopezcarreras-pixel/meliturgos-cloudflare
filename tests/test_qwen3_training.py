@@ -66,6 +66,14 @@ class TestQwen3Training(unittest.TestCase):
         self.assertIn("train-qwen3-lora.py').write_bytes(", source)
         self.assertNotIn("cp scripts/train-qwen3-lora.py artifacts/qwen-kernel/", source)
 
+    def test_generated_kaggle_script_has_compile_gate(self):
+        workflow = (Path(__file__).resolve().parents[1] /
+                    ".github/workflows/professor-qwen-kaggle-gpu.yml")
+        content = workflow.read_text(encoding="utf-8")
+        self.assertIn("preamble=preamble.replace(", content)
+        self.assertIn("compile(generated,'main.py','exec')", content)
+        self.assertIn("write_text(generated,encoding='utf-8')", content)
+
     def test_reject_wrong_checksum(self):
         obj = json.loads(self.manifest.read_text())
         obj["dataset_sha256"] = "sha256:" + "0" * 64
