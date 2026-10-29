@@ -36,7 +36,7 @@ test('a structural Mentor rejection does not park the job before the large model
     failures: [{ stage: 'initial', code: 'MENTOR_UNINSPECTED_EDIT' }] };
   await persistBridgePreparationDiagnostic(repository, job.id, rejected);
   const deferral = (await repository.get(job.id)).result_json.autonomy_deferral;
-  assert.equal(deferral.max_attempts, 4);
+  assert.equal(deferral.max_attempts, 3);
   assert.equal(deferral.exhausted, false);
 });
 
