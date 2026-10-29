@@ -3,6 +3,8 @@
 import hashlib
 import importlib.util
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -70,9 +72,33 @@ class TestQwen3Training(unittest.TestCase):
         workflow = (Path(__file__).resolve().parents[1] /
                     ".github/workflows/professor-qwen-kaggle-gpu.yml")
         content = workflow.read_text(encoding="utf-8")
-        self.assertIn("preamble=preamble.replace(", content)
+        self.assertIn("compile(generated,'main.py','exec')", content)
         self.assertIn("compile(generated,'main.py','exec')", content)
         self.assertIn("write_text(generated,encoding='utf-8')", content)
+
+    def test_generated_kaggle_kernel_compiles_in_real_subprocess(self):
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / ".github/workflows/professor-qwen-kaggle-gpu.yml").read_text(encoding="utf-8")
+        marker = "          mkdir -p artifacts/qwen-kernel\n"
+        self.assertIn(marker, workflow)
+        block = workflow.split(marker, 1)[1].split("          PY\n", 1)[0]
+        script = block.split("          python - <<'PY'\n", 1)[1]
+        script = "\n".join(line[10:] if line.startswith("          ") else line
+                           for line in script.splitlines()) + "\n"
+        scratch = self.root / "sandbox"
+        (scratch / "scripts").mkdir(parents=True)
+        (scratch / "kaggle").mkdir()
+        (scratch / "artifacts/qwen-kernel").mkdir(parents=True)
+        (scratch / "scripts/train-qwen3-lora.py").write_bytes(
+            (root / "scripts/train-qwen3-lora.py").read_bytes())
+        (scratch / "kaggle/qwen3-gated-gpu-entry.py").write_bytes(
+            (root / "kaggle/qwen3-gated-gpu-entry.py").read_bytes())
+        subprocess.run([sys.executable, "-c", script], cwd=scratch,
+                       check=True, capture_output=True, text=True)
+        generated = (scratch / "artifacts/qwen-kernel/main.py").read_text()
+        compile(generated, "main.py", "exec")
+        self.assertIn("QWEN_GPU_PROOF_MISSING", generated)
+        self.assertIn("b64decode", generated)
 
     def test_reject_wrong_checksum(self):
         obj = json.loads(self.manifest.read_text())
