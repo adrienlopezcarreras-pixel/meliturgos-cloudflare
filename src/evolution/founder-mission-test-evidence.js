@@ -1,3 +1,4 @@
+import { decodeFounderEvidenceZip } from './founder-evidence-zip.js';
 // Validate a runner-produced receipt against independently retrieved GitHub
 // run metadata. The caller must obtain run and artifact from GitHub, never from
 // model text or job-supplied JSON. This is necessary, not sufficient, for DONE.
@@ -65,8 +66,27 @@ export async function fetchFounderMissionTestEvidence({ repository, candidateSha
     const listing = await read(root + '/actions/runs/' + Number(runId) + '/artifacts?per_page=100');
     const matches = (listing?.artifacts || []).filter(a => a?.name === 'founder-mission-test-evidence' && !a.expired && Number(a?.workflow_run?.id) === Number(runId) && a?.workflow_run?.head_sha === normalizedSha);
     if (matches.length !== 1) return { ok:false, code:'MISSION_TEST_ARTIFACT_MISSING_OR_AMBIGUOUS' };
-    // GitHub artifact downloads are ZIP archives requiring validated extraction.
-    // Do not return untrusted redirects or interpret a ZIP as a JSON receipt.
-    return { ok:false, code:'MISSION_TEST_ARTIFACT_ZIP_READER_REQUIRED', artifact_id:matches[0].id };
+    // GitHub returns a short-lived signed archive redirect; only fetch an HTTPS
+    // GitHub Actions storage host, never arbitrary untrusted artifact URLs.
+    const archive = await fetchImpl(root + '/actions/artifacts/' + matches[0].id + '/zip', {
+      headers, redirect:'manual', signal:AbortSignal.timeout(20000),
+    });
+    if (archive.status !== 302) return { ok:false, code:'MISSION_TEST_ARCHIVE_REDIRECT_INVALID' };
+    const location = new URL(archive.headers.get('location') || '');
+    const host = location.hostname.toLowerCase();
+    if (location.protocol !== 'https:' || !(
+      host === 'objects.githubusercontent.com' || host.endsWith('.actions.githubusercontent.com')
+    )) return { ok:false, code:'MISSION_TEST_ARCHIVE_HOST_INVALID' };
+    const download = await fetchImpl(location.toString(), { redirect:'error', signal:AbortSignal.timeout(20000) });
+    if (!download.ok || Number(download.headers.get('content-length') || 0) > 256 * 1024)
+      return { ok:false, code:'MISSION_TEST_ARCHIVE_DOWNLOAD_FAILED' };
+    const bytes = await download.arrayBuffer();
+    const receipt = decodeFounderEvidenceZip(bytes);
+    const verdict = validateFounderMissionTestEvidence(receipt,run,{candidateSha,runId});
+    if (!verdict.ok) return verdict;
+    const digestBytes = await crypto.subtle.digest('SHA-256', bytes);
+    const digest = Array.from(new Uint8Array(digestBytes), b => b.toString(16).padStart(2,'0')).join('');
+    return { ok:true, candidate_sha: normalizedSha, run_id:Number(runId),
+      mandatory_tests_verified:true, digest, tests:receipt.tests };
   } catch { return { ok:false, code:'MISSION_TEST_GITHUB_LOOKUP_FAILED' }; }
 }
