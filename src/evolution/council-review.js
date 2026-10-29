@@ -236,7 +236,8 @@ export async function reviewVerificationEvidence(env, { job, implementation, ciR
   const founder = /MEL-FOUNDER-01/i.test(String(job.goal || ''));
   if (founder && (missionTestProof?.ok !== true || missionTestProof?.candidate_sha !== head
       || Number(missionTestProof?.run_id) !== Number(ciRunId)
-      || missionTestProof?.mandatory_tests_verified !== true))
+      || missionTestProof?.mandatory_tests_verified !== true
+      || !/^[a-f0-9]{64}$/.test(String(missionTestProof?.digest || ''))))
     return { decision: 'MISSION_TEST_EVIDENCE_REQUIRED' };
   const key = 'council-review:verify:' + job.id + ':' + head;
   const cached = await env.DB.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?').bind(key).first().catch(() => null);
