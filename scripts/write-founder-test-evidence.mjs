@@ -32,6 +32,11 @@ const authFilePassed = /^✓ tests\/gen2\/google-workspace-agentic\.test\.mjs\s*
 const authTests = authCases.map(name => ({
   name, passed: exitCode === 0 && authFilePassed && passedNames.has(name) && !failedNames.has(name),
 }));
+const renderName = 'a completed connected tool response renders human text instead of raw tool-call JSON';
+const renderTest = {
+  name: renderName,
+  passed: exitCode === 0 && replayFilePassed && passedNames.has(renderName) && !failedNames.has(renderName),
+};
 const report = {
   schema: 'MEL_FOUNDER_MISSION_TEST_EVIDENCE_V1',
   source: 'full-candidate-ci/full-suite',
@@ -40,13 +45,14 @@ const report = {
   github_run_attempt: attempt,
   log_sha256: createHash('sha256').update(log).digest('hex'),
   exit_code: exitCode,
-  tests: [...tests, ...authTests],
+  tests: [...tests, ...authTests, renderTest],
   auth_test_file_passed: authFilePassed,
   replay_test_file_passed: replayFilePassed,
   mandatory_tests_verified: exitCode === 0 && tests.every(t => t.passed),
   // Deliberately not claiming authentication or raw-JSON rendering coverage.
   additional_required_proofs: [
-    ...(authTests.every(t => t.passed) ? ['NO_RAW_TOOL_CALL_JSON'] : ['GMAIL_CALENDAR_DRIVE_TYPED_AUTH', 'NO_RAW_TOOL_CALL_JSON']),
+    ...(authTests.every(t => t.passed) ? [] : ['GMAIL_CALENDAR_DRIVE_TYPED_AUTH']),
+    ...(renderTest.passed ? [] : ['NO_RAW_TOOL_CALL_JSON']),
   ],
 };
 await writeFile('founder-mission-test-evidence.json', JSON.stringify(report, null, 2) + '\n');
