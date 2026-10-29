@@ -160,3 +160,25 @@ test('VERIFY_EXISTING rejection persists exact CI and live checks without changi
     assert.equal(journal.council_review.decision, 'REJECTED');
   } finally { DB.close(); }
 });
+
+
+test('VERIFY_EXISTING never reuses Council approval across another CI run or live proof', async () => {
+  const { reviewVerificationEvidence } = await import('../src/evolution/council-review.js');
+  const { sqliteD1 } = await import('./helpers/sqlite-d1.mjs');
+  const DB = sqliteD1();
+  try {
+    await DB.prepare('CREATE TABLE dev_bridge_state(bridge_id TEXT PRIMARY KEY, last_seen INTEGER, status TEXT, metadata_json TEXT)').run();
+    let calls = 0;
+    const review = async () => { calls++; return { decision:'APPROVED', reviews:[] }; };
+    const base = { job:{id:'fresh-evidence',goal:'Gmail'}, implementation:{candidate_sha:'a'.repeat(40),selected:{text:'DECISION: VERIFY_EXISTING'}} };
+    const a = [{capability:'gmail.messages.search',ok:true,outcome:'READ_SUCCEEDED'}];
+    const b = [{capability:'gmail.messages.search',ok:false,outcome:'AUTH_REQUIRED',code:'GMAIL_AUTH_REQUIRED'}];
+    await reviewVerificationEvidence({DB},{...base,ciRunId:111,liveChecks:a,review});
+    const cache = await reviewVerificationEvidence({DB},{...base,ciRunId:111,liveChecks:a,review});
+    assert.equal(cache.cached,true);
+    assert.equal(calls,1);
+    await reviewVerificationEvidence({DB},{...base,ciRunId:222,liveChecks:a,review});
+    await reviewVerificationEvidence({DB},{...base,ciRunId:222,liveChecks:b,review});
+    assert.equal(calls,3,'new run or changed checks always trigger a fresh review');
+  } finally { DB.close(); }
+});
