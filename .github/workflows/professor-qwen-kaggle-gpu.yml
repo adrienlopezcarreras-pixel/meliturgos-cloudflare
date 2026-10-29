@@ -32,6 +32,30 @@ jobs:
           python -m unittest discover -s tests -p test_qwen_gpu_evidence.py -v
       - name: Install official Kaggle CLI
         run: python -m pip install -q kaggle
+      - name: Verify Kaggle corpus before requesting GPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/qwen-preflight
+          kaggle datasets download -d "$DATASET_SLUG" -p artifacts/qwen-preflight -q
+          python - <<'PY'
+          import pathlib,zipfile
+          root=pathlib.Path('artifacts/qwen-preflight')
+          zips=list(root.glob('*.zip'))
+          if len(zips)!=1:
+              raise SystemExit('QWEN_DATASET_DOWNLOAD_NOT_UNIQUE')
+          with zipfile.ZipFile(zips[0]) as archive:
+              entries=archive.infolist()
+              names=[e.filename for e in entries]
+              if len(names)!=2 or sorted(names)!=['dataset.jsonl','sources.json']:
+                  raise SystemExit('QWEN_DATASET_EXACT_FILES_REQUIRED')
+              if any(e.is_dir() or e.file_size > 20_000_000 for e in entries):
+                  raise SystemExit('QWEN_DATASET_FILE_SIZE_INVALID')
+              for entry in entries:
+                  (root/entry.filename).write_bytes(archive.read(entry))
+          PY
+          python scripts/train-qwen3-lora.py --dataset artifacts/qwen-preflight/dataset.jsonl --manifest artifacts/qwen-preflight/sources.json --output artifacts/qwen-preflight/candidate --dry-run > /dev/null
+          echo "QWEN_REVIEWED_DATASET_PREFLIGHT_OK"
       - name: Authenticate Kaggle and submit GPU notebook
         shell: bash
         run: |
