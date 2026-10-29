@@ -73,7 +73,7 @@ def run(args):
        "base_model":data["base_model"],"layer":args.layer,
        "positive_count":len(positives),"negative_count":len(negatives),
        "positive_dataset_sha256":digest(args.positive),"negative_dataset_sha256":digest(args.negative),
-       "direction_sha256":digest(candidate),"gpu_training_verified":True,
+       "direction_sha256":digest(candidate),"gpu_training_verified":False,
        "checkpoint_verified":False,"promoted":False,"activated":False,
        "note":"Direction only; no model modification, ablation, evaluation or promotion performed."}
     (output/"evidence.json").write_text(json.dumps(evidence,sort_keys=True,indent=2)+"\n",encoding="utf-8")
