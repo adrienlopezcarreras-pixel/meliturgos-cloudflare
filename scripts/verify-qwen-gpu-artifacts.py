@@ -52,8 +52,11 @@ def verify(folder, source_sha=None):
             raise ValueError("QWEN_ADAPTER_HASH_MISMATCH:" + filename)
     if proof.get("promoted") is not False or proof.get("activated") is not False:
         raise ValueError("QWEN_PREMATURE_ACTIVATION")
-    if source_sha is not None and proof.get("source_sha") != source_sha:
-        raise ValueError("QWEN_SOURCE_SHA_MISMATCH")
+    if source_sha is not None:
+        if not isinstance(source_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", source_sha):
+            raise ValueError("QWEN_INVALID_EXPECTED_SOURCE_SHA")
+        if proof.get("source_sha") != source_sha:
+            raise ValueError("QWEN_SOURCE_SHA_MISMATCH")
     return {"status":"TRAINED_UNBENCHMARKED", "base_model":proof["base_model"], "steps":proof["steps_executed"], "adapter_sha256":proof["adapter_sha256"], "verified":True, "promoted":False}
 
 if __name__ == "__main__":
