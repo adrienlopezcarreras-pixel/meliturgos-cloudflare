@@ -54,3 +54,32 @@ test('MAX codes only with code models: small ones first, large ones after three 
   assert.ok(!specialists.includes('@cf/zai-org/glm-5.3-flash'));
   assert.ok(standardRegistry.list().filter(m => (m.capabilities || []).includes('CODE_LARGE')).length === 1);
 });
+
+test('verified terminal statuses are counted as deliveries while queued work is not', () => {
+  for (const status of ['COMPLETED', 'DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED']) {
+    const report = auditDevelopment({ now: NOW, jobs: [job({ status })] });
+    assert.equal(report.summary.completed, 1, status);
+    assert.ok(!report.findings.some(f => f.code === 'NO_DELIVERY_THIS_WEEK'), status);
+  }
+  const queued = auditDevelopment({ now: NOW, jobs: [job({ status: 'QUEUED' })] });
+  assert.equal(queued.summary.completed, 0);
+  assert.ok(queued.findings.some(f => f.code === 'NO_DELIVERY_THIS_WEEK'));
+});
+
+test('a successful code-model probe cancels its pending timeout', async t => {
+  const oldSet = globalThis.setTimeout, oldClear = globalThis.clearTimeout, handles = [];
+  globalThis.setTimeout = (callback, delay) => {
+    const handle = { callback, delay, cleared: false };
+    handles.push(handle);
+    return handle;
+  };
+  globalThis.clearTimeout = handle => { handle.cleared = true; };
+  t.after(() => { globalThis.setTimeout = oldSet; globalThis.clearTimeout = oldClear; });
+  const registry = { list: () => [{ id: 'test-coder', capabilities: ['CODE_SPECIALIST'] }] };
+  const result = await probeCodeModels({
+    AI: { run: async () => ({ response: 'function sumEven(list) { return list.filter(n => n % 2 === 0).reduce((a, n) => a + n, 0); }' }) }
+  }, { registry, timeoutMs: 250 });
+  assert.equal(result[0].passed, true);
+  assert.equal(handles.length, 1);
+  assert.equal(handles[0].cleared, true);
+});
