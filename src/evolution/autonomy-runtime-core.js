@@ -1035,6 +1035,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         await persistVerificationWait(jobRepository, job.id, {
           code: verificationCode,
           liveChecks, ciRunId, candidateSha: implementation.candidate_sha,
+          lookupStage: founderProof?.lookup_stage || null,
         });
       }
       bridgePreparation = {
