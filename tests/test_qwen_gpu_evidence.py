@@ -19,7 +19,9 @@ class TestQwenGpuEvidence(unittest.TestCase):
         for name,data in (("adapter_model.safetensors",b"mock-adapter"),("adapter_config.json",b'{"r":8}')):
             (self.folder/name).write_bytes(data)
         self.proof={"status":"TRAINED_UNBENCHMARKED","base_model":"Qwen/Qwen3-14B",
-            "steps_executed":5,"promoted":False,"activated":False,
+            "steps_executed":5,"max_steps":10,"examples":50,"train_examples":45,"validation_examples":5,
+            "dataset_sha256":"sha256:"+"a"*64,"source_manifest_sha256":"sha256:"+"b"*64,
+            "promoted":False,"activated":False,
             "cuda_available":True,"gpu_name":"Test GPU", "peak_cuda_memory_mb":1024,
             "train_loss":1.2,"baseline_eval_loss":1.5,"trained_eval_loss":1.1,
             "adapter_sha256":M.digest(self.folder/"adapter_model.safetensors"),
@@ -40,6 +42,21 @@ class TestQwenGpuEvidence(unittest.TestCase):
 
     def test_valid_unpromoted_candidate(self):
         self.assertTrue(M.verify(self.folder)["verified"])
+    def test_reject_missing_dataset_provenance(self):
+        self.proof["dataset_sha256"]="unverified"
+        self.write()
+        with self.assertRaisesRegex(ValueError,"DATASET_PROVENANCE_MISSING"):
+            M.verify(self.folder)
+    def test_reject_inconsistent_training_plan(self):
+        self.proof["steps_executed"]=11
+        self.write()
+        with self.assertRaisesRegex(ValueError,"TRAINING_PLAN_INCONSISTENT"):
+            M.verify(self.folder)
+    def test_reject_inconsistent_data_split(self):
+        self.proof["train_examples"]=44
+        self.write()
+        with self.assertRaisesRegex(ValueError,"TRAINING_PLAN_INCONSISTENT"):
+            M.verify(self.folder)
     def test_reject_missing_cuda_proof(self):
         self.proof["cuda_available"]=False
         self.write()
