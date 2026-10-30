@@ -54,3 +54,27 @@ test('MAX codes only with code models: small ones first, large ones after three 
   assert.ok(!specialists.includes('@cf/zai-org/glm-5.3-flash'));
   assert.ok(standardRegistry.list().filter(m => (m.capabilities || []).includes('CODE_LARGE')).length === 1);
 });
+
+test('a successful code probe clears its pending timeout', async t => {
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const timers = [];
+  globalThis.setTimeout = (callback, delay) => {
+    const handle = { callback, delay };
+    timers.push(handle);
+    return handle;
+  };
+  globalThis.clearTimeout = handle => { handle.cleared = true; };
+  t.after(() => {
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+  });
+  const registry = { list: () => [{ id: 'test-coder', capabilities: ['CODE_SPECIALIST'] }] };
+  const probes = await probeCodeModels({
+    AI: { run: async () => ({ response: 'function sumEven(list) { return list.filter(n => n % 2 === 0).reduce((a, n) => a + n, 0); }' }) }
+  }, { registry, timeoutMs: 250 });
+  assert.equal(probes.length, 1);
+  assert.equal(probes[0].passed, true);
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0].cleared, true);
+});
