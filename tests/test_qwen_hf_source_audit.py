@@ -8,7 +8,7 @@ class QwenHfAuditContract(unittest.TestCase):
         self.assertIn("QWEN_HF_REVISION_MUST_BE_IMMUTABLE_SHA", WORKFLOW)
         self.assertIn("Guilherme34/uncensor/resolve/", WORKFLOW)
         self.assertIn("QWEN_HF_FILE_EXCEEDS_AUDIT_LIMIT", WORKFLOW)
-        self.assertIn("mod.convert(target,Path('.tmp-qwen-audit/train-only.jsonl'),sha)", WORKFLOW)
+        self.assertIn("mod.convert(target,Path('.tmp-qwen-audit/train-only.jsonl'),sha,exclude_cross_split=True)", WORKFLOW)
     def test_no_gpu_promotion_or_license_claim(self):
         self.assertIn("license_review_passed=False", WORKFLOW)
         self.assertIn("kaggle_published=False", WORKFLOW)
