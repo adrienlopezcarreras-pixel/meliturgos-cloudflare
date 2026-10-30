@@ -167,7 +167,7 @@ export const MEL_DUAL_LORA_TRAINING_MARKUP = `
       <button type="button" id="qwenRefresh">Actualiser le dernier run</button>
       <span id="qwenPreflightResult" role="status" aria-live="polite">Aucune prévalidation demandée</span>
       <a class="button lora-link" href="https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/blob/main/scripts/train-qwen3-lora.py" target="_blank" rel="noopener noreferrer">Consulter le trainer Qwen</a></div>
-    <small class="muted">Aucun bouton de lancement n'est présenté comme opérationnel tant que le dispatch GPU authentifié, le suivi et la conservation des preuves ne sont pas raccordés.</small>
+    <small class="muted">Le bouton de lancement Qwen3 n'envoie une demande GPU que si le corpus approuvé est publié dans Kaggle et si MEL_QWEN_KAGGLE_DATASET_SLUG (format propriétaire/dataset) est configuré dans Cloudflare. Une demande acceptée ne prouve ni entraînement, ni checkpoint validé. Le parcours GPU Abliteration reste non raccordé.</small>
   </section>
   <details open style="margin-top:16px">
     <summary style="cursor:pointer;font-weight:700">Plan de travail du nouveau Qwen3-14B (7 jalons)</summary>
