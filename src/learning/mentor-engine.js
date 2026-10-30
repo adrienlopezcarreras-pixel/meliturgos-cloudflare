@@ -642,7 +642,7 @@ export class MentorEngine {
     return this.memory.experienceContext(goal, options);
   }
 
-  async propose({ env, jobId, goal, inspectedFiles = [], previousAttempts = [], mode = 'implement', repairReferences = [], pathExists = null, requireTest = false } = {}) {
+  async propose({ env, jobId, goal, inspectedFiles = [], previousAttempts = [], mode = 'implement', repairReferences = [], pathExists = null, requireTest = false, failedRounds = 0 } = {}) {
     // The supervisor appends the whole manifest status list; models mistake it
     // for the task and "fix" roadmap ID lists, so only the item itself is sent.
     const objective = bounded(goal, 12_000).replace(/\s*\|\s*OBJECTIF\s[\s\S]*$/, '').trim();
@@ -665,7 +665,10 @@ export class MentorEngine {
     // already rejected moves the work to the online coder.
     const providers = await this._providers(env, {
       codeCouncil,
-      escalate: previousAttempts.length >= 3,
+      // In a repair, previousAttempts holds the failing tests, not the failed
+      // rounds: one stubborn test never escalated (30/10: FOUNDER-02 failed
+      // three repairs on qwen2.5-coder and never reached gpt-oss-120b).
+      escalate: previousAttempts.length >= 3 || Number(failedRounds) >= 2,
     });
     if (!providers.length) throw Object.assign(new Error('MENTOR_NO_ZERO_COST_CODE_PROVIDER'), { code: 'MENTOR_NO_ZERO_COST_CODE_PROVIDER', status: 503 });
 

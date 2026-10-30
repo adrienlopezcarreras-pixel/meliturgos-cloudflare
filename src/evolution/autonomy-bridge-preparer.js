@@ -236,6 +236,11 @@ export async function prepareApprovedBridgePackage({
     pathExists,
     // Production implementations must ship a test the Council can check.
     requireTest: true,
+    // Rounds already lost on this mission: repairs that failed their tests,
+    // or proposal attempts MEL refused. Two lost rounds call the large coder.
+    failedRounds: repairFor
+      ? Number(current?.result_json?.repair_cycle?.attempts || 0)
+      : (current?.result_json?.mentor_attempt_history || []).length,
   });
   const proposal = mentor?.proposal;
   if (!proposal || !Array.isArray(proposal.changes) || !proposal.changes.length) {

@@ -1023,3 +1023,19 @@ test('an empty SEARCH on an existing inspected test file appends the new test at
   const refuser = new MentorEngine({ providerFactory: async () => [provider('bad', bad)] });
   await assert.rejects(() => refuser.propose({ env: {}, goal: 'x', inspectedFiles }));
 });
+
+// 30/10: FOUNDER-02 failed three repairs on qwen2.5-coder; a repair passes the
+// failing tests as previousAttempts (one test) so the large coder never came.
+test('two lost rounds escalate to the large coder even with a single failing test', async () => {
+  const seen = [];
+  class Spy extends MentorEngine {
+    async _providers(env, options) { seen.push(options); return [provider('spy', 'SUMMARY x')]; }
+  }
+  const engine = new Spy({});
+  const inspectedFiles = [{ path: 'src/math.js', content: 'export const x = 1;\n' }];
+  const oneFailingTest = [{ name: 'test', passed: false, error: 'not ok 23' }];
+  await engine.propose({ env: {}, goal: 'x', inspectedFiles, previousAttempts: oneFailingTest, mode: 'repair', failedRounds: 1 }).catch(() => null);
+  await engine.propose({ env: {}, goal: 'x', inspectedFiles, previousAttempts: oneFailingTest, mode: 'repair', failedRounds: 2 }).catch(() => null);
+  assert.equal(seen[0].escalate, false);
+  assert.equal(seen[1].escalate, true);
+});
