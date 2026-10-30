@@ -55,3 +55,24 @@ test('a token refused by GitHub (403) falls back to the public read of the same 
  assert.equal(run,123);
  assert.deepEqual(seen,['Bearer synthetic-test-token',null]);
 });
+
+test('lookup continues onto page two after 100 unsuccessful runs for the exact candidate',async()=>{
+ const pages=[];
+ const run=await findGreenFullCandidateRun(env,sha,{fetchImpl:async(url)=>{
+   const page=Number(new URL(url).searchParams.get('page'));
+   pages.push(page);
+   if(page===1) return Response.json({workflow_runs:Array.from({length:100},(_,i)=>({...green,id:1000+i,conclusion:'failure'}))});
+   return Response.json({workflow_runs:[{...green,id:67890,event:'workflow_dispatch'}]});
+ }});
+ assert.equal(run,67890);
+ assert.deepEqual(pages,[1,2]);
+});
+
+test('lookup rejects misleading success rows even on later pages',async()=>{
+ const run=await findGreenFullCandidateRun(env,sha,{fetchImpl:async(url)=>{
+   const page=Number(new URL(url).searchParams.get('page'));
+   if(page===1) return Response.json({workflow_runs:Array.from({length:100},(_,i)=>({...green,id:1000+i,conclusion:'failure'}))});
+   return Response.json({workflow_runs:[{...green,head_branch:'main'}, {...green,head_sha:'b'.repeat(40)}]});
+ }});
+ assert.equal(run,null);
+});
