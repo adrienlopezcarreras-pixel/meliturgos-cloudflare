@@ -25,6 +25,8 @@ on:
       - 'scripts/import-ultrachat-qwen.py'
       - 'scripts/import-qwen-uncensor-jsonl.py'
       - 'tests/test_qwen_uncensor_split_import.py'
+      - 'tests/test_qwen_hf_source_audit.py'
+      - '.github/workflows/qwen-hf-source-audit.yml'
       - 'tests/qwen-kaggle-archive-limits.test.mjs'
       - 'tests/qwen-kaggle-kernel-metadata.test.mjs'
       - 'scripts/prepare-qwen-kaggle-corpus.py'
@@ -91,6 +93,9 @@ jobs:
 
       - name: Uncensor JSONL split-safe import (offline)
         run: python -m unittest discover -s tests -p 'test_qwen_uncensor_split_import.py' -v
+
+      - name: Qwen HF source audit contract (offline)
+        run: python -m unittest discover -s tests -p 'test_qwen_hf_source_audit.py' -v
 
       - name: Qwen3 GPU artifact evidence (offline)
         run: python -m unittest discover -s tests -p 'test_qwen_gpu_evidence.py' -v
