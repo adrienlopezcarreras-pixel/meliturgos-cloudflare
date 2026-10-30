@@ -60,6 +60,7 @@ export async function fetchFounderMissionTestEvidence({ repository, candidateSha
     if (!response.ok || response.status >= 300 && response.status < 400) throw new Error('GITHUB_ARTIFACT_FETCH_FAILED');
     return response.json();
   };
+  let lookupStage = 'RUN_METADATA';
   try {
     const normalizedSha = String(candidateSha || '').toLowerCase();
     if (!SHA.test(normalizedSha) || !Number.isSafeInteger(Number(runId)) || Number(runId) <= 0)
@@ -69,6 +70,7 @@ export async function fetchFounderMissionTestEvidence({ repository, candidateSha
         || run?.conclusion !== 'success' || String(run?.head_sha || '').toLowerCase() !== normalizedSha
         || Number(run.id) !== Number(runId))
       return { ok:false, code:'MISSION_TEST_RUN_MISMATCH' };
+    lookupStage = 'ARTIFACT_LIST';
     const listing = await read(root + '/actions/runs/' + Number(runId) + '/artifacts?per_page=100');
     if (!Array.isArray(listing?.artifacts) || Number(listing?.total_count) > 100)
       return { ok:false, code:'MISSION_TEST_ARTIFACT_LIST_INCOMPLETE' };
@@ -76,6 +78,7 @@ export async function fetchFounderMissionTestEvidence({ repository, candidateSha
     if (matches.length !== 1) return { ok:false, code:'MISSION_TEST_ARTIFACT_MISSING_OR_AMBIGUOUS' };
     // GitHub returns a short-lived signed archive redirect; only fetch an HTTPS
     // GitHub Actions storage host, never arbitrary untrusted artifact URLs.
+    lookupStage = 'ARCHIVE_REDIRECT';
     const archive = await fetchImpl(root + '/actions/artifacts/' + matches[0].id + '/zip', {
       headers, redirect:'manual', signal:AbortSignal.timeout(20000),
     });
@@ -90,6 +93,7 @@ export async function fetchFounderMissionTestEvidence({ repository, candidateSha
       host === 'objects.githubusercontent.com' || host.endsWith('.actions.githubusercontent.com')
       || /^productionresultssa[0-9]+\.blob\.core\.windows\.net$/.test(host)
     )) return { ok:false, code:'MISSION_TEST_ARCHIVE_HOST_INVALID' };
+    lookupStage = 'ARCHIVE_DOWNLOAD';
     const download = await fetchImpl(location.toString(), { redirect:'manual', signal:AbortSignal.timeout(20000) });
     // Cloudflare Workers does not support redirect:'error'; manual mode also
     // prevents signed storage URLs from silently redirecting to another host.
@@ -98,12 +102,14 @@ export async function fetchFounderMissionTestEvidence({ repository, candidateSha
       return { ok:false, code:'MISSION_TEST_ARCHIVE_DOWNLOAD_FAILED' };
     const bytes = await download.arrayBuffer();
     if (bytes.byteLength > 256 * 1024) return { ok:false, code:'MISSION_TEST_ARCHIVE_TOO_LARGE' };
+    lookupStage = 'ARCHIVE_PARSE';
     const receipt = decodeFounderEvidenceZip(bytes);
     const verdict = validateFounderMissionTestEvidence(receipt,run,{candidateSha,runId});
     if (!verdict.ok) return verdict;
+    lookupStage = 'DIGEST';
     const digestBytes = await crypto.subtle.digest('SHA-256', bytes);
     const digest = Array.from(new Uint8Array(digestBytes), b => b.toString(16).padStart(2,'0')).join('');
     return { ok:true, candidate_sha: normalizedSha, run_id:Number(runId),
       mandatory_tests_verified:true, digest, tests:receipt.tests };
-  } catch { return { ok:false, code:'MISSION_TEST_GITHUB_LOOKUP_FAILED' }; }
+  } catch { return { ok:false, code:'MISSION_TEST_GITHUB_LOOKUP_FAILED', lookup_stage:lookupStage }; }
 }

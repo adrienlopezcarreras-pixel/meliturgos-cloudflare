@@ -123,3 +123,19 @@ test('paginated GitHub artifact list never establishes unique mission evidence',
       : {id:123,name:'full-candidate-ci',head_branch:'candidate/mel-clean-autonomy',head_sha:SHA,status:'completed',conclusion:'success'})});
   assert.equal(out.code,'MISSION_TEST_ARTIFACT_LIST_INCOMPLETE');
 });
+
+test('GitHub lookup failure reports safe stage without exposing credentials', async () => {
+ const out=await fetchFounderMissionTestEvidence({...request,token:'test-secret',fetchImpl:async()=>{throw new Error('secret network detail');}});
+ assert.equal(out.ok,false);
+ assert.equal(out.code,'MISSION_TEST_GITHUB_LOOKUP_FAILED');
+ assert.equal(out.lookup_stage,'RUN_METADATA');
+ assert.equal(JSON.stringify(out).includes('test-secret'),false);
+});
+test('artifact listing transport error identifies the failing stage', async () => {
+ const out=await fetchFounderMissionTestEvidence({...request,fetchImpl:async url=>{
+   if(url.includes('/artifacts?')) throw new Error('synthetic network error');
+   return reply({id:123,name:'full-candidate-ci',head_branch:'candidate/mel-clean-autonomy',head_sha:SHA,status:'completed',conclusion:'success'});
+ }});
+ assert.equal(out.code,'MISSION_TEST_GITHUB_LOOKUP_FAILED');
+ assert.equal(out.lookup_stage,'ARTIFACT_LIST');
+});
