@@ -34,9 +34,10 @@ class SplitImportTests(unittest.TestCase):
 
     def test_rejects_cross_split_duplication(self):
         sha = self.write(test_duplicate=True)
-        with self.assertRaisesRegex(ValueError, "CROSS_SPLIT_DUPLICATES"):
-            module.convert(self.source, self.dest, sha)
-        self.assertFalse(self.dest.exists())
+        result = module.convert(self.source, self.dest, sha)
+        self.assertEqual(result["cross_split_duplicates_excluded"], 1)
+        self.assertEqual(result["output_rows"], 54)
+        self.assertNotIn("input 0", self.dest.read_text(encoding="utf-8"))
 
     def test_rejects_unpinned_source(self):
         self.write()
