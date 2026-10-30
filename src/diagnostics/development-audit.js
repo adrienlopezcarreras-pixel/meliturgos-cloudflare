@@ -34,10 +34,19 @@ export async function probeCodeModels(env, { registry = standardRegistry, timeou
   return Promise.all(models.map(async model => {
     const started = Date.now();
     try {
-      const out = await Promise.race([
-        env.AI.run(model.id, { messages: [{ role: 'user', content: PROBE }], max_tokens: 800 }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('PROBE_TIMEOUT')), timeoutMs)),
-      ]);
+      let timer;
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('PROBE_TIMEOUT')), timeoutMs);
+      });
+      let out;
+      try {
+        out = await Promise.race([
+          env.AI.run(model.id, { messages: [{ role: 'user', content: PROBE }], max_tokens: 800 }),
+          timeout,
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
       const text = String(out?.response ?? out?.choices?.[0]?.message?.content ?? out?.output_text ?? '');
       const code = (text.match(/```(?:js|javascript)?\s*([\s\S]*?)```/) || [null, text])[1];
       // eslint-disable-next-line no-new-func
@@ -72,7 +81,8 @@ export function auditDevelopment({ jobs = [], env = {}, registry = standardRegis
   const stalled = pipelineAlerts(week, metrics, { now }).filter(alert => alert.code === 'JOB_STALLED');
   if (stalled.length) add('JOBS_STALLED', stalled.map(alert => alert.job_id).slice(0, 5).join(', '));
 
-  const completed = week.filter(job => String(job?.status).toUpperCase() === 'COMPLETED').length;
+  const deliveredStatuses = new Set(['COMPLETED', 'DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED']);
+  const completed = week.filter(job => deliveredStatuses.has(String(job?.status).toUpperCase())).length;
   const councilRejected = week.filter(job => /COUNCIL_REJECTED/.test(String(job?.error || ''))).length;
   const failed = week.filter(job => String(job?.status).toUpperCase() === 'FAILED').length;
   if (maxAutonomy && week.length && completed === 0) add('NO_DELIVERY_THIS_WEEK', week.length + ' missions, 0 livrée, ' + failed + ' en échec');

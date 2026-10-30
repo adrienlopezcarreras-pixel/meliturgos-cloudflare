@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   tryAcquireAutonomyRuntimeLease,
   releaseAutonomyRuntimeLease,
+  renewAutonomyRuntimeLease,
 } from '../src/evolution/autonomy-runtime-lease.js';
 import { runAutonomyRuntimeTick } from '../src/evolution/autonomy-runtime.js';
 
@@ -127,4 +128,68 @@ test('a lease left by a killed invocation frees itself within 90 s (next minute 
   assert.equal(first.expires_at, 90_000);
   assert.equal((await tryAcquireAutonomyRuntimeLease({ owner: 'next', now: 60_000, memoryStore: store })).acquired, false);
   assert.equal((await tryAcquireAutonomyRuntimeLease({ owner: 'next', now: 120_000, memoryStore: store })).acquired, true);
+});
+
+test('expired owner cannot resurrect a lease; a fresh owner can acquire it', async () => {
+  const memoryStore = new Map();
+  assert.equal((await tryAcquireAutonomyRuntimeLease({ owner: 'old', now: 1000, leaseMs: 60000, memoryStore })).acquired, true);
+  assert.equal(await renewAutonomyRuntimeLease({ owner: 'old', now: 61000, memoryStore }), false);
+  assert.equal((await tryAcquireAutonomyRuntimeLease({ owner: 'new', now: 61000, leaseMs: 60000, memoryStore })).acquired, true);
+  assert.equal(await renewAutonomyRuntimeLease({ owner: 'old', now: 62000, memoryStore }), false);
+  assert.equal(await renewAutonomyRuntimeLease({ owner: 'new', now: 62000, memoryStore }), true);
+});
+
+test('D1-style SQLite renewal refuses expired leases and old owners', async () => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const sqlite = new DatabaseSync(':memory:');
+  try {
+    sqlite.exec('CREATE TABLE dev_bridge_state (bridge_id TEXT PRIMARY KEY, last_seen INTEGER, status TEXT, metadata_json TEXT)');
+    const db = { prepare(sql) {
+      const stmt = sqlite.prepare(sql);
+      return { bind(...params) {
+        return {
+          async run() { const out = stmt.run(...params); return { meta: { changes: out.changes } }; },
+          async first() { return stmt.get(...params) || null; },
+        };
+      } };
+    } };
+    const old = await tryAcquireAutonomyRuntimeLease({ db, owner: 'old', now: 1000, leaseMs: 60000 });
+    assert.equal(old.acquired, true);
+    assert.equal(await renewAutonomyRuntimeLease({ db, owner: 'old', now: 61000 }), false);
+    assert.equal((await tryAcquireAutonomyRuntimeLease({ db, owner: 'new', now: 61000, leaseMs: 60000 })).acquired, true);
+    assert.equal(await renewAutonomyRuntimeLease({ db, owner: 'old', now: 62000 }), false);
+    assert.equal(await renewAutonomyRuntimeLease({ db, owner: 'new', now: 62000 }), true);
+    assert.equal(await releaseAutonomyRuntimeLease({ db, owner: 'old' }), false);
+  } finally {
+    sqlite.close();
+  }
+});
+
+test('lease renewal never shortens a valid expiry when the clock moves backward', async () => {
+  const memoryStore = new Map();
+  const first = await tryAcquireAutonomyRuntimeLease({ owner: 'owner', now: 100_000, leaseMs: 90_000, memoryStore });
+  assert.equal(first.expires_at, 190_000);
+  assert.equal(await renewAutonomyRuntimeLease({ owner: 'owner', now: 80_000, leaseMs: 60_000, memoryStore }), true);
+  assert.equal(memoryStore.get(first.key).expires_at, 190_000);
+  const { DatabaseSync } = await import('node:sqlite');
+  const sqlite = new DatabaseSync(':memory:');
+  try {
+    sqlite.exec('CREATE TABLE dev_bridge_state (bridge_id TEXT PRIMARY KEY, last_seen INTEGER, status TEXT, metadata_json TEXT)');
+    const db = { prepare(sql) {
+      const stmt = sqlite.prepare(sql);
+      return { bind(...params) {
+        return {
+          async run() { const result = stmt.run(...params); return { meta: { changes: result.changes } }; },
+          async first() { return stmt.get(...params) || null; },
+        };
+      } };
+    } };
+    const acquired = await tryAcquireAutonomyRuntimeLease({ db, owner: 'owner', now: 100_000, leaseMs: 90_000 });
+    assert.equal(acquired.acquired, true);
+    assert.equal(await renewAutonomyRuntimeLease({ db, owner: 'owner', now: 80_000, leaseMs: 60_000 }), true);
+    const row = await db.prepare('SELECT last_seen FROM dev_bridge_state WHERE bridge_id=?').bind(acquired.key).first();
+    assert.equal(row.last_seen, 190_000);
+  } finally {
+    sqlite.close();
+  }
 });

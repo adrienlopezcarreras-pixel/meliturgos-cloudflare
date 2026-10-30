@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - 'tests/autonomy-runtime.test.mjs'
+      - 'tests/autonomy-runtime-lease.test.mjs'
       - 'src/dev/d1-dev-job-repository.js'
       - 'tests/autonomy-objective-admission.test.mjs'
       - 'tests/max-passive-queue-single-flight.test.mjs'
@@ -90,6 +91,7 @@ jobs:
         run: >
           node --test
           tests/autonomy-runtime.test.mjs
+          tests/autonomy-runtime-lease.test.mjs
           tests/autonomy-objective-admission.test.mjs
           tests/max-passive-queue-single-flight.test.mjs
           tests/dev-bridge-teacher-gate.test.mjs
