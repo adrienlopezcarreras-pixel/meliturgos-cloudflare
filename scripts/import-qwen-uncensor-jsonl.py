@@ -15,7 +15,7 @@ def digest(path):
             h.update(block)
     return "sha256:" + h.hexdigest()
 
-def convert(source, output, expected_sha256, limit=1000):
+def convert(source, output, expected_sha256, limit=1000, exclude_cross_split=False):
     source, output = Path(source), Path(output)
     if not source.is_file():
         raise ValueError("QWEN_SOURCE_MISSING")
@@ -60,8 +60,11 @@ def convert(source, output, expected_sha256, limit=1000):
                 train_hashes.add(key)
                 if len(selected) < limit and not any(item[0] == key for item in selected):
                     selected.append((key, canonical))
-    if train_hashes & test_hashes:
+    overlap = train_hashes & test_hashes
+    if overlap and not exclude_cross_split:
         raise ValueError("QWEN_CROSS_SPLIT_DUPLICATES")
+    if overlap:
+        selected = [(key, row) for key, row in selected if key not in overlap]
     if len(selected) < 50:
         raise ValueError("QWEN_TOO_FEW_TRAIN_EXAMPLES")
     lines = [json.dumps(row, sort_keys=True, ensure_ascii=False) + "\n" for _, row in selected]
@@ -71,7 +74,7 @@ def convert(source, output, expected_sha256, limit=1000):
     output.write_text("".join(lines), encoding="utf-8")
     return {"status": "QWEN_UNREVIEWED_TRAIN_ONLY_NOT_PUBLISHED", "source_sha256": actual,
             "output_sha256": digest(output), "train_valid_rows": counts["TRAIN"],
-            "test_valid_rows_excluded": counts["TEST"], "output_rows": len(selected),
+            "test_valid_rows_excluded": counts["TEST"], "cross_split_duplicate_conversations_excluded": len(overlap), "output_rows": len(selected),
             "license_review_passed": False, "gpu_training_performed": False}
 
 if __name__ == "__main__":
@@ -80,5 +83,6 @@ if __name__ == "__main__":
     p.add_argument("--output", required=True)
     p.add_argument("--expected-sha256", required=True)
     p.add_argument("--limit", type=int, default=1000)
+    p.add_argument("--exclude-cross-split", action="store_true")
     args = p.parse_args()
-    print(json.dumps(convert(args.input, args.output, args.expected_sha256, args.limit), sort_keys=True))
+    print(json.dumps(convert(args.input, args.output, args.expected_sha256, args.limit, args.exclude_cross_split), sort_keys=True))
