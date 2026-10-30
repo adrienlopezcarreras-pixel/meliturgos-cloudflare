@@ -21,7 +21,11 @@ function impactMetrics(row) {
 
 // Every gap must be seen on the last `streak` measurements, never on one.
 function persistent(rows, key, test, streak) {
-  const values = rows.slice(-streak).map(row => Number(impactMetrics(row)[key]));
+  const values = rows.slice(-streak).map(row => {
+    const raw = impactMetrics(row)[key];
+    // Missing measurements are unknown, not zero: never train on absent evidence.
+    return raw === null || raw === undefined || raw === '' ? NaN : Number(raw);
+  });
   return values.length === streak && values.every(value => Number.isFinite(value) && test(value));
 }
 
