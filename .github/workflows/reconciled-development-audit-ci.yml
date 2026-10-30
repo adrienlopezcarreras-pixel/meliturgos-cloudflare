@@ -1,0 +1,24 @@
+name: reconciled-development-audit-ci
+on:
+  pull_request:
+    paths:
+      - 'src/diagnostics/development-audit.js'
+      - 'tests/development-audit.test.mjs'
+      - '.github/workflows/reconciled-development-audit-ci.yml'
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node --check src/diagnostics/development-audit.js && node --check tests/development-audit.test.mjs
+      - run: node --test tests/development-audit.test.mjs
+      - run: npm test
