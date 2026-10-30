@@ -68,3 +68,30 @@ test('roadmap.read returns the real truth next to the declared roadmap', async (
   assert.equal(payload.truth.items['MEL-CODE-01'].truth, 'VERIFIED_LIVE');
   d.close();
 });
+
+// 30/10: FOUNDER-01 was delivered by MAX with a verified code receipt yet the
+// roadmap kept « Déclaré, sans preuve »: only runtime capabilities were read.
+test('a MAX-delivered objective with a verified acceptance receipt is proven; an unaccepted one is not', async () => {
+  const { ROADMAP_CODE_CONTRACT_REVISION } = await import('../src/roadmap/roadmap-code-contracts.js');
+  const d = await db();
+  await d.prepare('CREATE TABLE dev_jobs(id TEXT PRIMARY KEY,status TEXT,requested_by TEXT,files_json TEXT,optional_context TEXT,result_json TEXT,updated_at INTEGER)').run();
+  const sha = 'f'.repeat(40), branch = 'candidate/mel-clean-autonomy';
+  const ci = { verified: true, workflow: 'full-candidate-ci', run_id: 41076058090, head_sha: sha, head_branch: branch, conclusion: 'success' };
+  const contract = { code_paths: ['src/api/agent-tools.js', 'src/api/connected-data-intent.js', 'src/capabilities/google-workspace-capabilities.js'], test_paths: ['tests/native-chat-connected-replay.test.mjs'] };
+  const result = {
+    roadmap_code_acceptance: { schema: 'mel.roadmap-code-acceptance/v1', status: 'VERIFIED', roadmap_id: 'MEL-FOUNDER-01', contract_revision: ROADMAP_CODE_CONTRACT_REVISION,
+      candidate_sha: sha, candidate_branch: branch, ci_run_id: ci.run_id, ...contract, verification: 'VERIFY_EXISTING', external_acceptance_verified: false },
+    autonomy_completion: { status: 'VERIFIED', candidate_sha: sha, candidate_branch: branch, ci, mel_implementation: { verified: true, providers_attempted: 2 } },
+    verify_existing: { status: 'VERIFIED', candidate_sha: sha },
+  };
+  const insert = (id, roadmapId, res) => d.prepare('INSERT INTO dev_jobs VALUES(?,?,?,?,?,?,?)').bind(id, 'COMPLETED', 'mel-autonomy', '[]',
+    JSON.stringify({ roadmap_id: roadmapId, roadmap_contract_revision: ROADMAP_CODE_CONTRACT_REVISION }), JSON.stringify(res), now - 1000).run();
+  await insert('founder-01', 'MEL-FOUNDER-01', result);
+  // Same receipt, but the verification was never recorded: not accepted.
+  await insert('founder-04', 'MEL-FOUNDER-04', { ...result, roadmap_code_acceptance: { ...result.roadmap_code_acceptance, roadmap_id: 'MEL-FOUNDER-04' }, verify_existing: { status: 'WAITING_VERIFICATION', candidate_sha: sha } });
+  const phases = [{ items: [{ id: 'MEL-FOUNDER-01' }, { id: 'MEL-FOUNDER-04' }] }];
+  const truth = await computeRoadmapTruth(d, phases, { now });
+  assert.equal(truth.items['MEL-FOUNDER-01'].truth, 'VERIFIED_LIVE');
+  assert.equal(truth.items['MEL-FOUNDER-01'].proofs[0].id, 'full-candidate-ci#41076058090');
+  assert.notEqual(truth.items['MEL-FOUNDER-04'].truth, 'VERIFIED_LIVE');
+});
