@@ -102,8 +102,9 @@ test('GPU launch cannot masquerade as a completed preflight',async()=>{
  const fs=await import('node:fs/promises');
  const entry=await fs.readFile(new URL('../src/professor-live-learning-entry.js',import.meta.url),'utf8');
  assert.ok(entry.includes('QWEN_REVIEWED_KAGGLE_DATASET_NOT_CONFIGURED'));
- assert.ok(entry.includes('ABLITERATION_GPU_EXECUTOR_NOT_IMPLEMENTED'));
- assert.ok(entry.includes('gpu_training_performed:false},409'));
+ assert.ok(entry.includes('ABLITERATION_GPU_DISPATCH_NOT_CONFIGURED'));
+ assert.ok(entry.includes('checkpoint_verified:false,model_activated:false'));
+ assert.ok(entry.includes('gpu_training_performed:false'));
 });
 
 test('Qwen GPU control dispatches only reviewed Kaggle workflow and never claims training complete',async()=>{
