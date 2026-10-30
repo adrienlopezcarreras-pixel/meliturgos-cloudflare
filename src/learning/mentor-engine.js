@@ -684,7 +684,7 @@ export class MentorEngine {
     for (const wave of providerWaves) {
       if (!codeCouncil && proposals.length) break;
       // A new wave never starts once it could not finish inside the budget.
-      if (attemptedProviders.length && remaining() < Math.min(this.invokeTimeoutMs, 20_000)) {
+      if (attemptedProviders.length && remaining() < Math.min(this.invokeTimeoutMs, 10_000)) {
         failures.push({ provider: 'mentor', error: 'MENTOR_TIME_BUDGET_EXHAUSTED', stage: 'initial' });
         break;
       }
