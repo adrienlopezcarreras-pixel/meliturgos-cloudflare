@@ -103,11 +103,11 @@ export async function renewAutonomyRuntimeLease({ db = null, owner, leaseMs = DE
   if (!db) {
     const current = memoryStore?.get(LEASE_KEY) || null;
     if (!current || current.owner !== ownerId || Number(current.expires_at || 0) <= Number(now)) return false;
-    memoryStore.set(LEASE_KEY, { ...current, expires_at: expiresAt });
+    memoryStore.set(LEASE_KEY, { ...current, expires_at: Math.max(Number(current.expires_at), expiresAt) });
     return true;
   }
   const result = await db.prepare(`
-    UPDATE dev_bridge_state SET last_seen=?
+    UPDATE dev_bridge_state SET last_seen=MAX(last_seen, ?)
     WHERE bridge_id=? AND status=? AND last_seen > ?
   `).bind(expiresAt, LEASE_KEY, ownerStatus(ownerId), Number(now)).run();
   return changedRows(result) === 1;
