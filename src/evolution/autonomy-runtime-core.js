@@ -160,7 +160,7 @@ export function providerDeferral(code, now = Date.now()) {
 // [Codex] Missing evidence is a resumable wait, never a failed implementation
 // or permission to generate an unnecessary patch. Reuse the scheduler's
 // existing bounded deferral and CAS; never revive terminal/concurrent work.
-export async function persistVerificationWait(repository, jobId, { code, liveChecks = [], ciRunId = null, candidateSha = null, now = Date.now() } = {}) {
+export async function persistVerificationWait(repository, jobId, { code, liveChecks = [], ciRunId = null, candidateSha = null, lookupStage = null, now = Date.now() } = {}) {
   const latest = await repository.get(jobId);
   if (latest?.status !== 'TEACHER_APPROVED') return latest;
   const diagnostic = /^[A-Za-z0-9_.:-]{1,160}$/.test(String(code || '')) ? code : 'VERIFY_EXISTING_EVIDENCE_REQUIRED';
@@ -169,7 +169,7 @@ export async function persistVerificationWait(repository, jobId, { code, liveChe
     verify_existing: {
       status: 'WAITING_VERIFICATION', objective_assessment: 'ALREADY_IMPLEMENTED_UNVERIFIED',
       code: diagnostic, live_checks: liveChecks, ci_run_id: ciRunId,
-      candidate_sha: candidateSha, observed_at: new Date(now).toISOString(),
+      candidate_sha: candidateSha, lookup_stage: /^[A-Z_]{1,40}$/.test(String(lookupStage || '')) ? lookupStage : null, observed_at: new Date(now).toISOString(),
     },
     autonomy_deferral: { code: diagnostic, observed_at: now, retry_after: now + 5 * 60_000 },
   } }, { expected: latest });
@@ -1035,6 +1035,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         await persistVerificationWait(jobRepository, job.id, {
           code: verificationCode,
           liveChecks, ciRunId, candidateSha: implementation.candidate_sha,
+          lookupStage: founderProof?.lookup_stage || null,
         });
       }
       bridgePreparation = {
