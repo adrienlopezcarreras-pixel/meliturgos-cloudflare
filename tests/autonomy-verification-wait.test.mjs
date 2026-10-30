@@ -211,3 +211,19 @@ test('Founder evidence deferral retains GitHub artifact failure code instead of 
   assert.match(source, /\^MISSION_TEST_\[A-Z0-9_\]\+\$/);
   assert.match(source, /code: verificationCode,/);
 });
+
+test('GitHub lookup stage is persisted safely and does not expose arbitrary values', async t => {
+  const { repository, id } = await fixture(t);
+  await persistVerificationWait(repository, id, {
+    code:'MISSION_TEST_GITHUB_LOOKUP_FAILED', candidateSha:SHA,
+    ciRunId:41059036430, lookupStage:'ARTIFACT_LIST',
+  });
+  let job=await repository.get(id);
+  assert.equal(job.result_json.verify_existing.lookup_stage,'ARTIFACT_LIST');
+  assert.equal(job.result_json.verify_existing.ci_run_id,41059036430);
+  await persistVerificationWait(repository, id, {
+    code:'MISSION_TEST_GITHUB_LOOKUP_FAILED', lookupStage:'secret?token=value',
+  });
+  job=await repository.get(id);
+  assert.equal(job.result_json.verify_existing.lookup_stage,undefined);
+});
