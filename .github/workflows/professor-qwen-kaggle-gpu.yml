@@ -105,8 +105,21 @@ jobs:
           pathlib.Path('artifacts/qwen-kernel/kernel-metadata.json').write_text(json.dumps(meta,indent=2)+'\n')
           print('KAGGLE_METADATA_VALIDATED')
           PY
-          # Inject dataset slug without logging its contents or any corpus data.
-          sed -i "s|os.environ.get('MEL_QWEN_DATASET_SLUG','')|'${DATASET_SLUG}'|" artifacts/qwen-kernel/main.py
+          # Replace exactly one slug placeholder, without shell interpolation.
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          target=Path('artifacts/qwen-kernel/main.py')
+          source=target.read_text(encoding='utf-8')
+          needle="os.environ.get('MEL_QWEN_DATASET_SLUG','')"
+          slug=os.environ['DATASET_SLUG']
+          if source.count(needle)!=1:
+              raise SystemExit('QWEN_DATASET_SLUG_INJECTION_AMBIGUOUS')
+          source=source.replace(needle,repr(slug))
+          compile(source,str(target),'exec')
+          target.write_text(source,encoding='utf-8')
+          print('QWEN_DATASET_SLUG_EMBEDDED')
+          PY
           kaggle kernels push -p artifacts/qwen-kernel --accelerator NvidiaTeslaT4
       - name: Record dispatch (not training success)
         if: success()

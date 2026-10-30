@@ -10,3 +10,10 @@ test('Kaggle GPU dispatch requires reviewed corpus dry-run first',()=>{
   assert.match(workflow,/QWEN_DATASET_EXACT_FILES_REQUIRED/);
   assert.match(workflow,/scripts\/train-qwen3-lora.py --dataset .* --dry-run/);
 });
+
+test('Qwen notebook dataset slug injection is unique and checked before dispatch',()=>{
+  assert.match(workflow,/source\.count\(needle\)!=1/);
+  assert.match(workflow,/QWEN_DATASET_SLUG_INJECTION_AMBIGUOUS/);
+  assert.match(workflow,/compile\(source,str\(target\),'exec'\)/);
+  assert.doesNotMatch(workflow,/sed -i/);
+});
