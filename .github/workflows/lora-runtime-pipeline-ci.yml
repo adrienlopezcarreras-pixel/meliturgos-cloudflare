@@ -14,6 +14,8 @@ on:
       - 'src/evaluation/**'
       - 'src/api/native-chat.js'
       - 'src/professor-live-learning-entry.js'
+      - 'src/pages/dual-lora-training-plan.js'
+      - 'tests/qwen-kaggle-setup-guidance.test.mjs'
       - 'scripts/*lora*'
       - 'requirements-qwen3-lora.txt'
       - 'tests/*lora*'
@@ -100,6 +102,9 @@ jobs:
 
       - name: Abliteration GPU readiness messaging
         run: node --test tests/abliteration-gpu-readiness-guidance.test.mjs
+
+      - name: Qwen Kaggle setup guidance
+        run: node --test tests/qwen-kaggle-setup-guidance.test.mjs
 
       - name: Qwen Kaggle metadata identity
         run: node --test tests/qwen-kaggle-kernel-metadata.test.mjs
