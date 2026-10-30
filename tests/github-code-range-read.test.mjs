@@ -68,3 +68,13 @@ test('a source filename cannot inject a different ref or URL fragment into a pin
   assert.equal(url.hash,'');assert.ok(url.pathname.endsWith(path.split('/').map(encodeURIComponent).join('/')));
  }
 });
+
+// 30/10: FOUNDER-07 targets src/backup/restore-service.js; the data rule
+// "backup(s)/" denied MEL's own restore code, so MAX could never read it.
+test('MEL backup source code is readable while backup data directories stay denied', async () => {
+  const f = fixture();
+  for (const path of ['backups/d1.sql', 'data/backup/dump.json', 'src/backup/secrets/key.js', 'src/backup/.env'])
+    await assert.rejects(f.reader.read(path, { start_line: 1, end_line: 2 }), error => error.code === 'CODE_PATH_DENIED');
+  const row = await f.reader.read('src/backup/restore-service.js', { start_line: 1, end_line: 2 });
+  assert.equal(row.path, 'src/backup/restore-service.js');
+});
