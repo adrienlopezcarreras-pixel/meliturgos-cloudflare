@@ -36,6 +36,8 @@ on:
       - 'tests/abliteration-gpu-readiness-guidance.test.mjs'
       - 'scripts/abliteration-gated-preflight.py'
       - 'tests/test_qwen_gpu_evidence.py'
+      - 'tests/test_qwen_kaggle_output_layout.py'
+      - '.github/workflows/professor-qwen-kaggle-result-verify.yml'
       - 'scripts/verify-qwen-gpu-artifacts.py'
       - 'tests/learning-engine.test.mjs'
       - 'notebooks/MEL-QLORA-SMOKE-COLAB.ipynb'
@@ -87,6 +89,9 @@ jobs:
 
       - name: Qwen3 GPU artifact evidence (offline)
         run: python -m unittest discover -s tests -p 'test_qwen_gpu_evidence.py' -v
+
+      - name: Qwen3 Kaggle output layout (offline)
+        run: python -m unittest discover -s tests -p 'test_qwen_kaggle_output_layout.py' -v
 
       - name: Abliteration reviewed offline plan (no GPU)
         run: python -m unittest discover -s tests -p 'test_abliteration_plan.py' -v
