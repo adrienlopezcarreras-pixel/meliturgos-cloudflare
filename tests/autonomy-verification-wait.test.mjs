@@ -202,3 +202,12 @@ test('legacy Council cooldown without a provider call receives a bounded schedul
   assert.equal(repeated.attempts, 1);
   assert.equal(repeated.retry_after, first.retry_after);
 });
+
+
+test('Founder evidence deferral retains GitHub artifact failure code instead of generic Council label', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../src/evolution/autonomy-runtime-core.js', import.meta.url), 'utf8');
+  assert.match(source, /council\?\.decision === 'MISSION_TEST_EVIDENCE_REQUIRED' && founderProof\?\.ok === false/);
+  assert.match(source, /\^MISSION_TEST_\[A-Z0-9_\]\+\$/);
+  assert.match(source, /code: verificationCode,/);
+});
