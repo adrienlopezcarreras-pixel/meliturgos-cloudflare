@@ -1534,4 +1534,47 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1793366400000
   },
+  {
+    "id": "claude-roadmap-contract-must-allow-verified-existing-20261030",
+    "domain": "roadmap",
+    "task": "Clore une mission de feuille de route dont l'objectif est déjà atteint.",
+    "input": "Le contrat IMPLEMENT de FOUNDER-01 exigeait un diff code+test, alors que le Council avait approuvé VERIFY_EXISTING sur une CI verte au SHA exact.",
+    "before": "FOUNDER-01 approuvée trois fois le 30/10, rejetée à chaque fois (ROADMAP_CODE_AND_REGRESSION_REQUIRED) : la mission ne pouvait jamais se terminer.",
+    "after": "Clôture sans diff seulement avec la décision VERIFY_EXISTING approuvée par le Council, la CI complète au SHA exact et la vérification enregistrée sur ce SHA ; FOUNDER-01 COMPLETED.",
+    "rationale": "Chaque décision qu'un planificateur peut prendre doit avoir un chemin de clôture ; sinon une décision légitime bloque définitivement la feuille de route.",
+    "tests": [
+      "PR #2926",
+      "D1 dev_jobs FOUNDER-01 COMPLETED 30/10 17:18 UTC"
+    ],
+    "tags": [
+      "roadmap",
+      "max",
+      "completion"
+    ],
+    "source": "claude",
+    "validated": true,
+    "quality": 1,
+    "created_at": 1793380000000
+  },
+  {
+    "id": "claude-agent-prompt-and-validator-must-agree-20261030",
+    "domain": "agents",
+    "task": "Faire écrire du code par un Council de modèles avec un format d'édition validé.",
+    "input": "La consigne demandait un SEARCH vide pour ajouter un test ; le validateur ne l'acceptait que pour créer un fichier, et le contrat n'autorisait qu'un fichier de test existant.",
+    "before": "FOUNDER-02 : qwen2.5-coder a suivi la consigne deux fois, ses éditions ont été refusées (MENTOR_INVALID_CHANGE), puis MENTOR_NO_VALID_CODE_PROPOSAL.",
+    "after": "Un SEARCH vide sur un fichier de test existant ajoute le test à la fin ; la consigne le précise ; test de régression avec la réponse réelle du modèle.",
+    "rationale": "Quand un agent échoue en boucle, comparer d'abord sa consigne, le validateur et le contrat : un modèle qui obéit à une consigne que le validateur refuse ne réussira jamais.",
+    "tests": [
+      "dev_jobs FOUNDER-02 mentor_attempt_history 30/10"
+    ],
+    "tags": [
+      "agents",
+      "mentor",
+      "max"
+    ],
+    "source": "claude",
+    "validated": true,
+    "quality": 1,
+    "created_at": 1793382000000
+  },
 ]);

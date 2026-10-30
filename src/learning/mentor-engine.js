@@ -292,6 +292,18 @@ function applyInspectedEdits(edits, inspectedFiles, repairReferences = [], visib
       if (!touched.includes(path)) touched.push(path);
       continue;
     }
+    // An empty SEARCH on an existing test file appends a new test at its end.
+    // 30/10 production: FOUNDER-02 asked for one more regression in an existing
+    // test file; qwen2.5-coder appended it with an empty SEARCH twice and both
+    // attempts were refused, so the coder Council could never deliver it.
+    if (byPath.has(path) && NEW_TEST_PATH.test(path) && !String(edit?.find ?? '')) {
+      const added = String(edit?.replace ?? '');
+      const source = byPath.get(path);
+      if (!added.trim() || source.length + added.length + 1 > MAX_CHANGE_CHARS) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path} — ajout de test vide ou trop long`), { code: 'MENTOR_INVALID_CHANGE' });
+      byPath.set(path, source.replace(/\n*$/, '\n') + '\n' + added.replace(/^\n+/, ''));
+      if (!touched.includes(path)) touched.push(path);
+      continue;
+    }
     if (!byPath.has(path)) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path} — fichier non inspecté : seuls les fichiers de SOURCES_INSPECTÉES ou un nouveau tests/<nom>.test.mjs directement dans tests/ (imports en ../src/...)`), { code: 'MENTOR_INVALID_CHANGE' });
     const visible = visibleFiles.find(file => file.path === path);
     const find = resolveFind(visible?.content, String(edit?.find ?? ''));
@@ -520,7 +532,7 @@ function buildPrompt({ role, goal, files, lessons, experiences, previousAttempts
     'RÔLE: ' + role + '. MODE: ' + (mode === 'repair' ? 'RÉPARATION APRÈS TEST' : 'IMPLÉMENTATION') + '.',
     'FORMAT OBLIGATOIRE (texte brut, sans JSON) : une ligne « SUMMARY modification concrète », une ligne « TESTS test:smoke », puis pour chaque modification : une ligne « EDIT CHEMIN_EXACT », une ligne « <<<<<<< SEARCH », l’extrait EXACT et UNIQUE à remplacer, une ligne « ======= », le nouveau contenu, une ligne « >>>>>>> REPLACE ». Le JSON {"summary","edits":[{"path","find","replace"}],"tests"} reste accepté.',
     'L’extrait SEARCH doit être EXACT et UNIQUE, copié de SOURCES_INSPECTÉES ; REPLACE est son remplacement réel.',
-    'TEST OBLIGATOIRE : tout changement de logique dans src/ s’accompagne d’un nouveau test, en bloc EDIT tests/<nom>.test.mjs avec une section SEARCH vide ; il utilise node:test et node:assert/strict, importe le module modifié par chemin relatif et vérifie le comportement demandé.',
+    'TEST OBLIGATOIRE : tout changement de logique dans src/ s’accompagne d’un nouveau test, en bloc EDIT tests/<nom>.test.mjs avec une section SEARCH vide (si ce fichier de test existe déjà, le bloc est ajouté à sa fin) ; il utilise node:test et node:assert/strict, importe le module modifié par chemin relatif et vérifie le comportement demandé.',
     'Fichiers autorisés: ' + allowed + '. Ne crée pas de fichier non inspecté.',
     'Ne renvoie pas un fichier entier, un diff, un bloc FILE/MEL_FILE ou du texte tronqué.',
     'Modifie le minimum pour faire avancer l’objectif approuvé. Aucun nouvel import ou module non présent dans les fichiers/dependances vérifiés.',
