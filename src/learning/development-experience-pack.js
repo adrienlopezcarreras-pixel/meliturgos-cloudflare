@@ -1512,4 +1512,26 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1793000000000
   },
+  {
+    "id": "claude-verify-parsers-on-real-provider-artifacts-20261030",
+    "domain": "verification",
+    "task": "Valider une preuve téléchargée depuis un service externe (artefact GitHub Actions).",
+    "input": "Le lecteur zip des preuves FOUNDER-01 n'acceptait que l'option 0 ; GitHub écrit ses artefacts avec un descripteur de données (option 0x08).",
+    "before": "Chaque artefact réel échouait à ARCHIVE_PARSE : FOUNDER-01 restait MISSION_TEST_GITHUB_LOOKUP_FAILED alors que la CI et les lectures Gmail, Agenda et Drive étaient vertes ; les tests ne couvraient qu'un zip fabriqué maison.",
+    "after": "Lecture depuis le répertoire central et vérification du descripteur ; le code a été rejoué sur l'artefact réel du run 41066499149 avant fusion.",
+    "rationale": "Un lecteur de format strict se teste sur un exemplaire réel produit par le fournisseur, pas seulement sur une fixture écrite par nous ; sinon le contrôle refuse toute vraie preuve.",
+    "tests": [
+      "PR #2921",
+      "Artefact founder-mission-test-evidence du run 41066499149 : ok:true"
+    ],
+    "tags": [
+      "verification",
+      "github",
+      "truth"
+    ],
+    "source": "claude",
+    "validated": true,
+    "quality": 1,
+    "created_at": 1793366400000
+  },
 ]);
