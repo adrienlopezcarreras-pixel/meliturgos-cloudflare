@@ -1001,3 +1001,25 @@ test('the cloud coder works with no local PC provider configured', async () => {
   assert.deepEqual(calls, ['cloud']);
   assert.match(result.proposal.changes[0].content, /return "new";/);
 });
+
+// 30/10 production: FOUNDER-02 allows only an existing test file. qwen2.5-coder
+// appended its regression with an empty SEARCH (as the prompt asks) and the
+// edit was refused twice: the coder Council could never deliver the mission.
+test('an empty SEARCH on an existing inspected test file appends the new test at its end', async () => {
+  const source = 'export function double(x) {\n  return x;\n}\n';
+  const existingTest = "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { double } from '../src/math.js';\ntest('one', () => { assert.equal(double(0), 0); });\n";
+  const reply = ['SUMMARY doubler',
+    'EDIT src/math.js', '<<<<<<< SEARCH', '  return x;', '=======', '  return x * 2;', '>>>>>>> REPLACE',
+    'EDIT tests/math.test.mjs', '<<<<<<< SEARCH', '=======', "test('two', () => { assert.equal(double(2), 4); });", '>>>>>>> REPLACE'].join('\n');
+  const inspectedFiles = [{ path: 'src/math.js', content: source }, { path: 'tests/math.test.mjs', content: existingTest }];
+  const engine = new MentorEngine({ providerFactory: async () => [provider('append', reply)] });
+  const result = await engine.propose({ env: {}, goal: 'Doubler', inspectedFiles, requireTest: true });
+  const test = result.proposal.changes.find(change => change.path === 'tests/math.test.mjs');
+  assert.ok(test.content.startsWith(existingTest), 'the existing tests are kept intact');
+  assert.match(test.content, /test\('two'[\s\S]*double\(2\), 4/);
+  assert.equal(test.created, undefined);
+  // An empty SEARCH on an existing source file still refuses.
+  const bad = ['SUMMARY x', 'EDIT src/math.js', '<<<<<<< SEARCH', '=======', 'export const y = 1;', '>>>>>>> REPLACE'].join('\n');
+  const refuser = new MentorEngine({ providerFactory: async () => [provider('bad', bad)] });
+  await assert.rejects(() => refuser.propose({ env: {}, goal: 'x', inspectedFiles }));
+});
