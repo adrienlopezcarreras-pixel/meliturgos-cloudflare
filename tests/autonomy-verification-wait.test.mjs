@@ -211,3 +211,9 @@ test('Founder evidence deferral retains GitHub artifact failure code instead of 
   assert.match(source, /\^MISSION_TEST_\[A-Z0-9_\]\+\$/);
   assert.match(source, /code: verificationCode,/);
 });
+
+test('Founder GitHub retrieval stage is forwarded into D1 verification wait', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../src/evolution/autonomy-runtime-core.js', import.meta.url), 'utf8');
+  assert.match(source, /lookupStage: founderProof\?\.lookup_stage \|\| null/);
+});
