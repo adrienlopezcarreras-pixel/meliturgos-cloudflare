@@ -28,3 +28,17 @@ test('missions failing for pipeline reasons call for a code fix, not a LoRA', ()
   assert.equal(result.decision, 'CODE_FIX');
   assert.equal(result.findings[0].code, 'LORA_GAP_IS_PIPELINE');
 });
+
+
+test('missing metrics never masquerade as persistent zero measurements', () => {
+  const missing = { ...ok, agentic_execution: null, technical_depth: null };
+  const result = observeLoraObjectives({ impactRows: [impact(missing), impact(missing)] });
+  assert.equal(result.decision, 'OBSERVE');
+  assert.equal(result.reason, 'OBJECTIVES_MET_OR_NOT_PERSISTENT');
+});
+
+test('missing over-refusal metric does not spuriously open an uncensored cycle', () => {
+  const noRefusal = { ...ok, over_refusal_rate: undefined };
+  const result = observeLoraObjectives({ impactRows: [impact(noRefusal), impact(noRefusal)] });
+  assert.equal(result.decision, 'OBSERVE');
+});
