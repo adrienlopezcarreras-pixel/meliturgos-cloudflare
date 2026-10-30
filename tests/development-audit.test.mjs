@@ -83,3 +83,24 @@ test('a successful code-model probe cancels its pending timeout', async t => {
   assert.equal(handles.length, 1);
   assert.equal(handles[0].cleared, true);
 });
+
+test('a timed-out code-model probe fails and clears its timer', async t => {
+  const oldSet = globalThis.setTimeout, oldClear = globalThis.clearTimeout, handles = [];
+  globalThis.setTimeout = (callback, delay) => {
+    const handle = { callback, delay, cleared: false };
+    handles.push(handle);
+    queueMicrotask(callback);
+    return handle;
+  };
+  globalThis.clearTimeout = handle => { handle.cleared = true; };
+  t.after(() => { globalThis.setTimeout = oldSet; globalThis.clearTimeout = oldClear; });
+  const registry = { list: () => [{ id: 'unresponsive-coder', capabilities: ['CODE_SPECIALIST'] }] };
+  const result = await probeCodeModels({
+    AI: { run: () => new Promise(() => {}) }
+  }, { registry, timeoutMs: 250 });
+  assert.equal(result.length, 1);
+  assert.equal(result[0].passed, false);
+  assert.equal(result[0].error, 'PROBE_TIMEOUT');
+  assert.equal(handles.length, 1);
+  assert.equal(handles[0].cleared, true);
+});
