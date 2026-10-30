@@ -8,7 +8,7 @@ class QwenHfAuditContract(unittest.TestCase):
         self.assertIn("QWEN_HF_REVISION_MUST_BE_IMMUTABLE_SHA", WORKFLOW)
         self.assertIn("Guilherme34/uncensor/resolve/", WORKFLOW)
         self.assertIn("QWEN_HF_FILE_EXCEEDS_AUDIT_LIMIT", WORKFLOW)
-        self.assertIn("mod.convert(target,Path('.tmp-qwen-audit/train-only.jsonl'),sha)", WORKFLOW)
+        self.assertIn("mod.convert(target,Path('.tmp-qwen-audit/train-only.jsonl'),sha,exclude_cross_split=True)", WORKFLOW)
     def test_push_trigger_uses_pinned_revision(self):
         self.assertIn('  push:\n    branches: [main]', WORKFLOW)
         self.assertIn("'.github/workflows/qwen-hf-source-audit.yml'", WORKFLOW)
