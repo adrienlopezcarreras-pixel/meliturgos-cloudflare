@@ -178,12 +178,19 @@ export async function findGreenFullCandidateRun(env = {}, sha, { fetchImpl = fet
   const { repository, branch } = repoAndBranch(env);
   const head = String(sha || '').toLowerCase();
   if (!SHA_RE.test(head)) return null;
-  const page = await fetchJson(fetchImpl, `https://api.github.com/repos/${encodePath(repository)}/actions/workflows/full-candidate-ci.yml/runs?head_sha=${head}&per_page=10`, env);
-  if (!Array.isArray(page?.workflow_runs)) throw Object.assign(
-    new Error('COMPLETION_GITHUB_RESPONSE_INVALID'), { code: 'COMPLETION_GITHUB_RESPONSE_INVALID' });
-  const run = page.workflow_runs
-    .find((row) => row?.head_sha === head && row?.head_branch === branch && row?.status === 'completed' && row?.conclusion === 'success');
-  return run ? Number(run.id) : null;
+  // The first page can contain only failed/retried executions. Inspect a
+  // bounded number of pages without ever accepting another branch or SHA.
+  for (let pageNumber = 1; pageNumber <= 3; pageNumber++) {
+    const page = await fetchJson(fetchImpl, `https://api.github.com/repos/${encodePath(repository)}/actions/workflows/full-candidate-ci.yml/runs?head_sha=${head}&per_page=100&page=${pageNumber}`, env);
+    if (!Array.isArray(page?.workflow_runs)) throw Object.assign(
+      new Error('COMPLETION_GITHUB_RESPONSE_INVALID'), { code: 'COMPLETION_GITHUB_RESPONSE_INVALID' });
+    const run = page.workflow_runs.find((row) => row?.head_sha === head
+      && row?.head_branch === branch && row?.status === 'completed' && row?.conclusion === 'success'
+      && Number.isSafeInteger(Number(row?.id)) && Number(row.id) > 0);
+    if (run) return Number(run.id);
+    if (page.workflow_runs.length < 100) break;
+  }
+  return null;
 }
 
 // Completion without a hand-written Teacher record: the Council approved this
