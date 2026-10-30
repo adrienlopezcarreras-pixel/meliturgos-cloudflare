@@ -60,8 +60,8 @@ def convert(source, output, expected_sha256, limit=1000):
                 train_hashes.add(key)
                 if len(selected) < limit and not any(item[0] == key for item in selected):
                     selected.append((key, canonical))
-    if train_hashes & test_hashes:
-        raise ValueError("QWEN_CROSS_SPLIT_DUPLICATES")
+    overlap = train_hashes & test_hashes
+    selected = [(key, row) for key, row in selected if key not in overlap]
     if len(selected) < 50:
         raise ValueError("QWEN_TOO_FEW_TRAIN_EXAMPLES")
     lines = [json.dumps(row, sort_keys=True, ensure_ascii=False) + "\n" for _, row in selected]
@@ -71,7 +71,8 @@ def convert(source, output, expected_sha256, limit=1000):
     output.write_text("".join(lines), encoding="utf-8")
     return {"status": "QWEN_UNREVIEWED_TRAIN_ONLY_NOT_PUBLISHED", "source_sha256": actual,
             "output_sha256": digest(output), "train_valid_rows": counts["TRAIN"],
-            "test_valid_rows_excluded": counts["TEST"], "output_rows": len(selected),
+            "test_valid_rows_excluded": counts["TEST"], "cross_split_duplicates_excluded": len(overlap),
+            "output_rows": len(selected),
             "license_review_passed": False, "gpu_training_performed": False}
 
 if __name__ == "__main__":
