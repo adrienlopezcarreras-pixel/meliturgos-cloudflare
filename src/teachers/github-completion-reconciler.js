@@ -595,7 +595,9 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
         ci,
         completed_at: new Date().toISOString(),
       };
-      const codeAcceptance = createRoadmapCodeAcceptance(job, record, ci);
+      const codeAcceptance = createRoadmapCodeAcceptance(job, record, ci, {
+        verifiedExisting: proposal.decision === 'VERIFY_EXISTING' && record.source === 'council-approved',
+      });
       if (codeAcceptance) result.roadmap_code_acceptance = codeAcceptance;
       // [Codex] Only the existing correlated Council/exact-CI completion gate
       // may promote a no-code assessment; neither planner nor wait can do so.

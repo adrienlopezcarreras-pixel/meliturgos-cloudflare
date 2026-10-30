@@ -114,3 +114,27 @@ for(const storage of ['memory','sqlite'])test(`a dependent unlocks only from an 
   assert.equal(isAcceptedRoadmapCodeJob(await repository.get(job.id)),false);
   assert.ok(!(await supervisor.state()).verifiedDependencyIds.includes(parent.id));
 });
+
+// 30/10 production: FOUNDER-01 was Council-approved as VERIFY_EXISTING three
+// times on a green exact-SHA CI, yet the acceptance kept demanding a new diff
+// (ROADMAP_CODE_AND_REGRESSION_REQUIRED): an objective already met could never close.
+test('a Council-verified existing implementation is accepted without an artificial diff, only with its verification', async () => {
+  const {createRoadmapCodeAcceptance,isAcceptedRoadmapCodeJob}=await import('../src/roadmap/roadmap-code-acceptance.js');
+  const sha='c'.repeat(40),branch='candidate/mel-clean-autonomy';
+  const job={id:'founder-verified',status:'COMPLETED',requested_by:'mel-autonomy',files_json:[],
+    optional_context:{roadmap_id:'MEL-FOUNDER-01',roadmap_contract_revision:ROADMAP_CODE_CONTRACT_REVISION}};
+  const record={candidate_sha:sha,candidate_branch:branch,ci_run_id:7};
+  const ci={verified:true,workflow:'full-candidate-ci',head_sha:sha,head_branch:branch,run_id:7,conclusion:'success'};
+  assert.throws(()=>createRoadmapCodeAcceptance(job,record,ci),{code:'ROADMAP_CODE_AND_REGRESSION_REQUIRED'});
+  const receipt=createRoadmapCodeAcceptance(job,record,ci,{verifiedExisting:true});
+  assert.equal(receipt.verification,'VERIFY_EXISTING');
+  assert.throws(()=>createRoadmapCodeAcceptance(job,record,{...ci,conclusion:'failure'},{verifiedExisting:true}),{code:'ROADMAP_CODE_ACCEPTANCE_CI_REQUIRED'});
+  const completion={status:'VERIFIED',candidate_sha:sha,candidate_branch:branch,ci,mel_implementation:{verified:true,providers_attempted:2}};
+  const accepted={...job,result_json:{roadmap_code_acceptance:receipt,autonomy_completion:completion,verify_existing:{status:'VERIFIED',candidate_sha:sha}}};
+  assert.equal(isAcceptedRoadmapCodeJob(accepted),true);
+  // The no-diff exception needs the verification recorded on the same SHA.
+  assert.equal(isAcceptedRoadmapCodeJob({...accepted,result_json:{...accepted.result_json,verify_existing:{status:'WAITING_VERIFICATION',candidate_sha:sha}}}),false);
+  assert.equal(isAcceptedRoadmapCodeJob({...accepted,result_json:{...accepted.result_json,verify_existing:{status:'VERIFIED',candidate_sha:'d'.repeat(40)}}}),false);
+  const {verification,...plainReceipt}=receipt;
+  assert.equal(isAcceptedRoadmapCodeJob({...accepted,result_json:{...accepted.result_json,roadmap_code_acceptance:plainReceipt}}),false);
+});
