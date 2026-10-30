@@ -140,8 +140,23 @@ for (const file of files) {
   } else {
     console.log(`✗ ${display} (rc=${result.rc})`);
     failures++;
-    const notOk = String(result.out || "").split(/\r?\n/).filter(line => /^\s*not ok \d+/.test(line)).slice(0, 5);
-    failureRecap.push(`✗ ${display} (rc=${result.rc})`, ...notOk.map(line => `    ${line.trim()}`));
+    // Keep each failure's TAP diagnostic (error, expected, actual, location):
+    // the recap is the tail an automated repair receives. 30/10: MAX repaired
+    // FOUNDER-02 twice from the bare "not ok 23 - <name>" line, blind.
+    const lines = String(result.out || "").split(/\r?\n/);
+    const recap = [];
+    for (let i = 0; i < lines.length && recap.length < 5; i++) {
+      if (!/^\s*not ok \d+/.test(lines[i])) continue;
+      const indent = lines[i].match(/^\s*/)[0].length;
+      const detail = [];
+      for (let j = i + 1; j < lines.length && detail.length < 24; j++) {
+        if (/^\s*(not ok|ok) \d+/.test(lines[j]) && lines[j].match(/^\s*/)[0].length <= indent) break;
+        if (/^\s*(---|\.\.\.|duration_ms|type:|failureType|code: 'ERR_TEST_FAILURE')/.test(lines[j])) continue;
+        if (lines[j].trim()) detail.push(`      ${lines[j].trim()}`.slice(0, 240));
+      }
+      recap.push(`    ${lines[i].trim()}`, ...detail);
+    }
+    failureRecap.push(`✗ ${display} (rc=${result.rc})`, ...recap);
   }
 }
 
