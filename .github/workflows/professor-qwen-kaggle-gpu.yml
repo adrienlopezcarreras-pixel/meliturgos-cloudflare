@@ -101,7 +101,7 @@ jobs:
           creds=KaggleCredentials(client=client,access_token=token)
           username=str(creds.introspect()).strip()
           if not username or '/' in username: raise SystemExit('KAGGLE_USERNAME_INVALID')
-          meta={'id':username+'/mel-qwen3-gated-gpu','title':'MEL Qwen3 GPU gated candidate','code_file':'main.py','language':'python','kernel_type':'script','is_private':True,'enable_gpu':True,'enable_internet':True,'machine_shape':'NvidiaTeslaT4','dataset_sources':[os.environ['DATASET_SLUG']],'competition_sources':[],'kernel_sources':[],'model_sources':[]}
+          meta={'id':username+'/mel-qwen3-gated-gpu','title':'MEL Qwen3 Gated GPU','code_file':'main.py','language':'python','kernel_type':'script','is_private':True,'enable_gpu':True,'enable_internet':True,'machine_shape':'NvidiaTeslaT4','dataset_sources':[os.environ['DATASET_SLUG']],'competition_sources':[],'kernel_sources':[],'model_sources':[]}
           pathlib.Path('artifacts/qwen-kernel/kernel-metadata.json').write_text(json.dumps(meta,indent=2)+'\n')
           print('KAGGLE_METADATA_VALIDATED')
           PY
