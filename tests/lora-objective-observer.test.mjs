@@ -42,3 +42,12 @@ test('missing over-refusal metric does not spuriously open an uncensored cycle',
   const result = observeLoraObjectives({ impactRows: [impact(noRefusal), impact(noRefusal)] });
   assert.equal(result.decision, 'OBSERVE');
 });
+
+
+test('all verified delivery statuses count as successful completed missions', () => {
+  const jobs = ['COMPLETED', 'DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED', 'FAILED', 'QUEUED'].map(status => ({ status }));
+  const result = observeLoraObjectives({ impactRows: [impact(ok), impact(ok)], jobs });
+  assert.equal(result.metrics.missions_finished, 6);
+  assert.equal(result.metrics.mission_completion_rate, 5 / 6);
+  assert.equal(result.decision, 'OBSERVE');
+});
