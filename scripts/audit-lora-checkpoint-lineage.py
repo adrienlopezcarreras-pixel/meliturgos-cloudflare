@@ -10,6 +10,13 @@ DIGEST = re.compile(r"^[0-9a-f]{64}$")
 CYCLE = re.compile(r"^C([0-9]{3})$", re.I)
 
 
+def normalized_digest(value):
+    text = str(value or "").lower()
+    if text.startswith("sha256:"):
+        text = text[7:]
+    return text if DIGEST.fullmatch(text) else None
+
+
 def audit(records, expected=25):
     issues = []
     by_cycle = {}
@@ -34,19 +41,22 @@ def audit(records, expected=25):
         if rec is None:
             issues.append(f"missing cycle: {label}")
             continue
-        digest = str(rec.get("artifact_digest") or "").lower()
-        parent = str(rec.get("parent_artifact_digest") or "").lower()
-        if not DIGEST.fullmatch(digest):
+        digest = normalized_digest(rec.get("artifact_digest"))
+        parent = normalized_digest(rec.get("parent_artifact_digest"))
+        if digest is None:
             issues.append(f"{label}: invalid or missing artifact_digest")
         if index > 1:
             prior = by_cycle.get(index - 1)
-            prior_digest = str((prior or {}).get("artifact_digest") or "").lower()
-            if not DIGEST.fullmatch(parent):
+            prior_digest = normalized_digest((prior or {}).get("artifact_digest"))
+            if parent is None:
                 issues.append(f"{label}: invalid or missing parent_artifact_digest")
-            elif not DIGEST.fullmatch(prior_digest) or parent != prior_digest:
+            elif prior_digest is None or parent != prior_digest:
                 issues.append(f"{label}: parent does not match C{index-1:03d} digest")
-        elif parent:
-            issues.append(f"{label}: first cycle has unexpected parent")
+        elif rec.get("parent_artifact_digest"):
+            if parent is None:
+                issues.append(f"{label}: invalid initial parent digest")
+            elif str(rec.get("stage") or "").lower() not in {"uncensored-continue", "agentic"}:
+                issues.append(f"{label}: initial parent requires a continuation stage")
     return {"status": "VERIFIED" if not issues else "UNVERIFIED",
             "expected_cycles": expected, "present_cycles": len(by_cycle),
             "issues": issues}
