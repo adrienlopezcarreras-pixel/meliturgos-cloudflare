@@ -647,7 +647,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          kaggle kernels push             -p artifacts/kaggle-kernel             --accelerator NvidiaTeslaT4             -t "$KAGGLE_KERNEL_TIMEOUT_SECONDS"
+          # The Kaggle CLI exits 0 on "Kernel push error". 30/10: the weekly GPU
+          # quota refused every push since 11:30 UTC; the monitor then read the
+          # previous COMPLETE kernel (C027) and failed later on
+          # KAGGLE_SOURCE_SHA_MISMATCH, hiding the real cause.
+          PUSH_LOG="$(kaggle kernels push             -p artifacts/kaggle-kernel             --accelerator NvidiaTeslaT4             -t "$KAGGLE_KERNEL_TIMEOUT_SECONDS" 2>&1)" || true
+          printf '%s\n' "$PUSH_LOG"
+          if grep -qi 'quota' <<<"$PUSH_LOG" && grep -qi 'push error' <<<"$PUSH_LOG"; then
+            echo "::error title=KAGGLE_GPU_WEEKLY_QUOTA_EXHAUSTED::Kaggle refused cycle $CYCLE: free weekly GPU quota reached. Nothing was trained; retry after the weekly reset."
+            exit 1
+          fi
+          if grep -qi 'push error' <<<"$PUSH_LOG" || ! grep -qiE 'successfully pushed|kernel version [0-9]+' <<<"$PUSH_LOG"; then
+            echo "::error title=KAGGLE_KERNEL_PUSH_REJECTED::Kaggle did not confirm the push of cycle $CYCLE."
+            exit 1
+          fi
           echo "Submitted $KERNEL_REF cycle $CYCLE with internet disabled."
 
       - name: Trace Kaggle training submission
