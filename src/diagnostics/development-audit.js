@@ -34,10 +34,19 @@ export async function probeCodeModels(env, { registry = standardRegistry, timeou
   return Promise.all(models.map(async model => {
     const started = Date.now();
     try {
-      const out = await Promise.race([
-        env.AI.run(model.id, { messages: [{ role: 'user', content: PROBE }], max_tokens: 800 }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('PROBE_TIMEOUT')), timeoutMs)),
-      ]);
+      let timer;
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('PROBE_TIMEOUT')), timeoutMs);
+      });
+      let out;
+      try {
+        out = await Promise.race([
+          env.AI.run(model.id, { messages: [{ role: 'user', content: PROBE }], max_tokens: 800 }),
+          timeout,
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
       const text = String(out?.response ?? out?.choices?.[0]?.message?.content ?? out?.output_text ?? '');
       const code = (text.match(/```(?:js|javascript)?\s*([\s\S]*?)```/) || [null, text])[1];
       // eslint-disable-next-line no-new-func
