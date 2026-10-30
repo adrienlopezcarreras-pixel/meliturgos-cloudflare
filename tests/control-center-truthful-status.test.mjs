@@ -135,7 +135,7 @@ test('partial LoRA payloads keep missing evidence unknown instead of inventing l
   assert.match(runtime,/trainStatus==='UNKNOWN'&&!verifiedTraining&&!trainActive\)setLoraTag\('#freeGpuState','Indisponible'/);
   assert.match(runtime,/wfStatus==='NEVER_RUN'\?'NON LANCÉE · OPTIONNELLE':'Indisponible'/);
   assert.match(runtime,/loraState==='UNKNOWN'\?'Indisponible'/);
-  assert.match(runtime,/percent==null\?'—':percent\+'%'/);
+  assert.match(runtime,/percent==null\?'—':percent\+'% des étapes'/);
   assert.doesNotMatch(runtime,/trainWf\.status\|\|'NEVER_RUN'/);
   assert.doesNotMatch(runtime,/wf\.status\|\|'NEVER_RUN'/);
   assert.doesNotMatch(runtime,/lora\.state\|\|'BLOCKED'/);
