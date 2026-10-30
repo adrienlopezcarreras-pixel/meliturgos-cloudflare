@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   tryAcquireAutonomyRuntimeLease,
   releaseAutonomyRuntimeLease,
+  renewAutonomyRuntimeLease,
 } from '../src/evolution/autonomy-runtime-lease.js';
 import { runAutonomyRuntimeTick } from '../src/evolution/autonomy-runtime.js';
 
@@ -127,4 +128,13 @@ test('a lease left by a killed invocation frees itself within 90 s (next minute 
   assert.equal(first.expires_at, 90_000);
   assert.equal((await tryAcquireAutonomyRuntimeLease({ owner: 'next', now: 60_000, memoryStore: store })).acquired, false);
   assert.equal((await tryAcquireAutonomyRuntimeLease({ owner: 'next', now: 120_000, memoryStore: store })).acquired, true);
+});
+
+test('expired owner cannot resurrect a lease; a fresh owner can acquire it', async () => {
+  const memoryStore = new Map();
+  assert.equal((await tryAcquireAutonomyRuntimeLease({ owner: 'old', now: 1000, leaseMs: 60000, memoryStore })).acquired, true);
+  assert.equal(await renewAutonomyRuntimeLease({ owner: 'old', now: 61000, memoryStore }), false);
+  assert.equal((await tryAcquireAutonomyRuntimeLease({ owner: 'new', now: 61000, leaseMs: 60000, memoryStore })).acquired, true);
+  assert.equal(await renewAutonomyRuntimeLease({ owner: 'old', now: 62000, memoryStore }), false);
+  assert.equal(await renewAutonomyRuntimeLease({ owner: 'new', now: 62000, memoryStore }), true);
 });
