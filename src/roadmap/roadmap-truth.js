@@ -6,6 +6,8 @@
 // réel vient de audit_logs (exécutions CapabilityBus) et de computer_commands
 // (actions réellement exécutées sur le PC), sur une fenêtre de 7 jours.
 
+import { isAcceptedRoadmapCodeJob } from './roadmap-code-acceptance.js';
+
 export const ROADMAP_TRUTH_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Élément de roadmap → preuves runtime. Un élément sans entrée ici n'a pas de
@@ -113,7 +115,36 @@ async function computerEvidence(db, since) {
   }
 }
 
+// A roadmap code objective that MAX delivered and that passed the full
+// acceptance gate (Council, exact-SHA full CI, code receipt) is proven by that
+// receipt. 30/10: FOUNDER-01 COMPLETED with a verified receipt still showed
+// « Déclaré, sans preuve » because only runtime capabilities were read.
+async function deliveredRoadmapEvidence(db) {
+  try {
+    const rows = (await db.prepare(
+      `SELECT id, status, requested_by, files_json, optional_context, result_json, updated_at FROM dev_jobs
+        WHERE status='COMPLETED' AND requested_by='mel-autonomy' AND result_json LIKE '%roadmap_code_acceptance%'
+        ORDER BY updated_at DESC LIMIT 200`
+    ).all())?.results || [];
+    const parse = value => { if (value && typeof value === 'object') return value; try { return JSON.parse(value || 'null'); } catch { return null; } };
+    const delivered = new Map();
+    for (const row of rows) {
+      const job = { ...row, files_json: parse(row.files_json) || [], optional_context: parse(row.optional_context) || {}, result_json: parse(row.result_json) || {} };
+      const id = job.optional_context?.roadmap_id;
+      if (!id || delivered.has(id) || !isAcceptedRoadmapCodeJob(job)) continue;
+      const proof = job.result_json.roadmap_code_acceptance;
+      delivered.set(id, { kind: 'max-delivery', id: 'full-candidate-ci#' + proof.ci_run_id, ok: 1, ko: 0,
+        last_ok: Number(row.updated_at) || null, last_ko: null, error: null, candidate_sha: proof.candidate_sha, job_id: job.id });
+    }
+    return delivered;
+  } catch {
+    return new Map();
+  }
+}
+
 export function classifyRoadmapItem(itemId, evidence) {
+  const delivery = evidence.delivered?.get(itemId);
+  if (delivery) return { truth: ROADMAP_TRUTH.VERIFIED_LIVE, last_proof_at: delivery.last_ok ? new Date(delivery.last_ok).toISOString() : null, proofs: [delivery] };
   const source = ROADMAP_PROOF_SOURCES[itemId];
   if (!source) return { truth: ROADMAP_TRUTH.DECLARED, proofs: [] };
   const proofs = [
@@ -133,7 +164,7 @@ export function classifyRoadmapItem(itemId, evidence) {
 export async function computeRoadmapTruth(db, phases, { now = Date.now() } = {}) {
   if (!db || typeof db.prepare !== 'function') return { available: false, reason: 'ROADMAP_TRUTH_DB_UNAVAILABLE' };
   const since = now - ROADMAP_TRUTH_WINDOW_MS;
-  const evidence = { capabilities: await capabilityEvidence(db, since), computer: await computerEvidence(db, since) };
+  const evidence = { capabilities: await capabilityEvidence(db, since), computer: await computerEvidence(db, since), delivered: await deliveredRoadmapEvidence(db) };
   const items = {};
   const counts = Object.fromEntries(Object.values(ROADMAP_TRUTH).map(k => [k, 0]));
   let total = 0;
