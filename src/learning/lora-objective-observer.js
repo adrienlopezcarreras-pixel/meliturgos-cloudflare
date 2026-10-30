@@ -13,6 +13,7 @@ export const LORA_OBJECTIVE_THRESHOLDS = Object.freeze({
 
 // Failures a LoRA cannot fix: they come from MEL's own pipeline or tools.
 const PIPELINE_CODES = /TIMEOUT|CONFLICT|QUOTA|RATE_LIMIT|UNAVAILABLE|EMPTY_WORKERS_AI|LEASE|PROVIDER/;
+const SUCCESS_STATES = new Set(['COMPLETED', 'DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED']);
 
 function impactMetrics(row) {
   const meta = row?.metadata || {};
@@ -33,8 +34,8 @@ export function observeLoraObjectives({ impactRows = [], jobs = [], streak = 2 }
   const impacts = impactRows.filter(row => row?.kind === 'lora-impact-candidate');
   const latest = impacts.at(-1) || null;
   const stage = String(latest?.metadata?.next_stage || 'UNCENSORED_WAITING');
-  const finished = jobs.filter(job => ['COMPLETED', 'FAILED'].includes(String(job?.status || '').toUpperCase()));
-  const completed = finished.filter(job => String(job.status).toUpperCase() === 'COMPLETED').length;
+  const finished = jobs.filter(job => SUCCESS_STATES.has(String(job?.status || '').toUpperCase()) || String(job?.status || '').toUpperCase() === 'FAILED');
+  const completed = finished.filter(job => SUCCESS_STATES.has(String(job?.status || '').toUpperCase())).length;
   const rejections = jobs.flatMap(job => job?.result_json?.bridge_preparation_diagnostic?.mentor_failure_codes || []).map(row => String(row?.code || ''));
   const pipelineShare = rejections.length ? rejections.filter(code => PIPELINE_CODES.test(code)).length / rejections.length : 0;
   const metrics = {
