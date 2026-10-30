@@ -6,18 +6,22 @@ import re
 import sys
 from pathlib import Path
 
-DIGEST = re.compile(r"^[0-9a-f]{64}$")
+DIGEST = re.compile(r"^[0-9a-f]{64}$", re.I)
+
+def normalize_digest(v):
+    return str(v or "").lower().removeprefix("sha256:")
 CYCLE = re.compile(r"^C([0-9]{3})$", re.I)
 
 
-def audit(records, expected=25):
+def audit(records, expected=25, root_digest=None):
     issues = []
     by_cycle = {}
     for record in records:
         if not isinstance(record, dict):
             issues.append("record is not an object")
             continue
-        label = str(record.get("cycle") or "").upper()
+        raw = record.get("cycle")
+        label = f"C{raw:03d}" if isinstance(raw, int) else str(raw or "").upper()
         match = CYCLE.fullmatch(label)
         if not match:
             issues.append(f"invalid cycle: {label!r}")
@@ -34,19 +38,26 @@ def audit(records, expected=25):
         if rec is None:
             issues.append(f"missing cycle: {label}")
             continue
-        digest = str(rec.get("artifact_digest") or "").lower()
-        parent = str(rec.get("parent_artifact_digest") or "").lower()
+        digest = normalize_digest(rec.get("artifact_digest"))
+        parent = normalize_digest(rec.get("parent_artifact_digest"))
         if not DIGEST.fullmatch(digest):
             issues.append(f"{label}: invalid or missing artifact_digest")
         if index > 1:
             prior = by_cycle.get(index - 1)
-            prior_digest = str((prior or {}).get("artifact_digest") or "").lower()
+            prior_digest = normalize_digest((prior or {}).get("artifact_digest"))
             if not DIGEST.fullmatch(parent):
                 issues.append(f"{label}: invalid or missing parent_artifact_digest")
             elif not DIGEST.fullmatch(prior_digest) or parent != prior_digest:
                 issues.append(f"{label}: parent does not match C{index-1:03d} digest")
         elif parent:
-            issues.append(f"{label}: first cycle has unexpected parent")
+            if not DIGEST.fullmatch(parent):
+                issues.append(f"{label}: invalid root parent digest")
+            elif not root_digest:
+                issues.append(f"{label}: external root parent not independently verified")
+            elif parent != normalize_digest(root_digest):
+                issues.append(f"{label}: root parent mismatch")
+        elif root_digest:
+            issues.append(f"{label}: expected root parent missing")
     return {"status": "VERIFIED" if not issues else "UNVERIFIED",
             "expected_cycles": expected, "present_cycles": len(by_cycle),
             "issues": issues}
@@ -56,6 +67,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=Path, help="JSON array of cycle records; read-only")
     parser.add_argument("--expected", type=int, default=25)
+    parser.add_argument("--root-digest", help="Independently verified parent digest preceding C001")
     args = parser.parse_args()
     if args.expected < 1 or args.expected > 999:
         parser.error("--expected must be between 1 and 999")
@@ -66,7 +78,7 @@ def main():
     except (OSError, ValueError) as exc:
         print(json.dumps({"status": "UNVERIFIED", "error": str(exc)}))
         return 2
-    result = audit(records, args.expected)
+    result = audit(records, args.expected, args.root_digest)
     print(json.dumps(result, indent=2))
     return 0 if result["status"] == "VERIFIED" else 1
 
