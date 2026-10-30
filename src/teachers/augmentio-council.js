@@ -247,6 +247,16 @@ async function invokeRoleWithFallback({ assignment, eligible, input, governor, d
       if (error?.code === 'COUNCIL_REVIEW_DEADLINE') break;
     }
   }
+  // Ensure at least two distinct successful providers before accepting quorum.
+  const successfulProviders = attempts.filter(a => a.status === 'OK').map(a => a.provider_id);
+  const distinctSuccessCount = new Set(successfulProviders).size;
+  if (distinctSuccessCount < 2) {
+    const insufficient = new Error('COUNCIL_INSUFFICIENT_RESPONSES');
+    insufficient.code = 'COUNCIL_INSUFFICIENT_RESPONSES';
+    insufficient.council_model_attempts = attempts;
+    insufficient.council_model_exclusions = Array.from(excluded);
+    throw insufficient;
+  }
   const error = new Error('COUNCIL_ROLE_ALL_ZERO_COST_PROVIDERS_FAILED');
   error.code = 'COUNCIL_ROLE_ALL_ZERO_COST_PROVIDERS_FAILED';
   error.role = assignment.role.id;

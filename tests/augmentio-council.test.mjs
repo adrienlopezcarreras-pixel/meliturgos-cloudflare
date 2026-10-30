@@ -378,3 +378,20 @@ test('measured production timeout diagnosis grants slower free models a bounded 
   assert.equal(COUNCIL_REVIEW_MAX_MS, 58_000);
   assert.ok(PROVIDER_CALL_TIMEOUT_MS > 12_000 && PROVIDER_CALL_TIMEOUT_MS < COUNCIL_REVIEW_MAX_MS / 2);
 });
+
+test('Council requires at least two distinct providers for quorum', async () => {
+  const calls = [];
+  const pool = new ProviderPool([
+    provider('a', 0, calls),
+    provider('b', 0, calls),
+  ]);
+  const report = await runAugmentioStateOfPlay({
+    env: { MEL_COUNCIL_REVIEW_BUDGET_MS: 400, MEL_COUNCIL_PROVIDER_TIMEOUT_MS: 20 },
+    goal: 'ensure quorum with two distinct providers',
+    pool,
+  });
+  assert.equal(report.all_required_roles_satisfied, true);
+  assert.ok(report.quorum_under_60s);
+  const succeeded = new Set(report.providers_succeeded);
+  assert.ok(succeeded.has('a') && succeeded.has('b'));
+});
