@@ -57,7 +57,7 @@ jobs:
           spec=importlib.util.spec_from_file_location('qwen_import','scripts/import-qwen-uncensor-jsonl.py')
           mod=importlib.util.module_from_spec(spec)
           spec.loader.exec_module(mod)
-          result=mod.convert(target,Path('.tmp-qwen-audit/train-only.jsonl'),sha)
+          result=mod.convert(target,Path('.tmp-qwen-audit/train-only.jsonl'),sha,exclude_cross_split=True)
           result.update(source_repo='Guilherme34/uncensor',source_revision=rev,
                         source_filename=name,source_bytes=size,
                         license_review_passed=False,kaggle_published=False,

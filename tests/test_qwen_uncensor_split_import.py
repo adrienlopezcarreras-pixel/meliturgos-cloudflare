@@ -38,6 +38,14 @@ class SplitImportTests(unittest.TestCase):
             module.convert(self.source, self.dest, sha)
         self.assertFalse(self.dest.exists())
 
+    def test_opt_in_quarantines_cross_split_duplicates(self):
+        sha = self.write(test_duplicate=True)
+        summary = module.convert(self.source, self.dest, sha, exclude_cross_split=True)
+        self.assertEqual(summary["cross_split_duplicate_conversations_excluded"], 1)
+        self.assertEqual(summary["output_rows"], 54)
+        self.assertFalse(summary["license_review_passed"])
+        self.assertNotIn("input 0", self.dest.read_text())
+
     def test_rejects_unpinned_source(self):
         self.write()
         with self.assertRaisesRegex(ValueError, "SOURCE_SHA_REQUIRED"):
