@@ -32,7 +32,12 @@ async function boundedText(response, limit) {
 }
 const MAX_SEARCH_FILES = 24;
 const MAX_MATCHES = 20;
-const DENIED_PATH = /(^|\/)(?:\.env(?:\.|$)|\.dev\.vars(?:$|\/)|\.wrangler(?:$|\/)|backups?(?:$|\/)|node_modules(?:$|\/)|\.git(?:$|\/)|secrets?(?:$|\/)|credentials?(?:$|\/)|tokens?(?:$|\/))/i;
+const DENIED_PATH_RAW = /(^|\/)(?:\.env(?:\.|$)|\.dev\.vars(?:$|\/)|\.wrangler(?:$|\/)|backups?(?:$|\/)|node_modules(?:$|\/)|\.git(?:$|\/)|secrets?(?:$|\/)|credentials?(?:$|\/)|tokens?(?:$|\/))/i;
+// MEL's own backup/restore *code* lives in src/backup/ and its tests; only data
+// directories named backup(s) stay denied. 30/10: FOUNDER-07 (restore-service)
+// could never be read or edited because src/backup/ matched the data rule.
+const BACKUP_SOURCE = /^(?:src\/backup\/[A-Za-z0-9_.-]+\.m?js|tests\/[A-Za-z0-9_.-]+\.test\.mjs)$/;
+const DENIED_PATH = { test: path => DENIED_PATH_RAW.test(path) && !(BACKUP_SOURCE.test(path) && !DENIED_PATH_RAW.test(String(path).replace(/^src\/backup\//, 'src/'))) };
 const TEXT_EXT = /\.(?:js|mjs|cjs|ts|tsx|jsx|json|md|txt|yml|yaml|toml|css|html|sql|sh|ps1)$/i;
 const FALLBACK_FILES = [
   'src/index.js','src/router.js','src/api/native-chat.js','src/capabilities/default-bus.js',
