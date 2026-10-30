@@ -164,3 +164,32 @@ test('D1-style SQLite renewal refuses expired leases and old owners', async () =
     sqlite.close();
   }
 });
+
+test('lease renewal never shortens a valid expiry when the clock moves backward', async () => {
+  const memoryStore = new Map();
+  const first = await tryAcquireAutonomyRuntimeLease({ owner: 'owner', now: 100_000, leaseMs: 90_000, memoryStore });
+  assert.equal(first.expires_at, 190_000);
+  assert.equal(await renewAutonomyRuntimeLease({ owner: 'owner', now: 80_000, leaseMs: 60_000, memoryStore }), true);
+  assert.equal(memoryStore.get(first.key).expires_at, 190_000);
+  const { DatabaseSync } = await import('node:sqlite');
+  const sqlite = new DatabaseSync(':memory:');
+  try {
+    sqlite.exec('CREATE TABLE dev_bridge_state (bridge_id TEXT PRIMARY KEY, last_seen INTEGER, status TEXT, metadata_json TEXT)');
+    const db = { prepare(sql) {
+      const stmt = sqlite.prepare(sql);
+      return { bind(...params) {
+        return {
+          async run() { const result = stmt.run(...params); return { meta: { changes: result.changes } }; },
+          async first() { return stmt.get(...params) || null; },
+        };
+      } };
+    } };
+    const acquired = await tryAcquireAutonomyRuntimeLease({ db, owner: 'owner', now: 100_000, leaseMs: 90_000 });
+    assert.equal(acquired.acquired, true);
+    assert.equal(await renewAutonomyRuntimeLease({ db, owner: 'owner', now: 80_000, leaseMs: 60_000 }), true);
+    const row = await db.prepare('SELECT last_seen FROM dev_bridge_state WHERE bridge_id=?').bind(acquired.key).first();
+    assert.equal(row.last_seen, 190_000);
+  } finally {
+    sqlite.close();
+  }
+});
