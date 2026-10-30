@@ -23,6 +23,8 @@ on:
       - 'tests/test_qwen_corpus_packager.py'
       - 'tests/test_ultrachat_qwen_import.py'
       - 'scripts/import-ultrachat-qwen.py'
+      - 'scripts/import-qwen-uncensor-jsonl.py'
+      - 'tests/test_qwen_uncensor_split_import.py'
       - 'tests/qwen-kaggle-archive-limits.test.mjs'
       - 'tests/qwen-kaggle-kernel-metadata.test.mjs'
       - 'scripts/prepare-qwen-kaggle-corpus.py'
@@ -86,6 +88,9 @@ jobs:
 
       - name: UltraChat conversion contract (offline)
         run: python -m unittest discover -s tests -p 'test_ultrachat_qwen_import.py' -v
+
+      - name: Uncensor JSONL split-safe import (offline)
+        run: python -m unittest discover -s tests -p 'test_qwen_uncensor_split_import.py' -v
 
       - name: Qwen3 GPU artifact evidence (offline)
         run: python -m unittest discover -s tests -p 'test_qwen_gpu_evidence.py' -v
