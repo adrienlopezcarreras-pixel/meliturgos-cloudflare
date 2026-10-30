@@ -86,7 +86,7 @@ async function experimentalTrainingResponse(request,env){
   const track=experimentalTrack(body.track);
   if(!track||!['preflight','gpu'].includes(body.mode))return json({ok:false,error:'UNSUPPORTED_EXPERIMENTAL_TRACK_OR_MODE'},400);
   if(body.mode==='gpu'){
-    if(track!=='qwen3')return json({ok:false,error:'ABLITERATION_GPU_EXECUTOR_NOT_IMPLEMENTED',gpu_training_performed:false},409);
+    if(track!=='qwen3')return json({ok:false,error:'ABLITERATION_GPU_DISPATCH_NOT_CONFIGURED',gpu_training_performed:false,runner:'scripts/abliteration-gpu-runner.py',required_inputs:['reviewed config JSON','positive dataset','negative dataset','matching SHA-256 digests','GPU with >=40 GiB VRAM'],next_step:'Configure an approved GPU execution backend and reviewed dataset files before enabling dispatch. The runner is present in main but cannot yet be launched by this endpoint.',checkpoint_verified:false,model_activated:false},409);
     const slug=String(env?.MEL_QWEN_KAGGLE_DATASET_SLUG||'').trim();
     if(!/^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/.test(slug))
       return json({ok:false,error:'QWEN_REVIEWED_KAGGLE_DATASET_NOT_CONFIGURED',gpu_training_performed:false,required_setting:'MEL_QWEN_KAGGLE_DATASET_SLUG',expected_format:'owner/dataset',next_step:'Publish a reviewed Kaggle dataset containing dataset.jsonl and sources.json, verify source licenses and SHA-256, then configure the setting in the Cloudflare Worker. No GPU execution was dispatched.'},409);
