@@ -1028,15 +1028,18 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       const council = gate.ok && job ? await reviewVerificationEvidence(env, {
         job, implementation, ciRunId, liveChecks, missionTestProof: founderProof,
       }).catch(() => null) : null;
+      const proofFailureCode = council?.decision === 'MISSION_TEST_EVIDENCE_REQUIRED' && founderProof?.ok === false && /^MISSION_TEST_[A-Z0-9_]+$/.test(String(founderProof.code || ''))
+        ? founderProof.code : null;
+      const verificationCode = !gate.ok ? gate.code : (proofFailureCode || council?.decision || 'COUNCIL_REVIEW_UNAVAILABLE');
       if (job && (!gate.ok || !council || ['COUNCIL_UNAVAILABLE', 'INSUFFICIENT_REVIEWERS', 'REVIEW_INPUT_INVALID', 'MISSION_TEST_EVIDENCE_REQUIRED'].includes(council.decision))) {
         await persistVerificationWait(jobRepository, job.id, {
-          code: !gate.ok ? gate.code : (council?.decision || 'COUNCIL_REVIEW_UNAVAILABLE'),
+          code: verificationCode,
           liveChecks, ciRunId, candidateSha: implementation.candidate_sha,
         });
       }
       bridgePreparation = {
         status: council?.decision === 'APPROVED' ? 'VERIFIED_BY_COUNCIL' : 'AWAITING_LIVE_EVIDENCE',
-        code: !gate.ok ? gate.code : (council?.decision || 'COUNCIL_REVIEW_UNAVAILABLE'),
+        code: verificationCode,
         live_checks: liveChecks,
         candidate_sha: implementation.candidate_sha,
         candidate_branch: implementation.candidate_branch,
