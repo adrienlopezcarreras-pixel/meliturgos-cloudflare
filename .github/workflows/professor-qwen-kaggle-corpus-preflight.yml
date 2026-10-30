@@ -1,0 +1,75 @@
+name: Professor Qwen3 Kaggle corpus preflight (no GPU)
+on:
+  workflow_dispatch:
+    inputs:
+      dataset_slug:
+        description: "Reviewed Kaggle dataset owner/name, exactly dataset.jsonl + sources.json"
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: professor-qwen-kaggle-corpus-preflight
+  cancel-in-progress: false
+jobs:
+  verify-corpus:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: preview
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      DATASET_SLUG: ${{ inputs.dataset_slug }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Validate prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$DATASET_SLUG" =~ ^[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+$ ]] || { echo "QWEN_DATASET_SLUG_INVALID"; exit 1; }
+          test -n "${KAGGLE_API_TOKEN:-}" || { echo "KAGGLE_API_TOKEN_MISSING"; exit 1; }
+      - name: Install Kaggle CLI
+        run: python -m pip install -q kaggle
+      - name: Download and validate corpus without GPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/qwen-corpus
+          kaggle datasets download -d "$DATASET_SLUG" -p artifacts/qwen-corpus -q
+          python - <<'PY'
+          import pathlib,zipfile
+          root=pathlib.Path('artifacts/qwen-corpus')
+          archives=list(root.glob('*.zip'))
+          if len(archives)!=1: raise SystemExit('QWEN_DATASET_DOWNLOAD_NOT_UNIQUE')
+          with zipfile.ZipFile(archives[0]) as z:
+              entries=z.infolist()
+              if sorted(e.filename for e in entries)!=['dataset.jsonl','sources.json']:
+                  raise SystemExit('QWEN_DATASET_EXACT_FILES_REQUIRED')
+              for e in entries:
+                  if e.is_dir() or e.file_size>20_000_000 or e.compress_size>20_000_000:
+                      raise SystemExit('QWEN_DATASET_FILE_SIZE_INVALID')
+                  with z.open(e) as src,(root/e.filename).open('wb') as dst:
+                      n=0
+                      while chunk:=src.read(65536):
+                          n+=len(chunk)
+                          if n>20_000_000: raise SystemExit('QWEN_DATASET_FILE_SIZE_INVALID')
+                          dst.write(chunk)
+          PY
+          python scripts/train-qwen3-lora.py --dataset artifacts/qwen-corpus/dataset.jsonl --manifest artifacts/qwen-corpus/sources.json --output artifacts/qwen-corpus/validation --dry-run >/dev/null
+          echo "QWEN_CORPUS_PREFLIGHT_OK_NO_GPU"
+      - name: Emit evidence without exposing dataset
+        if: success()
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          python - <<'PY'
+          import json,os,pathlib
+          proof={'status':'QWEN_CORPUS_PREFLIGHT_OK_NO_GPU','dataset_slug':os.environ['DATASET_SLUG'],
+                 'source_sha':os.environ['GITHUB_SHA'],'gpu_training_performed':False,
+                 'checkpoint_verified':False,'model_activated':False}
+          pathlib.Path('artifacts/qwen-corpus-preflight.json').write_text(json.dumps(proof,sort_keys=True)+'\n')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: success()
+        with:
+          name: qwen-corpus-preflight-${{ github.run_id }}
+          path: artifacts/qwen-corpus-preflight.json

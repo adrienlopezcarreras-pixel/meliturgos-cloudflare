@@ -38,6 +38,7 @@ on:
       - 'notebooks/MEL-QLORA-SMOKE-COLAB.ipynb'
       - 'docs/LORA-FREE-GPU-RUNBOOK.md'
       - '.github/workflows/professor-qwen-kaggle-gpu.yml'
+      - '.github/workflows/professor-qwen-kaggle-corpus-preflight.yml'
       - '.github/workflows/lora-runtime-pipeline-ci.yml'
   workflow_dispatch:
 
