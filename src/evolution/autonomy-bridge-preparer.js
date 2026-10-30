@@ -1,4 +1,4 @@
-import { assertRoadmapCodeChanges } from '../roadmap/roadmap-code-contracts.js';
+import { assertRoadmapCodeChanges, ROADMAP_CODE_CONTRACTS } from '../roadmap/roadmap-code-contracts.js';
 import { createGitHubCodeReader } from '../capabilities/github-code-capabilities.js';
 import { assertMentorCodeContract } from '../learning/mentor-code-contract.js';
 import { createMentorEngine } from '../learning/mentor-engine.js';
@@ -48,9 +48,14 @@ function codeConfig(env = {}, proposal) {
   return { repository, branch };
 }
 
-function uniquePaths(proposal) {
+export function uniquePaths(proposal) {
   const out = [];
-  for (const row of Array.isArray(proposal?.inspected_files) ? proposal.inspected_files : []) {
+  // The roadmap contract's files come first: the coder may only edit files it
+  // was shown. 30/10: FOUNDER-07's planner inspected neighbours but not
+  // src/backup/restore-service.js, so every edit of it was refused.
+  const contract = ROADMAP_CODE_CONTRACTS[String(proposal?.roadmap_id || '')];
+  const contractRows = contract ? [...contract.code_paths, ...contract.test_paths].map(path => ({ path })) : [];
+  for (const row of [...contractRows, ...(Array.isArray(proposal?.inspected_files) ? proposal.inspected_files : [])]) {
     const value = String(row?.path || '').trim();
     if (!value || out.includes(value)) continue;
     out.push(value);
