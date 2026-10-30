@@ -90,6 +90,9 @@ class TestQwenGpuEvidence(unittest.TestCase):
         self.write()
         with self.assertRaisesRegex(ValueError,"PREMATURE_ACTIVATION"):
             M.verify(self.folder)
+    def test_reject_invalid_expected_source_sha(self):
+        with self.assertRaisesRegex(ValueError,"INVALID_EXPECTED_SOURCE_SHA"):
+            M.verify(self.folder,"invalid")
     def test_reject_unbound_source(self):
         with self.assertRaisesRegex(ValueError,"SOURCE_SHA_MISMATCH"):
             M.verify(self.folder,"a"*40)
