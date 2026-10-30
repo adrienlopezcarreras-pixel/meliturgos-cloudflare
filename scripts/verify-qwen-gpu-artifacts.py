@@ -3,6 +3,8 @@
 import argparse
 import hashlib
 import json
+import math
+import re
 from pathlib import Path
 
 def digest(path):
@@ -24,6 +26,24 @@ def verify(folder, source_sha=None):
         raise ValueError("QWEN_UNEXPECTED_BASE_MODEL")
     if type(proof.get("steps_executed")) is not int or proof["steps_executed"] < 1:
         raise ValueError("QWEN_TRAINING_STEPS_NOT_PROVEN")
+    for field in ("dataset_sha256", "source_manifest_sha256"):
+        if not isinstance(proof.get(field), str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", proof[field]):
+            raise ValueError("QWEN_DATASET_PROVENANCE_MISSING:" + field)
+    for field in ("examples", "train_examples", "validation_examples", "max_steps"):
+        if type(proof.get(field)) is not int or proof[field] < 1:
+            raise ValueError("QWEN_TRAINING_PLAN_INVALID:" + field)
+    if (proof["train_examples"] + proof["validation_examples"] != proof["examples"]
+            or proof["steps_executed"] > proof["max_steps"]):
+        raise ValueError("QWEN_TRAINING_PLAN_INCONSISTENT")
+    if proof.get("cuda_available") is not True or not isinstance(proof.get("gpu_name"), str) or not proof["gpu_name"].strip():
+        raise ValueError("QWEN_CUDA_GPU_EVIDENCE_MISSING")
+    memory = proof.get("peak_cuda_memory_mb")
+    if type(memory) is not int or memory <= 0:
+        raise ValueError("QWEN_GPU_MEMORY_EVIDENCE_MISSING")
+    for field in ("train_loss", "baseline_eval_loss", "trained_eval_loss"):
+        value = proof.get(field)
+        if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+            raise ValueError("QWEN_TRAINING_METRIC_MISSING:" + field)
     for filename, field in (("adapter_model.safetensors","adapter_sha256"),("adapter_config.json","adapter_config_sha256")):
         file = folder / filename
         if not file.is_file() or not file.stat().st_size:
