@@ -95,3 +95,17 @@ test('conversational media requests retain the actual subject and quantity',()=>
  }
  for(const text of ['Je veux comprendre comment une image fonctionne','Tu peux me montrer le code pour créer une image ?',"Je voudrais une photo mais ne cherche pas sur internet",'Je voudrais voir ma photo ci-jointe'])assert.equal(inferChatMediaCapability(text),null,text);
 });
+
+// MEL-CHAT-01: contrastive dispatch with the exact cases measured on 31/10.
+test('greetings and polite openers keep the media intent; negation, explanation and JSON examples do not dispatch', () => {
+  assert.deepEqual(inferChatMediaCapability('Bonjour, montre-moi une photo de la tour Eiffel'),
+    { id: 'web.images.search', input: { query: 'la tour Eiffel', max_images: 1 } });
+  assert.deepEqual(inferChatMediaCapability('merci de me montrer une photo de chien'),
+    { id: 'web.images.search', input: { query: 'chien', max_images: 1 } });
+  assert.deepEqual(inferChatMediaCapability('Salut ! peux-tu me montrer 2 vidéos de surf'),
+    { id: 'web.media.search', input: { query: 'surf', type: 'video', max_results: 2 } });
+  assert.equal(inferChatMediaCapability('montre-moi trois photos de chats').input.max_images, 3);
+  for (const text of ['ne me montre pas de photo de chat', 'explique la différence entre une photo et une vidéo',
+    'donne un exemple JSON: {"type":"image"}', 'merci pour la photo'])
+    assert.equal(inferChatMediaCapability(text), null, text);
+});

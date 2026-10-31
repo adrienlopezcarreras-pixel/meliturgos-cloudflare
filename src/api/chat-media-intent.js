@@ -19,7 +19,11 @@ export function inferChatMediaCapability(text) {
   // Normalize common conversational forms once, before the shared grammar.
   // The requested object must still immediately follow the command.
   const request=value.normalize('NFC')
+    // Greetings and polite openers keep the request: “Bonjour, montre-moi…”,
+    // “merci de me montrer…” (MEL-CHAT-01, measured null on 31/10).
+    .replace(/^(?:bonjour|bonsoir|salut|coucou|hello|hey)\b[\s,!.]*/i,'')
     .replace(/^(?:s['’]il te pla[iî]t|stp|svp)[,\s]+/i,'')
+    .replace(/^merci\s+de\s+(?:bien\s+vouloir\s+)?(?:me\s+)?/i,'peux-tu me ')
     .replace(/^(?:est-ce que\s+)?tu\s+(peux|pourrais)\s+(?:me\s+)?/i,(_,verb)=>verb+'-tu me ')
     .replace(/^(?:je\s+(?:veux|voudrais|souhaite)|j['’]aimerais)\s+(?:(?:voir|regarder|[eé]couter|entendre)\s+)?/i,'montre ');
   const normalized=request.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
