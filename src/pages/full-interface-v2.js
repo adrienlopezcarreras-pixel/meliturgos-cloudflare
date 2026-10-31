@@ -100,6 +100,14 @@ ${CHAT_RICH_RENDERER_SOURCE}
 const qs=s=>document.querySelector(s),qsa=s=>[...document.querySelectorAll(s)];
 function setLoraLink(selector,url){const link=document.querySelector(selector);if(link)link.href=url}
 // The training glance copies the detailed badges after each load: one source.
+// The Qwen3 badge reads its real GitHub/Kaggle launches instead of a static text.
+async function syncQwenTrainingState(){const el=document.getElementById('qwenTrainingState');if(!el)return;
+ try{const data=await jfetch('/api/learning/lora/qwen-gpu/status');const run=data?.runs?.[0];
+  if(!run){el.textContent='Non lancé';return;}
+  const when=new Date(run.created_at).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+  el.textContent=run.status!=='completed'?'Envoi vers Kaggle en cours ('+when+')':run.conclusion==='success'?'Envoyé sur Kaggle le '+when+' · résultat GPU à vérifier':'Dernier envoi échoué ('+when+')';
+  el.className='tag '+(run.conclusion==='success'?'good':'warn');
+ }catch{el.textContent='État Qwen3 indisponible';}}
 function syncTrainingGlance(){qsa('#trainingGlance [data-mirror]').forEach(el=>{const src=document.getElementById(el.dataset.mirror);if(src)el.textContent=src.textContent.trim()||'…';});}
 const titles={overview:['Vue d’ensemble','Ce qui fonctionne maintenant.'],chat:['Conversation','Parler avec MEL.'],skills:['Compétences','Ce que MEL sait faire. Un voyant vert ne prouve pas que l’action a été faite.'],roadmap:['Feuille de route','Ce qui est terminé, en cours, et encore à faire.'],multi:['IA & Développement','Réunion multi-IA et travaux persistants dans une seule surface.'],memory:['Mémoire','Ce que MEL retient, et comment l’emporter ailleurs.'],computer:['Ordinateur','L’écran et les actions autorisées sur cet ordinateur.'],terminal:['MINI & téléphone','Le boîtier MEL et le téléphone.'],lora:['Entraînement','Le style de MEL, entraîné sans payer de carte graphique.'],connections:['Connexions','Le mail, l’agenda et les fichiers que MEL peut lire.'],diagnostics:['Diagnostic','Vérifier les pièces essentielles avant une mise à jour.']};
 const legacyPanelAliases={work:{panel:'multi',mode:'development'}};
@@ -265,7 +273,7 @@ async function loadPanel(name,force=false){
     memory:()=>loadMemory(),
     computer:()=>loadComputer(),
     terminal:()=>loadTerminal(),
-    lora:()=>loadFreeLoraStatus().finally(syncTrainingGlance),
+    lora:()=>loadFreeLoraStatus().finally(()=>syncQwenTrainingState().finally(syncTrainingGlance)),
     connections:()=>loadConnections()
   };
   const loader=loaders[name];

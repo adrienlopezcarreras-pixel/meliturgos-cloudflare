@@ -60,7 +60,10 @@ test('abliteration is shown as an isolated non-executing experiment with honest 
   assert.match(html,/id="qwenTrainingState">Non lancé/);
   assert.match(html,/id="qwenTrainingLastRun">Aucun run GPU vérifié/);
   assert.match(html,/id="qwenTrainingCheckpoint">Aucun artefact PEFT vérifié/);
-  assert.match(html,/id="abliterationTrainingState">Non lancé/);
+  // Abliteration is applied once to the weights: Model B starts from the pinned
+  // abliterated base (scripts/train-qwen3-lora.py BASE_MODEL/BASE_REVISION).
+  assert.match(html,/id="abliterationTrainingState">Faite · base Qwen3-14B-abliterated/);
+  assert.match(html,/mlabonne\/Qwen3-14B-abliterated<\/code> \(révision figée 9d8db58c\)/);
   assert.match(html,/id="abliterationProgressText">Non mesuré/);
   assert.match(html,/Étapes d'abliteration réellement prouvées/);
   assert.match(html,/Aucune commande automatique ni suivi GPU live/);
