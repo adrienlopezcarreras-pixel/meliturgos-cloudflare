@@ -13,6 +13,7 @@ test('self.audit.deep returns correct counts', async () => {
             { execution: { ok: true }, truth_status: 'OK' },
             { execution: { ok: false }, truth_status: 'OK' },
             { truth_status: 'REFUSEE' },
+            { truth_status: 'VERIF_DECLARATIVE' },
             { /* no execution and not refused */ },
           ],
         };
@@ -22,7 +23,7 @@ test('self.audit.deep returns correct counts', async () => {
   };
   registerSelfAuditCapabilities(bus, {});
   const result = await handlers['self.audit.deep']({}, {});
-  assert.deepEqual(result, { called: 2, refused: 1, failed: 1 });
+  assert.deepEqual(result, { called: 2, refused: 1, failed: 1, verified: 1 });
 });
 
 test('capability.audit respects read‑only mode and does not start persistent stress', async () => {

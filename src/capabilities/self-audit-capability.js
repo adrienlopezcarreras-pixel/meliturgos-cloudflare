@@ -68,8 +68,9 @@ export function registerSelfAuditCapabilities(bus, env = {}) {
         called: { type: 'integer' },
         refused: { type: 'integer' },
         failed: { type: 'integer' },
+        verified: { type: 'integer' },
       },
-      required: ['called', 'refused', 'failed'],
+      required: ['called', 'refused', 'failed', 'verified'],
       additionalProperties: false,
     },
     risk: 'LOW',
@@ -82,6 +83,7 @@ export function registerSelfAuditCapabilities(bus, env = {}) {
     const called = rows.filter(r => r.execution).length;
     const refused = rows.filter(r => r.truth_status === 'REFUSEE').length;
     const failed = rows.filter(r => r.execution && r.execution.ok === false).length;
-    return { called, refused, failed };
+    const verified = rows.filter(r => r.truth_status === 'VERIF_DECLARATIVE').length;
+    return { called, refused, failed, verified };
   });
 }
