@@ -243,6 +243,8 @@ export async function prepareApprovedBridgePackage({
     requireTest: true,
     // Rounds already lost on this mission: repairs that failed their tests,
     // or proposal attempts MEL refused. Two lost rounds call the large coder.
+    // A roadmap contract names the only editable files.
+    allowedPaths: (() => { const c = ROADMAP_CODE_CONTRACTS[String(current?.optional_context?.roadmap_id || '')]; return c ? [...c.code_paths, ...c.test_paths] : null; })(),
     failedRounds: repairFor
       ? Number(current?.result_json?.repair_cycle?.attempts || 0)
       : (current?.result_json?.mentor_attempt_history || []).length,

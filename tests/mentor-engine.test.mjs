@@ -1039,3 +1039,17 @@ test('two lost rounds escalate to the large coder even with a single failing tes
   assert.equal(seen[0].escalate, false);
   assert.equal(seen[1].escalate, true);
 });
+
+// 31/10: MANIFEST-05's coder edited files outside its roadmap contract; the
+// bridge rejected the whole round afterwards (ROADMAP_CODE_SCOPE_VIOLATION).
+test('a roadmap contract limits editable files and refuses an outside edit per provider', async () => {
+  const inspectedFiles = [{ path: 'src/math.js', content: 'export const x = 1;\n' }, { path: 'src/other.js', content: 'export const y = 1;\n' }];
+  const outside = ['SUMMARY x', 'EDIT src/other.js', '<<<<<<< SEARCH', 'export const y = 1;', '=======', 'export const y = 2;', '>>>>>>> REPLACE'].join('\n');
+  const inside = ['SUMMARY x', 'EDIT src/math.js', '<<<<<<< SEARCH', 'export const x = 1;', '=======', 'export const x = 2;', '>>>>>>> REPLACE'].join('\n');
+  const prompts = [];
+  const spy = (name, reply) => ({ ...provider(name, reply), invoke: async ({ input }) => { prompts.push(String(input)); return { text: reply }; } });
+  const engine = new MentorEngine({ providerFactory: async () => [spy('outside', outside), spy('inside', inside)] });
+  const result = await engine.propose({ env: {}, goal: 'x', inspectedFiles, allowedPaths: ['src/math.js'] });
+  assert.deepEqual(result.proposal.changes.map(change => change.path), ['src/math.js']);
+  assert.ok(prompts.some(text => /Fichiers autorisés: src\/math\.js\./.test(text)));
+});
