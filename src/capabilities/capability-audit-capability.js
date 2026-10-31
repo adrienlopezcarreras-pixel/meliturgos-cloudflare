@@ -30,10 +30,14 @@ export function registerCapabilityAuditCapability(bus, env = {}) {
       requestId: context.requestId || crypto.randomUUID(),
       waitUntil: context.waitUntil,
     };
-    if (input.deep === true && env?.DB) {
-      return startPersistentCapabilityStress({ bus, db: env.DB, context: auditContext, strict: input.strict === true });
+    // In read‑only mode (or when a custom stub is provided) we must not start a
+    // persistent stress test that would mutate state or incur paid calls.
+    if (input.deep === true && env?.DB && !env?.READ_ONLY) {
+      const starter = env._startPersistentCapabilityStress || startPersistentCapabilityStress;
+      return starter({ bus, db: env.DB, context: auditContext, strict: input.strict === true });
     }
-    return auditRuntimeCapabilities(
+    const auditor = env._auditRuntimeCapabilities || auditRuntimeCapabilities;
+    return auditor(
       { bus },
       {
         deep: input.deep === true,
