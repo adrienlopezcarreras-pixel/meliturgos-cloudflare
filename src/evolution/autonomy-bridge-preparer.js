@@ -269,7 +269,12 @@ export async function prepareApprovedBridgePackage({
     allowedPaths: (() => { const c = ROADMAP_CODE_CONTRACTS[String(current?.optional_context?.roadmap_id || '')]; return c ? [...c.code_paths, ...c.test_paths] : null; })(),
     failedRounds: repairFor
       ? Number(current?.result_json?.repair_cycle?.attempts || 0)
-      : (current?.result_json?.mentor_attempt_history || []).length,
+      // A round where every coder timed out is not counted in the history (our
+      // pipeline, not the model), but repeating the same timing-out small model
+      // only burns neurons (31/10 CHAT-01): the next round calls the large one.
+      : (current?.result_json?.mentor_attempt_history || []).length
+        + ((current?.result_json?.bridge_preparation_diagnostic?.mentor_failure_codes || []).length
+          && (current.result_json.bridge_preparation_diagnostic.mentor_failure_codes || []).every(row => /TIMEOUT/.test(String(row?.code || ''))) ? 2 : 0),
   });
   const proposal = mentor?.proposal;
   if (!proposal || !Array.isArray(proposal.changes) || !proposal.changes.length) {

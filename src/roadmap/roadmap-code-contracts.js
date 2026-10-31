@@ -72,7 +72,8 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
       "tests/development-audit.test.mjs"
     ],
     "acceptance": [
-      "Un modèle nouveau et autorisé crée une proposition de benchmark idempotente; modèle payant, supprimé ou déjà mesuré reste exclu."
+      "Un modèle nouveau et autorisé crée une proposition de benchmark idempotente; modèle payant, supprimé ou déjà mesuré reste exclu.",
+      "Le Council a rejeté le 31/10 un diff qui utilisait standardRegistry sans l'importer ni le recevoir en paramètre : le registre des modèles déjà mesurés doit être importé explicitement ou passé en argument, et le test doit l'exercer."
     ],
     "max_attempts": 3
   },
@@ -106,6 +107,7 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
     "acceptance": [
       "Les lectures Gmail, Agenda et Drive passent par les connecteurs réels ou leurs erreurs d’authentification typées; reprise sans double message ni double action et aucun JSON d’appel brut rendu."
     ],
+    "focus_symbols": ["gmailNativeRead", "gmailRequest", "gmailAuthFailure", "calendarRequest"],
     "max_attempts": 3
   },
   "MEL-FOUNDER-02": {
@@ -141,6 +143,7 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
     "acceptance": [
       "Une capacité manquante autorisée ouvre un seul objectif reprenable; sa livraison vérifiée enregistre la compétence sur le bus canonique."
     ],
+    "focus_symbols": ["ensureNextJob", "selectNextAutonomyItem", "AutonomySupervisor"],
     "max_attempts": 3
   },
   "MEL-FOUNDER-04": {
@@ -320,6 +323,7 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
     "acceptance": [
       "Chaque action affiche le reçu API réel, traite indisponibilité et refus, et ne double ni entraînement ni mission lors d’un second clic."
     ],
+    "focus_symbols": ["experimentalTrainingResponse", "qwenGpuWorkflowStatus", "experimentalTrainingStatus"],
     "max_attempts": 3
   },
   "MEL-UI-AUDIT-07": {
@@ -444,6 +448,7 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
     "acceptance": [
       "Deux admissions concurrentes pour la même découverte créent un seul job; la veille reste passive tant qu’une mission roadmap est disponible."
     ],
+    "focus_symbols": ["queueDiscoveryCandidate", "reconcileDiscoveryJobs", "runEcosystemCapabilityWatch"],
     "max_attempts": 3
   },
   "MEL-MANIFEST-08": {
@@ -461,6 +466,7 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
       "Cinq messages sont rendus depuis un vrai reçu ou le code d’erreur exact est conservé; absence de compte et erreur réseau ne sont pas une lecture réussie.",
       "La version existante ne le prouve pas (Council 31/10) : ajouter dans le test de régression un reçu de cinq messages rendus et un cas absence de compte et un cas erreur réseau qui gardent leur code exact."
     ],
+    "focus_symbols": ["gmailNativeRead", "gmailRequest", "gmailAuthFailure"],
     "revision": "2026-10-31-code-v3",
     "verify_existing": false,
     "max_attempts": 3
@@ -506,7 +512,8 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
       "tests/chat-media-understanding.test.mjs"
     ],
     "acceptance": [
-      "Demande de média, explication, négation et exemple JSON sont distingués sans appel supplémentaire; les formulations polies conservent la même intention."
+      "Demande de média, explication, négation et exemple JSON sont distingués sans appel supplémentaire; les formulations polies conservent la même intention.",
+      "Exemples exacts mesurés le 31/10 (inferChatMediaCapability) : « Bonjour, montre-moi une photo de la tour Eiffel » et « merci de me montrer une photo de chien » renvoient aujourd'hui null et doivent donner web.images.search (query « la tour Eiffel » / « chien », max_images 1) ; « ne me montre pas de photo de chat », « explique la différence entre une photo et une vidéo » et « donne un exemple JSON: {...} » doivent rester null ; « montre-moi trois photos de chats » garde max_images 3."
     ],
     "max_attempts": 3
   },
@@ -619,6 +626,7 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
     "acceptance": [
       "Validation, permission, dispatch, résultat typé et rendu partagent le même identifiant; quota, timeout et rejeu ne produisent ni faux succès ni double action."
     ],
+    "focus_symbols": ["requestJson", "registerGoogleWorkspaceCapabilities"],
     "max_attempts": 3
   },
   "MEL-COUNCIL-OPS-01": {

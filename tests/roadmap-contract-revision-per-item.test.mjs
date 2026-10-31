@@ -31,3 +31,9 @@ test('a contract with focus symbols puts them in the goal for the coder excerpt'
   const goal = roadmapCodeMissionGoal({ id: 'MEL-FOUNDER-02', ...ROADMAP_TECHNICAL_WORK['MEL-FOUNDER-02'] });
   assert.match(goal, /FOCUS_CODE runAutonomyRuntimeTick autonomyTickAdvanced/);
 });
+
+test('the CHAT-01 contract carries the exact polite forms measured as lost', () => {
+  const text = ROADMAP_TECHNICAL_WORK['MEL-CHAT-01'].acceptance.join(' ');
+  assert.match(text, /Bonjour, montre-moi une photo de la tour Eiffel/);
+  assert.match(text, /merci de me montrer une photo de chien/);
+});
