@@ -85,6 +85,35 @@ export function comparePatrimonyExports(before, after) {
   return { ok: true, identical, tables, production_written: false };
 }
 
+async function tableFingerprint(table) {
+  const canonical = stableStringify({ schema: table.schema, rows: table.rows.map(stableStringify).sort() });
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * MEL-FOUNDER-07: restore a patrimony export into an isolated copy, then
+ * compare row counts and per-table SHA-256 fingerprints. The target must
+ * declare itself isolated before anything is written; production is refused.
+ */
+export async function verifyIsolatedRestore(exported, target) {
+  if (!target || target.isolated !== true || target.production === true || typeof target.restore !== 'function') {
+    return { ok: false, code: 'RESTORE_ISOLATED_TARGET_REQUIRED', identical: false, production_written: false };
+  }
+  const source = validatePatrimonyExport(exported);
+  if (!source.ok) return { ...source, identical: false, side: 'before', production_written: false };
+  const restored = await target.restore(structuredClone(exported));
+  const comparison = comparePatrimonyExports(exported, restored);
+  if (!comparison.ok) return comparison;
+  const after = validatePatrimonyExport(restored);
+  const fingerprints = {};
+  for (const name of PATRIMONY_TABLES) {
+    fingerprints[name] = { before: await tableFingerprint(source.tables.get(name)), after: await tableFingerprint(after.tables.get(name)) };
+    comparison.tables[name].fingerprint_match = fingerprints[name].before === fingerprints[name].after;
+  }
+  return { ...comparison, fingerprints, isolated: true, production_written: false };
+}
+
 export function registerPatrimonyCompareCapability(bus) {
   if (!bus || typeof bus.discover !== 'function') throw new TypeError('CAPABILITY_BUS_REQUIRED');
   bus.discover({

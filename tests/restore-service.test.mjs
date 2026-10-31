@@ -292,3 +292,54 @@ test('patrimony guard compares real isolated SQLite exports and detects a corrup
     restored.close();
   }
 });
+
+// MEL-FOUNDER-07: isolated restore of ledger, conversations and jobs, then
+// counts and fingerprints; production is never a target.
+test('an isolated copy restores ledger, conversations and jobs and matches counts and fingerprints', async () => {
+  const { verifyIsolatedRestore } = await import('../src/backup/restore-service.js');
+  const { sqliteD1 } = await import('./helpers/sqlite-d1.mjs');
+  const { exportD1SystemState } = await import('../src/backup/system-backup-runtime.js');
+  const fixture = patrimonyFixture();
+  const source = sqliteD1();
+  const writes = [];
+  try {
+    for (const table of fixture.tables) {
+      await source.prepare(table.schema).run();
+      for (const row of table.rows) {
+        const columns = Object.keys(row);
+        await source.prepare(`INSERT INTO ${table.name} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`).bind(...Object.values(row)).run();
+      }
+    }
+    const exported = await exportD1SystemState(source, { pageSize: 1 });
+    const isolated = sqliteD1();
+    try {
+      const target = { isolated: true, async restore(data) {
+        writes.push('isolated');
+        for (const table of data.tables) {
+          await isolated.prepare(table.schema).run();
+          for (const row of table.rows) {
+            const columns = Object.keys(row);
+            await isolated.prepare(`INSERT INTO ${table.name} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`).bind(...Object.values(row)).run();
+          }
+        }
+        return exportD1SystemState(isolated);
+      } };
+      const result = await verifyIsolatedRestore(exported, target);
+      assert.equal(result.ok, true);
+      assert.equal(result.identical, true);
+      assert.equal(result.isolated, true);
+      assert.equal(result.production_written, false);
+      for (const name of ['evolution_ledger', 'conversations', 'dev_jobs']) {
+        assert.equal(result.tables[name].before, result.tables[name].after, name);
+        assert.match(result.fingerprints[name].before, /^[0-9a-f]{64}$/);
+        assert.equal(result.tables[name].fingerprint_match, true, name);
+      }
+    } finally { isolated.close(); }
+    for (const target of [null, { restore: async () => { writes.push('production'); } }, { isolated: true, production: true, restore: async () => { writes.push('production'); } }]) {
+      const refused = await verifyIsolatedRestore(exported, target);
+      assert.equal(refused.code, 'RESTORE_ISOLATED_TARGET_REQUIRED');
+      assert.equal(refused.production_written, false);
+    }
+    assert.deepEqual(writes, ['isolated'], 'no write ever targets a non-isolated database');
+  } finally { source.close(); }
+});
