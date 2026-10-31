@@ -1577,4 +1577,25 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1793382000000
   },
+  {
+    "id": "claude-contract-revision-voids-inflight-acceptance-20261031",
+    "domain": "agents",
+    "task": "Relancer ou élargir le contrat d'un objectif de roadmap pendant que MAX y travaille.",
+    "input": "MANIFEST-05 avait un contrat trop étroit ; j'ai élargi ses chemins ET changé sa révision pendant qu'un job était en cours sous l'ancienne.",
+    "before": "Le job a été livré (Council APPROVED, CI verte) sous la révision v1 ; la v2 déployée a fait retourner null à createRoadmapCodeAcceptance : livraison réelle sans reçu « objectif prouvé ».",
+    "after": "Révision rendue à v1 (élargir les chemins ne l'exige pas) ; reçu recalculé par la fonction réelle sur le run CI vérifié et écrit en D1.",
+    "rationale": "Changer la révision d'un contrat sert seulement à remettre à zéro un objectif épuisé sans job actif ; sur un objectif en cours, elle invalide la preuve de sa livraison. Vérifier les jobs actifs avant de la changer.",
+    "tests": [
+      "dev_jobs MEL-MANIFEST-05 e1793363875019-6 COMPLETED 31/10 09:50 UTC, full-candidate-ci 41189713601"
+    ],
+    "tags": [
+      "agents",
+      "roadmap",
+      "max"
+    ],
+    "source": "claude",
+    "validated": true,
+    "quality": 1,
+    "created_at": 1793448000000
+  },
 ]);
