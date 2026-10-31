@@ -230,11 +230,24 @@ export async function prepareApprovedBridgePackage({
   const pathExists = async (path) => {
     try { await reader.read(path); return true; } catch (error) { return Number(error?.status) !== 404; }
   };
+  // A repair must see the regression tests its change broke, even outside the
+  // contract (read-only: allowedPaths still refuses edits). 31/10: MANIFEST-08
+  // spent 8 repairs blind on assistant-connected-routing it could not read.
+  const inspectedFiles = [...code.files];
+  if (repairFor) {
+    const failing = new Set();
+    for (const test of current?.result_json?.dev_bridge?.tests || [])
+      for (const m of String(test?.error || '').matchAll(/✗ (tests\/[\w./-]+\.test\.mjs)/g)) failing.add(m[1]);
+    for (const path of [...failing].slice(0, 2)) {
+      if (inspectedFiles.some(file => file.path === path)) continue;
+      try { const file = await reader.read(path); if (file.content.length <= MAX_SOURCE) inspectedFiles.push({ path: file.path, content: file.content }); } catch { /* best effort */ }
+    }
+  }
   const mentor = await engine.propose({
     env,
     jobId: current.id,
     goal: current.goal,
-    inspectedFiles: code.files,
+    inspectedFiles,
     previousAttempts: repairFor ? current?.result_json?.dev_bridge?.tests || [] : current?.result_json?.mentor_attempt_history || [],
     mode,
     repairReferences,
