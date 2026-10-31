@@ -248,7 +248,16 @@ export async function prepareApprovedBridgePackage({
     jobId: current.id,
     goal: current.goal,
     inspectedFiles,
-    previousAttempts: repairFor ? current?.result_json?.dev_bridge?.tests || [] : current?.result_json?.mentor_attempt_history || [],
+    // A Council rejection is a failure the repair must see: 31/10 AUDIT-06 was
+    // rejected for an unimported standardRegistry while its tests were green,
+    // and the repair only received those passing tests.
+    previousAttempts: repairFor
+      ? [...(current?.result_json?.dev_bridge?.tests || []),
+        ...(current?.result_json?.council_review?.decision === 'REJECTED' && current.result_json.council_review.objections?.length
+          ? [{ name: 'council-review', command: 'council', passed: false, exit_code: 1,
+            error: ('COUNCIL_REJECTED: ' + current.result_json.council_review.objections.join(' | ')).slice(0, 1800) }]
+          : [])]
+      : current?.result_json?.mentor_attempt_history || [],
     mode,
     repairReferences,
     pathExists,
