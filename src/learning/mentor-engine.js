@@ -312,7 +312,12 @@ function applyInspectedEdits(edits, inspectedFiles, repairReferences = [], visib
     if (!byPath.has(path)) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path} — fichier non inspecté : seuls les fichiers de SOURCES_INSPECTÉES ou un nouveau tests/<nom>.test.mjs directement dans tests/ (imports en ../src/...)`), { code: 'MENTOR_INVALID_CHANGE' });
     const visible = visibleFiles.find(file => file.path === path);
     const find = resolveFind(visible?.content, String(edit?.find ?? ''));
-    if (!visibleFiles.some(file => file.path === path && file.content.includes(find))) {
+    // A SEARCH copied verbatim from the real file, once, is not invented code even
+    // when it sits outside the excerpt (31/10: FOUNDER-07 refused 4x on the real
+    // first import line of restore-service.js). The uniqueness check below holds.
+    const realSource = String(byPath.get(path) || '');
+    const verbatimInFile = find.trim().length >= 20 && realSource.indexOf(find) >= 0 && realSource.indexOf(find, realSource.indexOf(find) + find.length) < 0;
+    if (!verbatimInFile && !visibleFiles.some(file => file.path === path && file.content.includes(find))) {
       // Name the first SEARCH line the model did not copy verbatim; a bare code
       // let it resend the same guessed SEARCH (×9 on 25/10).
       const visibleLines = new Set(String(visible?.content || '').split('\n').map(line => line.trim()));
