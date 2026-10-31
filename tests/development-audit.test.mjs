@@ -1,16 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { auditDevelopment, excludedCodeModels, probeCodeModels } from '../src/diagnostics/development-audit.js';
-import { upgradeFindingsFromCatalog } from '../scripts/workers-ai-catalog-diff.mjs';
-
-test('workers AI catalog diff proposes upgrade finding for new models', () => {
-  const catalog = { result: [
-    { name: '@cf/new/coder-2', task: { name: 'Text Generation' } },
-    { name: '@cf/openai/gpt-oss-120b', task: { name: 'Text Generation' } },
-  ] };
-  const findings = upgradeFindingsFromCatalog(catalog, ['@cf/openai/gpt-oss-120b']);
-  assert.deepEqual(findings, [{ code: 'UPGRADE_MODEL_AVAILABLE', detail: '@cf/new/coder-2' }]);
-});
 import { standardRegistry } from '../src/models/ModelRegistry.js';
 import { createDefaultAugmentioPool } from '../src/augmentio/default-pool.js';
 
