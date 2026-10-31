@@ -134,10 +134,10 @@ export const MEL_DUAL_LORA_TRAINING_MARKUP = `
   <section aria-labelledby="abliterationTrainingTitle" style="margin-top:18px;padding:14px;border:1px solid var(--line);border-radius:12px">
     <div class="skill-head">
       <div>
-        <h3 id="abliterationTrainingTitle">Expérience C — Abliteration (distincte du QLoRA)</h3>
-        <p class="muted" style="margin-top:6px">Le notebook fourni modifie les directions de refus d'un modèle Daredevil-8B. Aucun résultat sur MEL/Qwen3 n'est prouvé. Ce parcours expérimental est isolé des checkpoints Mistral et Qwen.</p>
+        <h3 id="abliterationTrainingTitle">Abliteration — faite une seule fois, ne s'entraîne pas</h3>
+        <p class="muted" style="margin-top:6px">L'abliteration retire du modèle la direction qui le fait refuser. Elle ne s'entraîne pas : elle est appliquée une fois aux poids. Le Modèle B part de <code>mlabonne/Qwen3-14B-abliterated</code> (révision figée 9d8db58c), déjà abliteré ; notre LoRA s'entraîne par-dessus. L'ancien notebook Daredevil-8B ci-dessous n'est qu'une archive.</p>
       </div>
-      <span class="tag warn" id="abliterationTrainingState">Non lancé · aucune trace GPU</span>
+      <span class="tag good" id="abliterationTrainingState">Faite · base Qwen3-14B-abliterated</span>
     </div>
     <div class="lora-progress-label"><span>Avancement vérifié de l'expérience</span><strong id="abliterationProgressText">Non mesuré</strong></div>
     <div class="progress" role="progressbar" aria-label="Étapes d'abliteration réellement prouvées" aria-valuemin="0" aria-valuemax="5" aria-valuenow="0"><span style="width:0%"></span></div>
