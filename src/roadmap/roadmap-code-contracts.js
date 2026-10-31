@@ -399,7 +399,8 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
     "mode": "IMPLEMENT",
     "required_proof": "DIFF_TESTS_EXACT_SHA_CI",
     "code_paths": [
-      "src/capabilities/capability-audit-capability.js"
+      "src/capabilities/capability-audit-capability.js",
+      "src/capabilities/self-audit-capability.js"
     ],
     "test_paths": [
       "tests/self-audit-deep.test.mjs"
@@ -407,6 +408,7 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
     "acceptance": [
       "Les compteurs séparent appel exécuté, refus, échec et vérification déclarative; le mode lecture seule exclut toute mutation et tout appel payant."
     ],
+    "revision": "2026-10-31-code-v2",
     "max_attempts": 3
   },
   "MEL-MANIFEST-06": {
