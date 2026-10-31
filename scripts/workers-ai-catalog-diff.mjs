@@ -16,6 +16,12 @@ export function newCatalogModels(catalog, registered) {
     .sort();
 }
 
+export function upgradeFindingsFromCatalog(catalog, registered) {
+  const newModels = newCatalogModels(catalog, registered);
+  if (newModels.length === 0) return [];
+  return [{ code: 'UPGRADE_MODEL_AVAILABLE', detail: newModels.join(', ') }];
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   const catalog = JSON.parse(await readFile(process.argv[2], 'utf8'));
   process.stdout.write(JSON.stringify(newCatalogModels(catalog, standardRegistry.list().map(m => m.id))) + '\n');
