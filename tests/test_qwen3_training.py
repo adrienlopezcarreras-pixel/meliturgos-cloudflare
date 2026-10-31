@@ -45,7 +45,10 @@ class TestQwen3Training(unittest.TestCase):
 
     def test_dry_run_is_evidence_honest_and_gpu_free(self):
         result = MOD.run(self.args())
-        self.assertEqual(result["base_model"], "Qwen/Qwen3-14B")
+        # Owner decision 31/10: abliterated Qwen3-14B, pinned revision, origin recorded.
+        self.assertEqual(result["base_model"], "mlabonne/Qwen3-14B-abliterated")
+        self.assertEqual(result["base_revision"], "9d8db58cddb750e732cd2179fa504e8830b733ce")
+        self.assertEqual(result["origin_model"], "Qwen/Qwen3-14B")
         self.assertEqual(result["status"], "TRAINING_PLAN_VALIDATED_UNTRAINED")
         self.assertEqual(result["examples"], 60)
         self.assertEqual(result["train_examples"] + result["validation_examples"], 60)

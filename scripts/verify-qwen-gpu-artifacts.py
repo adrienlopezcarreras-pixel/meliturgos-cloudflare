@@ -22,7 +22,7 @@ def verify(folder, source_sha=None):
     proof = json.loads(evidence.read_text(encoding="utf-8"))
     if not isinstance(proof, dict) or proof.get("status") != "TRAINED_UNBENCHMARKED":
         raise ValueError("QWEN_TRAINING_NOT_PROVEN")
-    if proof.get("base_model") != "Qwen/Qwen3-14B":
+    if proof.get("base_model") not in ("Qwen/Qwen3-14B", "mlabonne/Qwen3-14B-abliterated"):
         raise ValueError("QWEN_UNEXPECTED_BASE_MODEL")
     if type(proof.get("steps_executed")) is not int or proof["steps_executed"] < 1:
         raise ValueError("QWEN_TRAINING_STEPS_NOT_PROVEN")
