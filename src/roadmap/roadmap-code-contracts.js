@@ -455,7 +455,7 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
       "Cinq messages sont rendus depuis un vrai reçu ou le code d’erreur exact est conservé; absence de compte et erreur réseau ne sont pas une lecture réussie.",
       "La version existante ne le prouve pas (Council 31/10) : ajouter dans le test de régression un reçu de cinq messages rendus et un cas absence de compte et un cas erreur réseau qui gardent leur code exact."
     ],
-    "revision": "2026-10-31-code-v2",
+    "revision": "2026-10-31-code-v3",
     "verify_existing": false,
     "max_attempts": 3
   },
