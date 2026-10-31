@@ -198,12 +198,34 @@ async function askCompanion(adapter, user, timeoutMs, system = SYSTEM) {
   }
 }
 
+// MAX's own runtime, security, workflows and deployment always get the full council.
+const SENSITIVE_PATH = /^(?:src\/evolution\/autonomy[^/]*|src\/evolution\/council-review\.js|src\/security\/|src\/maintenance\/|\.github\/workflows\/|wrangler\.)/;
+export function sensitiveDiff(diff) {
+  const paths = [...String(diff || '').matchAll(/^(?:diff --git a\/(\S+)|\+\+\+ b\/(\S+)|EDIT (\S+))/gm)].map(match => match[1] || match[2] || match[3]);
+  return !paths.length || paths.some(path => SENSITIVE_PATH.test(path));
+}
+
 export async function runCouncilReview(env, { diff, goal = '', models = null, timeoutMs = 120_000, now = Date.now(), attempts = 0, system = SYSTEM, companion = createMentorCompanionFallback } = {}) {
   const user = 'Objectif annoncé : ' + String(goal || '(non fourni)').slice(0, 1500) + '\n\nDIFF :\n' + String(diff || '').slice(0, MAX_DIFF);
   const health = await readModelHealth(env);
   const catalog = Array.isArray(models) && models.length ? models : orderCouncilModels(freeCouncilCatalog(env), health, now);
   const reviews = [];
-  for (let index = 0; index < catalog.length && reviews.filter(answered).length < MIN_ANSWERS; index += 4) {
+  let index = 0;
+  // Two-stage review (owner decision 31/10: a 4-model review on every change
+  // spent the daily neurons by 04:00). Two distinct models first; their
+  // unanimous approval of a non-sensitive diff decides. Any rejection, silence
+  // or a sensitive path calls the full council as before.
+  if (catalog.length >= 2 && !sensitiveDiff(diff)) {
+    reviews.push(...await askModels(env, catalog.slice(0, 2), user, timeoutMs, system));
+    index = 2;
+    if (reviews.length === 2 && reviews.every(answered) && reviews.every(review => review.verdict === 'APPROVE')) {
+      const nextHealth = { ...health };
+      for (const review of reviews) nextHealth[review.model] = { ok: true, at: now };
+      await writeModelHealth(env, nextHealth, now);
+      return { decision: 'APPROVED', reviews, stage: 'TWO_MODEL_UNANIMOUS' };
+    }
+  }
+  for (; index < catalog.length && reviews.filter(answered).length < MIN_ANSWERS; index += 4) {
     reviews.push(...await askModels(env, catalog.slice(index, index + 4), user, timeoutMs, system));
   }
   const live = reviews.filter(answered);
