@@ -243,7 +243,13 @@ export async function prepareApprovedBridgePackage({
       try { const file = await reader.read(path); if (file.content.length <= MAX_SOURCE) inspectedFiles.push({ path: file.path, content: file.content }); } catch { /* best effort */ }
     }
   }
-  const mentor = await engine.propose({
+  // Owner decision 31/10: missions are implemented ahead of time and stored in
+  // prepared/<ROADMAP-ID>.json on main. MAX applies that package instead of
+  // calling the coder models, then the usual bridge, full CI, Council review
+  // and acceptance receipt apply unchanged. A package whose base file hash no
+  // longer matches the candidate is skipped (never overwrite newer work).
+  const prepared = repairFor ? null : await preparedMissionPackage(env, code, current, inspectedFiles, fetchImpl);
+  const mentor = prepared || await engine.propose({
     env,
     jobId: current.id,
     goal: current.goal,
@@ -330,6 +336,41 @@ export async function prepareApprovedBridgePackage({
     result_json: result,
   }, { expected: current });
   return updated.result_json.bridge_preparation;
+}
+
+
+async function sha256Hex(text) {
+  const bytes = new TextEncoder().encode(String(text));
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export async function preparedMissionPackage(env, code, job, inspectedFiles = [], fetchImpl = fetch) {
+  const roadmapId = String(job?.optional_context?.roadmap_id || '');
+  const contract = ROADMAP_CODE_CONTRACTS[roadmapId];
+  if (!contract || !/^MEL-[A-Z0-9-]+$/.test(roadmapId)) return null;
+  let pkg;
+  try {
+    const mainReader = createGitHubCodeReader({ repository: code.repository, branch: 'main', token: String(env?.MEL_GITHUB_TOKEN || ''), fetchImpl });
+    pkg = JSON.parse((await mainReader.read(`prepared/${roadmapId}.json`)).content);
+  } catch { return null; }
+  if (pkg?.roadmap_id !== roadmapId || !Array.isArray(pkg.changes) || !pkg.changes.length) return null;
+  const reader = createGitHubCodeReader({ ...code, token: String(env?.MEL_GITHUB_TOKEN || ''), pinnedSha: code.candidate_sha, fetchImpl });
+  const changes = [];
+  for (const change of pkg.changes.slice(0, 10)) {
+    const path = String(change?.path || '');
+    if (![...contract.code_paths, ...contract.test_paths].includes(path)) return null;
+    let base = '';
+    try { base = (inspectedFiles.find(file => file.path === path) || await reader.read(path)).content; } catch (error) { if (Number(error?.status) !== 404) return null; }
+    if (String(change.base_sha256 || '') !== (base ? await sha256Hex(base) : 'new')) return null;
+    changes.push({ path, content: String(change.content || ''), reason: String(change.reason || 'Paquet préparé') });
+  }
+  return { mode: 'prepared', council: null, proposal: {
+    changes, tests: Array.isArray(pkg.tests) ? pkg.tests : ['test'],
+    summary: String(pkg.summary || ''), confidence: 1,
+    provenance: { source: 'prepared-package', path: `prepared/${roadmapId}.json` },
+    risks: [], lessons: [],
+  } };
 }
 
 export { normalizeTests, repairMarker };
