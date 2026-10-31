@@ -273,7 +273,7 @@ async function loadPanel(name,force=false){
     memory:()=>loadMemory(),
     computer:()=>loadComputer(),
     terminal:()=>loadTerminal(),
-    lora:()=>Promise.allSettled([loadFreeLoraStatus(),syncQwenTrainingState()]).finally(syncTrainingGlance),
+    lora:()=>loadFreeLoraStatus().finally(()=>syncQwenTrainingState().finally(syncTrainingGlance)),
     connections:()=>loadConnections()
   };
   const loader=loaders[name];
