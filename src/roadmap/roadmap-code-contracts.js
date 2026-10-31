@@ -182,7 +182,9 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
       "src/portability/companion-ci-provider-adapter.js"
     ],
     "test_paths": [
-      "tests/full-interface-terminal.test.mjs"
+      "tests/full-interface-terminal.test.mjs",
+      "tests/mini-usb-provision.test.mjs",
+      "tests/gen2/companion-ci-provider-adapter.test.mjs"
     ],
     "acceptance": [
       "Le banc logiciel couvre appairage, arrêt, autorisations et déconnexion avec doubles explicites; la recette physique reste séparée et non validée."
@@ -294,7 +296,8 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
       "src/api/native-companion-fallback.js"
     ],
     "test_paths": [
-      "tests/full-interface-computer.test.mjs"
+      "tests/full-interface-computer.test.mjs",
+      "tests/native-chat-companion-fallback.test.mjs"
     ],
     "acceptance": [
       "Des réponses hors ligne, permission refusée et arrêt bloquent les contrôles appropriés; aucun double logiciel n’est présenté comme un test physique."
@@ -310,7 +313,8 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
       "src/professor-live-learning-entry.js"
     ],
     "test_paths": [
-      "tests/full-interface-control-surface-audit.test.mjs"
+      "tests/full-interface-control-surface-audit.test.mjs",
+      "tests/coordination-cleanup.test.mjs"
     ],
     "acceptance": [
       "Chaque action affiche le reçu API réel, traite indisponibilité et refus, et ne double ni entraînement ni mission lors d’un second clic."
@@ -433,7 +437,8 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
       "src/evaluation/capability-watch-runtime.js"
     ],
     "test_paths": [
-      "tests/gen2/capability-watch.test.mjs"
+      "tests/gen2/capability-watch.test.mjs",
+      "tests/capability-watch-runtime.test.mjs"
     ],
     "acceptance": [
       "Deux admissions concurrentes pour la même découverte créent un seul job; la veille reste passive tant qu’une mission roadmap est disponible."
@@ -530,7 +535,8 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
       "src/media/video-runtime.js"
     ],
     "test_paths": [
-      "tests/chat-verified-media-context.test.mjs"
+      "tests/chat-verified-media-context.test.mjs",
+      "tests/media-runtime.test.mjs"
     ],
     "acceptance": [
       "Une miniature ou une URL ne vaut pas analyse complète; transcription absente laisse la vision partielle avec portée et erreur exactes."

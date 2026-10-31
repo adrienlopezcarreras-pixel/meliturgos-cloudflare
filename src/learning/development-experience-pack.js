@@ -1598,4 +1598,22 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1793448000000
   },
+  {
+    "id": "claude-handoff-must-carry-failure-reason-20261031",
+    "domain": "agents",
+    "task": "Débloquer un agent qui boucle sur la même erreur sans consommer d'inférence à l'observer.",
+    "input": "MAX a bouclé : réparation sans les objections du Council, tentative suivante sans l'échec précédent, tests cassés hors contrat invisibles, contrats dont le test ne charge pas le code.",
+    "before": "Diagnostic après coup en regardant tourner MAX : chaque boucle consommait des neurones (MANIFEST-08 : 4 rejets identiques puis 8 réparations à l'aveugle).",
+    "after": "Lecture de chaque relais (plan, teacher, mentor, bridge, CI, Council, réparation, nouvelle tentative) : chacun reçoit la raison de l'échec précédent ; garde-fou statique qui vérifie que le test de chaque contrat charge son code.",
+    "rationale": "Un agent ne corrige que ce qu'il voit. Avant de l'observer, vérifier à la lecture que chaque étape transmet à la suivante l'erreur exacte et les fichiers qu'elle cite, et vérifier statiquement les contrats.",
+    "tests": [
+      "tests/roadmap-contract-tests-reach-code.test.mjs",
+      "PR #2952 #2953 #2954"
+    ],
+    "tags": ["agents", "max", "mentor", "council"],
+    "source": "claude",
+    "validated": true,
+    "quality": 1,
+    "created_at": 1793476800000
+  },
 ]);
