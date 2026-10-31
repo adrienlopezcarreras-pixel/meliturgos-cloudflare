@@ -12,7 +12,7 @@ export function newCatalogModels(catalog, registered) {
   return rows
     .filter(row => /text generation/i.test(String(row?.task?.name || '')) && !deprecated(row))
     .map(row => String(row.name || ''))
-    .filter(name => name.startsWith('@cf/') && !known.has(name) && !(standardRegistry.get?.(name)?.paid || standardRegistry.get?.(name)?.measured))
+    .filter(name => name.startsWith('@cf/') && !known.has(name))
     .sort();
 }
 

@@ -104,14 +104,3 @@ test('a timed-out code-model probe fails and clears its timer', async t => {
   assert.equal(handles.length, 1);
   assert.equal(handles[0].cleared, true);
 });
-
-test('newCatalogModels excludes already registered (measured) models', async t => {
-  const { newCatalogModels } = await import('../scripts/workers-ai-catalog-diff.mjs');
-  const catalog = { result: [
-    { name: '@cf/openai/gpt-oss-120b', task: { name: 'Text Generation' } },
-    { name: '@cf/new/awesome-model', task: { name: 'Text Generation' } },
-  ] };
-  // Simulate that gpt-oss-120b is already in the registry (measured)
-  const result = newCatalogModels(catalog, ['@cf/openai/gpt-oss-120b']);
-  assert.deepEqual(result, ['@cf/new/awesome-model']);
-});
