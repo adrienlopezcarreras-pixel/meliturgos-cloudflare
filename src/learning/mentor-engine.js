@@ -665,7 +665,11 @@ export class MentorEngine {
       .filter(file => /^tests\//.test(String(file?.path || '')))
       .flatMap(file => [...String(file.content || '').matchAll(/import\s*\{([^}]+)\}\s*from\s*['"]\.\.\/src\//g)])
       .flatMap(match => match[1].split(',').map(name => name.trim().split(/\s+as\s+/)[0]).filter(Boolean)))].slice(0, 20);
-    const focusGoal = importedSymbols.length ? importedSymbols.join(' ') + '\n' + objective : objective;
+    // A contract can name the functions to change in a large file (FOCUS_CODE):
+    // FOUNDER-02's 60 KB runtime core is otherwise centered on goal words.
+    const contractFocus = (String(goal || '').match(/FOCUS_CODE ([^|]+)/)?.[1] || '').trim().split(/\s+/).filter(Boolean);
+    const leading = [...new Set([...contractFocus, ...importedSymbols])];
+    const focusGoal = leading.length ? leading.join(' ') + '\n' + objective : objective;
     if (!objective) throw Object.assign(new Error('MENTOR_GOAL_REQUIRED'), { code: 'MENTOR_GOAL_REQUIRED', status: 400 });
     const files = normalizeInspectedFiles(inspectedFiles);
     if (!files.length) throw Object.assign(new Error('MENTOR_INSPECTION_REQUIRED'), { code: 'MENTOR_INSPECTION_REQUIRED', status: 422 });

@@ -122,6 +122,7 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
     "acceptance": [
       "Trois ticks reprennent le même identifiant et son étape persistée, libèrent le lease et distinguent absence de progrès de réussite."
     ],
+    "focus_symbols": ["runAutonomyRuntimeTick", "autonomyTickAdvanced", "tryAcquireAutonomyRuntimeLease", "releaseAutonomyRuntimeLease"],
     "revision": "2026-10-31-code-v2",
     "max_attempts": 3
   },
