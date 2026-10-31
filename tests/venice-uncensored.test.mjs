@@ -33,3 +33,15 @@ test('without its guard or its secret, Venice is not used', async () => {
   assert.equal(spy.calls.length, 0);
   assert.equal(veniceConfigured({}), false);
 });
+
+test('our own model failing in UNCENSORED hands over to Venice', async () => {
+  const { runNativeInference } = await import('../src/api/native-chat.js');
+  const calls = [];
+  const env = { OPENROUTER_API_KEY: 'sk-or-test-key-000000000000', AI: { run: async (model) => { calls.push(model); if (model.includes('llama-guard')) return { response: 'safe' }; throw new Error('LORA_DOWN'); } } };
+  const fetchImpl = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ choices: [{ message: { content: 'venice ok' } }] }));
+  try {
+    const out = await runNativeInference({ env, messages: [{ role: 'user', content: 'bonjour' }], requireLora: true });
+    assert.equal(out.provider, 'openrouter');
+  } finally { globalThis.fetch = fetchImpl; }
+});

@@ -1402,7 +1402,8 @@ export async function runNativeInference(options = {}) {
   if (!requireLora || !veniceConfigured(env)) return runNativeInferenceCore(options);
   try {
     const own = await runNativeInferenceCore(options);
-    if (String(own?.text || '').trim()) return own;
+    // A refusal from our model is not an UNCENSORED answer: Venice takes over.
+    if (String(own?.text || '').trim() && !isCensorshipRefusal(own.text)) return own;
   } catch { /* our models failed: Venice below */ }
   return runVeniceInference({ env, messages, deadlineAt });
 }
