@@ -113,3 +113,16 @@ test('without a validated adapter a censorship refusal stays on the normal answe
     assert.equal(calls.length, 1);
   } finally { DB.close(); }
 });
+
+test('UNCENSORED without an active adapter falls back to Venice when its key is set', async () => {
+  const realFetch = globalThis.fetch; const urls = [];
+  globalThis.fetch = async (url) => { urls.push(String(url)); return new Response(JSON.stringify({ choices: [{ message: { content: 'Réponse Venice.' } }] })); };
+  try {
+    const env = { OPENROUTER_API_KEY: 'sk-or-' + 'x'.repeat(40), AI: { run: async (model) => (String(model).includes('llama-guard') ? { response: 'safe' } : { response: '' }) } };
+    const response = await handleNativeChat(new Request('https://mel.test/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'bonjour', lora_mode: 'uncensored' }) }), env, { authorized: true });
+    const payload = await response.json();
+    assert.notEqual(payload.code, 'LORA_COMPATIBLE_ACTIVE_ADAPTER_REQUIRED');
+    assert.match(String(payload.text), /Réponse Venice/);
+    assert.ok(urls.some(u => u.includes('openrouter.ai')));
+  } finally { globalThis.fetch = realFetch; }
+});
