@@ -8,6 +8,7 @@ export function councilOperationalCatalog(bus,env={}) {
  rows.sort((a,b)=>(priority(a.id)<0?10:priority(a.id))-(priority(b.id)<0?10:priority(b.id)));
  const descriptors=rows.slice(0,40).map(row=>({
   id:row.id,description:String(row.description||'').slice(0,500),enabled:row.enabled!==false,
+  availability:row.enabled!==false,
   health:row.health||'UNKNOWN',risk:row.risk||'UNKNOWN',permissions:row.permissions||[],
   input_schema:row.input_schema&&JSON.stringify(row.input_schema).length<=4000?row.input_schema:null,
   tested_now:false,

@@ -31,5 +31,6 @@ test('independent critiques and MEL synthesis receive the actual operation catal
  const catalog=councilOperationalCatalog({list:()=>[row('work.create')]});
  const report=await runModelCouncil({pool,request:{prompt:'Préparer une mission'},operationalCatalog:catalog});
  assert.equal(report.request,'Préparer une mission');assert.ok(calls.length>=3);
+ assert.equal(catalog.operations[0].availability,true);
  for(const call of calls)assert.match(JSON.stringify(call.input),/LIVE_CAPABILITY_BUS/);
 });
