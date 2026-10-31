@@ -1053,3 +1053,18 @@ test('a roadmap contract limits editable files and refuses an outside edit per p
   assert.deepEqual(result.proposal.changes.map(change => change.path), ['src/math.js']);
   assert.ok(prompts.some(text => /Fichiers autorisés: src\/math\.js\./.test(text)));
 });
+
+// 31/10: FOUNDER-07's goal words centered restore-service.js away from the
+// function its test imports; the coders could not see the code to change.
+test('a long file excerpt is centered on the functions the inspected tests import', async () => {
+  const filler = '// unrelated restore helper line kept for size\n'.repeat(140);
+  const source = 'export function comparePatrimonyExports(before, after) {\n  return before === after;\n}\n' + filler + 'export function restoreIsolatedCopy() { return "restore isolated copy"; }\n';
+  const testFile = "import { comparePatrimonyExports } from '../src/backup/restore-service.js';\n";
+  const calls = [];
+  const model = { id: 'spy', providerId: 'spy', modelId: 'spy', maxInputChars: 9000, invoke: async ({ input }) => { calls.push(String(input)); return { text: 'pas de réponse' }; } };
+  const engine = new MentorEngine({ providerFactory: async () => [model] });
+  await engine.propose({ env: {}, goal: 'Coder une restauration isolée restore isolated copy',
+    inspectedFiles: [{ path: 'src/backup/restore-service.js', content: source }, { path: 'tests/restore-service.test.mjs', content: testFile }] }).catch(() => null);
+  assert.ok(calls.length);
+  assert.match(calls[0], /export function comparePatrimonyExports/);
+});

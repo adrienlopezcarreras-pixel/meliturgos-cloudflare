@@ -473,7 +473,8 @@ function focusTerms(goal) {
 function focusedWindow(content, share, terms) {
   if (content.length <= share || !terms.length) return content.slice(0, share);
   const lines = content.split('\n');
-  const scores = lines.map(line => { const low = line.toLowerCase(); return terms.reduce((n, term) => n + (low.includes(term) ? 1 : 0), 0); });
+  // Earlier terms weigh more: test-imported symbols come first (31/10).
+  const scores = lines.map(line => { const low = line.toLowerCase(); return terms.reduce((n, term, rank) => n + (low.includes(term) ? terms.length - rank : 0), 0); });
   let best = 0, bestScore = -1;
   for (let start = 0; start < lines.length; start += 1) {
     let size = 0, score = 0;
@@ -652,6 +653,14 @@ export class MentorEngine {
     // The supervisor appends the whole manifest status list; models mistake it
     // for the task and "fix" roadmap ID lists, so only the item itself is sent.
     const objective = bounded(goal, 12_000).replace(/\s*\|\s*OBJECTIF\s[\s\S]*$/, '').trim();
+    // Center long-file excerpts on the functions the tests import: 31/10, the
+    // goal words centered restore-service.js elsewhere and the coders could
+    // not see comparePatrimonyExports (line 67) they had to change.
+    const importedSymbols = [...new Set((Array.isArray(inspectedFiles) ? inspectedFiles : [])
+      .filter(file => /^tests\//.test(String(file?.path || '')))
+      .flatMap(file => [...String(file.content || '').matchAll(/import\s*\{([^}]+)\}\s*from\s*['"]\.\.\/src\//g)])
+      .flatMap(match => match[1].split(',').map(name => name.trim().split(/\s+as\s+/)[0]).filter(Boolean)))].slice(0, 20);
+    const focusGoal = importedSymbols.length ? importedSymbols.join(' ') + '\n' + objective : objective;
     if (!objective) throw Object.assign(new Error('MENTOR_GOAL_REQUIRED'), { code: 'MENTOR_GOAL_REQUIRED', status: 400 });
     const files = normalizeInspectedFiles(inspectedFiles);
     if (!files.length) throw Object.assign(new Error('MENTOR_INSPECTION_REQUIRED'), { code: 'MENTOR_INSPECTION_REQUIRED', status: 422 });
@@ -721,7 +730,7 @@ export class MentorEngine {
             files,
             promptLimit(provider),
             visibleScope,
-            objective,
+            focusGoal,
           ),
           context: {
             purpose: 'mel-autonomous-development',
@@ -782,7 +791,7 @@ export class MentorEngine {
               files,
               promptLimit(provider),
               visibleScope,
-              objective,
+              focusGoal,
             ),
             context: {
               purpose: 'mel-autonomous-development-structured-repair',
