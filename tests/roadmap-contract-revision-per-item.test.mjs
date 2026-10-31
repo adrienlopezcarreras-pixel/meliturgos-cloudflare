@@ -25,3 +25,9 @@ test('a contract that forbids VERIFY_EXISTING marks its goal and the planner ref
   assert.doesNotMatch(roadmapCodeMissionGoal({ id: 'MEL-MANIFEST-05', ...ROADMAP_TECHNICAL_WORK['MEL-MANIFEST-05'] }), /VERIFY_EXISTING_INTERDIT/);
   assert.throws(() => requireProvableImplementationDecision(goal, 'DECISION: VERIFY_EXISTING\nPLAN: rien'), err => ['IMPLEMENTATION_UNPROVABLE_VERIFY_EXISTING', 'IMPLEMENTATION_QUALITY_CONTRACT_MISSING'].includes(err.code));
 });
+
+test('a contract with focus symbols puts them in the goal for the coder excerpt', async () => {
+  const { roadmapCodeMissionGoal } = await import('../src/evolution/roadmap-code-missions.js');
+  const goal = roadmapCodeMissionGoal({ id: 'MEL-FOUNDER-02', ...ROADMAP_TECHNICAL_WORK['MEL-FOUNDER-02'] });
+  assert.match(goal, /FOCUS_CODE runAutonomyRuntimeTick autonomyTickAdvanced/);
+});
