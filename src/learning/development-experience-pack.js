@@ -1616,4 +1616,22 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1793476800000
   },
+  {
+    "id": "claude-max-time-saving-playbook-20261031",
+    "domain": "agents",
+    "task": "MAX : livrer une mission roadmap MODE_TECHNIQUE IMPLEMENT PREUVE_REQUISE DIFF_TESTS_EXACT_SHA_CI au premier essai, sans tour perdu.",
+    "input": "31/10 : la plupart des neurones perdus venaient d'erreurs évitables (SEARCH inventé, variable non importée, VERIFY_EXISTING rejeté, réparations à l'aveugle, même échec répété).",
+    "before": "Tours perdus : SEARCH avec une ligne inventée ou « // existing content continues... », standardRegistry utilisé sans import, VERIFY_EXISTING rejeté quatre fois, fichier hors contrat modifié, même diff resoumis après un rejet.",
+    "after": "Règles pour gagner du temps, dans l'ordre : 1) lire d'abord ÉCHEC_PRÉCÉDENT, les objections du Council et les tests en échec, et ne jamais resoumettre le même diff ; 2) regarder en premier les fonctions FOCUS_CODE ; 3) copier chaque SEARCH mot pour mot depuis l'extrait, jamais de commentaire de remplacement ; 4) importer ou recevoir en paramètre tout nom utilisé ; 5) ne modifier que les fichiers du contrat : un test cassé hors contrat se lit, on corrige son propre code pour qu'il repasse ; 6) ajouter un test par critère d'acceptation dans le fichier de test du contrat (SEARCH vide = ajout en fin de fichier), avec les exemples exacts du contrat ; 7) jamais VERIFY_EXISTING si le contrat porte VERIFY_EXISTING_INTERDIT ou si le Council l'a déjà rejeté ; 8) le plus petit diff qui satisfait tous les critères.",
+    "rationale": "Chaque règle correspond à un refus réel mesuré le 31/10 ; les respecter évite le tour, le Council et la CI qui le suivent.",
+    "tests": [
+      "dev_jobs MANIFEST-08, FOUNDER-07, AUDIT-06, MANIFEST-05, CHAT-01 du 31/10",
+      "PR #2944 à #2958"
+    ],
+    "tags": ["agents", "max", "mentor", "council", "roadmap"],
+    "source": "claude",
+    "validated": true,
+    "quality": 1,
+    "created_at": 1793480400000
+  },
 ]);
