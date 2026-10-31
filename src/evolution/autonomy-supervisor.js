@@ -668,7 +668,13 @@ export class AutonomySupervisor {
     const deterministicId = jobAttemptId(item.id, attempts + 1, this.epochMs);
     const technicalMode = String(item.mode || 'IMPLEMENT').toUpperCase();
     const requiredProof = String(item.required_proof || 'DIFF_TESTS_EXACT_SHA_CI');
-    const goal = roadmapCodeMissionGoal(item);
+    // A new attempt learns why the last one failed: 31/10 MANIFEST-08 was
+    // replanned four times into the same Council objection, blind.
+    const lastFailure = current.supervisedJobs
+      .filter(job => roadmapIdFromJob(job) === item.id && String(job.status || '').toUpperCase() === 'FAILED' && job.error)
+      .sort((a, b) => Number(b.updated_at || 0) - Number(a.updated_at || 0))[0];
+    const previousFailure = lastFailure ? String(lastFailure.error).replace(/\s+/g, ' ').slice(0, 700) : '';
+    const goal = roadmapCodeMissionGoal(item) + (previousFailure ? ` | ÉCHEC_PRÉCÉDENT ${previousFailure}` : '');
     const input = {
       id: deterministicId,
       requested_by: 'mel-autonomy',
@@ -686,6 +692,7 @@ export class AutonomySupervisor {
         candidate_branch_only: true,
         zero_added_cost: true,
         attempt: attempts + 1,
+        ...(previousFailure ? { previous_failure: previousFailure } : {}),
       },
     };
 
