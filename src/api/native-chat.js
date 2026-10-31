@@ -37,6 +37,7 @@ import { inferKnowledgeCapability } from './knowledge-intent.js';
 import { plainChatMayStream, streamChatResponse, createToolLeakFilter } from './chat-stream.js';
 import { instrumentBus } from './chat-progress.js';
 import { runLocalPcModel } from '../models/local-pc-model.js';
+import { veniceConfigured, runVeniceInference } from '../models/venice-uncensored.js';
 import { rankedStreamModels } from '../models/model-tournament.js';
 import { runComputerAgent, streamComputerAgent } from '../devices/computer-agent.js';
 import { inferComputerAgentGoal } from '../devices/computer-agent-intent.js';
@@ -1394,7 +1395,19 @@ export function resolveContinuationInferenceRoute({ voiceReply = false, professo
   };
 }
 
-export async function runNativeInference({ env, messages, text, parallel = false, maxCandidates = 4, inferenceSettings = null, activeAdapter = null, qwenAdapter = null, runtime = null, taskOverride = null, preferredModel = null, timeoutMs = null, maxCalls = null, deadlineAt = null, requireLora = false } = {}) {
+// Owner decision 31/10: in UNCENSORED mode, Venice Uncensored (OpenRouter)
+// is the fallback of MEL's own trained models, behind the weapons guard.
+export async function runNativeInference(options = {}) {
+  const { env, messages, deadlineAt = null, requireLora = false } = options;
+  if (!requireLora || !veniceConfigured(env)) return runNativeInferenceCore(options);
+  try {
+    const own = await runNativeInferenceCore(options);
+    if (String(own?.text || '').trim()) return own;
+  } catch { /* our models failed: Venice below */ }
+  return runVeniceInference({ env, messages, deadlineAt });
+}
+
+async function runNativeInferenceCore({ env, messages, text, parallel = false, maxCandidates = 4, inferenceSettings = null, activeAdapter = null, qwenAdapter = null, runtime = null, taskOverride = null, preferredModel = null, timeoutMs = null, maxCalls = null, deadlineAt = null, requireLora = false } = {}) {
   if (deadlineAt != null && !hasChatBudget(deadlineAt, 1)) throw chatDeadlineError();
   let secondaryReady = false;
   if (requireLora) {
