@@ -1,9 +1,9 @@
 import { isAcceptedRoadmapCodeJob } from '../roadmap/roadmap-code-acceptance.js';
-import { ROADMAP_CODE_CONTRACT_REVISION } from '../roadmap/roadmap-code-contracts.js';
+import { roadmapContractRevision } from '../roadmap/roadmap-code-contracts.js';
 import { unmetRoadmapPrerequisites } from '../roadmap/roadmap-dependencies.js';
 
 export function roadmapCodeMissionContext(item) {
-  if (item?.contract_revision !== ROADMAP_CODE_CONTRACT_REVISION) return {};
+  if (!item?.id || item.contract_revision !== roadmapContractRevision(item.id)) return {};
   return { roadmap_contract_revision: item.contract_revision, code_paths: [...item.code_paths],
     test_paths: [...item.test_paths], acceptance: [...item.acceptance], max_attempts: 3 };
 }
@@ -21,7 +21,7 @@ export async function refreshRoadmapCodeMissions(repository, jobs, roadmap) {
   const safe = new Set(['QUEUED','TEACHER_APPROVED','COUNCIL_COMPLETE','REPAIR_REQUIRED','WAITING_TEACHER','WAITING_DEPENDENCY']);
   for (const job of jobs) {
     const item = roadmap.find(row => row.id === job.optional_context?.roadmap_id);
-    if (job.requested_by !== 'mel-autonomy' || !item || item.contract_revision !== ROADMAP_CODE_CONTRACT_REVISION
+    if (job.requested_by !== 'mel-autonomy' || !item || item.contract_revision !== roadmapContractRevision(item.id)
         || ['DONE_VERIFIED','VERIFIED','ACCEPTED'].includes(item.status)
         || !safe.has(job.status) || job.optional_context?.roadmap_contract_revision === item.contract_revision
         || ['RUNNING','IN_PROGRESS','CLAIMED','READY_FOR_REVIEW'].includes(job.result_json?.dev_bridge?.status)) continue;
