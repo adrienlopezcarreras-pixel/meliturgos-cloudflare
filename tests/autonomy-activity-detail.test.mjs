@@ -336,3 +336,24 @@ test('automatic error-correction jobs keep their queue category and remain passi
   assert.equal(JSON.stringify(jobs),before);
   assert.ok(jobs.every(job=>job.status==='QUEUED'));
 });
+
+// 31/10: FOUNDER-04 was completed by MAX with a verified acceptance receipt,
+// yet its follow-up never showed « Objectif prouvé » (only the static
+// declaration, never edited by MAX, was read).
+test('a verified roadmap acceptance receipt marks the objective proven in the pipeline', async () => {
+  const { jobPipeline: pipeline } = await import('../src/evolution/autonomy-activity.js');
+  const { ROADMAP_CODE_CONTRACT_REVISION } = await import('../src/roadmap/roadmap-code-contracts.js');
+  const sha = 'a'.repeat(40), branch = 'candidate/mel-clean-autonomy';
+  const ci = { verified: true, workflow: 'full-candidate-ci', run_id: 7, head_sha: sha, head_branch: branch, conclusion: 'success' };
+  const job = { id: 'f4', status: 'COMPLETED', requested_by: 'mel-autonomy',
+    optional_context: { roadmap_id: 'MEL-FOUNDER-04', roadmap_contract_revision: ROADMAP_CODE_CONTRACT_REVISION },
+    files_json: [{ path: 'src/teachers/augmentio-council.js' }, { path: 'tests/augmentio-council.test.mjs' }],
+    result_json: {
+      roadmap_code_acceptance: { schema: 'mel.roadmap-code-acceptance/v1', status: 'VERIFIED', roadmap_id: 'MEL-FOUNDER-04', contract_revision: ROADMAP_CODE_CONTRACT_REVISION,
+        candidate_sha: sha, candidate_branch: branch, ci_run_id: 7, code_paths: ['src/teachers/augmentio-council.js'], test_paths: ['tests/augmentio-council.test.mjs'], external_acceptance_verified: false },
+      autonomy_completion: { status: 'VERIFIED', candidate_sha: sha, candidate_branch: branch, ci, mel_implementation: { verified: true, providers_attempted: 2 } },
+    } };
+  assert.equal(pipeline(job).find(step => step.key === 'objective').done, true);
+  const unproven = { ...job, result_json: { ...job.result_json, roadmap_code_acceptance: undefined } };
+  assert.equal(pipeline(unproven).find(step => step.key === 'objective').done, false);
+});
