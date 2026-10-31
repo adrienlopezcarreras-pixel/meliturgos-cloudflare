@@ -10,7 +10,8 @@ export function roadmapCodeMissionContext(item) {
 
 export function roadmapCodeMissionGoal(item) {
   return `[${item.id}] ${item.title}${item.next ? ` — ${item.next}` : ''}`
-    + ` | MODE_TECHNIQUE ${item.mode || 'IMPLEMENT'} | PREUVE_REQUISE ${item.required_proof || 'DIFF_TESTS_EXACT_SHA_CI'}`;
+    + ` | MODE_TECHNIQUE ${item.mode || 'IMPLEMENT'} | PREUVE_REQUISE ${item.required_proof || 'DIFF_TESTS_EXACT_SHA_CI'}`
+    + (item.verify_existing === false ? ' | VERIFY_EXISTING_INTERDIT' : '');
 }
 
 // A changed technical contract invalidates the old plan, never its archived

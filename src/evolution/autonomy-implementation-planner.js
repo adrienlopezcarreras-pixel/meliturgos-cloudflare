@@ -20,8 +20,10 @@ export function classifyImplementationDecision(plan) {
 // Teacher approval, without ever preparing a Dev Bridge package.
 export function requireProvableImplementationDecision(goal, candidateText) {
   const text = assertPlanQualityContract(candidateText);
+  // A contract the Council already found unproven by the existing code
+  // (MANIFEST-08, 31/10: four VERIFY_EXISTING rejections) needs a diff.
   if (classifyImplementationDecision(text) === 'VERIFY_EXISTING'
-      && !hasObjectiveBoundVerificationChecks(goal, text)) {
+      && (/VERIFY_EXISTING_INTERDIT/.test(String(goal || '')) || !hasObjectiveBoundVerificationChecks(goal, text))) {
     const error = new Error('IMPLEMENTATION_UNPROVABLE_VERIFY_EXISTING');
     error.code = 'IMPLEMENTATION_UNPROVABLE_VERIFY_EXISTING';
     error.missing_sections = ['OBJECTIVE_BOUND_FUNCTIONAL_PROOF'];
@@ -550,7 +552,7 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
     ];
     const eligible = scaffoldCandidates.filter(candidate =>
       classifyImplementationDecision(candidate?.text) !== 'VERIFY_EXISTING'
-      || hasObjectiveBoundVerificationChecks(current.goal, candidate?.text)
+      || (!/VERIFY_EXISTING_INTERDIT/.test(String(current.goal || '')) && hasObjectiveBoundVerificationChecks(current.goal, candidate?.text))
     );
     if (!eligible.length && qualityError?.code === 'IMPLEMENTATION_UNPROVABLE_VERIFY_EXISTING') {
       throw qualityError; // No invented code, no unsupported DONE, no fake Bridge package.
