@@ -13,7 +13,12 @@ import json
 import random
 from pathlib import Path
 
-BASE_MODEL = "Qwen/Qwen3-14B"
+# Owner decision 31/10: free Kaggle GPUs cannot abliterate a 14B model (needs
+# >=40 GB). Train on Maxime Labonne's published abliteration of Qwen3-14B
+# (Apache-2.0), pinned to an immutable revision.
+BASE_MODEL = "mlabonne/Qwen3-14B-abliterated"
+BASE_REVISION = "9d8db58cddb750e732cd2179fa504e8830b733ce"
+ORIGIN_MODEL = "Qwen/Qwen3-14B"
 ROLES = {"system", "user", "assistant"}
 MIN_ROWS = 50
 
@@ -116,7 +121,7 @@ def run(argv=None):
     eval_rows = rows[:validation_count]
     plan = {
         "status": "TRAINING_PLAN_VALIDATED_UNTRAINED",
-        "base_model": BASE_MODEL,
+        "base_model": BASE_MODEL, "base_revision": BASE_REVISION, "origin_model": ORIGIN_MODEL,
         "training_mode": "qlora-4bit-nf4",
         "dataset_sha256": digest,
         "source_manifest_sha256": sha256(source_manifest),
@@ -145,11 +150,11 @@ def run(argv=None):
 
     if not torch.cuda.is_available():
         raise RuntimeError("QWEN_CUDA_REQUIRED")
-    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, trust_remote_code=False)
+    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, revision=BASE_REVISION, trust_remote_code=False)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     model = AutoModelForCausalLM.from_pretrained(
-        BASE_MODEL,
+        BASE_MODEL, revision=BASE_REVISION,
         quantization_config=BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
                                                 bnb_4bit_use_double_quant=True,
                                                 bnb_4bit_compute_dtype=torch.float16),
