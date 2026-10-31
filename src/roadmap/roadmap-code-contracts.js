@@ -39,7 +39,8 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
       "src/diagnostics/architecture-audit-store.js"
     ],
     "test_paths": [
-      "tests/architecture-audit.test.mjs"
+      "tests/architecture-audit.test.mjs",
+      "tests/ui-production-audit.test.mjs"
     ],
     "acceptance": [
       "Un rapport signé exact-SHA est enregistré une fois; une identité invalide ou un rejeu ne crée pas de constat supplémentaire."
