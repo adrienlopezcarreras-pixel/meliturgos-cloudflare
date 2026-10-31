@@ -1,3 +1,4 @@
+import { isAcceptedRoadmapCodeJob } from '../roadmap/roadmap-code-acceptance.js';
 import { singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
 import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 // Detailed, read-only view of what MEL is doing, for the « Activité » panel.
@@ -116,10 +117,14 @@ function diagnostic(value) {
 }
 
 /** The pipeline of one supervised job, as ordered steps with done/current/todo. */
+// MAX never edits the static roadmap declaration (by design), so the declared
+// status alone never proved a delivery: FOUNDER-04, completed with a verified
+// acceptance receipt on 30/10, never showed « Objectif prouvé ».
 function roadmapObjectiveProven(job) {
   const id = job?.optional_context?.roadmap_id;
   if (!id) return false;
-  return isClosedRoadmapStatus(flattenRoadmap().find(item => item.id === id)?.status);
+  return isAcceptedRoadmapCodeJob({ ...job, files_json: Array.isArray(job?.files_json) ? job.files_json : [], optional_context: job.optional_context, result_json: obj(job?.result_json) })
+    || isClosedRoadmapStatus(flattenRoadmap().find(item => item.id === id)?.status);
 }
 
 export function jobPipeline(job) {
