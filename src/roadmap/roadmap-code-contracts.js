@@ -457,7 +457,8 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
     "required_proof": "DIFF_TESTS_EXACT_SHA_CI",
     "code_paths": [
       "src/capabilities/google-workspace-capabilities.js",
-      "src/connectors/google-oauth-runtime.js"
+      "src/connectors/google-oauth-runtime.js",
+      "src/capabilities/capability-bus.js"
     ],
     "test_paths": [
       "tests/native-chat-connected-replay.test.mjs"
