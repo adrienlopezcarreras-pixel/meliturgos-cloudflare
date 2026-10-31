@@ -96,7 +96,7 @@ for(const storage of ['memory','sqlite'])test(`a dependent unlocks only from an 
   const DB=storage==='sqlite'?sqliteD1():null;if(DB)t.after(()=>DB.close());
   const repository=new D1DevJobRepository(DB,{memoryStore:new Map()});
   const parent=canonical.find(row=>row.id==='MEL-FOUNDER-02'),child=canonical.find(row=>row.id==='MEL-MANIFEST-01');
-  const created=await repository.create({id:'verified-parent',requested_by:'mel-autonomy',goal:parent.title,optional_context:{roadmap_id:parent.id,roadmap_contract_revision:ROADMAP_CODE_CONTRACT_REVISION}});
+  const created=await repository.create({id:'verified-parent',requested_by:'mel-autonomy',goal:parent.title,optional_context:{roadmap_id:parent.id,roadmap_contract_revision:parent.contract_revision}});
   const files=[...parent.code_paths,...parent.test_paths].map(path=>({path,content:'fixture reviewed code'}));
   await repository.update(created.id,{status:'COMPLETED',files_json:files});
   const supervisor=new AutonomySupervisor({repository,roadmap:[parent,child]});

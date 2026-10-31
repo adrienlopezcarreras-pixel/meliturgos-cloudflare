@@ -1,4 +1,4 @@
-import { ROADMAP_CODE_CONTRACTS, ROADMAP_CODE_CONTRACT_REVISION } from './roadmap-code-contracts.js';
+import { ROADMAP_CODE_CONTRACTS, roadmapContractRevision } from './roadmap-code-contracts.js';
 
 // Software completion never certifies physical acceptance or model activation.
 const EXTERNAL_ACCEPTANCE = Object.freeze({
@@ -10,7 +10,7 @@ const EXTERNAL_ACCEPTANCE = Object.freeze({
 });
 export const ROADMAP_TECHNICAL_WORK = Object.freeze(Object.fromEntries(
   Object.entries(ROADMAP_CODE_CONTRACTS).map(([id, contract]) => [id, Object.freeze({
-    ...contract, contract_revision: ROADMAP_CODE_CONTRACT_REVISION,
+    ...contract, contract_revision: roadmapContractRevision(id),
     ...(EXTERNAL_ACCEPTANCE[id] ? { external_acceptance: EXTERNAL_ACCEPTANCE[id] } : {}),
   })])
 ));

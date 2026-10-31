@@ -122,6 +122,7 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
     "acceptance": [
       "Trois ticks reprennent le même identifiant et son étape persistée, libèrent le lease et distinguent absence de progrès de réussite."
     ],
+    "revision": "2026-10-31-code-v2",
     "max_attempts": 3
   },
   "MEL-FOUNDER-03": {
@@ -450,8 +451,10 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
       "tests/native-chat-connected-replay.test.mjs"
     ],
     "acceptance": [
-      "Cinq messages sont rendus depuis un vrai reçu ou le code d’erreur exact est conservé; absence de compte et erreur réseau ne sont pas une lecture réussie."
+      "Cinq messages sont rendus depuis un vrai reçu ou le code d’erreur exact est conservé; absence de compte et erreur réseau ne sont pas une lecture réussie.",
+      "La version existante ne le prouve pas (Council 31/10) : ajouter dans le test de régression un reçu de cinq messages rendus et un cas absence de compte et un cas erreur réseau qui gardent leur code exact."
     ],
+    "revision": "2026-10-31-code-v2",
     "max_attempts": 3
   },
   "MEL-MANIFEST-09": {
@@ -674,6 +677,13 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
   }
 });
 
+// A contract reworded after its attempts were exhausted carries its own
+// revision: its old failures stop counting and it is retried, while every
+// other objective (and its accepted evidence) keeps the global revision.
+export function roadmapContractRevision(roadmapId) {
+  return ROADMAP_CODE_CONTRACTS[roadmapId]?.revision || ROADMAP_CODE_CONTRACT_REVISION;
+}
+
 export function codeContractForRoadmapJob(job) {
   if (job?.requested_by !== 'mel-autonomy') return null;
   return ROADMAP_CODE_CONTRACTS[job?.optional_context?.roadmap_id] || null;
@@ -684,7 +694,7 @@ export function codeContractForRoadmapJob(job) {
 export function assertRoadmapCodeChanges(job, changes = []) {
   const contract = codeContractForRoadmapJob(job);
   if (!contract) return;
-  if (job.optional_context?.roadmap_contract_revision !== ROADMAP_CODE_CONTRACT_REVISION)
+  if (job.optional_context?.roadmap_contract_revision !== roadmapContractRevision(job.optional_context?.roadmap_id))
     throw Object.assign(new Error('ROADMAP_CODE_CONTRACT_STALE'), { code: 'ROADMAP_CODE_CONTRACT_STALE' });
   const allowed = new Set([...contract.code_paths, ...contract.test_paths]);
   if (!Array.isArray(changes) || changes.some(change => !allowed.has(String(change?.path || ''))))
