@@ -197,7 +197,12 @@ const NEW_TEST_PATH = /^tests\/[A-Za-z0-9_.-]+\.test\.mjs$/;
 
 // The Council rejects code without a test that exercises it; reject earlier,
 // while other providers can still answer, an implementation without one.
-function assertTestIncluded(proposal, mode, requireTest = false) {
+function assertTestIncluded(proposal, mode, requireTest = false, scope = null) {
+  // A roadmap contract allows only its own files. Refuse here, per provider,
+  // so the next model can still answer: the bridge used to reject the whole
+  // round afterwards (31/10: MANIFEST-05 ROADMAP_CODE_SCOPE_VIOLATION).
+  const outside = scope ? proposal.changes.filter(change => !scope.has(change.path)).map(change => change.path) : [];
+  if (outside.length) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${outside[0]} — hors contrat : seuls ${[...scope].join(', ')} sont modifiables`), { code: 'MENTOR_INVALID_CHANGE' });
   if (!requireTest || mode !== 'implement') return proposal;
   const logic = proposal.changes.some(change => /^src\/.+\.m?js$/.test(change.path));
   const test = proposal.changes.some(change => /^tests\/.+\.test\.mjs$/.test(change.path));
@@ -503,9 +508,9 @@ function promptWithinLimit(build, files, limit, visibleScope = [], goal = '') {
   return input;
 }
 
-function buildRepairPrompt({ goal, files, raw, failure, mode, reference = '' }) {
+function buildRepairPrompt({ goal, files, raw, failure, mode, reference = '', allowedPaths = null }) {
   const uninspected = /MENTOR_UNINSPECTED_PATH/.test(String(failure || ''));
-  const allowed = (Array.isArray(files) ? files : []).slice(0, 6).map(file => file.path).filter(Boolean).join(', ');
+  const allowed = (Array.isArray(allowedPaths) && allowedPaths.length ? allowedPaths : (Array.isArray(files) ? files : []).slice(0, 6).map(file => file.path)).filter(Boolean).join(', ');
   return [
     'Tu répares une réponse de code rejetée.',
     'FORMAT UNIQUE (texte brut, sans JSON) : une ligne « SUMMARY modification concrète », une ligne « TESTS test:smoke », puis pour chaque modification : une ligne « EDIT CHEMIN_EXACT », une ligne « <<<<<<< SEARCH », l’extrait EXACT et UNIQUE à remplacer, une ligne « ======= », le nouveau contenu, une ligne « >>>>>>> REPLACE ». Le JSON {"summary","edits":[{"path","find","replace"}],"tests"} reste accepté.',
@@ -525,8 +530,8 @@ function buildRepairPrompt({ goal, files, raw, failure, mode, reference = '' }) 
   ].filter(Boolean).join('\n');
 }
 
-function buildPrompt({ role, goal, files, lessons, experiences, previousAttempts, mode, reference = '' }) {
-  const allowed = (Array.isArray(files) ? files : []).slice(0, 6).map(file => file.path).filter(Boolean).join(', ');
+function buildPrompt({ role, goal, files, lessons, experiences, previousAttempts, mode, reference = '', allowedPaths = null }) {
+  const allowed = (Array.isArray(allowedPaths) && allowedPaths.length ? allowedPaths : (Array.isArray(files) ? files : []).slice(0, 6).map(file => file.path)).filter(Boolean).join(', ');
   return [
     'Tu es le mentor code de MELITURGOS. Réponds uniquement dans le format ci-dessous, sans explication.',
     'RÔLE: ' + role + '. MODE: ' + (mode === 'repair' ? 'RÉPARATION APRÈS TEST' : 'IMPLÉMENTATION') + '.',
@@ -642,7 +647,8 @@ export class MentorEngine {
     return this.memory.experienceContext(goal, options);
   }
 
-  async propose({ env, jobId, goal, inspectedFiles = [], previousAttempts = [], mode = 'implement', repairReferences = [], pathExists = null, requireTest = false, failedRounds = 0 } = {}) {
+  async propose({ env, jobId, goal, inspectedFiles = [], previousAttempts = [], mode = 'implement', repairReferences = [], pathExists = null, requireTest = false, failedRounds = 0, allowedPaths = null } = {}) {
+    const scope = Array.isArray(allowedPaths) && allowedPaths.length ? new Set(allowedPaths) : null;
     // The supervisor appends the whole manifest status list; models mistake it
     // for the task and "fix" roadmap ID lists, so only the item itself is sent.
     const objective = bounded(goal, 12_000).replace(/\s*\|\s*OBJECTIF\s[\s\S]*$/, '').trim();
@@ -711,7 +717,7 @@ export class MentorEngine {
         const visibleScope = [];
         return boundedMentorInvoke(provider, {
           input: promptWithinLimit(
-            visible => buildPrompt({ role: roles[(waveOffset + index) % roles.length], goal: objective, files: visible, lessons: remembered, experiences, previousAttempts, mode, reference: referenceFor(provider) }),
+            visible => buildPrompt({ allowedPaths, role: roles[(waveOffset + index) % roles.length], goal: objective, files: visible, lessons: remembered, experiences, previousAttempts, mode, reference: referenceFor(provider) }),
             files,
             promptLimit(provider),
             visibleScope,
@@ -743,7 +749,7 @@ export class MentorEngine {
           const provenance = output?.provenance || { provider: provider.providerId, model: provider.modelId };
           let proposal = await assertImportsResolve(normalizeProposal(raw, provenance, files, previousAttempts, references, result.value.visibleScope), pathExists, files);
           try {
-            assertTestIncluded(proposal, mode, requireTest);
+            assertTestIncluded(proposal, mode, requireTest, scope);
           } catch (error) {
             if (error?.code !== 'MENTOR_TEST_REQUIRED' || typeof raw !== 'string' || remaining() < 10_000) throw error;
             // Models write the change and forget its test; ask the same model
@@ -754,7 +760,7 @@ export class MentorEngine {
             }, Math.max(10, Math.min(this.invokeTimeoutMs, remaining())));
             const combined = raw + '\n' + String(testOutput?.text ?? testOutput ?? '');
             proposal = await assertImportsResolve(normalizeProposal(combined, provenance, files, previousAttempts, references, result.value.visibleScope), pathExists, files);
-            assertTestIncluded(proposal, mode, requireTest);
+            assertTestIncluded(proposal, mode, requireTest, scope);
           }
           proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: false });
         } catch (error) {
@@ -772,7 +778,7 @@ export class MentorEngine {
           const visibleScope = [];
           return boundedMentorInvoke(provider, {
             input: promptWithinLimit(
-              visible => buildRepairPrompt({ goal: objective, files: visible, raw: bounded(raw, Math.floor(promptLimit(provider) / 3)), failure, mode, reference: referenceFor(provider) }),
+              visible => buildRepairPrompt({ allowedPaths, goal: objective, files: visible, raw: bounded(raw, Math.floor(promptLimit(provider) / 3)), failure, mode, reference: referenceFor(provider) }),
               files,
               promptLimit(provider),
               visibleScope,
@@ -806,7 +812,7 @@ export class MentorEngine {
               references,
               result.value.visibleScope,
             ), pathExists, files);
-            assertTestIncluded(proposal, mode, requireTest);
+            assertTestIncluded(proposal, mode, requireTest, scope);
             proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: true });
             repairValidProposals += 1;
           } catch (error) {
