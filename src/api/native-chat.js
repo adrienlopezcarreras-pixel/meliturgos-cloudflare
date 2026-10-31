@@ -1530,7 +1530,8 @@ export async function handleNativeChat(request, env, options = {}) {
     let a = false, b = false;
     try { requireChatLora(requestedLora); a = true; } catch {}
     try { requireActiveQwen3Lora(requestedQwen3, env); b = true; } catch {}
-    if (!a && !b) return Response.json({
+    // Venice is the fallback of our adapters: no adapter is not a refusal then.
+    if (!a && !b && !veniceConfigured(env)) return Response.json({
       ok:false, error:'LORA_COMPATIBLE_ACTIVE_ADAPTER_REQUIRED',
       code:'LORA_COMPATIBLE_ACTIVE_ADAPTER_REQUIRED',
       text:'Mode UNCENSORED : aucun des deux adaptateurs vérifiés n’est actuellement accessible.',
