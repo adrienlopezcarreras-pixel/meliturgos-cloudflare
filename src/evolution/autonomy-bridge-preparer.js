@@ -248,7 +248,10 @@ export async function prepareApprovedBridgePackage({
   // calling the coder models, then the usual bridge, full CI, Council review
   // and acceptance receipt apply unchanged. A package whose base file hash no
   // longer matches the candidate is skipped (never overwrite newer work).
-  const prepared = repairFor ? null : await preparedMissionPackage(env, code, current, inspectedFiles, fetchImpl);
+  // A mission already in repair also takes its prepared package once; when the
+  // last package applied was the prepared one and it failed, the coders repair.
+  const preparedAlreadyTried = current?.result_json?.bridge_preparation?.mentor?.provenance?.source === 'prepared-package';
+  const prepared = repairFor && preparedAlreadyTried ? null : await preparedMissionPackage(env, code, current, inspectedFiles, fetchImpl);
   const mentor = prepared || await engine.propose({
     env,
     jobId: current.id,
