@@ -456,6 +456,7 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
       "La version existante ne le prouve pas (Council 31/10) : ajouter dans le test de régression un reçu de cinq messages rendus et un cas absence de compte et un cas erreur réseau qui gardent leur code exact."
     ],
     "revision": "2026-10-31-code-v2",
+    "verify_existing": false,
     "max_attempts": 3
   },
   "MEL-MANIFEST-09": {
