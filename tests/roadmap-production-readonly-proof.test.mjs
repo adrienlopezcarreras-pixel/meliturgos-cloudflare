@@ -4,7 +4,7 @@ import {assessRoadmapResponse,measureRoadmapProduction} from '../scripts/prove-p
 const sha='a'.repeat(40);
 const response=()=>{
  const ids=Array.from({length:176},(_,i)=>'POINT-'+i);
- const items=Object.fromEntries(ids.map((id,i)=>[id,{truth:i===0?'VERIFIED_LIVE':'UNPROVEN'}]));
+ const items=Object.fromEntries(ids.map((id,i)=>[id,{truth:i===0?'VERIFIED_LIVE':'UNPROVEN',...(i===0?{last_proof_at:'2026-11-01T20:00:00.000Z',proofs:[{kind:'capability',id:'code.read',ok:1}]}:{})}]));
  return {ok:true,phases:[{items:ids.map(id=>({id}))}],truth:{available:true,total:176,items}};
 };
 test('returns only counts and IDs, not private proof payloads',()=>{
@@ -32,4 +32,13 @@ test('probe performs exactly three GET requests and checks SHA both ends',async(
  assert.equal(calls.length,3);
  assert.ok(calls.every(c=>c.opts.method==='GET'));
  assert.ok(calls[1].url.endsWith('/api/gen2/roadmap'));
+});
+
+test('rejects VERIFIED_LIVE without real successful dated receipts',()=>{
+ let body=response();body.truth.items['POINT-0'].proofs=[];
+ assert.equal(assessRoadmapResponse(body,sha).code,'ROADMAP_PRODUCTION_VERIFIED_WITHOUT_RECEIPT');
+ body=response();body.truth.items['POINT-0'].proofs[0].ok=0;
+ assert.equal(assessRoadmapResponse(body,sha).code,'ROADMAP_PRODUCTION_VERIFIED_WITHOUT_RECEIPT');
+ body=response();body.truth.items['POINT-0'].last_proof_at=null;
+ assert.equal(assessRoadmapResponse(body,sha).code,'ROADMAP_PRODUCTION_RECEIPT_DATE_MISSING');
 });
