@@ -118,8 +118,10 @@ export async function readWorkersAiSse(stream, { onText, onFinish } = {}) {
 export const STREAM_NO_TOOLS_NOTE = 'DANS CETTE RÉPONSE TU N’AS AUCUN OUTIL À APPELER : n’écris jamais d’appel d’outil en JSON ("tool": …), de TOOL_RESULT, ni ton raisonnement interne. Ne prétends jamais avoir lancé, déclenché, modifié ou déployé quoi que ce soit pendant cette réponse : aucune action n’a été exécutée. Si une action est nécessaire, dis précisément laquelle et ce qui la prouvera.';
 
 /** The stream path cannot execute a tool. An action request stays on the full path. */
-export function plainChatMayStream({ stream, voice, releaseSmoke, parallel, personalProfile, toolCount, actionRequest, adapter, ai } = {}) {
-  return stream === true && voice !== true && releaseSmoke !== true && parallel !== true
+// UNCENSORED never streams: the stream path calls the standard models and
+// would bypass Venice (01/11: nemotron answered an UNCENSORED turn).
+export function plainChatMayStream({ stream, voice, releaseSmoke, parallel, personalProfile, toolCount, actionRequest, adapter, ai, uncensored = false } = {}) {
+  return uncensored !== true && stream === true && voice !== true && releaseSmoke !== true && parallel !== true
     && personalProfile !== true && Number(toolCount) === 0 && actionRequest !== true
     && adapter == null && ai === true;
 }

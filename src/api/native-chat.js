@@ -2530,6 +2530,7 @@ export async function handleNativeChat(request, env, options = {}) {
     toolCount: toolResults.length,
     actionRequest: wantsAgentTools(activeTaskText),
     adapter: activeAdapter,
+    uncensored: requireLora === true,
     ai: typeof env?.AI?.run === 'function',
   })) {
     return streamChatResponse({
