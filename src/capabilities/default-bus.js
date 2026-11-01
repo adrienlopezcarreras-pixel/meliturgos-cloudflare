@@ -1,3 +1,4 @@
+import { createMcpCapabilityAdapter, MCP_MODERN_VERSION } from '../mcp/capability-adapter.js';
 import { createMemoryService } from '../memory/memory-service.js';
 import { createKnowledgeGraph, validateEntity, validateRelation } from '../memory/knowledge-graph.js';
 import { PromptStrategyVersionRegistry } from '../registry/prompt-strategy-version-registry.js';
@@ -149,6 +150,38 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     output_schema: { type: 'object', properties: { value: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['value'], additionalProperties: false },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ value: input.value }));
+
+  // GEN2-50: execute real MCP adapter protocol behavior against an isolated bus.
+  bus.discover({
+    id:'mcp.compatibility.verify', name:'Compatibilité MCP — contrôle runtime',
+    category:'diagnostic', version:'1.0.0', provider:'core',
+    description:'Exercises MCP discovery, permissions, tools/list and tools/call over a real isolated CapabilityBus.',
+    input_schema:{type:'object',additionalProperties:false},
+    output_schema:{type:'object',properties:{ok:{type:'boolean'},version:{type:'string'}},required:['ok','version'],additionalProperties:false},
+    risk:'LOW', permissions:[], health:'HEALTHY', enabled:true,
+  }, async () => {
+    const isolated = new CapabilityBus();
+    isolated.discover({
+      id:'proof.echo',name:'Proof echo',category:'tool',version:'1.0.0',provider:'core',
+      description:'Ephemeral MCP self-test',input_schema:{type:'object',properties:{value:{type:'string'}},required:['value']},
+      output_schema:{type:'object',properties:{value:{type:'string'}},required:['value']},
+      risk:'LOW',permissions:['proof.use'],health:'HEALTHY',enabled:true,
+    }, async ({value})=>({value}));
+    const adapter=createMcpCapabilityAdapter({bus:isolated});
+    const request=(id,method,params={})=>({jsonrpc:'2.0',id,method,params});
+    const modern={_meta:{'io.modelcontextprotocol/protocolVersion':MCP_MODERN_VERSION}};
+    const init=await adapter.handle(request(1,'server/discover',modern),{owner:'proof',permissions:[]});
+    const hidden=await adapter.handle(request(2,'tools/list',modern),{owner:'proof',permissions:[]});
+    const list=await adapter.handle(request(3,'tools/list',modern),{owner:'proof',permissions:['proof.use']});
+    const call=await adapter.handle(request(4,'tools/call',{...modern,name:'proof.echo',arguments:{value:'verified'}}),{owner:'proof',permissions:['proof.use']});
+    const denied=await adapter.handle(request(5,'tools/call',{...modern,name:'proof.echo',arguments:{value:'blocked'}}),{owner:'proof',permissions:[]});
+    if(!init.result?.supportedVersions?.includes(MCP_MODERN_VERSION) ||
+      hidden.result?.tools?.length!==0 || list.result?.tools?.[0]?.name!=='proof.echo' ||
+      call.result?.structuredContent?.value!=='verified' || denied.error?.code!==-32602){
+      throw Object.assign(new Error('MCP_RUNTIME_CONTRACT_FAILED'),{code:'MCP_RUNTIME_CONTRACT_FAILED'});
+    }
+    return {ok:true,version:MCP_MODERN_VERSION};
+  });
 
   // GEN2-10: genuine live D1 evidence, no fabricated fixture or inserted memories.
   // A missing contradiction/provenance/expired record fails closed.
