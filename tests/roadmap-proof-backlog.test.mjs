@@ -33,7 +33,6 @@ test('unproven DONE_VERIFIED IDs match the reviewed proof baseline exactly', () 
     "MEL-CONTEXT-02",
     "MEL-CONTEXT-04",
     "GEN2-10",
-    "GEN2-11",
     "MEL-MEM-02",
     "GEN2-50",
     "MEL-COUNCIL-03",
