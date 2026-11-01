@@ -1,0 +1,56 @@
+name: roadmap-176-production-proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact deployed 40-character SHA (read-only proof)
+        required: true
+        type: string
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/roadmap-176-production-proof.yml'
+      - 'scripts/prove-production-roadmap-176-readonly.mjs'
+      - 'tests/roadmap-production-readonly-proof.test.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: roadmap-176-proof-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'production' }}
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - run: node --test tests/roadmap-production-readonly-proof.test.mjs
+
+  production-readonly:
+    if: github.event_name == 'workflow_dispatch'
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Verify exact SHA and measure real D1 roadmap evidence via GET only
+        run: node scripts/prove-production-roadmap-176-readonly.mjs
+      - name: Upload redacted 176-point audit
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: roadmap-176-production-proof
+          path: roadmap-production-176-proof.json
+          if-no-files-found: warn
+          retention-days: 14
