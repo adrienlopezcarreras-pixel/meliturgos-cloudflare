@@ -208,3 +208,21 @@ test('baseline bootstrap reuses a persisted baseline for the current canonical s
   assert.equal(aiCalled, false);
   assert.equal(runCalled, false);
 });
+
+// MEL-CHAT-06: fixtures, real model and unavailability never mix in the score.
+test('each benchmark case keeps input, version, tools, result and metrics, and only real model answers are scored', async () => {
+  const { benchmarkCaseRecord, aggregateBenchmarkScore } = await import('../src/learning/operator-actions.js');
+  const records = [
+    benchmarkCaseRecord({ caseId: 'c1', input: 'Bonjour', version: 'suite-v3', source: 'model', tools: ['web.research'], result: 'Salut', metrics: { score: 1, latency_ms: 120 } }),
+    benchmarkCaseRecord({ caseId: 'c2', input: 'Calcule', version: 'suite-v3', source: 'model', result: 'faux', metrics: { score: 0 } }),
+    benchmarkCaseRecord({ caseId: 'c3', input: 'Fixture', version: 'suite-v3', source: 'fixture', result: 'parfait', metrics: { score: 1 } }),
+    benchmarkCaseRecord({ caseId: 'c4', input: 'Panne', version: 'suite-v3', source: 'unavailable', result: 'ignoré', metrics: { score: 1, error: 'AI_BINDING_UNAVAILABLE' } }),
+  ];
+  assert.deepEqual([records[0].case_id, records[0].input, records[0].version, [...records[0].tools], records[0].result, records[0].metrics.latency_ms], ['c1', 'Bonjour', 'suite-v3', ['web.research'], 'Salut', 120]);
+  assert.equal(records[2].metrics.score, null, 'a fixture is never scored');
+  assert.equal(records[3].metrics.score, null);
+  assert.equal(records[3].result, null, 'an unavailable provider has no result');
+  assert.deepEqual({ ...aggregateBenchmarkScore(records) }, { overall: 0.5, scored_cases: 2, fixture_cases: 1, unavailable_cases: 1 });
+  assert.equal(aggregateBenchmarkScore([records[2], records[3]]).overall, null, 'no real answer, no score');
+  assert.throws(() => benchmarkCaseRecord({ caseId: 'x', version: 'v', source: 'guess' }), /SOURCE_INVALID/);
+});
