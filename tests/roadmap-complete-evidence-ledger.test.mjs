@@ -45,3 +45,25 @@ test('computerActions evidence is indexed but never certified without production
  assert.equal(ledger.items[0].verified_live,false);
  assert.equal(ledger.summary.verified_live,0);
 });
+
+test('runtime evidence is joined by exact ID and only VERIFIED_LIVE gets receipts',()=>{
+ const items=[{id:'verified',title:'Verified',status:'DONE_VERIFIED',priority:'P1'},{id:'failed',title:'Failed',status:'DONE_VERIFIED',priority:'P1'}];
+ const source={verified:{capabilities:['code.read']},failed:{capabilities:['bad.action']}};
+ const runtime={available:true,total:2,items:{verified:{truth:'VERIFIED_LIVE',last_proof_at:'2026-11-01T20:00:00.000Z',proofs:[{kind:'capability',id:'code.read',ok:1}]},failed:{truth:'BROKEN',proofs:[{kind:'capability',id:'bad.action',ko:1}]}}};
+ const ledger=createCompleteEvidenceLedger(items,source,runtime);
+ assert.equal(ledger.summary.verified_live,1);
+ assert.equal(ledger.summary.production_not_evaluated,0);
+ assert.equal(ledger.items[0].verified_live,true);
+ assert.equal(ledger.items[0].production_receipt.proofs[0].id,'code.read');
+ assert.equal(ledger.items[1].verified_live,false);
+ assert.equal(ledger.items[1].production_receipt,null);
+ assert.equal(ledger.items[1].production_verification,'BROKEN');
+});
+test('runtime proof cannot silently omit any inventory item',()=>{
+ const items=[{id:'x',title:'X',status:'DONE_VERIFIED',priority:'P1'}];
+ assert.throws(()=>createCompleteEvidenceLedger(items,{}, {available:true,total:1,items:{}}),/ROADMAP_RUNTIME_ITEM_MISSING/);
+ assert.throws(()=>createCompleteEvidenceLedger(items,{}, {available:true,total:2,items:{x:{truth:'VERIFIED_LIVE'}}}),/ROADMAP_RUNTIME_TOTAL_MISMATCH/);
+ const unavailable=createCompleteEvidenceLedger(items,{}, {available:false});
+ assert.equal(unavailable.summary.verified_live,0);
+ assert.equal(unavailable.items[0].production_verification,'NOT_EVALUATED');
+});
