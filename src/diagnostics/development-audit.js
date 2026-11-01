@@ -97,11 +97,44 @@ export function auditDevelopment({ jobs = [], env = {}, registry = standardRegis
   const loops = Object.entries(tries).filter(([, count]) => count >= 4);
   if (loops.length) add('MISSION_LOOP', loops.map(([id, count]) => id + ' ×' + count).join(', '));
 
+  // MEL-AUDIT-02: one finding per code; repeated details merge instead of
+  // producing duplicate findings (and duplicate repair missions).
+  const unique = [];
+  for (const finding of findings) {
+    const same = unique.find(row => row.code === finding.code);
+    if (!same) unique.push({ ...finding, fingerprint: finding.code });
+    else if (!same.detail.includes(finding.detail)) same.detail = (same.detail + ' | ' + finding.detail).slice(0, 300);
+  }
   return {
-    ok: findings.length === 0,
-    status: findings.length ? 'DEVELOPMENT_AUDIT_FAILED' : 'DEVELOPMENT_AUDIT_OK',
-    findings,
+    ok: unique.length === 0,
+    status: unique.length ? 'DEVELOPMENT_AUDIT_FAILED' : 'DEVELOPMENT_AUDIT_OK',
+    findings: unique,
     probes,
     summary: { jobs: week.length, completed, failed, council_rejected: councilRejected, models: metrics.models.length },
   };
+}
+
+// MEL-AUDIT-02: the report is persisted; a finding already reported stays one
+// open finding (seen_count grows) instead of a new one. The audit never starts
+// a repair: findings wait for the roadmap priority (repair: DEFERRED_TO_ROADMAP).
+export async function persistDevelopmentAudit(db, report, { now = Date.now() } = {}) {
+  await db.prepare('CREATE TABLE IF NOT EXISTS mel_development_audit_findings (fingerprint TEXT PRIMARY KEY, code TEXT NOT NULL, detail TEXT, first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL, seen_count INTEGER NOT NULL DEFAULT 1)').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS mel_development_audit_reports (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL, status TEXT NOT NULL, report_json TEXT NOT NULL)').run();
+  const fresh = [];
+  const repeated = [];
+  for (const finding of report?.findings || []) {
+    const fingerprint = finding.fingerprint || finding.code;
+    const prior = await db.prepare('SELECT seen_count FROM mel_development_audit_findings WHERE fingerprint=?').bind(fingerprint).first();
+    if (prior) {
+      await db.prepare('UPDATE mel_development_audit_findings SET detail=?, last_seen=?, seen_count=seen_count+1 WHERE fingerprint=?').bind(finding.detail, now, fingerprint).run();
+      repeated.push(fingerprint);
+    } else {
+      await db.prepare('INSERT INTO mel_development_audit_findings (fingerprint, code, detail, first_seen, last_seen) VALUES (?,?,?,?,?)').bind(fingerprint, finding.code, finding.detail, now, now).run();
+      fresh.push(fingerprint);
+    }
+  }
+  const id = 'development-audit:' + now;
+  const stored = { ...report, new_findings: fresh, repeated_findings: repeated, repair: 'DEFERRED_TO_ROADMAP' };
+  await db.prepare('INSERT OR REPLACE INTO mel_development_audit_reports (id, created_at, status, report_json) VALUES (?,?,?,?)').bind(id, now, String(report?.status || 'UNKNOWN'), JSON.stringify(stored)).run();
+  return { id, ...stored };
 }

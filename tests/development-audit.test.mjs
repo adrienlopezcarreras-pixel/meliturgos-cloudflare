@@ -104,3 +104,31 @@ test('a timed-out code-model probe fails and clears its timer', async t => {
   assert.equal(handles.length, 1);
   assert.equal(handles[0].cleared, true);
 });
+
+
+test('MEL-AUDIT-02: delivered, blocked and repeated missions give one persisted, deduplicated report without repair', async () => {
+  const { sqliteD1 } = await import('./helpers/sqlite-d1.mjs');
+  const { auditDevelopment, persistDevelopmentAudit } = await import('../src/diagnostics/development-audit.js');
+  const now = Date.parse('2026-11-01T08:00:00Z');
+  const job = (id, status, roadmap, error = null) => ({ id, status, error, updated_at: now - 3600_000, optional_context: { roadmap_id: roadmap } });
+  const jobs = [job('a', 'COMPLETED', 'MEL-X'), job('b', 'FAILED', 'MEL-Y', 'COUNCIL_REJECTED: x'), job('c', 'FAILED', 'MEL-Y', 'COUNCIL_REJECTED: y'),
+    job('d', 'FAILED', 'MEL-Y'), job('e', 'BLOCKED', 'MEL-Y')];
+  const report = auditDevelopment({ jobs, env: {}, now });
+  const codes = report.findings.map(f => f.code);
+  assert.equal(new Set(codes).size, codes.length, 'one finding per code');
+  assert.ok(codes.includes('MISSION_LOOP'));
+  assert.ok(codes.includes('COUNCIL_REJECTS_MORE_THAN_DELIVERED'));
+  const db = sqliteD1();
+  try {
+    const first = await persistDevelopmentAudit(db, report, { now });
+    assert.equal(first.repair, 'DEFERRED_TO_ROADMAP');
+    assert.equal(first.new_findings.length, codes.length);
+    const second = await persistDevelopmentAudit(db, auditDevelopment({ jobs, env: {}, now }), { now: now + 1000 });
+    assert.equal(second.new_findings.length, 0);
+    assert.equal(second.repeated_findings.length, codes.length);
+    const stored = await db.prepare('SELECT count(*) AS n FROM mel_development_audit_findings').first();
+    assert.equal(Number(stored.n), codes.length);
+    const reports = await db.prepare('SELECT count(*) AS n FROM mel_development_audit_reports').first();
+    assert.equal(Number(reports.n), 2);
+  } finally { db.close(); }
+});
