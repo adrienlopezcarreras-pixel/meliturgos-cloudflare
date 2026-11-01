@@ -1399,16 +1399,12 @@ export function resolveContinuationInferenceRoute({ voiceReply = false, professo
 // is the fallback of MEL's own trained models, behind the weapons guard.
 export async function runNativeInference(options = {}) {
   const { env, messages, deadlineAt = null, requireLora = false } = options;
-  if (!requireLora || !veniceConfigured(env)) return runNativeInferenceCore(options);
-  // Owner decision 01/11: until MEL's own model is proven 100% uncensored
-  // (MEL_UNCENSORED_OWN_MODEL_PROVEN=true), UNCENSORED goes straight to the
-  // external model instead of spending neurons on a refusal first.
-  if (String(env?.MEL_UNCENSORED_OWN_MODEL_PROVEN || '').toLowerCase() !== 'true') return runVeniceInference({ env, messages, deadlineAt });
-  try {
-    const own = await runNativeInferenceCore(options);
-    // A refusal from our model is not an UNCENSORED answer: Venice takes over.
-    if (String(own?.text || '').trim() && !isCensorshipRefusal(own.text)) return own;
-  } catch { /* our models failed: Venice below */ }
+  if (!requireLora) return runNativeInferenceCore(options);
+  // The user-facing UNCENSORED switch explicitly selects Venice, not a locally
+  // promoted adapter or a default model. Never silently fall back.
+  if (!veniceConfigured(env)) {
+    throw Object.assign(new Error('VENICE_KEY_MISSING'), { code: 'VENICE_KEY_MISSING' });
+  }
   return runVeniceInference({ env, messages, deadlineAt });
 }
 
@@ -2602,7 +2598,7 @@ export async function handleNativeChat(request, env, options = {}) {
       // Do not expose credentials, response bodies or the request messages.
       const rawCode = String(error?.code || error?.message || 'LORA_INFERENCE_UNAVAILABLE');
       const code = /^VENICE_HTTP_(400|401|402|403|404|408|409|422|429|500|502|503|504)$/.test(rawCode)
-        || ['VENICE_EMPTY_RESPONSE', 'LORA_INFERENCE_UNAVAILABLE', 'CHAT_DEADLINE_EXCEEDED', 'TimeoutError'].includes(rawCode)
+        || ['VENICE_KEY_MISSING', 'VENICE_EMPTY_RESPONSE', 'LORA_INFERENCE_UNAVAILABLE', 'CHAT_DEADLINE_EXCEEDED', 'TimeoutError'].includes(rawCode)
         ? rawCode : 'LORA_INFERENCE_UNAVAILABLE';
       const message = !veniceConfigured(env)
         ? 'Mode UNCENSORED : aucune clé OpenRouter utilisable dans le Worker (OPENROUTER_API_KEY).'
