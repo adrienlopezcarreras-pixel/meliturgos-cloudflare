@@ -250,8 +250,12 @@ export async function prepareApprovedBridgePackage({
   // longer matches the candidate is skipped (never overwrite newer work).
   // A mission already in repair also takes its prepared package once; when the
   // last package applied was the prepared one and it failed, the coders repair.
-  const preparedAlreadyTried = current?.result_json?.bridge_preparation?.mentor?.provenance?.source === 'prepared-package';
-  const prepared = repairFor && preparedAlreadyTried ? null : await preparedMissionPackage(env, code, current, inspectedFiles, fetchImpl);
+  // A revised package (new content hash) is applied again; the same package
+  // that already failed is not, and the coders repair instead.
+  const lastPrepared = current?.result_json?.bridge_preparation?.mentor?.provenance;
+  const candidatePackage = await preparedMissionPackage(env, code, current, inspectedFiles, fetchImpl);
+  const prepared = repairFor && lastPrepared?.source === 'prepared-package'
+    && lastPrepared?.package_sha256 === candidatePackage?.proposal?.provenance?.package_sha256 ? null : candidatePackage;
   const mentor = prepared || await engine.propose({
     env,
     jobId: current.id,
@@ -371,7 +375,7 @@ export async function preparedMissionPackage(env, code, job, inspectedFiles = []
   return { mode: 'prepared', council: null, proposal: {
     changes, tests: Array.isArray(pkg.tests) ? pkg.tests : ['test'],
     summary: String(pkg.summary || ''), confidence: 1,
-    provenance: { source: 'prepared-package', path: `prepared/${roadmapId}.json` },
+    provenance: { source: 'prepared-package', path: `prepared/${roadmapId}.json`, package_sha256: await sha256Hex(JSON.stringify(pkg.changes)) },
     risks: [], lessons: [],
   } };
 }
