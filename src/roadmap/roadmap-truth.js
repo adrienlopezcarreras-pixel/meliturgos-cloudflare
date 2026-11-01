@@ -20,6 +20,7 @@ export const ROADMAP_PROOF_SOURCES = Object.freeze({
   'GEN2-11': { capabilities: ['knowledge.graph.verify'] },
   'GEN2-10': { capabilities: ['memory.contradiction.provenance.verify'] },
   'GEN2-50': { capabilities: ['mcp.compatibility.verify'] },
+  'MEL-SEC-01': { capabilities: ['security.prompt-injection-firewall.verify'] },
   'GEN2-06': { capabilities: ['conversation.list', 'conversation.get'] },
   'GEN2-08': { capabilities: ['conversation.messages.list'] },
   'MEL-CONTEXT-03': { capabilities: ['openloop.resume', 'openloop.due'] },
