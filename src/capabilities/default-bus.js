@@ -158,7 +158,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   }, async () => {
     const portable = buildMelIdentityPrompt();
     const composed = systemPrompt('test-owner');
-    if (!portable || !composed.startsWith(portable + '\\n')) {
+    if (!portable || !composed.startsWith(portable + '\n')) {
       throw Object.assign(new Error('IDENTITY_PORTABILITY_INTEGRATION_FAILED'), { code: 'IDENTITY_PORTABILITY_INTEGRATION_FAILED' });
     }
     return { ok: true, name: MEL_IDENTITY.name, language: MEL_IDENTITY.language };
