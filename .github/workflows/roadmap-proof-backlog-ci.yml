@@ -24,6 +24,8 @@ on:
       - "tests/mel-council-04-runtime-proof.test.mjs"
       - "tests/gen2-32-runtime-proof.test.mjs"
       - "tests/mel-council-03-runtime-proof.test.mjs"
+      - "src/pages/service-worker.js"
+      - "tests/gen2-26-pwa-offline.test.mjs"
       - "src/roadmap/master-roadmap.js"
       - ".github/workflows/roadmap-proof-backlog-ci.yml"
   workflow_dispatch:
@@ -48,6 +50,8 @@ jobs:
         run: node --test tests/gen2/gen2-11-knowledge-graph-contract.test.mjs
       - name: Verify GEN2-10 contradictions provenance and temporal contract
         run: node --test tests/gen2/gen2-10-contradiction-provenance-temporal.test.mjs
+      - name: PWA offline runtime regression
+        run: node --test tests/gen2-26-pwa-offline.test.mjs
       - name: Render missing-proof inventory without certifying items
         run: node scripts/roadmap-proof-backlog.mjs > roadmap-proof-backlog.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
