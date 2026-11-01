@@ -195,3 +195,13 @@ test('FOUNDER Council is not invoked without verified runner evidence', async ()
   assert.equal(result.decision, 'MISSION_TEST_EVIDENCE_REQUIRED');
   assert.equal(called,0);
 });
+
+
+test('a Council objection naming one objective sends only that job to repair', async () => {
+  const { objectiveCulprits } = await import('../src/evolution/council-review.js');
+  const ids = { 'job-chat-04': 'MEL-CHAT-04', 'job-ui-02': 'MEL-UI-AUDIT-02' };
+  const objections = ['gpt-oss-120b : The diff does not modify scripts/ui-production-audit.mjs as required by the MEL-UI-AUDIT-02 objective.'];
+  assert.deepEqual([...objectiveCulprits(objections, ids)], ['job-ui-02']);
+  assert.equal(objectiveCulprits(['generic objection'], ids), null, 'no named objective: fall back to the diff');
+  assert.equal(objectiveCulprits(['MEL-OTHER-01 missing'], ids), null);
+});
