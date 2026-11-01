@@ -16,33 +16,12 @@ test('missing and incompatible LoRA never qualify for the requested mode', () =>
   }
 });
 
-test('requested UNCENSORED routes to Venice irrespective of local LoRA settings', async () => {
-  const previousFetch = globalThis.fetch;
-  const calls = [];
-  globalThis.fetch = async (url, options) => {
-    calls.push({url:String(url), body:JSON.parse(options.body)});
-    return Response.json({choices:[{message:{content:'Bonjour depuis Venice.'}}]});
-  };
-  try {
-    let localCalls=0;
-    const result=await runNativeInference({
-      env:{OPENROUTER_API_KEY:'sk-or-'+'x'.repeat(40), AI:{run:async()=>{localCalls++;throw new Error('not expected');}}},
-      messages:[{role:'user',content:'Bonjour'}], activeAdapter:active,
-      requireLora:true, parallel:true, preferredModel:'@cf/zai-org/glm-4.7-flash'
-    });
-    assert.equal(result.provider,'openrouter');
-    assert.equal(calls.length,1);
-    assert.match(calls[0].url,/openrouter.ai/);
-    assert.equal(localCalls,0);
-  } finally {globalThis.fetch=previousFetch;}
-});
-
-test('UNCENSORED missing Venice key never calls another cloud model', async () => {
+test('requested trained-model mode requires a validated MEL adapter', async () => {
   let calls=0;
   await assert.rejects(runNativeInference({
-    env:{AI:{run:async()=>{calls++;return {response:'wrong model'};}}},
-    messages:[{role:'user',content:'Bonjour'}], requireLora:true,activeAdapter:active
-  }),{code:'VENICE_KEY_MISSING'});
+    env:{OPENROUTER_API_KEY:'sk-or-'+'x'.repeat(40),AI:{run:async()=>{calls++;return {response:'unexpected'};}}},
+    messages:[{role:'user',content:'Bonjour'}],requireLora:true,activeAdapter:null,qwenAdapter:null
+  }),{code:'LORA_COMPATIBLE_ACTIVE_ADAPTER_REQUIRED'});
   assert.equal(calls,0);
 });
 
