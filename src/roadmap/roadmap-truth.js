@@ -30,6 +30,7 @@ export const ROADMAP_PROOF_SOURCES = Object.freeze({
   'MEL-MEM-02': { capabilities: ['memory.exchange-sync.verify'] },
   'MEL-COUNCIL-04': { capabilities: ['models.task-learning.verify'] },
   'GEN2-32': { capabilities: ['connectors.sdk-catalog.verify'] },
+  'MEL-COUNCIL-03': { capabilities: ['council.teacher-escalation.verify'] },
   'GEN2-06': { capabilities: ['conversation.list', 'conversation.get'] },
   'GEN2-08': { capabilities: ['conversation.messages.list'] },
   'MEL-CONTEXT-03': { capabilities: ['openloop.resume', 'openloop.due'] },
