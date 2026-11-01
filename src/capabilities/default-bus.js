@@ -1,3 +1,4 @@
+import { InMemoryModelPerformanceStore } from '../models/model-performance-store.js';
 import { ExchangeMemorySync } from '../memory/exchange-sync.js';
 import { ModelRouter } from '../models/ModelRouter.js';
 import { ModelRegistry } from '../models/ModelRegistry.js';
@@ -156,6 +157,31 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     output_schema: { type: 'object', properties: { value: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['value'], additionalProperties: false },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ value: input.value }));
+
+  // MEL-COUNCIL-04: actual per-task learned routing with explicit choice authority.
+  bus.discover({
+    id:'models.task-learning.verify',name:'Task-aware learned model ranking',category:'diagnostic',
+    version:'1.0.0',provider:'core',description:'Exercises real measured task ranking and explicit model override with isolated providers.',
+    input_schema:{type:'object',additionalProperties:false},
+    output_schema:{type:'object',properties:{ok:{type:'boolean'},samples:{type:'number'}},required:['ok','samples'],additionalProperties:false},
+    risk:'LOW',permissions:[],health:'HEALTHY',enabled:true,
+  },async()=>{
+    const registry=new ModelRegistry([
+      {id:'proof-default',provider:'isolated',capabilities:['GENERAL'],priority:30,cost:0},
+      {id:'proof-learned',provider:'isolated',capabilities:['GENERAL'],priority:20,cost:0},
+    ]);
+    const store=new InMemoryModelPerformanceStore();
+    const original=new ModelRouter({registry,performanceStore:store,invoke:async model=>({response:model.id})});
+    if((await original.execute({task:'GENERAL',messages:[]})).model!=='proof-default')throw Error('MODEL_TASK_STATIC_ORDER_FAILED');
+    for(let i=0;i<20;i++){
+      await store.recordAttempt({modelId:'proof-learned',task:'GENERAL',ok:true,latencyMs:50});
+      await store.recordAttempt({modelId:'proof-default',task:'GENERAL',ok:false,latencyMs:4000});
+    }
+    const learned=await original.execute({task:'GENERAL',messages:[]});
+    const chosen=await original.execute({task:'GENERAL',model:'proof-default',messages:[]});
+    if(learned.model!=='proof-learned'||chosen.model!=='proof-default')throw Error('MODEL_TASK_LEARNING_PROOF_FAILED');
+    return {ok:true,samples:40};
+  });
 
   // MEL-MEM-02: exercise ExchangeMemorySync replay and atomic prevalidation.
   bus.discover({
