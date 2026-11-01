@@ -23,6 +23,7 @@ export const ROADMAP_PROOF_SOURCES = Object.freeze({
   'MEL-SEC-01': { capabilities: ['security.prompt-injection-firewall.verify'] },
   'MEL-EVAL-01': { capabilities: ['evaluation.benchmark-contract.verify'] },
   'GEN2-43': { capabilities: ['evaluation.model-watch.verify'] },
+  'GEN2-03': { capabilities: ['models.registry.verify'] },
   'GEN2-06': { capabilities: ['conversation.list', 'conversation.get'] },
   'GEN2-08': { capabilities: ['conversation.messages.list'] },
   'MEL-CONTEXT-03': { capabilities: ['openloop.resume', 'openloop.due'] },
