@@ -1,3 +1,4 @@
+import { createModelWatch } from '../evaluation/model-watch.js';
 import { CANONICAL_LEARNING_BENCHMARK_SUITE, REQUIRED_LEARNING_BENCHMARK_DOMAINS, validateLearningBenchmarkSuite, runLearningBenchmarkSuite, compareBenchmarkScores } from '../evaluation/benchmarks.js';
 import { buildContext, buildPromptInjectionFirewallInstruction } from '../core/orchestrator/context-builder.js';
 import { createMcpCapabilityAdapter, MCP_MODERN_VERSION } from '../mcp/capability-adapter.js';
@@ -152,6 +153,29 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     output_schema: { type: 'object', properties: { value: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['value'], additionalProperties: false },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ value: input.value }));
+
+  // GEN2-43: exercise the real Model Watch with isolated provider adapters.
+  bus.discover({
+    id:'evaluation.model-watch.verify',name:'Model Watch — diagnostic',category:'diagnostic',
+    version:'1.0.0',provider:'core',description:'Verifies authorization fail-closed, model isolation, quality, cost and latency thresholds.',
+    input_schema:{type:'object',additionalProperties:false},
+    output_schema:{type:'object',properties:{ok:{type:'boolean'},candidates:{type:'number'}},required:['ok','candidates'],additionalProperties:false},
+    risk:'LOW',permissions:[],health:'HEALTHY',enabled:true,
+  },async()=>{
+    const watch=createModelWatch({
+      catalog:{discover:async()=>[{provider:'proof',id:'allowed'},{provider:'proof',id:'denied'},{provider:'proof',id:'error'}]},
+      authorization:{isAllowed:async model=>{if(model.id==='error')throw Error('policy offline');return model.id==='allowed';}},
+      benchmark:{run:async()=>({score:0.9,latencyMs:20,costUsd:0,passed:true})},
+    });
+    const discovery=await watch.discover();
+    const report=await watch.run({thresholds:{minScore:0.8,maxLatencyMs:50,maxCostUsd:0}});
+    if(discovery.candidates.length!==1||discovery.rejected.length!==2||
+      !discovery.rejected.some(row=>row.reason==='authorization_error')||
+      report.results?.length!==1||report.results?.[0]?.status!=='passed'){
+      throw Object.assign(new Error('MODEL_WATCH_PROOF_FAILED'),{code:'MODEL_WATCH_PROOF_FAILED'});
+    }
+    return {ok:true,candidates:discovery.candidates.length};
+  });
 
   // MEL-EVAL-01: validate the real evaluator contract and its non-regression gates.
   bus.discover({
