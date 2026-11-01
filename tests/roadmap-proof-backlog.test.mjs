@@ -29,7 +29,6 @@ test('unproven DONE_VERIFIED IDs match the reviewed proof baseline exactly', () 
   const expected = [
     "GEN2-03",
     "GEN2-04",
-    "GEN2-52",
     "MEL-CONTEXT-01",
     "MEL-CONTEXT-02",
     "MEL-CONTEXT-04",
