@@ -28,7 +28,6 @@ test('backlog never turns a mapping or a declaration into verified evidence', ()
 test('unproven DONE_VERIFIED IDs match the reviewed proof baseline exactly', () => {
   const expected = [
     "MEL-CONTEXT-01",
-    "MEL-CONTEXT-02",
     "MEL-CONTEXT-04",
     "MEL-MEM-02",
     "MEL-COUNCIL-03",
