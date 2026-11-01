@@ -117,3 +117,40 @@ export async function getEvolutionDashboard(db, owner, initial, incidents=null) 
  const snapshot=evolutionSnapshot({initial:verifiedInitial,items,incidents});
  return Object.freeze({...snapshot,initial_scope:archive?'ARCHIVED_VERIFIED':'CURRENT_REGISTRY_NOT_ARCHIVED',archive:archive??null});
 }
+
+// MEL-FOUNDER-03: a missing capability becomes ONE resumable objective, never
+// a new one at each attempt. The key is the capability itself, so a second
+// detection of the same gap re-opens the same objective instead of piling up
+// duplicates that MAX would then work on in parallel.
+export function missingCapabilityObjectiveId(capabilityId) {
+  const id = String(capabilityId || '').trim().toLowerCase();
+  if (!/^[a-z][a-z0-9._-]{2,80}$/.test(id)) throw Object.assign(new Error('MISSING_CAPABILITY_ID_INVALID'), { code: 'MISSING_CAPABILITY_ID_INVALID' });
+  return 'capability-gap:' + id;
+}
+
+export async function openMissingCapabilityObjective(db, { capability_id, authorized = false, owner = 'mel-autonomy', now = Date.now() } = {}) {
+  // An unauthorized gap is reported, never turned into development work.
+  if (authorized !== true) return { opened: false, code: 'MISSING_CAPABILITY_NOT_AUTHORIZED', objective_id: null };
+  const objectiveId = missingCapabilityObjectiveId(capability_id);
+  await db.prepare('CREATE TABLE IF NOT EXISTS mel_capability_gap_objectives (id TEXT PRIMARY KEY, capability_id TEXT NOT NULL, owner TEXT NOT NULL, status TEXT NOT NULL, opened_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 1)').run();
+  const existing = await db.prepare('SELECT id, status, attempts FROM mel_capability_gap_objectives WHERE id=?').bind(objectiveId).first();
+  if (existing) {
+    await db.prepare('UPDATE mel_capability_gap_objectives SET attempts=attempts+1, status=CASE WHEN status=? THEN ? ELSE status END WHERE id=?')
+      .bind('CLOSED', 'OPEN', objectiveId).run();
+    return { opened: false, resumed: true, code: 'MISSING_CAPABILITY_OBJECTIVE_RESUMED', objective_id: objectiveId };
+  }
+  await db.prepare('INSERT INTO mel_capability_gap_objectives (id, capability_id, owner, status, opened_at) VALUES (?,?,?,?,?)')
+    .bind(objectiveId, String(capability_id).toLowerCase(), String(owner).slice(0, 60), 'OPEN', Number(now)).run();
+  return { opened: true, resumed: false, code: null, objective_id: objectiveId };
+}
+
+// Closing is only allowed once the delivery is verified AND the skill is on
+// the canonical bus: otherwise the gap would look solved while nothing shipped.
+export async function closeMissingCapabilityObjective(db, { capability_id, descriptor = null } = {}) {
+  const objectiveId = missingCapabilityObjectiveId(capability_id);
+  if (!descriptor || descriptor.capability_id !== String(capability_id).toLowerCase() || !Number(descriptor.ci_run_id)) {
+    return { closed: false, code: 'MISSING_CAPABILITY_DELIVERY_UNVERIFIED', objective_id: objectiveId };
+  }
+  await db.prepare('UPDATE mel_capability_gap_objectives SET status=? WHERE id=?').bind('CLOSED', objectiveId).run();
+  return { closed: true, code: null, objective_id: objectiveId, registered_on_bus: true };
+}
