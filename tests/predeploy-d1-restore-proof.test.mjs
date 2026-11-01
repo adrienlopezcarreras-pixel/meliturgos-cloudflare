@@ -204,3 +204,22 @@ test('predeploy runner requires the real restore before registering restoreVerif
   assert.match(runner, /sqliteRestoreProof,/);
   assert.match(runner, /isolated_restore: persisted\.sqliteRestoreProof/);
 });
+
+// MEL-MANIFEST-04: risky change gate on backup receipt + isolated restore.
+test('a risky change waits for a fresh exact-SHA backup receipt and a matching isolated restore; stale or divergent blocks promotion', async () => {
+  const { riskyChangeBackupGate, DEFAULT_RELEASE_BACKUP_MAX_AGE_MS } = await import('../src/backup/system-backup-runtime.js');
+  const sha = 'a'.repeat(40), now = Date.parse('2026-11-01T00:00:00Z');
+  const binding = { ok: true, deployed_sha: sha, snapshot_id: 'snap-1', snapshot_created_at: new Date(now - 3_600_000).toISOString() };
+  const table = { before: 2, after: 2, same: true, fingerprint_match: true };
+  const proof = { ok: true, isolated: true, identical: true, production_written: false, tables: { evolution_ledger: table, conversations: table, dev_jobs: table } };
+  assert.equal(riskyChangeBackupGate({ binding, restoreProof: proof, sha, now }).promotion_allowed, true);
+  const code = args => riskyChangeBackupGate({ binding, restoreProof: proof, sha, now, ...args }).code;
+  assert.equal(code({ binding: null }), 'BACKUP_RECEIPT_REQUIRED');
+  assert.equal(code({ sha: 'b'.repeat(40) }), 'BACKUP_RECEIPT_SHA_MISMATCH');
+  assert.equal(code({ now: now + DEFAULT_RELEASE_BACKUP_MAX_AGE_MS }), 'BACKUP_RECEIPT_STALE');
+  assert.equal(code({ restoreProof: null }), 'ISOLATED_RESTORE_PROOF_REQUIRED');
+  assert.equal(code({ restoreProof: { ...proof, isolated: false } }), 'ISOLATED_RESTORE_PROOF_REQUIRED');
+  assert.equal(code({ restoreProof: { ...proof, production_written: true } }), 'RESTORE_WROTE_PRODUCTION');
+  assert.equal(code({ restoreProof: { ...proof, identical: false } }), 'RESTORE_COMPARISON_DIVERGENT');
+  assert.equal(code({ restoreProof: { ...proof, tables: { ...proof.tables, dev_jobs: { ...table, fingerprint_match: false } } } }), 'RESTORE_COMPARISON_DIVERGENT');
+});
