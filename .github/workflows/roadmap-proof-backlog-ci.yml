@@ -6,6 +6,7 @@ on:
       - "scripts/roadmap-proof-backlog.mjs"
       - "tests/roadmap-proof-backlog.test.mjs"
       - "src/roadmap/roadmap-truth.js"
+      - "tests/gen2-02-runtime-proof.test.mjs"
       - "src/roadmap/master-roadmap.js"
       - ".github/workflows/roadmap-proof-backlog-ci.yml"
   workflow_dispatch:
@@ -25,7 +26,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Verify inventory and non-regression
-        run: node --test tests/roadmap-proof-backlog.test.mjs tests/roadmap-truth.test.mjs
+        run: node --test tests/roadmap-proof-backlog.test.mjs tests/roadmap-truth.test.mjs tests/gen2-02-runtime-proof.test.mjs
       - name: Verify GEN2-11 Knowledge Graph contract (code evidence, not live production)
         run: node --test tests/gen2/gen2-11-knowledge-graph-contract.test.mjs
       - name: Verify GEN2-10 contradictions provenance and temporal contract
