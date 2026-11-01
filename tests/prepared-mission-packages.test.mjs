@@ -47,3 +47,42 @@ test('building a package over a file another pending package owns is refused', (
   // A package already identical to main is delivered and must not block.
   assert.match(source, /base !== null && base === change\.content/);
 });
+
+// 01/11: a package partially applied to the candidate could never re-apply,
+// so the mission fell back to the Mentor at every tick.
+test('a prepared package still applies when one of its files is already in the target state', async () => {
+  const source = await (await import('node:fs/promises')).readFile('src/evolution/autonomy-bridge-preparer.js', 'utf8');
+  assert.match(source, /const applied = base === String\(change\.content \|\| ''\);/);
+  assert.match(source, /if \(!applied && String\(change\.base_sha256/);
+
+  const { preparedMissionPackage } = await import('../src/evolution/autonomy-bridge-preparer.js');
+  const { ROADMAP_CODE_CONTRACTS } = await import('../src/roadmap/roadmap-code-contracts.js');
+  const id = Object.keys(ROADMAP_CODE_CONTRACTS)[0];
+  const contract = ROADMAP_CODE_CONTRACTS[id];
+  const codePath = contract.code_paths[0];
+  const testPath = contract.test_paths[0];
+  const pkg = { roadmap_id: id, summary: 's', tests: ['test'], changes: [
+    { path: codePath, base_sha256: 'new', content: 'CODE_CIBLE' },
+    // Already applied on the candidate, with a base that no longer matches.
+    { path: testPath, base_sha256: 'f'.repeat(64), content: 'TEST_DEJA_APPLIQUE' },
+  ] };
+  // Only the package itself is fetched; the candidate files come from inspectedFiles.
+  const fetchImpl = async url => {
+    if (String(url).includes(encodeURIComponent(`prepared/${id}.json`).replace(/%2F/g, '/')) || String(url).includes('prepared')) {
+      const body = JSON.stringify(pkg);
+      return Response.json({ type: 'file', sha: 'a'.repeat(40), size: body.length, content: Buffer.from(body).toString('base64') });
+    }
+    return new Response('', { status: 404 });
+  };
+  const code = { repository: 'o/r', branch: 'candidate/x', candidate_sha: 'c'.repeat(40) };
+  const job = { optional_context: { roadmap_id: id } };
+
+  const ok = await preparedMissionPackage({}, code, job, [{ path: testPath, content: 'TEST_DEJA_APPLIQUE' }], fetchImpl);
+  assert.ok(ok, 'the package applies despite the already-applied file');
+  assert.equal(ok.proposal.changes.length, 2);
+  assert.equal(ok.proposal.provenance.source, 'prepared-package');
+
+  // A file drifted to something ELSE is still refused: the guard holds.
+  const drifted = await preparedMissionPackage({}, code, job, [{ path: testPath, content: 'AUTRE_CHOSE' }], fetchImpl);
+  assert.equal(drifted, null);
+});

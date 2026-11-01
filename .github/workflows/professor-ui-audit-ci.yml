@@ -6,6 +6,8 @@ on:
       - "src/pages/full-interface-v2.js"
       - "src/pages/revenue-interface.js"
       - "scripts/verify-interface-browser.mjs"
+      - "tests/roadmap-proof-backlog.test.mjs"
+      - "scripts/roadmap-proof-backlog.mjs"
       - "tests/ui-audit-controls.test.mjs"
       - "src/evolution/autonomy-activity.js"
       - "src/evolution/autonomy-runtime-core.js"

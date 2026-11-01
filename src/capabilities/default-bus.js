@@ -1,3 +1,10 @@
+import { createKnowledgeGraph, validateEntity, validateRelation } from '../memory/knowledge-graph.js';
+import { PromptStrategyVersionRegistry } from '../registry/prompt-strategy-version-registry.js';
+import { apiVersionRegistry, resolveApiVersionRequest, API_CURRENT_VERSION } from '../api/api-versioning.js';
+import { generateCompletionMatrix } from '../roadmap/completion-matrix.js';
+import { generateFinalStatusReport, FINAL_STATUS_REPORT_SCHEMA } from '../roadmap/final-status-report.js';
+import { buildMelIdentityPrompt, MEL_IDENTITY } from '../identity/mel-persona.js';
+import { systemPrompt } from '../identity/identity.js';
 import { councilOperationalCatalog } from '../council/operational-catalog.js';
 import { computeRoadmapTruth } from '../roadmap/roadmap-truth.js';
 import { CapabilityBus } from './capability-bus.js';
@@ -141,6 +148,135 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     output_schema: { type: 'object', properties: { value: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['value'], additionalProperties: false },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ value: input.value }));
+
+  // GEN2-11: exercise real KnowledgeGraph port, validators and supersession.
+  bus.discover({
+    id: 'knowledge.graph.verify', name: 'Knowledge Graph — vérification',
+    category: 'diagnostic', version: '1.0.0', provider: 'core',
+    description: 'Exercises typed, sourced knowledge graph entities and relations without persisted mutations.',
+    input_schema: { type: 'object', additionalProperties: false },
+    output_schema: { type: 'object', properties: { ok: { type: 'boolean' }, superseded: { type: 'boolean' } },
+      required: ['ok', 'superseded'], additionalProperties: false },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async () => {
+    const entities = new Map(), relations = [], superseded = new Map();
+    const graph = createKnowledgeGraph({
+      async entity(record) { validateEntity(record); entities.set(record.id, record); return record; },
+      async relation(record) { validateRelation(record); relations.push(record); return record; },
+      async query({ entityId }) { return { entity: entities.get(entityId) || null,
+        relations: relations.filter(r => r.subject === entityId || r.object === entityId),
+        superseded_by: superseded.get(entityId) || null }; },
+      async supersede({ id, replacementId }) { if (!entities.has(id) || !entities.has(replacementId)) throw Error('GRAPH_ENTITY_NOT_FOUND');
+        superseded.set(id, replacementId); return { id, replacementId }; },
+    });
+    await graph.entity({ id:'proof-project', type:'PROJECT', name:'Proof', source:'runtime:self-test', confidence:1 });
+    await graph.entity({ id:'proof-decision-v1', type:'DECISION', name:'First', source:'runtime:self-test', confidence:1 });
+    await graph.entity({ id:'proof-decision-v2', type:'DECISION', name:'Second', source:'runtime:self-test', confidence:1 });
+    await graph.relation({ subject:'proof-project', relation:'HAS_DECISION', object:'proof-decision-v1', source:'runtime:self-test', confidence:1 });
+    const project = await graph.query({ entityId:'proof-project' });
+    await graph.supersede({ id:'proof-decision-v1', replacementId:'proof-decision-v2' });
+    const old = await graph.query({ entityId:'proof-decision-v1' });
+    if (project.entity?.type !== 'PROJECT' || project.relations?.length !== 1 ||
+        project.relations[0].source !== 'runtime:self-test' || old.superseded_by !== 'proof-decision-v2') {
+      throw Object.assign(new Error('KNOWLEDGE_GRAPH_RUNTIME_PROOF_FAILED'), { code:'KNOWLEDGE_GRAPH_RUNTIME_PROOF_FAILED' });
+    }
+    return { ok:true, superseded:true };
+  });
+
+  // GEN2-52: prove snapshot restore and rollback on an isolated real registry.
+  bus.discover({
+    id: 'prompt.strategy.versioning.verify', name: 'Prompts et stratégies — vérification versioning',
+    category: 'diagnostic', version: '1.0.0', provider: 'core',
+    description: 'Runs actual version, snapshot, restore and rollback contracts without mutating persistent state.',
+    input_schema: { type: 'object', additionalProperties: false },
+    output_schema: { type: 'object', properties: { ok: { type: 'boolean' }, rollback: { type: 'string' } },
+      required: ['ok', 'rollback'], additionalProperties: false },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async () => {
+    const source = new PromptStrategyVersionRegistry();
+    source.registerPrompt('proof.identity', 'v1', 'baseline');
+    source.registerPrompt('proof.identity', 'v2', 'candidate', { activate: true });
+    source.registerStrategy('proof.router', 'v1', { provider: 'free' });
+    const snapshot = source.exportSnapshot();
+    const restored = new PromptStrategyVersionRegistry(snapshot);
+    const rollback = restored.rollback('prompt', 'proof.identity');
+    if (restored.resolve('prompt', 'proof.identity').value !== 'baseline' || rollback.active !== 'v1' ||
+        restored.resolve('strategy', 'proof.router').value.provider !== 'free' || snapshot.entries.length !== 3) {
+      throw Object.assign(new Error('PROMPT_STRATEGY_VERSION_PROOF_FAILED'), { code: 'PROMPT_STRATEGY_VERSION_PROOF_FAILED' });
+    }
+    return { ok: true, rollback: rollback.active };
+  });
+
+  // GEN2-51: inspect the actual API version resolver and canonical registry.
+  bus.discover({
+    id: 'api.versioning.verify', name: 'Contrat de version API — vérification',
+    category: 'diagnostic', version: '1.0.0', provider: 'core',
+    description: 'Checks registered canonical v1 API and legacy alias resolution without mutating data.',
+    input_schema: { type: 'object', additionalProperties: false },
+    output_schema: { type: 'object', properties: {
+      ok: { type: 'boolean' }, version: { type: 'string' }, routes: { type: 'number' }
+    }, required: ['ok', 'version', 'routes'], additionalProperties: false },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async () => {
+    const registry = apiVersionRegistry();
+    const canonical = resolveApiVersionRequest(new Request('https://mel.test/api/v1/roadmap'), { handler: 'router' });
+    const legacy = resolveApiVersionRequest(new Request('https://mel.test/api/gen2/roadmap'), { handler: 'router' });
+    const rejected = resolveApiVersionRequest(new Request('https://mel.test/api/v9/roadmap'), { handler: 'router' });
+    if (registry.validation?.ok !== true || registry.current_version !== API_CURRENT_VERSION ||
+        !registry.supported_versions.includes(API_CURRENT_VERSION) || !registry.routes.length ||
+        canonical.status !== 'canonical' || !canonical.matched ||
+        legacy.status !== 'legacy' || !legacy.matched ||
+        rejected.unsupported !== true) {
+      throw Object.assign(new Error('API_VERSIONING_CONTRACT_FAILED'), { code: 'API_VERSIONING_CONTRACT_FAILED' });
+    }
+    return { ok: true, version: registry.current_version, routes: registry.routes.length };
+  });
+
+  // GEN2-61: verify the real final status report generated from the canonical
+  // roadmap matrix. Do not conflate a report existing with MEL being mature.
+  bus.discover({
+    id: 'roadmap.final-report.verify', name: 'Rapport final roadmap — vérification',
+    category: 'diagnostic', version: '1.0.0', provider: 'core',
+    description: 'Verifies current roadmap final report against its canonical source matrix.',
+    input_schema: { type: 'object', additionalProperties: false },
+    output_schema: { type: 'object', properties: {
+      ok: { type: 'boolean' }, verdict: { type: 'string' }, fingerprint: { type: 'string' },
+      complete: { type: 'number' }, total: { type: 'number' }
+    }, required: ['ok', 'verdict', 'fingerprint', 'complete', 'total'], additionalProperties: false },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async () => {
+    const matrix = generateCompletionMatrix();
+    const report = generateFinalStatusReport({ matrix });
+    const valid = report.schema === FINAL_STATUS_REPORT_SCHEMA
+      && report.source.matrix_fingerprint === matrix.matrix_fingerprint
+      && report.summary.total === matrix.rows.length
+      && report.summary.complete === matrix.rows.filter(row => row.complete).length
+      && report.ready_for_final_milestone === (report.verdict === 'MATURE')
+      && (report.verdict !== 'MATURE' || report.summary.complete === report.summary.total);
+    if (!valid) throw Object.assign(new Error('ROADMAP_FINAL_REPORT_INVALID'), { code: 'ROADMAP_FINAL_REPORT_INVALID' });
+    return { ok: true, verdict: report.verdict, fingerprint: matrix.matrix_fingerprint,
+      complete: report.summary.complete, total: report.summary.total };
+  });
+
+  // GEN2-02: execute the actual portable persona composition, not a static
+  // registry label. Fail closed if runtime composition loses its identity.
+  bus.discover({
+    id: 'identity.portability.verify', name: 'Identité MEL portable — vérification',
+    category: 'diagnostic', version: '1.0.0', provider: 'core',
+    description: 'Validates that the portable persona is included unchanged in the runtime system prompt.',
+    input_schema: { type: 'object', additionalProperties: false },
+    output_schema: { type: 'object', properties: {
+      ok: { type: 'boolean' }, name: { type: 'string' }, language: { type: 'string' }
+    }, required: ['ok', 'name', 'language'], additionalProperties: false },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async () => {
+    const portable = buildMelIdentityPrompt();
+    const composed = systemPrompt('test-owner');
+    if (!portable || !composed.startsWith(portable + '\n')) {
+      throw Object.assign(new Error('IDENTITY_PORTABILITY_INTEGRATION_FAILED'), { code: 'IDENTITY_PORTABILITY_INTEGRATION_FAILED' });
+    }
+    return { ok: true, name: MEL_IDENTITY.name, language: MEL_IDENTITY.language };
+  });
 
   const githubRepository = repository || runtimeEnv.MEL_GITHUB_REPOSITORY || DEFAULT_REPOSITORY;
   const definedIdentity = compileTimeDeployedGitIdentity();

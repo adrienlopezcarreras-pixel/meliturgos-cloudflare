@@ -369,7 +369,14 @@ export async function preparedMissionPackage(env, code, job, inspectedFiles = []
     if (![...contract.code_paths, ...contract.test_paths].includes(path)) return null;
     let base = '';
     try { base = (inspectedFiles.find(file => file.path === path) || await reader.read(path)).content; } catch (error) { if (Number(error?.status) !== 404) return null; }
-    if (String(change.base_sha256 || '') !== (base ? await sha256Hex(base) : 'new')) return null;
+    // A file whose candidate content ALREADY equals the package's target is in
+    // the desired state, not a drift. Refusing it made a partially applied
+    // package unusable for ever, and the mission fell back to the Mentor at
+    // every tick (01/11: FOUNDER-08 looped three hours because its test file
+    // was already on the candidate). A file drifted to anything ELSE is still
+    // refused: the guard is kept, only the already-done case is allowed.
+    const applied = base === String(change.content || '');
+    if (!applied && String(change.base_sha256 || '') !== (base ? await sha256Hex(base) : 'new')) return null;
     changes.push({ path, content: String(change.content || ''), reason: String(change.reason || 'Paquet préparé') });
   }
   return { mode: 'prepared', council: null, proposal: {
