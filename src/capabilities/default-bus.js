@@ -1,3 +1,4 @@
+import { createKnowledgeGraph, validateEntity, validateRelation } from '../memory/knowledge-graph.js';
 import { PromptStrategyVersionRegistry } from '../registry/prompt-strategy-version-registry.js';
 import { apiVersionRegistry, resolveApiVersionRequest, API_CURRENT_VERSION } from '../api/api-versioning.js';
 import { generateCompletionMatrix } from '../roadmap/completion-matrix.js';
@@ -147,6 +148,40 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     output_schema: { type: 'object', properties: { value: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['value'], additionalProperties: false },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ value: input.value }));
+
+  // GEN2-11: exercise real KnowledgeGraph port, validators and supersession.
+  bus.discover({
+    id: 'knowledge.graph.verify', name: 'Knowledge Graph — vérification',
+    category: 'diagnostic', version: '1.0.0', provider: 'core',
+    description: 'Exercises typed, sourced knowledge graph entities and relations without persisted mutations.',
+    input_schema: { type: 'object', additionalProperties: false },
+    output_schema: { type: 'object', properties: { ok: { type: 'boolean' }, superseded: { type: 'boolean' } },
+      required: ['ok', 'superseded'], additionalProperties: false },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async () => {
+    const entities = new Map(), relations = [], superseded = new Map();
+    const graph = createKnowledgeGraph({
+      async entity(record) { validateEntity(record); entities.set(record.id, record); return record; },
+      async relation(record) { validateRelation(record); relations.push(record); return record; },
+      async query({ entityId }) { return { entity: entities.get(entityId) || null,
+        relations: relations.filter(r => r.subject === entityId || r.object === entityId),
+        superseded_by: superseded.get(entityId) || null }; },
+      async supersede({ id, replacementId }) { if (!entities.has(id) || !entities.has(replacementId)) throw Error('GRAPH_ENTITY_NOT_FOUND');
+        superseded.set(id, replacementId); return { id, replacementId }; },
+    });
+    await graph.entity({ id:'proof-project', type:'PROJECT', name:'Proof', source:'runtime:self-test', confidence:1 });
+    await graph.entity({ id:'proof-decision-v1', type:'DECISION', name:'First', source:'runtime:self-test', confidence:1 });
+    await graph.entity({ id:'proof-decision-v2', type:'DECISION', name:'Second', source:'runtime:self-test', confidence:1 });
+    await graph.relation({ subject:'proof-project', relation:'HAS_DECISION', object:'proof-decision-v1', source:'runtime:self-test', confidence:1 });
+    const project = await graph.query({ entityId:'proof-project' });
+    await graph.supersede({ id:'proof-decision-v1', replacementId:'proof-decision-v2' });
+    const old = await graph.query({ entityId:'proof-decision-v1' });
+    if (project.entity?.type !== 'PROJECT' || project.relations?.length !== 1 ||
+        project.relations[0].source !== 'runtime:self-test' || old.superseded_by !== 'proof-decision-v2') {
+      throw Object.assign(new Error('KNOWLEDGE_GRAPH_RUNTIME_PROOF_FAILED'), { code:'KNOWLEDGE_GRAPH_RUNTIME_PROOF_FAILED' });
+    }
+    return { ok:true, superseded:true };
+  });
 
   // GEN2-52: prove snapshot restore and rollback on an isolated real registry.
   bus.discover({
