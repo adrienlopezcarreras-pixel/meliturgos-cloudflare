@@ -98,6 +98,50 @@ export function chatJourneyReceipt(steps = []) {
   return { schema: 'mel.ui-chat-journey/v1', steps: rows, pass: count('PASS'), fail: count('FAIL'), blocked: count('BLOCKED') };
 }
 
+// MEL-UI-AUDIT-07: accessibility and release-path regression. Keyboard,
+// focus, navigation, disabled states and restoration are checked on desktop
+// and mobile, and the report names the exact SHA it was run against — a
+// report with no SHA proves nothing about what is deployed.
+export const AUDIT_VIEWPORTS = Object.freeze([
+  Object.freeze({ name: 'desktop', width: 1440, height: 900 }),
+  Object.freeze({ name: 'mobile', width: 390, height: 844 }),
+]);
+
+export function accessibilityFindings(observation = {}) {
+  const findings = [];
+  const where = `${observation.path || '/'}#${observation.panel || '-'} (${observation.viewport || 'desktop'})`;
+  for (const control of observation.controls || []) {
+    const id = String(control?.id || '?');
+    if (!control?.accessible_name) findings.push({ code: 'UI_CONTROL_WITHOUT_ACCESSIBLE_NAME', detail: `${where} : #${id}` });
+    if (control?.focusable === false && control?.disabled !== true) findings.push({ code: 'UI_CONTROL_NOT_KEYBOARD_REACHABLE', detail: `${where} : #${id}` });
+    // A disabled control must be inert: reachable by reading, never by tabbing.
+    if (control?.disabled === true && control?.focusable === true) findings.push({ code: 'UI_DISABLED_CONTROL_STILL_FOCUSABLE', detail: `${where} : #${id}` });
+  }
+  if (observation.focus_restored === false) findings.push({ code: 'UI_FOCUS_NOT_RESTORED', detail: where });
+  if (observation.horizontal_scroll === true) findings.push({ code: 'UI_HORIZONTAL_SCROLL', detail: where });
+  return findings;
+}
+
+export function releaseAuditReport(observations = [], { sha = '', baseUrl = '' } = {}) {
+  const rows = Array.isArray(observations) ? observations : [];
+  const findings = rows.flatMap(accessibilityFindings);
+  const unique = [...new Map(findings.map(row => [row.code + row.detail, row])).values()];
+  const viewports = [...new Set(rows.map(row => row.viewport).filter(Boolean))];
+  const complete = AUDIT_VIEWPORTS.every(viewport => viewports.includes(viewport.name));
+  const pinned = /^[a-f0-9]{40}$/i.test(String(sha || ''));
+  return {
+    schema: 'mel.ui-release-audit/v1',
+    // Never present an unpinned run as proof about a deployed revision.
+    tested_sha: pinned ? String(sha).toLowerCase() : null,
+    sha_pinned: pinned,
+    base_url: String(baseUrl || '') || null,
+    viewports,
+    viewports_complete: complete,
+    findings: unique.slice(0, 40),
+    conclusive: pinned && complete && rows.length > 0,
+  };
+}
+
 export async function observe(browser, baseUrl, headers, path, panel) {
   const context = await browser.newContext({ extraHTTPHeaders: headers });
   const page = await context.newPage();

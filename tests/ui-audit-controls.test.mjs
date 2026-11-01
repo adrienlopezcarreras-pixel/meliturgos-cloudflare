@@ -54,3 +54,29 @@ test('every visible full-mode control is linked to its handler and receives a PA
   assert.deepEqual(controlReceipt(orphan).controls, [{ id: 'lost', api: [], status: 'FAIL' }]);
   assert.equal(controlReceipt(controls, { jsErrors: ['TypeError'] }).fail, controls.length);
 });
+
+// MEL-UI-AUDIT-07: accessibility and release-path regression, tied to a SHA.
+test('the recipe checks keyboard, focus, disabled states and restoration on desktop and mobile, tied to the tested SHA', async () => {
+  const { accessibilityFindings, releaseAuditReport, AUDIT_VIEWPORTS } = await import('../scripts/ui-production-audit.mjs');
+  assert.deepEqual(AUDIT_VIEWPORTS.map(v => v.name), ['desktop', 'mobile']);
+  const clean = { path: '/', panel: 'chat', viewport: 'desktop', focus_restored: true, horizontal_scroll: false,
+    controls: [{ id: 'send', accessible_name: 'Envoyer', focusable: true, disabled: false },
+      { id: 'later', accessible_name: 'Envoyer quand terminé', focusable: false, disabled: true }] };
+  assert.deepEqual(accessibilityFindings(clean), []);
+  const broken = accessibilityFindings({ path: '/', panel: 'chat', viewport: 'mobile', focus_restored: false, horizontal_scroll: true,
+    controls: [{ id: 'nameless', focusable: true }, { id: 'trap', accessible_name: 'X', focusable: false, disabled: false },
+      { id: 'ghost', accessible_name: 'Y', focusable: true, disabled: true }] });
+  assert.deepEqual(broken.map(f => f.code), ['UI_CONTROL_WITHOUT_ACCESSIBLE_NAME', 'UI_CONTROL_NOT_KEYBOARD_REACHABLE',
+    'UI_DISABLED_CONTROL_STILL_FOCUSABLE', 'UI_FOCUS_NOT_RESTORED', 'UI_HORIZONTAL_SCROLL']);
+  assert.match(broken[0].detail, /mobile/);
+  const sha = 'a'.repeat(40);
+  const full = releaseAuditReport([clean, { ...clean, viewport: 'mobile' }], { sha, baseUrl: 'https://mel.example' });
+  assert.equal(full.tested_sha, sha);
+  assert.equal(full.viewports_complete, true);
+  assert.equal(full.conclusive, true);
+  const unpinned = releaseAuditReport([clean, { ...clean, viewport: 'mobile' }], { sha: 'main' });
+  assert.equal(unpinned.tested_sha, null, 'a branch name is not a tested revision');
+  assert.equal(unpinned.conclusive, false);
+  assert.equal(releaseAuditReport([clean], { sha }).conclusive, false, 'desktop alone never concludes');
+  assert.equal(releaseAuditReport([], { sha }).conclusive, false);
+});
