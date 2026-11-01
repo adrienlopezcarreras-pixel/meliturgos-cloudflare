@@ -78,3 +78,15 @@ test('queued explicit Code mode survives a current Conversation selection', asyn
   assert.equal(queue[0].role, 'code');
   assert.equal(queue[0].files[0].id, 'private-attachment');
 });
+
+// MEL-CHAT-03: verified byte reads, not thumbnails or URLs, back the rendered analysis.
+test('a thumbnail or URL never counts as a complete image or video analysis; a missing transcript keeps vision partial', async () => {
+  const { imageAnalysisCoverage } = await import('../src/media/image-vision-runtime.js');
+  const { videoAnalysisCoverage } = await import('../src/media/video-runtime.js');
+  assert.equal(imageAnalysisCoverage({ input_kind: 'thumbnail' }).error, 'IMAGE_THUMBNAIL_ONLY');
+  assert.equal(imageAnalysisCoverage({ input_kind: 'url' }).complete, false);
+  assert.equal(imageAnalysisCoverage({ input_kind: 'bytes', bytes_read: true }).scope, 'FULL');
+  assert.equal(videoAnalysisCoverage({ input_kind: 'thumbnail' }).scope, 'REFERENCE_ONLY');
+  const partial = videoAnalysisCoverage({ input_kind: 'bytes', bytes_read: true });
+  assert.deepEqual([partial.scope, partial.error], ['PARTIAL', 'VIDEO_TRANSCRIPT_MISSING']);
+});

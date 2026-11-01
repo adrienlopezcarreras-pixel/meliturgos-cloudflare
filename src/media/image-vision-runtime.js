@@ -224,6 +224,16 @@ function actionMethod(provider, action) {
   return null;
 }
 
+// MEL-CHAT-03: a thumbnail or a URL is never a complete image analysis; only
+// original bytes actually read count as FULL.
+export function imageAnalysisCoverage(analysis = {}) {
+  const kind = String(analysis?.input_kind || (analysis?.bytes_read === true ? 'bytes' : 'url')).toLowerCase();
+  if (kind !== 'bytes' || analysis?.bytes_read !== true) {
+    return Object.freeze({ scope: 'REFERENCE_ONLY', complete: false, input_kind: kind, error: kind === 'thumbnail' ? 'IMAGE_THUMBNAIL_ONLY' : 'IMAGE_BYTES_NOT_READ' });
+  }
+  return Object.freeze({ scope: 'FULL', complete: true, input_kind: kind, covered: ['vision'], error: null });
+}
+
 export class ImageVisionRuntime {
   constructor({
     providers = [],
@@ -357,11 +367,13 @@ export class ImageVisionRuntime {
 
         if (normalizedAction === 'ANALYZE') {
           const analysis = sanitize(result.analysis ?? result.result ?? result);
+          const analysed = isObject(analysis) ? analysis : { text: analysis };
           return Object.freeze({
             schema: IMAGE_RUNTIME_SCHEMA,
             action: normalizedAction,
             provider: id,
-            analysis: Object.freeze(isObject(analysis) ? analysis : { text: analysis }),
+            analysis: Object.freeze(analysed),
+            coverage: imageAnalysisCoverage(analysed),
             provenance,
             attempts: Object.freeze([
               ...attempts,
