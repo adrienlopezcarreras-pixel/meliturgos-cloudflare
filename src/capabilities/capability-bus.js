@@ -120,7 +120,10 @@ export class CapabilityBus {
         await this.refreshHealth(id);
         record = this.describe(id);
       }
-      requireValue(record.health !== 'UNAVAILABLE', 'CAPABILITY_UNAVAILABLE', 503);
+      // The exact provider reason (e.g. GMAIL_AUTH_REQUIRED) travels with the
+      // refusal: MEL-MANIFEST-08 requires the precise error, never a generic one.
+      if (record.health === 'UNAVAILABLE') throw Object.assign(new Error('CAPABILITY_UNAVAILABLE'), {
+        code: 'CAPABILITY_UNAVAILABLE', status: 503, ...(record.health_detail ? { reason: record.health_detail } : {}) });
     } catch (error) {
       await this.audit({
         ...event,

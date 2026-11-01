@@ -92,3 +92,44 @@ test('a completed connected tool response renders human text instead of raw tool
     assert.doesNotMatch(result.text,/^\s*[\[{]/);
   } finally { DB.close(); }
 });
+
+// MEL-MANIFEST-08: five Gmail reads from a real receipt, or the exact error.
+async function gmailBus({ fetchImpl, token = 'token' }) {
+  const { CapabilityBus } = await import('../src/capabilities/capability-bus.js');
+  const { registerGoogleWorkspaceCapabilities } = await import('../src/capabilities/google-workspace-capabilities.js');
+  const bus = new CapabilityBus();
+  registerGoogleWorkspaceCapabilities(bus, { env: { MEL_OWNER_PERSONAL_AGENT: 'true', MELITURGOS_USER: 'owner' }, resolveAccessToken: async () => token, fetchImpl });
+  return bus;
+}
+const gmailContext = { owner: 'owner', permissions: ['google.gmail.read'] };
+
+test('a Gmail search renders five messages from the real API receipt', async () => {
+  const ids = ['m1', 'm2', 'm3', 'm4', 'm5'];
+  const bus = await gmailBus({ fetchImpl: async (url) => {
+    const target = String(url);
+    if (target.includes('/messages?')) return Response.json({ messages: ids.map(id => ({ id, threadId: 't-' + id })) });
+    const id = target.match(/\/messages\/([^?]+)/)[1];
+    return Response.json({ snippet: 'aperçu ' + id, labelIds: ['UNREAD'], payload: { headers: [
+      { name: 'Subject', value: 'Sujet ' + id }, { name: 'From', value: 'a@b.c' }, { name: 'Date', value: 'Fri, 31 Oct 2026' }] } });
+  } });
+  const result = await bus.execute('gmail.messages.search', { query: 'in:inbox', limit: 5 }, gmailContext);
+  const output = result.output || result.result || result;
+  assert.equal(output.count, 5);
+  assert.equal(output.rendered, 5);
+  assert.deepEqual(output.messages.map(m => m.subject), ids.map(id => 'Sujet ' + id));
+});
+
+test('a missing Gmail account and a network error are never a successful read and keep their exact code', async () => {
+  const noAccount = await gmailBus({ token: '', fetchImpl: async () => { throw new Error('must not call Gmail without a token'); } });
+  await assert.rejects(() => noAccount.execute('gmail.messages.search', { query: 'in:inbox' }, gmailContext),
+    error => error.code === 'CAPABILITY_UNAVAILABLE' && /GMAIL_AUTH_REQUIRED/.test(String(error.reason)));
+  const offline = await gmailBus({ fetchImpl: async () => { throw new TypeError('fetch failed'); } });
+  await assert.rejects(() => offline.execute('gmail.messages.search', { query: 'in:inbox' }, gmailContext), /GMAIL_SEARCH_FAILED_NETWORK/);
+  const partial = await gmailBus({ fetchImpl: async (url) => String(url).includes('/messages?')
+    ? Response.json({ messages: [{ id: 'm1', threadId: 't1' }] })
+    : new Response('', { status: 500 }) });
+  const result = await partial.execute('gmail.messages.search', { query: 'in:inbox' }, gmailContext);
+  const output = result.output || result.result || result;
+  assert.equal(output.rendered, 0, 'a message without readable headers is not rendered');
+  assert.equal(output.messages[0].metadata_error, 'GMAIL_METADATA_FAILED');
+});

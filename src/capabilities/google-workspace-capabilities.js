@@ -521,11 +521,14 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
           snippet: String(meta?.snippet || '').slice(0, 300),
           unread: Array.isArray(meta?.labelIds) ? meta.labelIds.includes('UNREAD') : null,
         };
-      } catch {
-        return row;
+      } catch (cause) {
+        // MEL-MANIFEST-08: a message whose headers could not be read is not a
+        // rendered message; keep its exact error code instead of a bare id.
+        return { ...row, metadata_error: String(cause?.code || cause?.message || 'GMAIL_METADATA_FAILED').slice(0, 160) };
       }
     }));
-    return { provider: listed.provider, query: q, messages, count: messages.length };
+    const rendered = messages.filter(row => !row.metadata_error && row.subject !== undefined).length;
+    return { provider: listed.provider, query: q, messages, count: messages.length, rendered };
   });
 
   bus.discover({
