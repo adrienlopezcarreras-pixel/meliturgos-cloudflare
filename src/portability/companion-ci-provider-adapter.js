@@ -64,3 +64,22 @@ export function createCompanionCiProviderAdapter({
     },
   });
 }
+
+// MEL-FOUNDER-06: an explicit double of the Companion executor, so the CI
+// adapter is exercised without a Windows companion. It announces itself as a
+// double; nothing may read its answers as a real companion run.
+export function createCompanionExecutorDouble({ healthy = true, dispatch = true, nodeVersion = 'v20.0.0' } = {}) {
+  const calls = [];
+  const double = async ({ action, repository, payload } = {}) => {
+    calls.push({ action, repository, payload });
+    if (action === 'health') {
+      return healthy ? { ok: true, node_version: nodeVersion } : { ok: false, code: 'COMPANION_UNAVAILABLE' };
+    }
+    if (!dispatch) return { ok: false, code: 'COMPANION_DISPATCH_REFUSED' };
+    return { ok: true, run_id: 'double-' + calls.length };
+  };
+  double.kind = 'EXPLICIT_DOUBLE';
+  double.hardware = false;
+  double.calls = calls;
+  return double;
+}

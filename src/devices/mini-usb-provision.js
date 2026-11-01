@@ -57,3 +57,55 @@ if($typed.Count -eq 0){exit 3}
 export function miniBlePairCommand() {
   return { command: BLE_PAIR, timeout_ms: 120000 };
 }
+
+// MEL-FOUNDER-06: software bench for the Companion/Android/MINI protocol.
+// It runs pairing, shutdown, permissions and disconnection against an
+// EXPLICIT double, so CI proves the protocol without any hardware. What it
+// proves is the protocol, never the device: the physical recipe below stays
+// separate and unvalidated until a real device runs it.
+export const MINI_PROTOCOL_STEPS = Object.freeze(['pair', 'permissions', 'shutdown', 'disconnect']);
+
+export const MINI_PHYSICAL_RECIPE = Object.freeze({
+  schema: 'mel.mini-physical-recipe/v1',
+  validated: false,
+  reason: 'PHYSICAL_DEVICE_PROOF_REQUIRED',
+  steps: Object.freeze(['brancher le MINI en USB', 'lancer l’appairage BLE depuis le téléphone',
+    'accorder les autorisations Android', 'couper l’alimentation', 'vérifier la déconnexion propre']),
+});
+
+// The double must say what it is. A silent fake that looks like a device is
+// how a bench ends up claiming a hardware proof it never had.
+export function createMiniProtocolDouble({ fails = [] } = {}) {
+  const failing = new Set(fails);
+  const calls = [];
+  return {
+    kind: 'EXPLICIT_DOUBLE',
+    hardware: false,
+    calls,
+    async run(step) {
+      calls.push(step);
+      if (failing.has(step)) return { ok: false, code: 'MINI_' + step.toUpperCase() + '_FAILED' };
+      return { ok: true, step };
+    },
+  };
+}
+
+export async function runMiniProtocolBench(double) {
+  if (!double || double.kind !== 'EXPLICIT_DOUBLE' || double.hardware !== false) {
+    throw Object.assign(new Error('MINI_BENCH_EXPLICIT_DOUBLE_REQUIRED'), { code: 'MINI_BENCH_EXPLICIT_DOUBLE_REQUIRED' });
+  }
+  const steps = [];
+  for (const step of MINI_PROTOCOL_STEPS) {
+    const result = await double.run(step).catch(error => ({ ok: false, code: String(error?.code || 'MINI_STEP_THREW') }));
+    steps.push({ step, ok: result?.ok === true, code: result?.ok === true ? null : String(result?.code || 'MINI_STEP_FAILED') });
+  }
+  return {
+    schema: 'mel.mini-protocol-bench/v1',
+    steps,
+    passed: steps.every(row => row.ok),
+    // Never conflated with a device acceptance.
+    proves: 'PROTOCOL_ONLY',
+    hardware_validated: false,
+    physical_recipe: MINI_PHYSICAL_RECIPE,
+  };
+}
