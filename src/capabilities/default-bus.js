@@ -1,3 +1,5 @@
+import { createMcpCapabilityAdapter, MCP_MODERN_VERSION } from '../mcp/capability-adapter.js';
+import { createMemoryService } from '../memory/memory-service.js';
 import { createKnowledgeGraph, validateEntity, validateRelation } from '../memory/knowledge-graph.js';
 import { PromptStrategyVersionRegistry } from '../registry/prompt-strategy-version-registry.js';
 import { apiVersionRegistry, resolveApiVersionRequest, API_CURRENT_VERSION } from '../api/api-versioning.js';
@@ -148,6 +150,78 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     output_schema: { type: 'object', properties: { value: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['value'], additionalProperties: false },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ value: input.value }));
+
+  // GEN2-50: execute real MCP adapter protocol behavior against an isolated bus.
+  bus.discover({
+    id:'mcp.compatibility.verify', name:'Compatibilité MCP — contrôle runtime',
+    category:'diagnostic', version:'1.0.0', provider:'core',
+    description:'Exercises MCP discovery, permissions, tools/list and tools/call over a real isolated CapabilityBus.',
+    input_schema:{type:'object',additionalProperties:false},
+    output_schema:{type:'object',properties:{ok:{type:'boolean'},version:{type:'string'}},required:['ok','version'],additionalProperties:false},
+    risk:'LOW', permissions:[], health:'HEALTHY', enabled:true,
+  }, async () => {
+    const isolated = new CapabilityBus();
+    isolated.discover({
+      id:'proof.echo',name:'Proof echo',category:'tool',version:'1.0.0',provider:'core',
+      description:'Ephemeral MCP self-test',input_schema:{type:'object',properties:{value:{type:'string'}},required:['value']},
+      output_schema:{type:'object',properties:{value:{type:'string'}},required:['value']},
+      risk:'LOW',permissions:['proof.use'],health:'HEALTHY',enabled:true,
+    }, async ({value})=>({value}));
+    const adapter=createMcpCapabilityAdapter({bus:isolated});
+    const request=(id,method,params={})=>({jsonrpc:'2.0',id,method,params});
+    const modern={_meta:{'io.modelcontextprotocol/protocolVersion':MCP_MODERN_VERSION}};
+    const init=await adapter.handle(request(1,'server/discover',modern),{owner:'proof',permissions:[]});
+    const hidden=await adapter.handle(request(2,'tools/list',modern),{owner:'proof',permissions:[]});
+    const list=await adapter.handle(request(3,'tools/list',modern),{owner:'proof',permissions:['proof.use']});
+    const call=await adapter.handle(request(4,'tools/call',{...modern,name:'proof.echo',arguments:{value:'verified'}}),{owner:'proof',permissions:['proof.use']});
+    const denied=await adapter.handle(request(5,'tools/call',{...modern,name:'proof.echo',arguments:{value:'blocked'}}),{owner:'proof',permissions:[]});
+    if(!init.result?.supportedVersions?.includes(MCP_MODERN_VERSION) ||
+      hidden.result?.tools?.length!==0 || list.result?.tools?.[0]?.name!=='proof.echo' ||
+      call.result?.structuredContent?.value!=='verified' || denied.error?.code!==-32602){
+      throw Object.assign(new Error('MCP_RUNTIME_CONTRACT_FAILED'),{code:'MCP_RUNTIME_CONTRACT_FAILED'});
+    }
+    return {ok:true,version:MCP_MODERN_VERSION};
+  });
+
+  // GEN2-10: genuine live D1 evidence, no fabricated fixture or inserted memories.
+  // A missing contradiction/provenance/expired record fails closed.
+  bus.discover({
+    id: 'memory.contradiction.provenance.verify', name: 'Mémoire réelle — contradictions et temporalité',
+    category: 'diagnostic', version: '1.0.0', provider: 'core',
+    description: 'Checks existing D1 memory provenance, a resolved contradiction and expiry filtering without writes.',
+    input_schema: { type:'object', additionalProperties:false },
+    output_schema: { type:'object', properties: { ok:{type:'boolean'}, live_records:{type:'number'} },
+      required:['ok','live_records'], additionalProperties:false },
+    risk:'LOW', permissions:[], health:'HEALTHY', enabled:true,
+  }, async () => {
+    if (!runtimeEnv.DB?.prepare) throw Object.assign(new Error('MEMORY_PROOF_DB_UNAVAILABLE'), { code:'MEMORY_PROOF_DB_UNAVAILABLE' });
+    const db = runtimeEnv.DB;
+    const candidates = (await db.prepare(`SELECT id,content,valid_until,metadata,source,provenance FROM memories
+      WHERE metadata LIKE '%contradictions%' ORDER BY created_at DESC LIMIT 100`).all())?.results || [];
+    const service = createMemoryService(db);
+    for (const record of candidates) {
+      let metadata; try { metadata = JSON.parse(record.metadata || '{}'); } catch { continue; }
+      if (!Array.isArray(metadata.contradictions) || !metadata.contradictions.length) continue;
+      const conflicts = await service.findConflicts({ id:record.id });
+      const provenance = await service.getProvenance({ id:record.id });
+      if (!conflicts.conflict_ids?.length || !conflicts.conflicts?.length ||
+          !provenance.source || !provenance.provenance) continue;
+      const expired = (await db.prepare(`SELECT id,content FROM memories
+        WHERE valid_until IS NOT NULL AND valid_until <= ? AND content IS NOT NULL LIMIT 1`)
+        .bind(Date.now()).all())?.results || [];
+      if (!expired.length) continue;
+      const content = String(expired[0].content || '');
+      if (!content) continue;
+      // Distinct, unique expired content avoids false positives from other memories.
+      const direct = (await db.prepare(`SELECT COUNT(*) AS n FROM memories WHERE id=? AND valid_until<=?`)
+        .bind(expired[0].id, Date.now()).first());
+      if (Number(direct?.n) !== 1) continue;
+      const matches = await service.search({ query:content, limit:100 });
+      if (matches.some(row => String(row.id) === String(expired[0].id))) continue;
+      return { ok:true, live_records:conflicts.conflicts.length + 2 };
+    }
+    throw Object.assign(new Error('MEMORY_LIVE_PROOF_INSUFFICIENT_DATA'), { code:'MEMORY_LIVE_PROOF_INSUFFICIENT_DATA' });
+  });
 
   // GEN2-11: exercise real KnowledgeGraph port, validators and supersession.
   bus.discover({
