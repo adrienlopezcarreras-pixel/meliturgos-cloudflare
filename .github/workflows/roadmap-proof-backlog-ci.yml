@@ -1,0 +1,39 @@
+name: Roadmap proof backlog focused CI
+
+on:
+  pull_request:
+    paths:
+      - "scripts/roadmap-proof-backlog.mjs"
+      - "tests/roadmap-proof-backlog.test.mjs"
+      - "src/roadmap/roadmap-truth.js"
+      - "src/roadmap/master-roadmap.js"
+      - ".github/workflows/roadmap-proof-backlog-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proof-backlog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Verify inventory and non-regression
+        run: node --test tests/roadmap-proof-backlog.test.mjs tests/roadmap-truth.test.mjs
+      - name: Verify GEN2-11 Knowledge Graph contract (code evidence, not live production)
+        run: node --test tests/gen2/gen2-11-knowledge-graph-contract.test.mjs
+      - name: Verify GEN2-10 contradictions provenance and temporal contract
+        run: node --test tests/gen2/gen2-10-contradiction-provenance-temporal.test.mjs
+      - name: Render missing-proof inventory without certifying items
+        run: node scripts/roadmap-proof-backlog.mjs > roadmap-proof-backlog.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: roadmap-proof-backlog
+          path: roadmap-proof-backlog.json
+          retention-days: 7
