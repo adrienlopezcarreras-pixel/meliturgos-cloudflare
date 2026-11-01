@@ -54,3 +54,16 @@ test('every visible full-mode control is linked to its handler and receives a PA
   assert.deepEqual(controlReceipt(orphan).controls, [{ id: 'lost', api: [], status: 'FAIL' }]);
   assert.equal(controlReceipt(controls, { jsErrors: ['TypeError'] }).fail, controls.length);
 });
+
+test('duplicate visible control IDs fail audit even when a shared handler exists',async()=>{
+ const {inventoryControls,controlReceipt}=await import('../scripts/ui-production-audit.mjs');
+ const html='<button id="duplicate">One</button><button id="duplicate">Two</button><script>document.getElementById("duplicate").addEventListener("click",()=>{});</script>';
+ const controls=inventoryControls(html);
+ assert.equal(controls.length,2);
+ assert.equal(controls[0].duplicate_id,false);
+ assert.equal(controls[1].duplicate_id,true);
+ const receipt=controlReceipt(controls);
+ assert.equal(receipt.fail,1);
+ assert.equal(receipt.pass,1);
+ assert.equal(receipt.mutations_performed,0);
+});
