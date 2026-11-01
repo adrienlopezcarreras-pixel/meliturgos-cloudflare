@@ -171,7 +171,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     ]);
     const seen=[];
     const router=new ModelRouter({registry,maxCalls:2,timeoutMs:500,
-      invoke:async model=>{seen.push(model.id);if(model.id==='proof-primary')throw Error('provider_unavailable');return {response:'fallback-success'};},
+      invoke:async model=>{seen.push(model.id);if(model.id==='proof-primary')throw Error('timeout');return {response:'fallback-success'};},
     });
     const result=await router.execute({task:'GENERAL',messages:[{role:'user',content:'probe'}]});
     if(result.text!=='fallback-success'||result.model!=='proof-secondary'||
