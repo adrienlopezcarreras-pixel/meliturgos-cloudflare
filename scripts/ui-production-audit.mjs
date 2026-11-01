@@ -39,6 +39,42 @@ export function summarizeUiAudit(observations = []) {
   return { schema: 'mel.ui-production-audit/v1', pages: observations.length, api_calls: checked, blocked_calls: blocked, blocked_stuck: stuckBlocked, findings: unique.slice(0, 40) };
 }
 
+// MEL-UI-AUDIT-01: executable inventory of the visible controls. Each button
+// is linked to the script that handles it (directly or through its form), the
+// API paths that handler calls, and whether it would mutate (non-GET).
+export function inventoryControls(html) {
+  const source = String(html || '');
+  const script = [...source.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(match => match[1]).join('\n');
+  const escape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const reference = id => new RegExp(`(#${escape(id)}\\b|getElementById\\(['"]${escape(id)}['"]\\))`);
+  const controls = [];
+  for (const match of source.matchAll(/<button\b([^>]*)>/g)) {
+    const id = match[1].match(/\bid="([^"]+)"/)?.[1];
+    if (!id) continue;
+    let via = null, at = script.search(reference(id));
+    if (at >= 0) via = 'script';
+    else if (/\btype="submit"/.test(match[1])) {
+      const form = source.slice(0, match.index).match(/<form\b[^>]*\bid="([^"]+)"[^>]*>(?![\s\S]*<\/form>)/)?.[1];
+      if (form && (at = script.search(reference(form))) >= 0) via = 'form';
+    }
+    const handler = at >= 0 ? script.slice(at, at + 700) : '';
+    controls.push({ id, handled: via !== null, via,
+      api: [...new Set([...handler.matchAll(/['"](\/api\/[A-Za-z0-9/_.-]+)/g)].map(m => m[1]))].slice(0, 6),
+      mutating: /method:\s*['"](?:POST|PUT|PATCH|DELETE)['"]/i.test(handler) });
+  }
+  return controls;
+}
+
+// Receipt per control: FAIL without a handler or with a JavaScript error,
+// BLOCKED when its action would mutate (never clicked by a read-only audit),
+// PASS otherwise. No unauthorized mutation is ever performed.
+export function controlReceipt(controls = [], { jsErrors = [] } = {}) {
+  const rows = controls.map(control => ({ id: control.id, api: control.api,
+    status: !control.handled || jsErrors.length ? 'FAIL' : control.mutating ? 'BLOCKED' : 'PASS' }));
+  const count = status => rows.filter(row => row.status === status).length;
+  return { schema: 'mel.ui-control-receipt/v1', controls: rows, pass: count('PASS'), fail: count('FAIL'), blocked: count('BLOCKED'), mutations_performed: 0 };
+}
+
 export async function observe(browser, baseUrl, headers, path, panel) {
   const context = await browser.newContext({ extraHTTPHeaders: headers });
   const page = await context.newPage();

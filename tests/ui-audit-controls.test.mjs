@@ -36,3 +36,21 @@ test('the public guest composer has a stable accessible name',()=>{
  const dom=new JSDOM(renderFidesGuestPage());
  try{assert.ok(dom.window.document.getElementById('message').getAttribute('aria-label'));}finally{dom.window.close();}
 });
+
+// MEL-UI-AUDIT-01: executable inventory of visible controls with a receipt.
+test('every visible full-mode control is linked to its handler and receives a PASS, FAIL or BLOCKED receipt without mutation', async () => {
+  const { inventoryControls, controlReceipt } = await import('../scripts/ui-production-audit.mjs');
+  const html = await (await fullMode()).text();
+  const controls = inventoryControls(html);
+  assert.ok(controls.length >= 50, 'the full mode exposes its controls');
+  assert.deepEqual(controls.filter(control => !control.handled).map(control => control.id), [], 'no orphan button');
+  assert.equal(controls.find(control => control.id === 'objectiveAddSubmit').via, 'form');
+  const receipt = controlReceipt(controls);
+  assert.equal(receipt.mutations_performed, 0);
+  assert.equal(receipt.pass + receipt.blocked + receipt.fail, controls.length);
+  assert.equal(receipt.fail, 0);
+  assert.ok(receipt.blocked > 0, 'mutating controls are BLOCKED, never clicked');
+  const orphan = inventoryControls('<button id="lost" type="button">x</button><script>const a=1;</script>');
+  assert.deepEqual(controlReceipt(orphan).controls, [{ id: 'lost', api: [], status: 'FAIL' }]);
+  assert.equal(controlReceipt(controls, { jsErrors: ['TypeError'] }).fail, controls.length);
+});
