@@ -111,3 +111,13 @@ test('UNCENSORED never falls back to normal models when Venice key is absent', a
   );
   assert.equal(normalCalls, 0);
 });
+
+
+test('Venice provenance receipt distinguishes raw and displayed text without exposing their contents', async () => {
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(new URL('../src/api/native-chat.js', import.meta.url), 'utf8');
+  assert.match(source, /output_modified:String\(ai\.text \|\| ''\) !== String\(responseText \|\| ''\)/);
+  assert.match(source, /council_regenerated:automaticCouncilAccepted === true/);
+  assert.match(source, /venice_trace:veniceTrace/);
+  assert.doesNotMatch(source.slice(source.indexOf('const veniceTrace ='),source.indexOf('return Response.json({',source.indexOf('const veniceTrace ='))), /console\.log|raw_response_text|displayed_response_text/);
+});
