@@ -27,7 +27,6 @@ test('backlog never turns a mapping or a declaration into verified evidence', ()
 // old <= 42 count still passes.
 test('unproven DONE_VERIFIED IDs match the reviewed proof baseline exactly', () => {
   const expected = [
-    "GEN2-03",
     "GEN2-04",
     "MEL-CONTEXT-01",
     "MEL-CONTEXT-02",
