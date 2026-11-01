@@ -156,3 +156,38 @@ async function main() {
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch(error => { console.error(error.message); process.exit(1); });
 }
+
+// MEL-UI-AUDIT-06: bench for the WORK, memory, Council, LoRA and connection
+// controls. Each action must show the REAL API receipt, say so when the
+// service is unavailable or refuses, and never start a second training or a
+// second mission on a second click.
+export const AUDITED_CONTROL_GROUPS = Object.freeze(['work', 'memory', 'council', 'lora', 'connections']);
+
+export function controlActionReceipt(observation = {}) {
+  const problems = [];
+  const status = Number(observation.status || 0);
+  const body = observation.body && typeof observation.body === 'object' ? observation.body : {};
+  // A control that shows nothing of the call it made proves nothing.
+  if (!observation.api_path) problems.push('NO_API_RECEIPT');
+  else if (!observation.displayed) problems.push('RECEIPT_NOT_DISPLAYED');
+  // Unavailable and refused are outcomes to show, never silent successes.
+  if ((status === 503 || status === 409) && observation.shown_as_success === true) problems.push('UNAVAILABLE_SHOWN_AS_SUCCESS');
+  if ((status === 401 || status === 403) && observation.shown_as_success === true) problems.push('REFUSAL_SHOWN_AS_SUCCESS');
+  if (status >= 500 && status !== 503 && observation.shown_as_success === true) problems.push('ERROR_SHOWN_AS_SUCCESS');
+  // A second click must not start a second run.
+  if (observation.second_click_started === true) problems.push('SECOND_CLICK_STARTED_A_SECOND_RUN');
+  if (observation.second_click_started === false && body.dispatched === true && observation.first_click_started !== true) {
+    problems.push('SECOND_CLICK_RECEIPT_INCONSISTENT');
+  }
+  return { control: String(observation.control || '?'), group: String(observation.group || '?'),
+    status: problems.length ? 'FAIL' : 'PASS', problems };
+}
+
+export function controlBenchReport(observations = []) {
+  const rows = (Array.isArray(observations) ? observations : []).map(controlActionReceipt);
+  const seen = new Set(rows.map(row => row.group));
+  const missing = AUDITED_CONTROL_GROUPS.filter(group => !seen.has(group));
+  const count = status => rows.filter(row => row.status === status).length;
+  return { schema: 'mel.ui-control-bench/v1', controls: rows, pass: count('PASS'), fail: count('FAIL'),
+    groups_missing: missing, conclusive: rows.length > 0 && missing.length === 0 && count('FAIL') === 0 };
+}

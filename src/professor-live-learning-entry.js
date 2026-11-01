@@ -94,8 +94,7 @@ async function experimentalTrainingResponse(request,env){
     const api='https://api.github.com/repos/'+FREE_LORA_GITHUB_REPO+'/actions/workflows/'+workflow;
     const active=await experimentalGitHub(request,env,'GET',api+'/runs?per_page=10');
     if(active.denied)return active.denied;
-    const ongoing=(active.data?.workflow_runs||[]).find(run=>
-      ['queued','in_progress','waiting','requested','pending'].includes(run.status));
+    const ongoing=alreadyRunningWorkflow(active.data?.workflow_runs);
     if(ongoing)return json({ok:true,dispatched:false,status:'QWEN_GPU_CHAIN_ALREADY_RUNNING',run_id:ongoing.id,run_url:ongoing.html_url,gpu_training_performed:false});
     const dispatch=await experimentalGitHub(request,env,'POST',api+'/dispatches',{ref:'main',inputs:{dataset_slug:slug}});
     if(dispatch.denied)return dispatch.denied;
@@ -651,3 +650,10 @@ export default {
     else await maintenance;
   },
 };
+
+// MEL-UI-AUDIT-06: one place that decides whether a run is already going, so
+// a second click reports the running run instead of starting another one.
+export const RUNNING_WORKFLOW_STATUSES = Object.freeze(['queued', 'in_progress', 'waiting', 'requested', 'pending']);
+export function alreadyRunningWorkflow(runs = []) {
+  return (Array.isArray(runs) ? runs : []).find(run => RUNNING_WORKFLOW_STATUSES.includes(String(run?.status || ''))) || null;
+}

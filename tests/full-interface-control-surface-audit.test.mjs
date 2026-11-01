@@ -124,3 +124,31 @@ test('responsive duplicate controls are limited to the audited autonomy/navigati
 test('owner UI keeps event wiring out of inline HTML attributes', () => {
   assert.equal(/<button\b[^>]*\bonclick\s*=/.test(source), false);
 });
+
+// MEL-UI-AUDIT-06: each control shows the real API receipt, handles
+// unavailability and refusal, and a second click never starts a second run.
+test('MEL-UI-AUDIT-06: control bench demands a real receipt and refuses a doubled run', async () => {
+  const { controlActionReceipt, controlBenchReport, AUDITED_CONTROL_GROUPS } = await import('../scripts/ui-production-audit.mjs');
+  const { alreadyRunningWorkflow } = await import('../src/professor-live-learning-entry.js');
+  const ok = g => ({ control: g + 'Btn', group: g, api_path: '/api/' + g, displayed: true, status: 200,
+    shown_as_success: true, first_click_started: true, second_click_started: false, body: { dispatched: true } });
+
+  assert.deepEqual(controlActionReceipt(ok('work')).problems, []);
+  assert.deepEqual(controlActionReceipt({ ...ok('lora'), api_path: null }).problems, ['NO_API_RECEIPT']);
+  assert.deepEqual(controlActionReceipt({ ...ok('lora'), displayed: false }).problems, ['RECEIPT_NOT_DISPLAYED']);
+  assert.deepEqual(controlActionReceipt({ ...ok('council'), status: 503 }).problems, ['UNAVAILABLE_SHOWN_AS_SUCCESS']);
+  assert.deepEqual(controlActionReceipt({ ...ok('memory'), status: 403 }).problems, ['REFUSAL_SHOWN_AS_SUCCESS']);
+  assert.deepEqual(controlActionReceipt({ ...ok('lora'), second_click_started: true }).problems, ['SECOND_CLICK_STARTED_A_SECOND_RUN']);
+
+  const full = controlBenchReport(AUDITED_CONTROL_GROUPS.map(ok));
+  assert.equal(full.conclusive, true);
+  assert.deepEqual(full.groups_missing, []);
+  const partial = controlBenchReport([ok('work')]);
+  assert.equal(partial.conclusive, false, 'a bench that skipped groups never concludes');
+  assert.deepEqual(partial.groups_missing, ['memory', 'council', 'lora', 'connections']);
+
+  // The running-run guard is what makes the second click safe.
+  assert.equal(alreadyRunningWorkflow([{ status: 'completed' }, { status: 'in_progress', id: 7 }]).id, 7);
+  assert.equal(alreadyRunningWorkflow([{ status: 'completed' }]), null);
+  assert.equal(alreadyRunningWorkflow(null), null);
+});

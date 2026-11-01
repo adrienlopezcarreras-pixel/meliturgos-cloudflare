@@ -62,3 +62,14 @@ test('parallel-work protocol defines exact-sha validation and no rollback-over-n
   assert.match(protocol, /Never deploy an older green SHA over a newer production tree/i);
   assert.match(protocol, /one presentation owner/i);
 });
+
+// MEL-UI-AUDIT-06: one single running-run guard, not a copy per control.
+test('MEL-UI-AUDIT-06: the running-workflow guard is shared, not duplicated per control', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile('src/professor-live-learning-entry.js', 'utf8');
+  const { RUNNING_WORKFLOW_STATUSES } = await import('../src/professor-live-learning-entry.js');
+  assert.deepEqual([...RUNNING_WORKFLOW_STATUSES], ['queued', 'in_progress', 'waiting', 'requested', 'pending']);
+  // The status list must live in one place only.
+  const inlineLists = source.match(/\['queued','in_progress','waiting','requested','pending'\]/g) || [];
+  assert.ok(inlineLists.length <= 1, `liste des statuts dupliquée ${inlineLists.length} fois`);
+});
