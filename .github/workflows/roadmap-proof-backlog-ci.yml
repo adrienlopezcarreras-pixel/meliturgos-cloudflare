@@ -8,6 +8,9 @@ on:
       - "tests/roadmap-complete-evidence-ledger.test.mjs"
       - "tests/roadmap-d1-evidence-integration.test.mjs"
       - "tests/roadmap-evidence-capability.test.mjs"
+      - "tests/roadmap-production-readonly-proof.test.mjs"
+      - "scripts/prove-production-roadmap-176-readonly.mjs"
+      - "src/core/security.js"
       - "src/capabilities/default-bus.js"
       - "tests/roadmap-proof-backlog.test.mjs"
       - "src/roadmap/roadmap-truth.js"
@@ -61,6 +64,8 @@ jobs:
         run: node --test tests/roadmap-d1-evidence-integration.test.mjs
       - name: Verify runtime D1 evidence capability
         run: node --test tests/roadmap-evidence-capability.test.mjs
+      - name: Test safe production roadmap audit
+        run: node --test tests/roadmap-production-readonly-proof.test.mjs
       - name: Render complete evidence ledger without certifying production
         run: node scripts/roadmap-complete-evidence-ledger.mjs > roadmap-complete-evidence-ledger.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
