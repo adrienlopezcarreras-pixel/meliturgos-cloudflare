@@ -70,3 +70,12 @@ test('local-first failures yield null and leave normal remote inference availabl
    asPrimary:true,timeoutMs:4000,execute:async()=>({ok:false,code:'COMPUTER_OFFLINE'})});
  assert.equal(result,null);
 });
+
+// MEL-UI-AUDIT-05: offline, permission denied and shutdown block the control.
+test('MEL-UI-AUDIT-05: the blocking companion states are named once and block the control', async () => {
+  const { COMPANION_BLOCKING_STATES, companionControlBlocked } = await import('../src/api/native-companion-fallback.js');
+  assert.deepEqual([...COMPANION_BLOCKING_STATES], ['OFFLINE', 'PERMISSION_DENIED', 'SHUTDOWN']);
+  for (const state of COMPANION_BLOCKING_STATES) assert.equal(companionControlBlocked(state), true, state);
+  assert.equal(companionControlBlocked('online'), false);
+  assert.equal(companionControlBlocked(null), false);
+});

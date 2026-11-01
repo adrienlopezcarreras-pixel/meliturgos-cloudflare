@@ -51,3 +51,10 @@ export async function tryOptionalNativeCompanionFallback({
    };
  }catch{return null;}
 }
+
+// MEL-UI-AUDIT-05: the companion states that must block a hardware control.
+// Naming them in one place keeps the bench and the runtime on the same rule.
+export const COMPANION_BLOCKING_STATES = Object.freeze(['OFFLINE', 'PERMISSION_DENIED', 'SHUTDOWN']);
+export function companionControlBlocked(state) {
+  return COMPANION_BLOCKING_STATES.includes(String(state || '').toUpperCase());
+}

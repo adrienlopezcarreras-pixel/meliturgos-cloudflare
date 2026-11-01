@@ -156,3 +156,31 @@ async function main() {
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch(error => { console.error(error.message); process.exit(1); });
 }
+
+// MEL-UI-AUDIT-05: offline bench for the hardware controls. Offline, permission
+// refused and shutdown must each BLOCK the matching control, and no software
+// double may ever be presented as a physical test.
+export function hardwareControlVerdict(observation = {}) {
+  const state = String(observation.companion_state || '').toUpperCase();
+  const blocked = ['OFFLINE', 'PERMISSION_DENIED', 'SHUTDOWN'].includes(state);
+  const problems = [];
+  if (blocked && observation.control_enabled === true) problems.push('CONTROL_ENABLED_WHILE_' + state);
+  if (blocked && observation.executed === true) problems.push('ACTION_EXECUTED_WHILE_' + state);
+  if (!blocked && observation.control_enabled === false && !observation.reason) problems.push('CONTROL_DISABLED_WITHOUT_REASON');
+  // The decisive rule: a double is never a physical proof.
+  if (observation.used_double === true && observation.claimed_physical === true) problems.push('SOFTWARE_DOUBLE_CLAIMED_AS_PHYSICAL');
+  return { control: String(observation.control || '?'), state, blocked,
+    status: problems.length ? 'FAIL' : 'PASS', problems,
+    proves: observation.used_double === true ? 'PROTOCOL_ONLY' : 'LIVE_COMPANION' };
+}
+
+export function hardwareBenchReport(observations = []) {
+  const rows = (Array.isArray(observations) ? observations : []).map(hardwareControlVerdict);
+  const states = new Set(rows.map(row => row.state));
+  const covered = ['OFFLINE', 'PERMISSION_DENIED', 'SHUTDOWN'].every(state => states.has(state));
+  return { schema: 'mel.ui-hardware-bench/v1', controls: rows,
+    fail: rows.filter(row => row.status === 'FAIL').length,
+    states_covered: covered,
+    hardware_validated: false,
+    conclusive: rows.length > 0 && covered && rows.every(row => row.status === 'PASS') };
+}
