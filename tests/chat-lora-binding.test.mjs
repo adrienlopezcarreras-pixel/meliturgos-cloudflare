@@ -16,22 +16,34 @@ test('missing and incompatible LoRA never qualify for the requested mode', () =>
   }
 });
 
-test('required LoRA pins its model despite an incompatible preferred model or fanout', async () => {
-  const calls=[];
-  const result=await runNativeInference({env:{AI:{run:async (model,input)=>{calls.push({model,input});return {response:'Réponse du modèle adapté.'};}}},
-    messages:[{role:'user',content:'Bonjour'}], text:'bonjour', activeAdapter:active,
-    requireLora:true, parallel:true, preferredModel:'@cf/zai-org/glm-4.7-flash'});
-  assert.equal(calls.length,1);
-  assert.equal(calls[0].model,active.runtime_model);
-  assert.equal(calls[0].input.lora,active.finetune_id);
-  assert.equal(chatLoraReceipt(active,result)?.applied,true);
+test('requested UNCENSORED routes to Venice irrespective of local LoRA settings', async () => {
+  const previousFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({url:String(url), body:JSON.parse(options.body)});
+    return Response.json({choices:[{message:{content:'Bonjour depuis Venice.'}}]});
+  };
+  try {
+    let localCalls=0;
+    const result=await runNativeInference({
+      env:{OPENROUTER_API_KEY:'sk-or-'+'x'.repeat(40), AI:{run:async()=>{localCalls++;throw new Error('not expected');}}},
+      messages:[{role:'user',content:'Bonjour'}], activeAdapter:active,
+      requireLora:true, parallel:true, preferredModel:'@cf/zai-org/glm-4.7-flash'
+    });
+    assert.equal(result.provider,'openrouter');
+    assert.equal(calls.length,1);
+    assert.match(calls[0].url,/openrouter.ai/);
+    assert.equal(localCalls,0);
+  } finally {globalThis.fetch=previousFetch;}
 });
 
-test('required LoRA provider failure cannot execute another cloud model', async () => {
-  const calls=[];
-  await assert.rejects(()=>runNativeInference({env:{AI:{run:async(model)=>{calls.push(model);throw Object.assign(new Error('provider unavailable'),{code:'PROVIDER_UNAVAILABLE'});}}},
-    messages:[{role:'user',content:'Bonjour'}], text:'bonjour', activeAdapter:active, requireLora:true}));
-  assert.deepEqual(calls,[active.runtime_model]);
+test('UNCENSORED missing Venice key never calls another cloud model', async () => {
+  let calls=0;
+  await assert.rejects(runNativeInference({
+    env:{AI:{run:async()=>{calls++;return {response:'wrong model'};}}},
+    messages:[{role:'user',content:'Bonjour'}], requireLora:true,activeAdapter:active
+  }),{code:'VENICE_KEY_MISSING'});
+  assert.equal(calls,0);
 });
 
 test('Qwen, ordinary cloud fallback and deterministic receipts never claim the configured LoRA', () => {
