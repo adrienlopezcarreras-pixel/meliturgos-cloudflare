@@ -545,19 +545,3 @@ export function createEncryptedSystemBackupService(env, { now = () => new Date()
     sources: systemBackupSources(env),
   });
 }
-
-// MEL-MANIFEST-04: a risky change waits for the exact-SHA backup receipt and
-// the isolated restore comparison (verifyIsolatedRestore). A stale receipt, a
-// missing or divergent comparison, or any production write blocks promotion.
-export function riskyChangeBackupGate({ binding = null, restoreProof = null, sha = '', now = Date.now(), maxAgeMs = DEFAULT_RELEASE_BACKUP_MAX_AGE_MS } = {}) {
-  const block = code => ({ ok: false, promotion_allowed: false, code });
-  if (!binding?.ok || !binding.snapshot_id) return block('BACKUP_RECEIPT_REQUIRED');
-  if (sha && binding.deployed_sha !== sha) return block('BACKUP_RECEIPT_SHA_MISMATCH');
-  const createdAt = Date.parse(String(binding.snapshot_created_at || ''));
-  if (!Number.isFinite(createdAt) || now - createdAt > maxAgeMs) return block('BACKUP_RECEIPT_STALE');
-  if (!restoreProof || restoreProof.ok !== true || restoreProof.isolated !== true) return block('ISOLATED_RESTORE_PROOF_REQUIRED');
-  if (restoreProof.production_written !== false) return block('RESTORE_WROTE_PRODUCTION');
-  const tables = Object.values(restoreProof.tables || {});
-  if (restoreProof.identical !== true || !tables.length || tables.some(row => row.same !== true || row.fingerprint_match !== true)) return block('RESTORE_COMPARISON_DIVERGENT');
-  return { ok: true, promotion_allowed: true, code: null, snapshot_id: binding.snapshot_id };
-}
