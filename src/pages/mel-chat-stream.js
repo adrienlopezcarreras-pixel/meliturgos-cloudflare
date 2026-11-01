@@ -157,11 +157,7 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 105000, sig
     bubble.appendChild(note);
   }
   const result = meta.result && typeof meta.result === 'object' ? meta.result : {};
-  // MEL-UI-AUDIT-02: result, partial error and error are distinct in the
-  // render and the returned record; the send mode and references are kept.
-  const outcome = failure ? (text ? 'PARTIAL_ERROR' : 'ERROR') : 'RESULT';
-  if (bubble) bubble.dataset.outcome = outcome;
-  return { ...result, outcome, mode: payload?.mode ?? result.mode ?? null, references: Array.isArray(result.references) ? result.references : [], ok: !failure && result.ok !== false, text, model: meta.model || result.model || null, streamed: true, progress: [...progress.values()], agent_steps: meta.steps || 0, proof_url: meta.proof_url || null, archive_saved: meta.archived === true, response_truncated: meta.truncated === true, elapsed_ms: Date.now() - startedAt, stream_error: failure ? String(failure.code || 'STREAM_FAILED') : null };
+  return { ...result, ok: !failure && result.ok !== false, text, model: meta.model || result.model || null, streamed: true, progress: [...progress.values()], agent_steps: meta.steps || 0, proof_url: meta.proof_url || null, archive_saved: meta.archived === true, response_truncated: meta.truncated === true, elapsed_ms: Date.now() - startedAt, stream_error: failure ? String(failure.code || 'STREAM_FAILED') : null };
 }
 
 export const MEL_CHAT_STREAM_SOURCE = [melParseNdjsonLines, melChatFetch].map(fn => fn.toString()).join('\n') + '\n';

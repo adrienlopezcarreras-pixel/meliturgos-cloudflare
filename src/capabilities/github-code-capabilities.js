@@ -173,11 +173,10 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
       .sort((a,b) => b.score-a.score || a.index-b.index).slice(0,MAX_SEARCH_FILES);
     const matches = [];
     let searched = 0, failed = 0;
-    const failedPaths = [];
     for (const file of selected) {
       if (matches.length >= MAX_MATCHES) break;
       let source;
-      try { source = await read(file.path); searched++; } catch (error) { failed++; if (failedPaths.length < 10) failedPaths.push({ path: file.path, code: String(error?.code || 'CODE_READ_FAILED').slice(0, 80) }); continue; }
+      try { source = await read(file.path); searched++; } catch { failed++; continue; }
       const lines = source.content.split(/\r?\n/);
       for (let i = 0; i < lines.length && matches.length < MAX_MATCHES; i++) {
         if (!lines[i].toLowerCase().includes(needle)) continue;
@@ -185,7 +184,7 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
       }
     }
     const limitReached = files.length > MAX_SEARCH_FILES || matches.length >= MAX_MATCHES;
-    return {query:String(query),path:prefix,matches,searched_files:searched,failed_files:failed,failed_paths:failedPaths,candidate_files:files.length,
+    return {query:String(query),path:prefix,matches,searched_files:searched,failed_files:failed,candidate_files:files.length,
       skipped_large_files:skippedLarge,tree_complete:snapshot.complete,limit_reached:limitReached,
       search_complete:snapshot.complete && !limitReached && !failed && !skippedLarge,
       source_ref:contentRef,branch:ref,repository:repo};
@@ -305,18 +304,9 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
   return { read, search, head, approvedSnapshot, health, paths, repository: repo, branch: ref, content_ref: contentRef, pinned_sha: pinned || null };
 }
 
-// MEL-CHAT-04: the chat capability cites the exact lines a full read covered
-// and the pinned ref, so a diagnosis names what was really read. The reader's
-// own complete-file contract is unchanged.
-function citedRead(result, reader) {
-  if (Number.isInteger(result?.start_line)) return result;
-  const total = String(result?.content || '').split(/\r?\n/).length;
-  return { ...result, start_line: 1, end_line: total, total_lines: total, partial: false, source_ref: reader.content_ref || result.branch };
-}
-
 export function registerGitHubCodeCapabilities(bus, options = {}) {
   const reader = createGitHubCodeReader(options);
-  bus.discover({ id: 'code.read', name: 'GitHub code read', category: 'development', version: '1.2.0', provider: 'github', description: 'Read non-secret MEL source; optional 1-based start_line/end_line selects up to 200 lines from a large file. Partial reads do not prove inspection of the whole file.', input_schema: { type: 'object', properties: { path: { type: 'string', minLength: 1, maxLength: 1000 }, start_line:{type:'integer',minimum:1}, end_line:{type:'integer',minimum:1} }, required: ['path'], additionalProperties: false }, output_schema: { type: 'object', properties: { start_line:{type:'integer'}, end_line:{type:'integer'}, total_lines:{type:'integer'}, partial:{type:'boolean'}, source_ref:{type:'string'}, path: { type: 'string', minLength: 1, maxLength: 1000 }, content: { type: 'string', minLength: 0, maxLength: MAX_FILE_BYTES }, sha: { type: 'string', minLength: 0, maxLength: 300 }, branch: { type: 'string', minLength: 1, maxLength: 200 }, repository: { type: 'string', minLength: 1, maxLength: 200 } }, required: ['path','content','sha','branch','repository'], additionalProperties: false }, risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true }, async input => citedRead(await reader.read(input.path, input), reader), () => reader.health());
-  bus.discover({ id: 'code.search', name: 'GitHub code search', category: 'development', version: '1.2.0', provider: 'github', description: 'Search up to 24 non-secret MEL source files, ranked by symbol/path relevance. Inspect search_complete, tree_complete and skipped/failed counts before concluding absence.', input_schema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 300 }, path: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['query'], additionalProperties: false }, output_schema: { type: 'object', properties: { failed_files:{type:'integer'}, failed_paths:{type:'array',items:{type:'object',properties:{path:{type:'string',minLength:1,maxLength:1000},code:{type:'string',minLength:1,maxLength:80}},required:['path','code'],additionalProperties:false}}, candidate_files:{type:'integer'}, skipped_large_files:{type:'integer'}, tree_complete:{type:'boolean'}, limit_reached:{type:'boolean'}, search_complete:{type:'boolean'}, source_ref:{type:'string'}, query: { type: 'string', minLength: 1, maxLength: 300 }, path: { type: 'string', minLength: 0, maxLength: 1000 }, matches: { type: 'array', items: { type: 'object', properties: { path: { type: 'string', minLength: 1, maxLength: 1000 }, line: { type: 'integer' }, excerpt: { type: 'string', minLength: 0, maxLength: 500 } }, required: ['path','line','excerpt'], additionalProperties: false } }, searched_files: { type: 'integer' }, branch: { type: 'string', minLength: 1, maxLength: 200 }, repository: { type: 'string', minLength: 1, maxLength: 200 } }, required: ['query','path','matches','searched_files','branch','repository'], additionalProperties: false }, risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true }, input => reader.search(input), () => reader.health());
+  bus.discover({ id: 'code.read', name: 'GitHub code read', category: 'development', version: '1.2.0', provider: 'github', description: 'Read non-secret MEL source; optional 1-based start_line/end_line selects up to 200 lines from a large file. Partial reads do not prove inspection of the whole file.', input_schema: { type: 'object', properties: { path: { type: 'string', minLength: 1, maxLength: 1000 }, start_line:{type:'integer',minimum:1}, end_line:{type:'integer',minimum:1} }, required: ['path'], additionalProperties: false }, output_schema: { type: 'object', properties: { start_line:{type:'integer'}, end_line:{type:'integer'}, total_lines:{type:'integer'}, partial:{type:'boolean'}, source_ref:{type:'string'}, path: { type: 'string', minLength: 1, maxLength: 1000 }, content: { type: 'string', minLength: 0, maxLength: MAX_FILE_BYTES }, sha: { type: 'string', minLength: 0, maxLength: 300 }, branch: { type: 'string', minLength: 1, maxLength: 200 }, repository: { type: 'string', minLength: 1, maxLength: 200 } }, required: ['path','content','sha','branch','repository'], additionalProperties: false }, risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true }, input => reader.read(input.path, input), () => reader.health());
+  bus.discover({ id: 'code.search', name: 'GitHub code search', category: 'development', version: '1.2.0', provider: 'github', description: 'Search up to 24 non-secret MEL source files, ranked by symbol/path relevance. Inspect search_complete, tree_complete and skipped/failed counts before concluding absence.', input_schema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 300 }, path: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['query'], additionalProperties: false }, output_schema: { type: 'object', properties: { failed_files:{type:'integer'}, candidate_files:{type:'integer'}, skipped_large_files:{type:'integer'}, tree_complete:{type:'boolean'}, limit_reached:{type:'boolean'}, search_complete:{type:'boolean'}, source_ref:{type:'string'}, query: { type: 'string', minLength: 1, maxLength: 300 }, path: { type: 'string', minLength: 0, maxLength: 1000 }, matches: { type: 'array', items: { type: 'object', properties: { path: { type: 'string', minLength: 1, maxLength: 1000 }, line: { type: 'integer' }, excerpt: { type: 'string', minLength: 0, maxLength: 500 } }, required: ['path','line','excerpt'], additionalProperties: false } }, searched_files: { type: 'integer' }, branch: { type: 'string', minLength: 1, maxLength: 200 }, repository: { type: 'string', minLength: 1, maxLength: 200 } }, required: ['query','path','matches','searched_files','branch','repository'], additionalProperties: false }, risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true }, input => reader.search(input), () => reader.health());
   return reader;
 }

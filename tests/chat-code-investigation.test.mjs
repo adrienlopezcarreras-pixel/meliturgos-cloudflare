@@ -117,34 +117,3 @@ test('code evidence receipt excludes failed reads and keeps coverage limits expl
  assert.match(receipt,/lignes 2–4/);assert.match(receipt,/lecture partielle/);assert.match(receipt,/'?e{40}/);
  assert.match(codeReadEvidenceAnswer([{capability:'code.search',status:'SUCCEEDED',result:{matches:[]}}]),/0 extrait/);
 });
-
-// MEL-CHAT-04: reads cite exact lines at a pinned SHA; partial search and
-// access errors stay explicit.
-test('pinned reads cite the exact lines read and a partial search names each file it could not read', async () => {
-  const { createGitHubCodeReader } = await import('../src/capabilities/github-code-capabilities.js');
-  const sha = 'c'.repeat(40);
-  const files = { 'src/a.js': 'export const alpha = 1;\nconst beta = alpha + 1;\n', 'src/b.js': null };
-  const fetchImpl = async (url) => {
-    const target = String(url);
-    if (target.includes('/git/trees/')) return Response.json({ truncated: false, tree: Object.keys(files).map(path => ({ path, type: 'blob', size: 40 })) });
-    const path = Object.keys(files).find(name => target.includes(name.split('/').map(encodeURIComponent).join('/')) || target.endsWith(name));
-    if (!path) return new Response('missing', { status: 404 });
-    if (files[path] === null) return new Response('denied', { status: 403 });
-    return target.includes('api.github.com') ? Response.json({ content: Buffer.from(files[path]).toString('base64'), encoding: 'base64', sha: 'blob' }) : new Response(files[path]);
-  };
-  const reader = createGitHubCodeReader({ repository: 'o/r', branch: 'main', pinnedSha: sha, fetchImpl });
-  const { CapabilityBus } = await import('../src/capabilities/capability-bus.js');
-  const { registerGitHubCodeCapabilities } = await import('../src/capabilities/github-code-capabilities.js');
-  const bus = new CapabilityBus();
-  registerGitHubCodeCapabilities(bus, { repository: 'o/r', branch: 'main', pinnedSha: sha, fetchImpl });
-  const executed = await bus.execute('code.read', { path: 'src/a.js' }, { owner: 'owner', permissions: [] });
-  const full = executed.output || executed.result || executed;
-  assert.deepEqual([full.start_line, full.end_line, full.total_lines, full.partial, full.source_ref], [1, 3, 3, false, sha]);
-  const search = await reader.search({ query: 'alpha' });
-  assert.equal(search.source_ref, sha);
-  assert.equal(search.search_complete, false, 'an unreadable file makes the search partial');
-  assert.equal(search.failed_files, 1);
-  assert.deepEqual(search.failed_paths.map(row => row.path), ['src/b.js']);
-  assert.ok(search.failed_paths[0].code, 'the access error is named, never hidden');
-  assert.ok(search.matches.every(match => match.path === 'src/a.js' && Number.isInteger(match.line)));
-});

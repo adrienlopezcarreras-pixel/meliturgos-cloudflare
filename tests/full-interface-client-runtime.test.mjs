@@ -172,30 +172,3 @@ test('Professor chat can be resized vertically without changing chat behavior', 
   assert.match(html, /id="chatForm"/);
   assert.match(html, /id="chatInput"/);
 });
-
-// MEL-UI-AUDIT-02: send, stream, interruption and references keep mode and
-// separate result from error in render and record.
-test('the chat stream keeps mode and references and distinguishes result, partial error and error', async () => {
-  const { JSDOM } = await import('jsdom');
-  const { MEL_CHAT_STREAM_SOURCE } = await import('../src/pages/mel-chat-stream.js');
-  const dom = new JSDOM('<div id="chatlog"></div>', { url: 'https://mel.example', runScripts: 'outside-only' });
-  try {
-    dom.window.TextDecoder = TextDecoder;
-    dom.window.addMsg = (_who, text) => { const bubble = dom.window.document.createElement('div'); bubble.textContent = text; dom.window.document.getElementById('chatlog').appendChild(bubble); return bubble; };
-    dom.window.eval(MEL_CHAT_STREAM_SOURCE);
-    const bubble = () => dom.window.document.getElementById('chatlog').lastElementChild;
-    const stream = lines => async () => new Response(lines.map(row => JSON.stringify(row)).join('\n') + '\n', { headers: { 'content-type': 'application/x-ndjson' } });
-    const references = [{ url: 'https://example.org/a', title: 'A' }];
-    dom.window.fetch = stream([{ type: 'delta', text: 'Bonjour' }, { type: 'done', result: { ok: true, references } }]);
-    const ok = await dom.window.melChatFetch({ text: 'salut', mode: 'code' });
-    assert.equal(JSON.stringify([ok.outcome, ok.mode, ok.ok]), JSON.stringify(['RESULT', 'code', true]));
-    assert.equal(JSON.stringify(ok.references), JSON.stringify(references));
-    assert.equal(bubble().dataset.outcome, 'RESULT');
-    dom.window.fetch = stream([{ type: 'delta', text: 'Début' }, { type: 'error', code: 'PROVIDER_INTERRUPTED' }]);
-    const partial = await dom.window.melChatFetch({ text: 'suite', mode: 'conversation' });
-    assert.equal(JSON.stringify([partial.outcome, partial.mode, partial.ok, partial.stream_error]), JSON.stringify(['PARTIAL_ERROR', 'conversation', false, 'PROVIDER_INTERRUPTED']));
-    assert.equal(bubble().dataset.outcome, 'PARTIAL_ERROR', 'the render marks the partial error');
-    dom.window.fetch = stream([{ type: 'error', code: 'MODEL_UNAVAILABLE' }]);
-    await assert.rejects(dom.window.melChatFetch({ text: 'x', mode: 'code' }), /MODEL_UNAVAILABLE/, 'an error without text is never rendered as a result');
-  } finally { dom.window.close(); }
-});
