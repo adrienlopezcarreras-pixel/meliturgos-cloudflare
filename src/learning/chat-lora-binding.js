@@ -28,3 +28,35 @@ export function chatLoraReceipt(active, inference) {
       : null;
   } catch { return null; }
 }
+
+// MEL-LORA-MODE-01: the Mistral adapter and the Qwen model are two different
+// things. A Qwen record must never satisfy the Mistral adapter check, and the
+// reverse, or the mode would run on the wrong weights while claiming the
+// other. And when neither is usable, the mode is REFUSED with its exact
+// reason: a silent fallback to an ordinary cloud model would answer in the
+// name of a LoRA that never ran.
+export const QWEN_LORA_BASE = 'Qwen/Qwen3-14B';
+
+export function loraModeKind(record) {
+  const base = String(record?.base_model || record?.adapter?.base_model || '').trim();
+  if (!base) return null;
+  if (base === QWEN_LORA_BASE) return 'QWEN_MODEL';
+  return CLOUDFLARE_LORA_MODEL_PAIRS[base] ? 'MISTRAL_ADAPTER' : null;
+}
+
+// Explicit refusal, never a silent fallback. `reason` says which of absence,
+// quota or failure stopped the mode, so the owner reads the real cause.
+export function resolveLoraMode({ adapter = null, qwen = null, quota = null, failure = null } = {}) {
+  const refuse = (code, detail) => ({ ok: false, kind: null, code, detail: String(detail || '').slice(0, 200), fallback: 'NONE' });
+  // A Qwen record offered as the Mistral adapter is a confusion, not a mode.
+  if (adapter && loraModeKind(adapter) === 'QWEN_MODEL') return refuse('LORA_MODE_ADAPTER_KIND_MISMATCH', 'Qwen proposé comme adaptateur Mistral');
+  if (qwen && loraModeKind(qwen) === 'MISTRAL_ADAPTER') return refuse('LORA_MODE_ADAPTER_KIND_MISMATCH', 'adaptateur Mistral proposé comme modèle Qwen');
+  if (quota?.exhausted === true) return refuse('LORA_MODE_QUOTA_EXHAUSTED', quota.detail || quota.code);
+  if (failure) return refuse('LORA_MODE_PROVIDER_FAILED', failure?.code || failure?.message || failure);
+  if (adapter) {
+    try { return { ok: true, kind: 'MISTRAL_ADAPTER', adapter: requireChatLora(adapter), code: null, fallback: 'NONE' }; }
+    catch (error) { return refuse(String(error?.code || 'LORA_MODE_ADAPTER_INVALID'), 'adaptateur Mistral incompatible'); }
+  }
+  if (qwen) return { ok: true, kind: 'QWEN_MODEL', adapter: { base_model: QWEN_LORA_BASE, adapter_id: String(qwen.adapter_id || '') }, code: null, fallback: 'NONE' };
+  return refuse('LORA_MODE_ADAPTER_ABSENT', 'aucun adaptateur validé actif');
+}
