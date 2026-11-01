@@ -79,3 +79,35 @@ test('an UNCENSORED turn never takes the streaming path that bypasses Venice', a
   const { readFile } = await import('node:fs/promises');
   assert.match(await readFile('src/api/native-chat.js', 'utf8'), /uncensored: requireLora === true/);
 });
+
+test('UNCENSORED always routes to Venice even if own-model-proven flag is set', async () => {
+  const { runNativeInference } = await import('../src/api/native-chat.js');
+  const calls = [];
+  const env = {
+    OPENROUTER_API_KEY: key,
+    MEL_UNCENSORED_OWN_MODEL_PROVEN: 'true',
+    AI: { run: async () => { throw new Error('Local adapter must not run'); } },
+  };
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'Venice direct.' } }] }));
+  };
+  try {
+    const result = await runNativeInference({ env, messages: [{ role: 'user', content: 'Bonjour' }], requireLora: true });
+    assert.equal(result.provider, 'openrouter');
+    assert.equal(result.model, VENICE_MODEL);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].body.model, VENICE_MODEL);
+  } finally { globalThis.fetch = previousFetch; }
+});
+
+test('UNCENSORED never falls back to normal models when Venice key is absent', async () => {
+  const { runNativeInference } = await import('../src/api/native-chat.js');
+  let normalCalls = 0;
+  await assert.rejects(
+    runNativeInference({ env: { AI: { run: async () => { normalCalls++; return {response:'incorrect'}; } } }, messages: [{role:'user',content:'Bonjour'}], requireLora:true }),
+    { code: 'VENICE_KEY_MISSING' },
+  );
+  assert.equal(normalCalls, 0);
+});
