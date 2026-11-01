@@ -475,3 +475,19 @@ test('a revoked or uncorrelated Teacher review cannot certify verified CI comple
     assert.equal(readiness.self_development_ready, false);
   }
 });
+
+test('MEL-MANIFEST-10: account lines separate code, usage and external acceptance; a gap forbids 100 percent', async () => {
+  const { manifestAccountLines } = await import('../src/roadmap/manifest-01-acceptance.js');
+  const all = manifestAccountLines([{ id: 'A', status: 'DONE_VERIFIED' }, { id: 'B', status: 'DONE_VERIFIED', depends_on: ['A'] }]);
+  assert.equal(all.percent, 100);
+  const device = manifestAccountLines([{ id: 'A', status: 'DONE_VERIFIED' }, { id: 'D', status: 'DONE_VERIFIED', external_acceptance: { status: 'NOT_TESTED' } }]);
+  const line = device.lines.find(l => l.roadmap_id === 'D');
+  assert.deepEqual([line.code_delivered, line.usage_proven, line.external_accepted, line.complete], [true, true, false, false]);
+  assert.ok(device.percent < 100);
+  assert.deepEqual(device.hundred_percent_blocked_by, ['D']);
+  const missing = manifestAccountLines([{ id: 'B', status: 'DONE_VERIFIED', depends_on: ['GONE'] }]);
+  assert.deepEqual(missing.lines[0].missing_dependencies, ['GONE']);
+  assert.ok(missing.percent < 100);
+  const codeOnly = manifestAccountLines([{ id: 'C', status: 'IN_PROGRESS', code_delivered: true }]);
+  assert.deepEqual([codeOnly.lines[0].code_delivered, codeOnly.lines[0].usage_proven], [true, false]);
+});

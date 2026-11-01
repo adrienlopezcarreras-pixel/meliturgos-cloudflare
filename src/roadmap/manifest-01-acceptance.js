@@ -54,3 +54,26 @@ export function manifest01FoundationPrerequisites(roadmap = flattenRoadmap()) {
     nonblocking_pending: nonblockingPending.map(({ priority, roadmap_id, reason }) => ({ priority, roadmap_id, reason })),
   };
 }
+
+// MEL-MANIFEST-10: each account line keeps three separate facts — code
+// delivered, usage proven in production, external (device/human) acceptance.
+// 100 % is impossible while a dependency is missing or a device is untested.
+export function manifestAccountLines(roadmap = flattenRoadmap()) {
+  const items = Array.isArray(roadmap) ? roadmap : [];
+  const byId = new Map(items.map(item => [item?.id, item]));
+  const lines = items.map(item => {
+    const status = String(item?.status || 'NOT_FOUND').toUpperCase();
+    const external = item?.external_acceptance ? String(item.external_acceptance.status || 'NOT_TESTED').toUpperCase() : null;
+    const missing = (item?.depends_on || []).filter(id => !byId.has(id) || String(byId.get(id)?.status || '').toUpperCase() !== ROADMAP_STATUSES.VERIFIED);
+    const codeDelivered = status === ROADMAP_STATUSES.VERIFIED || Boolean(item?.code_delivered);
+    const usageProven = status === ROADMAP_STATUSES.VERIFIED && item?.usage_proof !== false;
+    const externalAccepted = external === null ? null : external === ROADMAP_STATUSES.VERIFIED;
+    const complete = codeDelivered && usageProven && externalAccepted !== false && missing.length === 0;
+    return { roadmap_id: item?.id, code_delivered: codeDelivered, usage_proven: usageProven, external_accepted: externalAccepted, missing_dependencies: missing, complete };
+  });
+  const done = lines.filter(line => line.complete).length;
+  const blockers = lines.filter(line => line.missing_dependencies.length || line.external_accepted === false).map(line => line.roadmap_id);
+  let percent = lines.length ? Math.floor(done * 100 / lines.length) : 0;
+  if (blockers.length && percent >= 100) percent = 99;
+  return { schema: 'mel.manifest-account-lines.v1', lines, complete_count: done, total: lines.length, percent, hundred_percent_blocked_by: blockers };
+}
