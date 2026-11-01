@@ -70,3 +70,12 @@ test('the Training page tells the owner UNCENSORED goes to Venice first', async 
   assert.match(page, /Venice Uncensored \(modèle externe\) tant que nos modèles ne sont pas prouvés/);
   assert.doesNotMatch(page, /Nos modèles d’abord, Venice Uncensored en secours/);
 });
+
+test('an UNCENSORED turn never takes the streaming path that bypasses Venice', async () => {
+  const { plainChatMayStream } = await import('../src/api/chat-stream.js');
+  const base = { stream: true, toolCount: 0, adapter: null, ai: true };
+  assert.equal(plainChatMayStream(base), true);
+  assert.equal(plainChatMayStream({ ...base, uncensored: true }), false);
+  const { readFile } = await import('node:fs/promises');
+  assert.match(await readFile('src/api/native-chat.js', 'utf8'), /uncensored: requireLora === true/);
+});
