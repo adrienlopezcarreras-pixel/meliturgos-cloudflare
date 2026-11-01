@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createGitHubCodeReader,registerGitHubCodeCapabilities} from '../src/capabilities/github-code-capabilities.js';
+import {createGitHubCodeReader,registerGitHubCodeCapabilities,looksLikeSymbol} from '../src/capabilities/github-code-capabilities.js';
 import {CapabilityBus} from '../src/capabilities/capability-bus.js';
 const PIN='c'.repeat(40),target='src/api/chat-media-intent.js';
 function fixture({truncated=false,treeUnavailable=false,missing=false,manyMatches=false}={}){
@@ -61,4 +61,35 @@ test('the CapabilityBus validates the added search evidence without weakening au
 test('an untyped truncation flag cannot certify an exhaustive source tree',async()=>{
  const result=await fixture({truncated:'unknown'}).reader.search({query:'inferChatMediaCapability',path:target});
  assert.equal(result.matches.length,1);assert.equal(result.tree_complete,false);assert.equal(result.search_complete,false);
+});
+
+// MEL-CHAT-05: a symbol whose file name shares no word with it must still be
+// found inside the read bound, and a partial absence must stay visible.
+test('a symbol outside documentation is found within the read bound',async()=>{
+ const PIN2='d'.repeat(40),home='src/capabilities/github-code-capabilities.js';
+ const files=Object.fromEntries(Array.from({length:60},(_,i)=>['docs/guide-'+String(i).padStart(3,'0')+'.md','Voir citedRead pour la citation.']));
+ files[home]='export function citedRead(result, reader) { return result; }';
+ const reads=[];
+ const fetchImpl=async url=>{
+  const u=new URL(url);
+  if(u.pathname.includes('/git/trees/'))return Response.json({truncated:false,tree:Object.entries(files).map(([path,content])=>({path,type:'blob',size:Buffer.byteLength(content)}))});
+  const path=u.pathname.includes('/contents/')?decodeURIComponent(u.pathname.split('/contents/')[1]):decodeURIComponent(u.pathname.split('/'+PIN2+'/')[1]||'');
+  reads.push(path);
+  const content=files[path]||'';
+  return u.hostname==='api.github.com'?Response.json({type:'file',sha:'e'.repeat(40),size:Buffer.byteLength(content),content:Buffer.from(content).toString('base64')}):new Response(content);
+ };
+ const reader=createGitHubCodeReader({repository:'o/r',branch:'main',pinnedSha:PIN2,fetchImpl});
+ const result=await reader.search({query:'citedRead'});
+ assert.equal(result.symbol_query,true);
+ assert.equal(result.matches[0]?.path,home,'the source definition ranks first, not the prose mentions');
+ assert.ok(reads.length<=24,'the read bound is respected');
+ assert.equal(result.absence_conclusive,false,'a match is never an absence');
+ const absent=await reader.search({query:'neverDefinedSymbol'});
+ assert.equal(absent.matches.length,0);
+ assert.equal(absent.absence_conclusive,false,'the bound was reached: absence stays unproven');
+ assert.equal(absent.limit_reached,true);
+ const scoped=await reader.search({query:'neverDefinedSymbol',path:home});
+ assert.equal(scoped.absence_conclusive,true,'a fully read scope can conclude absence');
+ assert.equal(looksLikeSymbol('une phrase entiere'),false);
+ assert.equal(looksLikeSymbol('citedRead'),true);
 });
