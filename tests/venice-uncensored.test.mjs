@@ -63,3 +63,10 @@ test('UNCENSORED goes straight to the external model until our own model is prov
     assert.ok(aiCalls.every(model => !/lora|mistral|qwen/i.test(String(model))), 'our own model is not called first');
   } finally { globalThis.fetch = realFetch; }
 });
+
+test('the Training page tells the owner UNCENSORED goes to Venice first', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const page = await readFile('src/pages/full-interface-v2.js', 'utf8');
+  assert.match(page, /Venice Uncensored \(modèle externe\) tant que nos modèles ne sont pas prouvés/);
+  assert.doesNotMatch(page, /Nos modèles d’abord, Venice Uncensored en secours/);
+});
