@@ -94,6 +94,11 @@ test('a MAX-delivered objective with a verified acceptance receipt is proven; an
   assert.equal(truth.items['MEL-FOUNDER-01'].truth, 'VERIFIED_LIVE');
   assert.equal(truth.items['MEL-FOUNDER-01'].proofs[0].id, 'full-candidate-ci#41076058090');
   assert.notEqual(truth.items['MEL-FOUNDER-04'].truth, 'VERIFIED_LIVE');
+  // An accepted CI receipt remains history after seven days, but is not
+  // present-tense LIVE proof of the current deployment.
+  await d.prepare('UPDATE dev_jobs SET updated_at = ? WHERE id = ?').bind(now - 8 * 86_400_000, 'founder-01').run();
+  const expired = await computeRoadmapTruth(d, phases, { now });
+  assert.notEqual(expired.items['MEL-FOUNDER-01'].truth, 'VERIFIED_LIVE');
 });
 
 // 01/11: 85 DONE_VERIFIED items had no proof source, so they read

@@ -187,13 +187,13 @@ async function computerEvidence(db, since) {
 // acceptance gate (Council, exact-SHA full CI, code receipt) is proven by that
 // receipt. 30/10: FOUNDER-01 COMPLETED with a verified receipt still showed
 // « Déclaré, sans preuve » because only runtime capabilities were read.
-async function deliveredRoadmapEvidence(db) {
+async function deliveredRoadmapEvidence(db, since) {
   try {
     const rows = (await db.prepare(
       `SELECT id, status, requested_by, files_json, optional_context, result_json, updated_at FROM dev_jobs
-        WHERE status='COMPLETED' AND requested_by='mel-autonomy' AND result_json LIKE '%roadmap_code_acceptance%'
+        WHERE status='COMPLETED' AND requested_by='mel-autonomy' AND updated_at >= ? AND result_json LIKE '%roadmap_code_acceptance%'
         ORDER BY updated_at DESC LIMIT 200`
-    ).all())?.results || [];
+    ).bind(since).all())?.results || [];
     const parse = value => { if (value && typeof value === 'object') return value; try { return JSON.parse(value || 'null'); } catch { return null; } };
     const delivered = new Map();
     for (const row of rows) {
@@ -234,7 +234,7 @@ export function classifyRoadmapItem(itemId, evidence) {
 export async function computeRoadmapTruth(db, phases, { now = Date.now() } = {}) {
   if (!db || typeof db.prepare !== 'function') return { available: false, reason: 'ROADMAP_TRUTH_DB_UNAVAILABLE' };
   const since = now - ROADMAP_TRUTH_WINDOW_MS;
-  const evidence = { capabilities: await capabilityEvidence(db, since), computer: await computerEvidence(db, since), delivered: await deliveredRoadmapEvidence(db) };
+  const evidence = { capabilities: await capabilityEvidence(db, since), computer: await computerEvidence(db, since), delivered: await deliveredRoadmapEvidence(db, since) };
   const items = {};
   const counts = Object.fromEntries(Object.values(ROADMAP_TRUTH).map(k => [k, 0]));
   let total = 0;
