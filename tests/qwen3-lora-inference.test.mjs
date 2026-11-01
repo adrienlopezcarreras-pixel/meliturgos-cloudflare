@@ -74,75 +74,41 @@ const mistral = {
   runtime_model:'@cf/mistral/mistral-7b-instruct-v0.2-lora', finetune_id:'ft-approved',
 };
 
-test('UNCENSORED retries an approved Qwen3 service once after the Mistral runtime fails', async () => {
-  const primary=[];
-  const secondary=[];
+test('explicit UNCENSORED bypasses Qwen and Mistral when Venice is configured', async () => {
+  let localCalls = 0, qwenCalls = 0, externalCalls = 0;
   const runtime = {
-    ...env(async req => {
-      const body = await req.json();
-      secondary.push(body);
-      return Response.json({
-        text:'Qwen prend le relais.', model:'Qwen/Qwen3-14B',
-        adapter_id:active.adapter_id, adapter_sha256:active.adapter_sha256,
-        adapter_applied:true,
-      });
-    }),
-    AI: {run:async (model,payload) => {
-      primary.push({model,payload});
-      throw Object.assign(new Error('indisponible'),{code:'PROVIDER_UNAVAILABLE'});
-    }},
+    ...env(async () => {qwenCalls++;return Response.json({text:'unexpected'});}),
+    OPENROUTER_API_KEY:'sk-or-'+'x'.repeat(40),
+    AI:{run:async()=>{localCalls++;return {response:'unexpected'};}},
   };
-  const result = await runNativeInference({
-    env:runtime, messages, text:'bonjour', requireLora:true,
-    activeAdapter:mistral, qwenAdapter:active, maxCalls:1,
-    deadlineAt:Date.now()+8000,
-  });
-  assert.ok(primary.length>=1);
-  assert.ok(primary.every(call=>call.model===mistral.runtime_model));
-  assert.equal(secondary.length,1);
-  assert.deepEqual(secondary[0].messages,messages);
-  assert.equal(result.model,'Qwen/Qwen3-14B');
-  assert.equal(result.text,'Qwen prend le relais.');
-  assert.equal(qwen3LoraReceipt(active,result)?.applied,true);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    externalCalls++;
+    return Response.json({choices:[{message:{content:'Venice répond.'}}]});
+  };
+  try {
+    const result = await runNativeInference({env:runtime,messages,requireLora:true,activeAdapter:mistral,qwenAdapter:active});
+    assert.equal(result.provider,'openrouter');
+    assert.equal(result.text,'Venice répond.');
+    assert.equal(externalCalls,1);
+    assert.equal(localCalls,0);
+    assert.equal(qwenCalls,0);
+  } finally {globalThis.fetch=originalFetch;}
 });
 
-test('UNCENSORED can use Qwen alone if only its approved adapter is accessible', async () => {
+test('explicit UNCENSORED does not use Qwen without a Venice key', async () => {
   let calls=0;
-  const runtime=env(async req=>{
-    calls++;
-    const body=await req.json();
-    return Response.json({text:'Qwen seul.',model:body.model,adapter_id:body.adapter_id,
-                          adapter_sha256:body.adapter_sha256,adapter_applied:true});
-  });
-  const result=await runNativeInference({
-    env:runtime, messages, text:'bonjour', requireLora:true,
-    activeAdapter:null, qwenAdapter:active, deadlineAt:Date.now()+5000,
-  });
-  assert.equal(calls,1);
-  assert.equal(result.text,'Qwen seul.');
+  const runtime=env(async()=>{calls++;return Response.json({text:'unexpected'});});
+  await assert.rejects(runNativeInference({env:runtime,messages,requireLora:true,qwenAdapter:active}),{code:'VENICE_KEY_MISSING'});
+  assert.equal(calls,0);
 });
 
-
-test('Qwen continuation remains on the same verified model without invoking Mistral', async () => {
-  let primaryCalls=0, qwenCalls=0;
-  const runtime = {
-    ...env(async req => {
-      qwenCalls++;
-      const body=await req.json();
-      return Response.json({
-        text:'Suite de la réponse Qwen.',model:body.model,
-        adapter_id:body.adapter_id,adapter_sha256:body.adapter_sha256,
-        adapter_applied:true,
-      });
-    }),
-    AI:{run:async ()=>{primaryCalls++;return {response:'Unexpected Mistral'};}},
-  };
-  const answer=await runNativeInference({
-    env:runtime, messages, text:'Continue',
-    requireLora:true,activeAdapter:mistral,qwenAdapter:active,
-    preferredModel:'Qwen/Qwen3-14B',deadlineAt:Date.now()+5000,
-  });
-  assert.equal(qwenCalls,1);
-  assert.equal(primaryCalls,0);
-  assert.equal(answer.model,'Qwen/Qwen3-14B');
+test('an explicit UNCENSORED continuation also requires Venice, not Qwen', async () => {
+  let qwenCalls=0;
+  const runtime=env(async()=>{qwenCalls++;return Response.json({text:'unexpected'});});
+  await assert.rejects(runNativeInference({
+    env:runtime,messages,requireLora:true,activeAdapter:mistral,
+    qwenAdapter:active,preferredModel:'Qwen/Qwen3-14B'
+  }),{code:'VENICE_KEY_MISSING'});
+  assert.equal(qwenCalls,0);
 });
