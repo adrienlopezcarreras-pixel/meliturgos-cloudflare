@@ -52,7 +52,6 @@ test('unproven DONE_VERIFIED IDs match the reviewed proof baseline exactly', () 
     "MEL-SEC-05",
     "MEL-SOV-01",
     "GEN2-43",
-    "MEL-EVAL-01",
     "MEL-LORA-TRACE-01",
     "GEN2-54",
     "MEL-UI-01",

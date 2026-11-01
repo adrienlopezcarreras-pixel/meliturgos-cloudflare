@@ -128,5 +128,5 @@ test('the roadmap items that still have no proof source are only the ones no cap
   const { flattenRoadmap } = await import('../src/roadmap/master-roadmap.js');
   const unproven = flattenRoadmap().filter(item => !ROADMAP_PROOF_SOURCES[item.id] && item.status === 'DONE_VERIFIED');
   // A ratchet: this count may go down as proofs are added, never silently up.
-  assert.ok(unproven.length <= 34, `${unproven.length} items DONE_VERIFIED sans preuve (régression)`);
+  assert.ok(unproven.length <= 33, `${unproven.length} items DONE_VERIFIED sans preuve (régression)`);
 });

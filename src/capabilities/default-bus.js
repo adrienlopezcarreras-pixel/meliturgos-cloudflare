@@ -1,3 +1,4 @@
+import { CANONICAL_LEARNING_BENCHMARK_SUITE, REQUIRED_LEARNING_BENCHMARK_DOMAINS, validateLearningBenchmarkSuite, runLearningBenchmarkSuite, compareBenchmarkScores } from '../evaluation/benchmarks.js';
 import { buildContext, buildPromptInjectionFirewallInstruction } from '../core/orchestrator/context-builder.js';
 import { createMcpCapabilityAdapter, MCP_MODERN_VERSION } from '../mcp/capability-adapter.js';
 import { createMemoryService } from '../memory/memory-service.js';
@@ -151,6 +152,28 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     output_schema: { type: 'object', properties: { value: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['value'], additionalProperties: false },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ value: input.value }));
+
+  // MEL-EVAL-01: validate the real evaluator contract and its non-regression gates.
+  bus.discover({
+    id:'evaluation.benchmark-contract.verify',name:'Benchmark — contrôle contractuel',
+    category:'diagnostic',version:'1.0.0',provider:'core',
+    description:'Executes the canonical benchmark scorer on deterministic probes; does not claim model quality.',
+    input_schema:{type:'object',additionalProperties:false},
+    output_schema:{type:'object',properties:{ok:{type:'boolean'},domains:{type:'number'}},required:['ok','domains'],additionalProperties:false},
+    risk:'LOW',permissions:[],health:'HEALTHY',enabled:true,
+  },async()=>{
+    const check=validateLearningBenchmarkSuite(CANONICAL_LEARNING_BENCHMARK_SUITE);
+    const baseline=await runLearningBenchmarkSuite({evaluator:async()=>({score:0.6,repeated_error:false})});
+    const candidate=await runLearningBenchmarkSuite({evaluator:async row=>({score:row.domain==='non_regression'?0.7:0.8,repeated_error:false})});
+    const comparison=compareBenchmarkScores(baseline,candidate);
+    let rejectsMissing=false;
+    try{await runLearningBenchmarkSuite({evaluator:async()=>({})});}catch(e){rejectsMissing=e?.code==='BENCHMARK_SCORE_REQUIRED';}
+    if(check.domains.length!==REQUIRED_LEARNING_BENCHMARK_DOMAINS.length ||
+       comparison.delta<=0 || comparison.domains?.non_regression?.delta<0 || !rejectsMissing){
+      throw Object.assign(new Error('BENCHMARK_CONTRACT_PROOF_FAILED'),{code:'BENCHMARK_CONTRACT_PROOF_FAILED'});
+    }
+    return {ok:true,domains:check.domains.length};
+  });
 
   // MEL-SEC-01: exercise the actual assembled firewall with hostile tool/retrieval text.
   bus.discover({
