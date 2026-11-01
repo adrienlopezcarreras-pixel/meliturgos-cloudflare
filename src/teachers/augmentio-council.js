@@ -1,3 +1,4 @@
+import { preferTopModels } from '../models/ModelRegistry.js';
 import { COUNCIL_CRITIQUE_MAX_TOKENS, COUNCIL_SYNTHESIS_MAX_TOKENS } from './council-inference-policy.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { ZeroEuroGovernor } from '../augmentio/zero-euro-governor.js';
@@ -376,6 +377,10 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
     throw error;
   }
 
+  // Only MEL's top models deliberate (two distinct ones at least), never the
+  // weak free models that cost neurons and add no signal.
+  const topEligible = preferTopModels(eligible, env, { min: Math.min(2, eligible.length) });
+  eligible.splice(0, eligible.length, ...topEligible);
   const assignments = buildAssignments(eligible);
   const byMember = new Map(assignments.map(row => [row.memberId, row]));
   const councilContext = {

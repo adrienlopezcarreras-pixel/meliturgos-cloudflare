@@ -1,3 +1,4 @@
+import { preferTopModels } from '../models/ModelRegistry.js';
 import { assertMentorCodeContract } from './mentor-code-contract.js';
 import { createMentorCompanionFallback } from './mentor-companion-provider.js';
 import { MentorMemoryRepository } from './mentor-memory.js';
@@ -619,7 +620,9 @@ export class MentorEngine {
     const specialists = pool.list({ capability: 'CODE_SPECIALIST' }).filter(provider => governor.allows(provider));
     const large = specialists.filter(provider => provider.capabilities.includes('CODE_LARGE'));
     const small = specialists.filter(provider => !provider.capabilities.includes('CODE_LARGE'));
-    const coders = escalate ? [...large, ...small] : small;
+    // Owner decision 01/11: MEL's top models code first and alone when
+    // available; the small coders lost most rounds and spent neurons.
+    const coders = preferTopModels([...large, ...small], env, { min: 1 });
     // No code model answers the zero-cost proof: keep MAX moving with the
     // general models; the weekly development audit reports the exclusion.
     const cloud = coders.length ? coders : pool.list({ capability: 'CODE' }).filter(provider => governor.allows(provider)).slice(0, codeCouncil ? 16 : 6);

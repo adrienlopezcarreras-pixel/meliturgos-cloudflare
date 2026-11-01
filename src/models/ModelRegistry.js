@@ -61,3 +61,19 @@ export const standardRegistry = new ModelRegistry([
   { id: '@cf/zai-org/glm-4.7-flash', capabilities: ['GENERAL', 'FAST', 'STEERABLE', 'CODE', 'FALLBACK'], priority: 25, cost: 0 },
   { id: 'ninjachat-default', provider: 'ninjachat', model_id: 'ninjachat-default', capabilities: ['GENERAL', 'REASONING', 'STEERABLE', 'FALLBACK'], priority: -100, cost: null, health: 'UNKNOWN', enabled: true, role_general: true, role_reasoning: true, role_steerable: true, fallback_final: true },
 ]);
+
+// Owner decision 01/11: Council and mentor call only MEL's top models, never
+// the weaker free ones that lose rounds and neurons. This list is MEL's
+// evolvable choice: a measured, verified better model (MEL-AUDIT-06 then
+// MEL-MANIFEST-09) replaces one here. MEL_TOP_MODELS (comma list) overrides it.
+export const TOP_MODELS = Object.freeze(['@cf/openai/gpt-oss-120b', '@cf/meta/llama-3.3-70b-instruct-fp8-fast']);
+export function topModelIds(env = {}) {
+  const configured = String(env?.MEL_TOP_MODELS || '').split(',').map(value => value.trim()).filter(Boolean);
+  return configured.length ? configured : [...TOP_MODELS];
+}
+/** Keep only top models, in top order; fall back to all when fewer than `min` remain. */
+export function preferTopModels(providers = [], env = {}, { min = 1, idOf = provider => provider?.modelId || provider?.id } = {}) {
+  const top = topModelIds(env);
+  const chosen = top.map(id => providers.find(provider => idOf(provider) === id || provider?.id === id)).filter(Boolean);
+  return chosen.length >= min ? chosen : providers;
+}
