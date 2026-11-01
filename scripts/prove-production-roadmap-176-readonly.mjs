@@ -1,6 +1,7 @@
 // Exact-SHA, GET-only production roadmap audit. Never starts MAX or changes state.
 import {DEFAULT_BASE,deriveParallelProof} from './prove-production-capability-inventory-readonly.mjs';
 import {writeFile} from 'node:fs/promises';
+import {ROADMAP_PROOF_SOURCES} from '../src/roadmap/roadmap-truth.js';
 import process from 'node:process';
 import {pathToFileURL} from 'node:url';
 
@@ -23,6 +24,21 @@ export function assessRoadmapResponse(body,expectedSha,{now=Date.now()}={}) {
         result.proofs.some(p=>!['capability','computer','max-delivery'].includes(p?.kind)||
           typeof p.id!=='string'||!p.id.trim()||!(Number(p.ok)>0))){
         return {ok:false,code:'ROADMAP_PRODUCTION_VERIFIED_WITHOUT_RECEIPT'};
+      }
+      const expected=ROADMAP_PROOF_SOURCES[id];
+      const expectedPairs=[...(expected?.capabilities||[]).map(key=>'capability:'+key),
+        ...(expected?.computerActions||[]).map(key=>'computer:'+key)];
+      const observedPairs=result.proofs.map(p=>p.kind+':'+p.id);
+      if(expectedPairs.length){
+        if(new Set(observedPairs).size!==observedPairs.length ||
+          expectedPairs.length!==observedPairs.length ||
+          expectedPairs.some(pair=>!observedPairs.includes(pair)))
+          return {ok:false,code:'ROADMAP_PRODUCTION_RECEIPT_SOURCE_MISMATCH'};
+      }else if(result.proofs.length!==1 || result.proofs[0].kind!=='max-delivery' ||
+        !/^full-candidate-ci#[0-9]+$/.test(result.proofs[0].id) ||
+        !/^[0-9a-f]{40}$/i.test(String(result.proofs[0].candidate_sha||'')) ||
+        !String(result.proofs[0].job_id||'').trim()){
+        return {ok:false,code:'ROADMAP_PRODUCTION_RECEIPT_SOURCE_MISMATCH'};
       }
       const proofAt=Date.parse(result.last_proof_at);
       if(!Number.isFinite(proofAt))return {ok:false,code:'ROADMAP_PRODUCTION_RECEIPT_DATE_MISSING'};
