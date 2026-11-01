@@ -156,6 +156,30 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ value: input.value }));
 
+  // MEL-CONTEXT-02: real long-context assembly, omission and extractive decisions.
+  bus.discover({
+    id:'context.long-decisions.verify',name:'Long context decision preservation',
+    category:'diagnostic',version:'1.0.0',provider:'core',
+    description:'Verifies omitted historical decisions survive bounded assembly without replacing the current user turn.',
+    input_schema:{type:'object',additionalProperties:false},
+    output_schema:{type:'object',properties:{ok:{type:'boolean'},sourceChars:{type:'number'}},required:['ok','sourceChars'],additionalProperties:false},
+    risk:'LOW',permissions:[],health:'HEALTHY',enabled:true,
+  },async()=>{
+    const previous='Je veux conserver la sauvegarde principale avant toute modification.';
+    const recent=[{role:'user',content:previous},...Array.from({length:16},(_,i)=>({role:'assistant',content:'Historique neutre '+i+' '+'.'.repeat(5000)}))];
+    const sourceChars=recent.reduce((sum,m)=>sum+m.content.length,0);
+    const current='Non, conserve plutôt la version B pour le prochain essai.';
+    const messages=buildContext({system:'MEL diagnostic',recent,current});
+    const system=messages[0]?.content||'';
+    const newest=messages.at(-1);
+    if(sourceChars<=65000||!system.includes('CONTEXTE COMPRESSÉ')||
+       !system.includes(previous)||newest?.role!=='user'||newest.content!==current||
+       messages.slice(1,-1).some(m=>m.content===previous)){
+      throw Object.assign(new Error('LONG_CONTEXT_DECISION_PROOF_FAILED'),{code:'LONG_CONTEXT_DECISION_PROOF_FAILED'});
+    }
+    return {ok:true,sourceChars};
+  });
+
   // GEN2-04: exercise actual router fallback with isolated model adapters.
   bus.discover({
     id:'models.router-fallback.verify',name:'Model Router fallback — diagnostic',
