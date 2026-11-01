@@ -164,6 +164,17 @@ function normalizeOutputs(result){
   });
 }
 
+// MEL-CHAT-03: what an analysis really covered. A thumbnail or a URL is never
+// a complete analysis; without a transcript the vision stays PARTIAL with the
+// exact scope and error, never presented as a full understanding.
+export function videoAnalysisCoverage(analysis={}){
+  const kind=String(analysis?.input_kind||(analysis?.bytes_read===true?'bytes':'url')).toLowerCase();
+  if(kind!=='bytes'||analysis?.bytes_read!==true)return Object.freeze({scope:'REFERENCE_ONLY',complete:false,input_kind:kind,error:kind==='thumbnail'?'VIDEO_THUMBNAIL_ONLY':'VIDEO_BYTES_NOT_READ'});
+  const transcript=typeof analysis?.transcript==='string'&&analysis.transcript.trim().length>0;
+  if(!transcript)return Object.freeze({scope:'PARTIAL',complete:false,input_kind:kind,covered:['vision'],error:String(analysis?.transcript_error||'VIDEO_TRANSCRIPT_MISSING').slice(0,120)});
+  return Object.freeze({scope:'FULL',complete:true,input_kind:kind,covered:['vision','audio_transcript'],error:null});
+}
+
 export class VideoRuntime{
   constructor({providers=[],authorization=null,now=()=>new Date().toISOString()}={}){
     requireValue(Array.isArray(providers),'VIDEO_PROVIDERS_INVALID');
@@ -260,11 +271,13 @@ export class VideoRuntime{
 
         if(a==='ANALYZE'){
           const analysis=sanitize(result.analysis??result.result??result);
+          const analysed=isObject(analysis)?analysis:{text:analysis};
           return Object.freeze({
             schema:VIDEO_RUNTIME_SCHEMA,
             action:a,
             provider:id,
-            analysis:Object.freeze(isObject(analysis)?analysis:{text:analysis}),
+            analysis:Object.freeze(analysed),
+            coverage:videoAnalysisCoverage(analysed),
             provenance,
             attempts:Object.freeze([...attempts,Object.freeze({provider:id,status:'success'})]),
           });
