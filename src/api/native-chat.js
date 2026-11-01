@@ -2597,7 +2597,24 @@ export async function handleNativeChat(request, env, options = {}) {
       deadlineAt: chatDeadlineAt,
     });
   } catch (error) {
-    if (requireLora) return Response.json({ ok:false, error:'LORA_INFERENCE_UNAVAILABLE', code:'LORA_INFERENCE_UNAVAILABLE', text:'Mode UNCENSORED : aucun modèle validé disponible. Aucun modèle ordinaire n’a été utilisé.', active_lora:null }, { status:503 });
+    if (requireLora) {
+      // Expose the actual routing failure instead of hiding Venice HTTP/auth errors.
+      // Do not expose credentials, response bodies or the request messages.
+      const rawCode = String(error?.code || error?.message || 'LORA_INFERENCE_UNAVAILABLE');
+      const code = /^VENICE_HTTP_(400|401|402|403|404|408|409|422|429|500|502|503|504)$/.test(rawCode)
+        || ['VENICE_EMPTY_RESPONSE', 'LORA_INFERENCE_UNAVAILABLE', 'CHAT_DEADLINE_EXCEEDED', 'TimeoutError'].includes(rawCode)
+        ? rawCode : 'LORA_INFERENCE_UNAVAILABLE';
+      const message = !veniceConfigured(env)
+        ? 'Mode UNCENSORED : aucune clé OpenRouter utilisable dans le Worker (OPENROUTER_API_KEY).'
+        : code === 'VENICE_HTTP_401' || code === 'VENICE_HTTP_403'
+          ? 'Mode UNCENSORED : OpenRouter refuse la clé ou son autorisation.'
+          : code === 'VENICE_HTTP_402'
+            ? 'Mode UNCENSORED : crédit OpenRouter insuffisant.'
+            : code === 'VENICE_HTTP_429'
+              ? 'Mode UNCENSORED : limite de requêtes OpenRouter atteinte.'
+              : 'Mode UNCENSORED : Venice est inaccessible. Vérifier le code de diagnostic.';
+      return Response.json({ ok:false, error:'LORA_INFERENCE_UNAVAILABLE', code, text:message, provider:'openrouter', attempted_model:'cognitivecomputations/dolphin-mistral-24b-venice-edition', active_lora:null }, { status:503 });
+    }
     if (voiceReply) {
       try {
         const fallbackModel = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
