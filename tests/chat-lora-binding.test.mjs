@@ -126,3 +126,43 @@ test('UNCENSORED without an active adapter falls back to Venice when its key is 
     assert.ok(urls.some(u => u.includes('openrouter.ai')));
   } finally { globalThis.fetch = realFetch; }
 });
+
+// MEL-LORA-MODE-01: Mistral adapter and Qwen model are never confused, and
+// absence, quota or failure refuse the mode explicitly, with no silent fallback.
+test('Mistral adapter and Qwen model are never confused; absence, quota and failure refuse the mode explicitly', async () => {
+  const { resolveLoraMode, loraModeKind, QWEN_LORA_BASE } = await import('../src/learning/chat-lora-binding.js');
+  const mistral = { base_model: 'mistralai/Mistral-7B-Instruct-v0.2', runtime_model: '@cf/mistral/mistral-7b-instruct-v0.2-lora', finetune_id: 'ft-1' };
+  const qwen = { base_model: QWEN_LORA_BASE, adapter_id: 'qwen-adapter-1' };
+
+  assert.equal(loraModeKind(mistral), 'MISTRAL_ADAPTER');
+  assert.equal(loraModeKind(qwen), 'QWEN_MODEL');
+  assert.equal(loraModeKind({ base_model: 'meta/llama' }), null);
+
+  const ok = resolveLoraMode({ adapter: mistral });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.kind, 'MISTRAL_ADAPTER');
+  assert.equal(ok.adapter.finetune_id, 'ft-1');
+
+  const qwenOk = resolveLoraMode({ qwen });
+  assert.equal(qwenOk.kind, 'QWEN_MODEL');
+
+  const confused = resolveLoraMode({ adapter: qwen });
+  assert.equal(confused.ok, false);
+  assert.equal(confused.code, 'LORA_MODE_ADAPTER_KIND_MISMATCH');
+  const confusedBack = resolveLoraMode({ qwen: mistral });
+  assert.equal(confusedBack.code, 'LORA_MODE_ADAPTER_KIND_MISMATCH');
+
+  const absent = resolveLoraMode({});
+  assert.equal(absent.code, 'LORA_MODE_ADAPTER_ABSENT');
+  const quota = resolveLoraMode({ adapter: mistral, quota: { exhausted: true, code: 'NEURONS' } });
+  assert.equal(quota.code, 'LORA_MODE_QUOTA_EXHAUSTED');
+  const failed = resolveLoraMode({ adapter: mistral, failure: { code: 'PROVIDER_DOWN' } });
+  assert.equal(failed.code, 'LORA_MODE_PROVIDER_FAILED');
+  assert.equal(failed.detail, 'PROVIDER_DOWN');
+
+  // No refusal ever offers an ordinary cloud model as a replacement.
+  for (const refusal of [confused, absent, quota, failed]) {
+    assert.equal(refusal.fallback, 'NONE', 'a refused LoRA mode never falls back silently');
+    assert.equal(refusal.kind, null);
+  }
+});
