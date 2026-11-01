@@ -2793,7 +2793,7 @@ export async function handleNativeChat(request, env, options = {}) {
   if (!requireLora && isCensorshipRefusal(ai?.text)) {
     try {
       requireChatLora(activeAdapter);
-      const switched = await runNativeInference({
+      const switched = await runNativeInferenceCore({
         env, messages, text, parallel: false, maxCandidates: 1,
         inferenceSettings: effectiveInferenceSettings, activeAdapter,
         requireLora: true, runtime, taskOverride: 'REASONING', maxCalls: 1, deadlineAt: chatDeadlineAt,
