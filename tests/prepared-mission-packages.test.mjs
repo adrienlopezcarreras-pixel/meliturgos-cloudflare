@@ -31,3 +31,9 @@ test('the bridge preparer exposes the prepared-package path', async () => {
   assert.equal(typeof preparedMissionPackage, 'function');
   assert.equal(await preparedMissionPackage({}, {}, { optional_context: { roadmap_id: 'NOT-A-CONTRACT' } }), null);
 });
+
+test('a failed prepared package is not reapplied, but a revised one is', async () => {
+  const source = fs.readFileSync('src/evolution/autonomy-bridge-preparer.js', 'utf8');
+  assert.match(source, /package_sha256: await sha256Hex\(JSON\.stringify\(pkg\.changes\)\)/);
+  assert.match(source, /lastPrepared\?\.package_sha256 === candidatePackage\?\.proposal\?\.provenance\?\.package_sha256 \? null : candidatePackage/);
+});
