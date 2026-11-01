@@ -52,11 +52,11 @@ test('Qwen, ordinary cloud fallback and deterministic receipts never claim the c
   }
 });
 
-test('UNCENSORED fails closed when OpenRouter key is missing, ignoring browser adapter IDs', async () => {
+test('chat rejects missing promoted adapter before tools or inference, ignoring browser adapter IDs', async () => {
   let calls=0;
   const response=await handleNativeChat(new Request('https://mel.test/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:'bonjour',lora_mode:'uncensored',activeAdapter:active})}),{AI:{run:async()=>{calls++;return {response:'invalid'};}}},{authorized:true});
-  assert.equal(response.status,503);
-  assert.equal((await response.json()).code,'VENICE_KEY_MISSING');
+  assert.equal(response.status,409);
+  assert.equal((await response.json()).code,'LORA_COMPATIBLE_ACTIVE_ADAPTER_REQUIRED');
   assert.equal(calls,0);
 });
 
