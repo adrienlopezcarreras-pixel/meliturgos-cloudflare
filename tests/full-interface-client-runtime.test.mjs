@@ -199,3 +199,18 @@ test('the chat stream keeps mode and references and distinguishes result, partia
     await assert.rejects(dom.window.melChatFetch({ text: 'x', mode: 'code' }), /MODEL_UNAVAILABLE/, 'an error without text is never rendered as a result');
   } finally { dom.window.close(); }
 });
+
+test('MEL-UI-AUDIT-02: the browser recipe checks each chat journey and the render marks errors', async () => {
+  const { chatJourneyReceipt, CHAT_JOURNEY_STEPS } = await import('../scripts/ui-production-audit.mjs');
+  const { CHAT_RICH_RENDERER_CSS } = await import('../src/pages/chat-rich-renderer.js');
+  const ref = { url: 'https://example.org/a' };
+  const good = CHAT_JOURNEY_STEPS.map(step => ({ step, requested_mode: 'code', mode: 'code', sent_references: [ref], references: [ref], outcome: step === 'interrupt' ? 'PARTIAL_ERROR' : 'RESULT', failed: step === 'interrupt', archived_outcome: step === 'interrupt' ? 'PARTIAL_ERROR' : 'RESULT' }));
+  const ok = chatJourneyReceipt(good);
+  assert.equal(ok.pass, 5);
+  assert.equal(ok.fail, 0);
+  const bad = chatJourneyReceipt([{ step: 'send', requested_mode: 'code', mode: 'conversation', sent_references: [ref], references: [], outcome: 'RESULT', failed: true, archived_outcome: 'ERROR' }]);
+  assert.deepEqual(bad.steps[0].problems, ['MODE_LOST', 'REFERENCE_LOST', 'ERROR_RENDERED_AS_RESULT', 'ARCHIVE_OUTCOME_MISMATCH']);
+  assert.equal(bad.blocked, 4, 'unobserved journeys are BLOCKED, never PASS');
+  assert.match(CHAT_RICH_RENDERER_CSS, /data-outcome="ERROR"/);
+  assert.match(CHAT_RICH_RENDERER_CSS, /data-outcome="PARTIAL_ERROR"/);
+});

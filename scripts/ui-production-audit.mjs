@@ -75,6 +75,29 @@ export function controlReceipt(controls = [], { jsErrors = [] } = {}) {
   return { schema: 'mel.ui-control-receipt/v1', controls: rows, pass: count('PASS'), fail: count('FAIL'), blocked: count('BLOCKED'), mutations_performed: 0 };
 }
 
+// MEL-UI-AUDIT-02: browser recipe of the chat and media journeys. Each step
+// (send, stream, interrupt, resume, attachment) must keep the requested mode
+// and the references, and its render must say RESULT or ERROR — an error is
+// never shown as a result.
+export const CHAT_JOURNEY_STEPS = ['send', 'stream', 'interrupt', 'resume', 'attachment'];
+export function chatJourneyReceipt(steps = []) {
+  const rows = CHAT_JOURNEY_STEPS.map(step => {
+    const seen = (Array.isArray(steps) ? steps : []).find(row => row?.step === step);
+    if (!seen) return { step, status: 'BLOCKED', reason: 'NOT_OBSERVED' };
+    const problems = [];
+    if (seen.requested_mode && seen.mode !== seen.requested_mode) problems.push('MODE_LOST');
+    const sent = (seen.sent_references || []).map(ref => ref?.url || ref);
+    const kept = new Set((seen.references || []).map(ref => ref?.url || ref));
+    if (sent.some(ref => !kept.has(ref))) problems.push('REFERENCE_LOST');
+    if (!['RESULT', 'ERROR', 'PARTIAL_ERROR'].includes(seen.outcome)) problems.push('OUTCOME_UNMARKED');
+    if (seen.failed === true && seen.outcome === 'RESULT') problems.push('ERROR_RENDERED_AS_RESULT');
+    if (seen.archived_outcome && seen.archived_outcome !== seen.outcome) problems.push('ARCHIVE_OUTCOME_MISMATCH');
+    return { step, status: problems.length ? 'FAIL' : 'PASS', problems };
+  });
+  const count = status => rows.filter(row => row.status === status).length;
+  return { schema: 'mel.ui-chat-journey/v1', steps: rows, pass: count('PASS'), fail: count('FAIL'), blocked: count('BLOCKED') };
+}
+
 export async function observe(browser, baseUrl, headers, path, panel) {
   const context = await browser.newContext({ extraHTTPHeaders: headers });
   const page = await context.newPage();
