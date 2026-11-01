@@ -13,6 +13,7 @@ export const ROADMAP_TRUTH_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 // Élément de roadmap → preuves runtime. Un élément sans entrée ici n'a pas de
 // preuve automatique : il est affiché « DÉCLARÉ » et ne compte pas comme vérifié.
 export const ROADMAP_PROOF_SOURCES = Object.freeze({
+  'GEN2-02': { capabilities: ['identity.portability.verify'] },
   'GEN2-06': { capabilities: ['conversation.list', 'conversation.get'] },
   'GEN2-08': { capabilities: ['conversation.messages.list'] },
   'MEL-CONTEXT-03': { capabilities: ['openloop.resume', 'openloop.due'] },
