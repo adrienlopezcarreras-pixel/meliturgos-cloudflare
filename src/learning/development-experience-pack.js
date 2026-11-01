@@ -1634,4 +1634,19 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1793480400000
   },
+  {
+    "id": "claude-prepared-package-covers-whole-contract-20261101",
+    "domain": "agents",
+    "task": "Préparer à l'avance le code d'une mission roadmap pour MAX (paquet prepared/<ID>.json).",
+    "input": "Le paquet CHAT-03 v1 ne couvrait que la vidéo et un seul des deux fichiers de test du contrat ; la suite complète était verte.",
+    "before": "Council REJECTED : modifications attendues dans src/media/image-vision-runtime.js et régression attendue dans tests/chat-verified-media-context.test.mjs absentes.",
+    "after": "Paquet v2 couvrant image et vidéo avec un test dans chaque fichier de test du contrat : COMPLETED VERIFIED ; un paquet révisé (nouvelle empreinte) est réappliqué automatiquement.",
+    "rationale": "Le Council juge la couverture du contrat, pas seulement le vert de la CI : chaque fichier de code et chaque fichier de test que le contrat et l'acceptation nomment doivent être touchés, avec un test par critère.",
+    "tests": ["dev_jobs MEL-CHAT-03 01/11 : rejet v1 puis VERIFIED v2", "PR #2981 #2982"],
+    "tags": ["agents", "max", "council", "roadmap"],
+    "source": "claude",
+    "validated": true,
+    "quality": 1,
+    "created_at": 1793520000000
+  },
 ]);
