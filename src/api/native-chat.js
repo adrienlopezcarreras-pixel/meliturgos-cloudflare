@@ -1523,21 +1523,16 @@ export async function handleNativeChat(request, env, options = {}) {
   if (text.length > 100000) return Response.json({ error: 'MESSAGE_TOO_LONG', code: 'MESSAGE_TOO_LONG', max_input_chars: 100000 }, { status: 413 });
 
   let requireLora = body.lora_mode === 'uncensored';
-  const [requestedLora, requestedQwen3] = requireLora
-    ? await Promise.all([activePromotedAdapter(env), activePromotedQwen3Adapter(env)])
-    : [null,null];
-  if (requireLora) {
-    let a = false, b = false;
-    try { requireChatLora(requestedLora); a = true; } catch {}
-    try { requireActiveQwen3Lora(requestedQwen3, env); b = true; } catch {}
-    // Venice is the fallback of our adapters: no adapter is not a refusal then.
-    if (!a && !b && !veniceConfigured(env)) return Response.json({
-      ok:false, error:'LORA_COMPATIBLE_ACTIVE_ADAPTER_REQUIRED',
-      code:'LORA_COMPATIBLE_ACTIVE_ADAPTER_REQUIRED',
-      text:'Mode UNCENSORED : aucun des deux adaptateurs vérifiés n’est actuellement accessible.',
-      active_lora:null,
-    }, { status:409 });
-  }
+  // Venice is the only provider selected by the explicit UNCENSORED button.
+  // Keep older promoted adapter records for unrelated Normal-mode behavior,
+  // but never require an adapter in order to report Venice configuration.
+  const [requestedLora, requestedQwen3] = [null, null];
+  if (requireLora && !veniceConfigured(env)) return Response.json({
+    ok:false, error:'VENICE_KEY_MISSING', code:'VENICE_KEY_MISSING',
+    text:'Mode UNCENSORED : clé OPENROUTER_API_KEY absente ou invalide dans Cloudflare.',
+    provider:'openrouter', attempted_model:'cognitivecomputations/dolphin-mistral-24b-venice-edition',
+    active_lora:null,
+  }, { status:503 });
   const themeContract = getMelThemeContract(body.ui_theme);
   const theme = themeContract.id;
   const themeInstruction = themeContract.instruction;
@@ -3063,9 +3058,22 @@ export async function handleNativeChat(request, env, options = {}) {
     } catch { archiveSaved = false; }
   }
 
+  // Privacy-preserving provenance: compare exact text stages without logging prompts,
+  // provider text, API keys, or unsalted hashes of potentially private replies.
+  const veniceTrace = requireLora && ai.provider === 'openrouter'
+    ? {
+        provider:'openrouter', model:ai.model,
+        raw_length:String(ai.text || '').length,
+        displayed_length:String(responseText || '').length,
+        output_modified:String(ai.text || '') !== String(responseText || ''),
+        council_regenerated:automaticCouncilAccepted === true,
+        finish_reason:ai.finish_reason || null,
+      }
+    : null;
   return Response.json({
     ok: true,
     text: responseText,
+    ...(veniceTrace ? { venice_trace:veniceTrace } : {}),
     model: ai.model,
     provider: ai.provider,
     ...(ai.inference_unavailable ? { analysis_available:false,analysis_error:'CHAT_INFERENCE_FAILED' } : {}),
