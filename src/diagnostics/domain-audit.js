@@ -20,7 +20,8 @@ export function auditChat(events = [], { now = Date.now() } = {}) {
   const issues = row => { try { const list = JSON.parse(String(row?.issues_json || '[]')); return Array.isArray(list) ? list : []; } catch { return []; } };
   const high = week.filter(row => issues(row).some(issue => issue?.severity === 'high'));
   if (week.length >= 3 && high.length / week.length > 0.2) {
-    findings.push({ code: 'CHAT_OFF_TOPIC_ANSWERS', detail: high.length + '/' + week.length + ' réponses hors sujet ou vides cette semaine' });
+    findings.push({ code: 'CHAT_OFF_TOPIC_ANSWERS', detail: high.length + '/' + week.length + ' réponses hors sujet ou vides cette semaine',
+      evidence: { table: 'mel_response_quality_events', refs: high.slice(0, 5).map(row => row.id ?? row.created_at) } });
   }
   const leaks = week.filter(row => !isToolProtocolExampleRequest(row?.user_excerpt || '')
     && hasLeakedToolProtocol(row?.response_excerpt || ''));
@@ -37,7 +38,8 @@ export function auditWatch(states = [], { now = Date.now() } = {}) {
     const interval = Number(state.interval_ms) || DAY_MS;
     if (row?.id === 'ecosystem-discoveries-canonical') continue; // written by the ecosystem run itself
     if (last && now - last > 2 * interval) {
-      findings.push({ code: 'WATCH_STALLED', detail: row.id + ' sans passage depuis ' + Math.round((now - last) / 3_600_000) + ' h (intervalle ' + Math.round(interval / 3_600_000) + ' h)' });
+      findings.push({ code: 'WATCH_STALLED', detail: row.id + ' sans passage depuis ' + Math.round((now - last) / 3_600_000) + ' h (intervalle ' + Math.round(interval / 3_600_000) + ' h)',
+        evidence: { table: 'capability_watch_state', refs: [row.id], last_run_at: new Date(last).toISOString() } });
     }
   }
   return findings;
@@ -51,9 +53,11 @@ export function auditWork(cycles = [], { now = Date.now() } = {}) {
   const complete = count('COMPLETE');
   const interrupted = count('INTERRUPTED');
   const failed = count('FAILED');
-  if (week.length && complete === 0) findings.push({ code: 'WORK_NO_COMPLETED_CYCLE', detail: week.length + ' cycles, aucun terminé' });
+  if (week.length && complete === 0) findings.push({ code: 'WORK_NO_COMPLETED_CYCLE', detail: week.length + ' cycles, aucun terminé',
+    evidence: { table: 'mel_work_cycles', refs: week.slice(0, 5).map(row => row.id ?? row.updated_at) } });
   if (week.length >= 4 && (interrupted + failed) / week.length > 0.3) {
-    findings.push({ code: 'WORK_CYCLES_INTERRUPTED', detail: interrupted + ' interrompus et ' + failed + ' en échec sur ' + week.length });
+    findings.push({ code: 'WORK_CYCLES_INTERRUPTED', detail: interrupted + ' interrompus et ' + failed + ' en échec sur ' + week.length,
+      evidence: { table: 'mel_work_cycles', refs: week.filter(row => ['INTERRUPTED', 'FAILED'].includes(String(row?.state).toUpperCase())).slice(0, 5).map(row => row.id ?? row.updated_at) } });
   }
   return findings;
 }
@@ -83,9 +87,9 @@ export async function runDomainAudit(db, { now = Date.now() } = {}) {
   const one = async (sql, ...binds) => { try { return await db.prepare(sql).bind(...binds).first(); } catch { return null; } };
   const weekAgo = now - WEEK_MS;
   const [events, states, cycles, errors, memory, sessions, backup, architecture] = await Promise.all([
-    rows('SELECT user_excerpt, issues_json, response_excerpt, created_at FROM mel_response_quality_events ORDER BY created_at DESC LIMIT 500'),
+    rows('SELECT id, user_excerpt, issues_json, response_excerpt, created_at FROM mel_response_quality_events ORDER BY created_at DESC LIMIT 500'),
     rows('SELECT id, state_json, updated_at FROM capability_watch_state'),
-    rows('SELECT state, updated_at FROM mel_work_cycles ORDER BY updated_at DESC LIMIT 500'),
+    rows('SELECT id, state, updated_at FROM mel_work_cycles ORDER BY updated_at DESC LIMIT 500'),
     (async () => { try { return (await db.prepare(`SELECT path, response_status AS status, substr(coalesce(error_message, ''), 1, 120) AS error, count(*) AS n FROM audit_logs
       WHERE timestamp > ? AND (response_status >= 500 OR error_message IS NOT NULL) GROUP BY 1, 2, 3 ORDER BY n DESC LIMIT 20`).bind(weekAgo).all())?.results || []; } catch { return []; } })(),
     one("SELECT count(*) AS pending, sum(CASE WHEN created_at < ? THEN 1 ELSE 0 END) AS pending_old FROM memory_candidates WHERE status = 'PENDING'", weekAgo),

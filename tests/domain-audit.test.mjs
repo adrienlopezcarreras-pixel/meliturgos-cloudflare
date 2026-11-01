@@ -62,3 +62,20 @@ test('core audit (MEL-AUDIT-05) flags recurring errors, unconsolidated memory, e
   assert.deepEqual(auditCore({ memory: { pending_old: 5 }, sessions: { expired: 0 }, lastBackupAt: NOW - H }, { now: NOW }), []);
   assert.deepEqual(auditCore({}, { now: NOW }), [], 'an unmeasured backup table is not a finding');
 });
+
+
+test('MEL-AUDIT-03: off-topic chat, expired watch and interrupted WORK give three findings tied to durable evidence', async () => {
+  const { auditChat, auditWatch, auditWork } = await import('../src/diagnostics/domain-audit.js');
+  const now = Date.parse('2026-11-01T08:00:00Z');
+  const hour = 3600_000;
+  const events = [1, 2, 3].map(id => ({ id, created_at: now - hour, issues_json: JSON.stringify([{ severity: 'high' }]), user_excerpt: 'q', response_excerpt: 'r' }));
+  const states = [{ id: 'veille-ia', state_json: JSON.stringify({ last_run_at: new Date(now - 72 * hour).toISOString(), interval_ms: 24 * hour }) }];
+  const cycles = [1, 2, 3, 4].map(id => ({ id: 'cycle-' + id, state: 'INTERRUPTED', updated_at: now - hour }));
+  const findings = [...auditChat(events, { now }), ...auditWatch(states, { now }), ...auditWork(cycles, { now })];
+  const byCode = Object.fromEntries(findings.map(f => [f.code, f]));
+  assert.deepEqual(byCode.CHAT_OFF_TOPIC_ANSWERS.evidence, { table: 'mel_response_quality_events', refs: [1, 2, 3] });
+  assert.equal(byCode.WATCH_STALLED.evidence.table, 'capability_watch_state');
+  assert.deepEqual(byCode.WATCH_STALLED.evidence.refs, ['veille-ia']);
+  assert.equal(byCode.WORK_CYCLES_INTERRUPTED.evidence.table, 'mel_work_cycles');
+  assert.deepEqual(byCode.WORK_CYCLES_INTERRUPTED.evidence.refs, ['cycle-1', 'cycle-2', 'cycle-3', 'cycle-4']);
+});
