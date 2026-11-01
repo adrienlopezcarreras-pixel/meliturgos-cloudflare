@@ -18,6 +18,7 @@ import { buildMelIdentityPrompt, MEL_IDENTITY } from '../identity/mel-persona.js
 import { systemPrompt } from '../identity/identity.js';
 import { councilOperationalCatalog } from '../council/operational-catalog.js';
 import { computeRoadmapTruth } from '../roadmap/roadmap-truth.js';
+import { createCompleteEvidenceLedger } from '../../scripts/roadmap-complete-evidence-ledger.mjs';
 import { CapabilityBus } from './capability-bus.js';
 import { registerGitHubCodeCapabilities } from './github-code-capabilities.js';
 import { registerPlatformReadCapabilities } from './platform-read-capabilities.js';
@@ -838,6 +839,24 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     try { payload.truth = await computeRoadmapTruth(env?.DB, payload.phases); }
     catch (error) { payload.truth = { available: false, reason: String(error?.code || error?.message || 'ROADMAP_TRUTH_FAILED').slice(0, 120) }; }
     return payload;
+  });
+
+  // All 176 objectives: read D1 execution evidence without fabricating success.
+  bus.discover({
+    id: 'roadmap.evidence.read', name: 'Preuves réelles des 176 objectifs',
+    category: 'diagnostic', version: '1.0.0', provider: 'core',
+    description: 'Read-only roadmap certification ledger derived from the runtime D1 audit; unavailable DB never certifies.',
+    input_schema: { type:'object', additionalProperties:false },
+    output_schema: { type:'object', additionalProperties:true },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
+  }, async () => {
+    const roadmap = getRoadmapPayload();
+    let truth;
+    try { truth = await computeRoadmapTruth(env?.DB, roadmap.phases); }
+    catch (error) { truth = { available:false, reason:String(error?.code || error?.message || 'ROADMAP_TRUTH_FAILED').slice(0,120) }; }
+    const ledger = createCompleteEvidenceLedger(roadmap.phases.flatMap(p=>p.items), undefined, truth);
+    return { ...ledger, production_truth_available:truth?.available===true,
+      production_truth_reason:truth?.available===true?null:(truth?.reason||'ROADMAP_TRUTH_UNAVAILABLE') };
   });
 
   bus.discover({
