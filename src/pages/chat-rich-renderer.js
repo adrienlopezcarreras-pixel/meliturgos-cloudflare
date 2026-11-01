@@ -273,6 +273,11 @@ export const CHAT_RICH_RENDERER_SOURCE = String.raw`
 `;
 
 export const CHAT_RICH_RENDERER_CSS = String.raw`
+/* MEL-UI-AUDIT-02: an error or a partial error never looks like a result. */
+.msg[data-outcome="ERROR"],.msg[data-outcome="PARTIAL_ERROR"]{border-left:3px solid #f87171}
+.msg[data-outcome="ERROR"]::before{content:"Erreur — ";font-weight:600;color:#f87171}
+.msg[data-outcome="PARTIAL_ERROR"]::before{content:"Réponse interrompue — ";font-weight:600;color:#fbbf24}
+
 .msg.mel{white-space:normal}
 .mel-rich{min-width:0;line-height:1.55}
 .mel-rich>:first-child{margin-top:0!important}.mel-rich>:last-child{margin-bottom:0!important}
