@@ -1,3 +1,4 @@
+import { ModelRegistry } from '../models/ModelRegistry.js';
 import { createModelWatch } from '../evaluation/model-watch.js';
 import { CANONICAL_LEARNING_BENCHMARK_SUITE, REQUIRED_LEARNING_BENCHMARK_DOMAINS, validateLearningBenchmarkSuite, runLearningBenchmarkSuite, compareBenchmarkScores } from '../evaluation/benchmarks.js';
 import { buildContext, buildPromptInjectionFirewallInstruction } from '../core/orchestrator/context-builder.js';
@@ -153,6 +154,31 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     output_schema: { type: 'object', properties: { value: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['value'], additionalProperties: false },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ value: input.value }));
+
+  // GEN2-03: exercise provider-neutral ModelRegistry without contacting a provider.
+  bus.discover({
+    id:'models.registry.verify', name:'Model Registry — diagnostic', category:'diagnostic',
+    version:'1.0.0',provider:'core',description:'Validates provider metadata, capability ranking, disable and fallback selection.',
+    input_schema:{type:'object',additionalProperties:false},
+    output_schema:{type:'object',properties:{ok:{type:'boolean'},providers:{type:'number'}},required:['ok','providers'],additionalProperties:false},
+    risk:'LOW',permissions:[],health:'HEALTHY',enabled:true,
+  },async()=>{
+    const registry=new ModelRegistry([
+      {id:'proof-a',provider:'local',capabilities:['GENERAL'],priority:10,health:'HEALTHY',latency:20,cost:0},
+      {id:'proof-b',provider:'remote',capabilities:['GENERAL'],priority:5,health:'HEALTHY',latency:50,cost:0},
+      {id:'proof-unavailable',provider:'remote',capabilities:['GENERAL'],priority:100,health:'UNAVAILABLE'},
+    ]);
+    const primary=registry.getBestByCapability('general');
+    const fallback=registry.getFallbackChain(primary?.id,2);
+    registry.disable(primary?.id);
+    const promoted=registry.getBestByCapability('GENERAL');
+    if(primary?.id!=='proof-a'||fallback[0]?.id!=='proof-b'||promoted?.id!=='proof-b'||
+       registry.get('proof-a')?.enabled!==false||registry.get('proof-b')?.provider!=='remote'||
+       registry.modelsByCapability('general').some(x=>x.health==='UNAVAILABLE')){
+      throw Object.assign(new Error('MODEL_REGISTRY_CONTRACT_FAILED'),{code:'MODEL_REGISTRY_CONTRACT_FAILED'});
+    }
+    return {ok:true,providers:2};
+  });
 
   // GEN2-43: exercise the real Model Watch with isolated provider adapters.
   bus.discover({
