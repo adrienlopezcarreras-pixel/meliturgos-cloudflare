@@ -1531,8 +1531,8 @@ export async function handleNativeChat(request, env, options = {}) {
     let a = false, b = false;
     try { requireChatLora(requestedLora); a = true; } catch {}
     try { requireActiveQwen3Lora(requestedQwen3, env); b = true; } catch {}
-    // Venice is the fallback of our adapters: no adapter is not a refusal then.
-    if (!a && !b && !veniceConfigured(env)) return Response.json({
+    // Require a verified MEL adapter; do not substitute Venice.
+    if (!a && !b) return Response.json({
       ok:false, error:'LORA_COMPATIBLE_ACTIVE_ADAPTER_REQUIRED',
       code:'LORA_COMPATIBLE_ACTIVE_ADAPTER_REQUIRED',
       text:'Mode UNCENSORED : aucun des deux adaptateurs vérifiés n’est actuellement accessible.',
@@ -2595,22 +2595,12 @@ export async function handleNativeChat(request, env, options = {}) {
     });
   } catch (error) {
     if (requireLora) {
-      // Expose the actual routing failure instead of hiding Venice HTTP/auth errors.
-      // Do not expose credentials, response bodies or the request messages.
-      const rawCode = String(error?.code || error?.message || 'LORA_INFERENCE_UNAVAILABLE');
-      const code = /^VENICE_HTTP_(400|401|402|403|404|408|409|422|429|500|502|503|504)$/.test(rawCode)
-        || ['VENICE_KEY_MISSING', 'VENICE_EMPTY_RESPONSE', 'LORA_INFERENCE_UNAVAILABLE', 'CHAT_DEADLINE_EXCEEDED', 'TimeoutError'].includes(rawCode)
-        ? rawCode : 'LORA_INFERENCE_UNAVAILABLE';
-      const message = !veniceConfigured(env)
-        ? 'Mode UNCENSORED : aucune clé OpenRouter utilisable dans le Worker (OPENROUTER_API_KEY).'
-        : code === 'VENICE_HTTP_401' || code === 'VENICE_HTTP_403'
-          ? 'Mode UNCENSORED : OpenRouter refuse la clé ou son autorisation.'
-          : code === 'VENICE_HTTP_402'
-            ? 'Mode UNCENSORED : crédit OpenRouter insuffisant.'
-            : code === 'VENICE_HTTP_429'
-              ? 'Mode UNCENSORED : limite de requêtes OpenRouter atteinte.'
-              : 'Mode UNCENSORED : Venice est inaccessible. Vérifier le code de diagnostic.';
-      return Response.json({ ok:false, error:'LORA_INFERENCE_UNAVAILABLE', code, text:message, provider:'openrouter', attempted_model:'cognitivecomputations/dolphin-mistral-24b-venice-edition', active_lora:null }, { status:503 });
+      // Do not report OpenRouter as attempted when the selected backend is LoRA.
+      const code = String(error?.code || 'LORA_INFERENCE_UNAVAILABLE');
+      return Response.json({ ok:false, error:'LORA_INFERENCE_UNAVAILABLE',
+        code: code === 'LORA_COMPATIBLE_ACTIVE_ADAPTER_REQUIRED' ? code : 'LORA_INFERENCE_UNAVAILABLE',
+        text: 'Mode LoRA : le modèle entraîné sélectionné est indisponible.',
+        provider:'mel-lora', active_lora:null }, { status:503 });
     }
     if (voiceReply) {
       try {
