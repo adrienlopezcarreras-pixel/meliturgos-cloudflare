@@ -1,3 +1,5 @@
+import { generateCompletionMatrix } from '../roadmap/completion-matrix.js';
+import { generateFinalStatusReport, FINAL_STATUS_REPORT_SCHEMA } from '../roadmap/final-status-report.js';
 import { buildMelIdentityPrompt, MEL_IDENTITY } from '../identity/mel-persona.js';
 import { systemPrompt } from '../identity/identity.js';
 import { councilOperationalCatalog } from '../council/operational-catalog.js';
@@ -143,6 +145,32 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     output_schema: { type: 'object', properties: { value: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['value'], additionalProperties: false },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ value: input.value }));
+
+  // GEN2-61: verify the real final status report generated from the canonical
+  // roadmap matrix. Do not conflate a report existing with MEL being mature.
+  bus.discover({
+    id: 'roadmap.final-report.verify', name: 'Rapport final roadmap — vérification',
+    category: 'diagnostic', version: '1.0.0', provider: 'core',
+    description: 'Verifies current roadmap final report against its canonical source matrix.',
+    input_schema: { type: 'object', additionalProperties: false },
+    output_schema: { type: 'object', properties: {
+      ok: { type: 'boolean' }, verdict: { type: 'string' }, fingerprint: { type: 'string' },
+      complete: { type: 'number' }, total: { type: 'number' }
+    }, required: ['ok', 'verdict', 'fingerprint', 'complete', 'total'], additionalProperties: false },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async () => {
+    const matrix = generateCompletionMatrix();
+    const report = generateFinalStatusReport({ matrix });
+    const valid = report.schema === FINAL_STATUS_REPORT_SCHEMA
+      && report.source.matrix_fingerprint === matrix.matrix_fingerprint
+      && report.summary.total === matrix.rows.length
+      && report.summary.complete === matrix.rows.filter(row => row.complete).length
+      && report.ready_for_final_milestone === (report.verdict === 'MATURE')
+      && (report.verdict !== 'MATURE' || report.summary.complete === report.summary.total);
+    if (!valid) throw Object.assign(new Error('ROADMAP_FINAL_REPORT_INVALID'), { code: 'ROADMAP_FINAL_REPORT_INVALID' });
+    return { ok: true, verdict: report.verdict, fingerprint: matrix.matrix_fingerprint,
+      complete: report.summary.complete, total: report.summary.total };
+  });
 
   // GEN2-02: execute the actual portable persona composition, not a static
   // registry label. Fail closed if runtime composition loses its identity.

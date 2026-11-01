@@ -66,7 +66,6 @@ test('unproven DONE_VERIFIED IDs match the reviewed proof baseline exactly', () 
     "MEL-UI-03",
     "MEL-UI-06",
     "GEN2-57",
-    "GEN2-61",
     "MEL-REL-03"
   ];
   const actual = buildRoadmapProofBacklog().items.map(item => item.id);
