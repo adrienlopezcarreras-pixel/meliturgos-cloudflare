@@ -1,3 +1,4 @@
+import { ModelRouter } from '../models/ModelRouter.js';
 import { ModelRegistry } from '../models/ModelRegistry.js';
 import { createModelWatch } from '../evaluation/model-watch.js';
 import { CANONICAL_LEARNING_BENCHMARK_SUITE, REQUIRED_LEARNING_BENCHMARK_DOMAINS, validateLearningBenchmarkSuite, runLearningBenchmarkSuite, compareBenchmarkScores } from '../evaluation/benchmarks.js';
@@ -154,6 +155,31 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     output_schema: { type: 'object', properties: { value: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['value'], additionalProperties: false },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ value: input.value }));
+
+  // GEN2-04: exercise actual router fallback with isolated model adapters.
+  bus.discover({
+    id:'models.router-fallback.verify',name:'Model Router fallback — diagnostic',
+    category:'diagnostic',version:'1.0.0',provider:'core',
+    description:'Checks actual model router failover and recorded provider attempts without external requests.',
+    input_schema:{type:'object',additionalProperties:false},
+    output_schema:{type:'object',properties:{ok:{type:'boolean'},attempts:{type:'number'}},required:['ok','attempts'],additionalProperties:false},
+    risk:'LOW',permissions:[],health:'HEALTHY',enabled:true,
+  },async()=>{
+    const registry=new ModelRegistry([
+      {id:'proof-primary',provider:'local',capabilities:['GENERAL'],priority:20,health:'HEALTHY'},
+      {id:'proof-secondary',provider:'other',capabilities:['GENERAL'],priority:10,health:'HEALTHY'},
+    ]);
+    const seen=[];
+    const router=new ModelRouter({registry,maxCalls:2,timeoutMs:500,
+      invoke:async model=>{seen.push(model.id);if(model.id==='proof-primary')throw Error('provider_unavailable');return {response:'fallback-success'};},
+    });
+    const result=await router.execute({task:'GENERAL',messages:[{role:'user',content:'probe'}]});
+    if(result.text!=='fallback-success'||result.model!=='proof-secondary'||
+       seen.join(',')!=='proof-primary,proof-secondary'||result.attempts!==2||!result.fallback_used){
+      throw Object.assign(new Error('MODEL_ROUTER_FALLBACK_PROOF_FAILED'),{code:'MODEL_ROUTER_FALLBACK_PROOF_FAILED'});
+    }
+    return {ok:true,attempts:seen.length};
+  });
 
   // GEN2-03: exercise provider-neutral ModelRegistry without contacting a provider.
   bus.discover({
