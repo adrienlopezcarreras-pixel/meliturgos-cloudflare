@@ -1,3 +1,4 @@
+import { ExchangeMemorySync } from '../memory/exchange-sync.js';
 import { ModelRouter } from '../models/ModelRouter.js';
 import { ModelRegistry } from '../models/ModelRegistry.js';
 import { createModelWatch } from '../evaluation/model-watch.js';
@@ -155,6 +156,29 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     output_schema: { type: 'object', properties: { value: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['value'], additionalProperties: false },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ value: input.value }));
+
+  // MEL-MEM-02: exercise ExchangeMemorySync replay and atomic prevalidation.
+  bus.discover({
+    id:'memory.exchange-sync.verify',name:'Exchange memory sync contract',category:'diagnostic',
+    version:'1.0.0',provider:'core',description:'Checks deterministic idempotent exchange candidate sync and fail-closed validation.',
+    input_schema:{type:'object',additionalProperties:false},
+    output_schema:{type:'object',properties:{ok:{type:'boolean'},candidates:{type:'number'}},required:['ok','candidates'],additionalProperties:false},
+    risk:'LOW',permissions:[],health:'HEALTHY',enabled:true,
+  },async()=>{
+    const stored=new Map();
+    const sync=new ExchangeMemorySync({candidateSink:async candidate=>{
+      if(stored.has(candidate.id))return {inserted:false};
+      stored.set(candidate.id,candidate);return {inserted:true};
+    }});
+    const row={conversationId:'proof-conversation',id:'proof-message',role:'user',content:'Je veux conserver les décisions.',timestamp:1700000000000};
+    const first=await sync.sync([row]);
+    const replay=await sync.sync([row]);
+    let rejected=false;
+    try{await sync.sync([row,{...row,id:'',content:'invalid'}]);}catch(error){rejected=error.code==='MEMORY_MESSAGE_ID_REQUIRED';}
+    if(first.inserted!==1||replay.inserted!==0||replay.alreadyPresent!==1||!rejected||stored.size!==1||
+       ![...stored.keys()][0]?.startsWith('memcand_'))throw Object.assign(new Error('EXCHANGE_SYNC_PROOF_FAILED'),{code:'EXCHANGE_SYNC_PROOF_FAILED'});
+    return {ok:true,candidates:stored.size};
+  });
 
   // MEL-CONTEXT-04: verify interpreter on legitimate and operational-sensitive contexts.
   bus.discover({
