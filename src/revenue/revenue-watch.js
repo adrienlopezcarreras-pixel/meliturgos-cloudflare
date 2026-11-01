@@ -220,7 +220,8 @@ export async function installAllRevenueSources(env, { limit = 20, enqueue, waitU
   const rows = (await env.DB.prepare("SELECT url FROM revenue_watch WHERE status IN ('NEW','DISCOVERY_ONLY') ORDER BY last_seen DESC LIMIT ?").bind(limit).all())?.results || [];
   const results = [];
   for (const row of rows) results.push(await installRevenueSource(env, row.url, { enqueue, waitUntil }).catch(error => ({ ok: false, status: 'INSTALL_FAILED', url: row.url, error: String(error?.code || error?.message || '').slice(0, 120) })));
-  return { ok: true, installed: results.filter(r => r.status === 'INSTALL_QUEUED').length, rejected: results.filter(r => r.status === 'REJECTED_UNSAFE').length, results };
+  // The owner sees why nothing was handed to MAX: a full queue is not a failure.
+  return { ok: true, installed: results.filter(r => r.status === 'INSTALL_QUEUED').length, rejected: results.filter(r => r.status === 'REJECTED_UNSAFE').length, queue_full: results.filter(r => r.status === 'QUEUE_FULL').length, unverified: results.filter(r => r.status === 'FUNDING_UNVERIFIED').length, max_active: MAX_ACTIVE_REVENUE_JOBS, results };
 }
 
 export async function readRevenueWatch(db, { limit = 30 } = {}) {

@@ -1,3 +1,4 @@
+import { preferTopModels } from '../models/ModelRegistry.js';
 import { COUNCIL_CRITIQUE_MAX_TOKENS, COUNCIL_SYNTHESIS_MAX_TOKENS } from './council-inference-policy.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { ZeroEuroGovernor } from '../augmentio/zero-euro-governor.js';
@@ -346,7 +347,10 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
   const providerPool = pool || createDefaultAugmentioPool(env);
   await providerPool.refreshHealth();
   const governor = new ZeroEuroGovernor();
-  const authorized = providerPool.list({ capability }).filter(provider => governor.allows(provider));
+  // Only MEL's top models deliberate (two distinct ones), never the weak free
+  // models that cost neurons and add no signal. When the top models cool down,
+  // the Council waits for them instead of falling back to weak ones.
+  const authorized = preferTopModels(providerPool.list({ capability }).filter(provider => governor.allows(provider)), env, { min: 2 });
   const eligible = authorized.filter(provider => !excluded.has(provider.id));
   if (authorized.length >= minResponses && eligible.length < minResponses) {
     // This is a cooldown, not a fresh inference failure: no provider was
