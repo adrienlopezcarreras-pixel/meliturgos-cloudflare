@@ -33,7 +33,11 @@ test('a Council rejection resets the candidate to main content instead of blocki
   const reject = s.indexOf('if [ "$DECISION" = "REJECTED" ]');
   assert.ok(reject > s.indexOf('COUNCIL_REVIEW $CAND'));
   assert.ok(reject < s.indexOf('"$CAND:refs/heads/main"', reject));
-  assert.match(s.slice(reject, reject + 1000), /git push --force-with-lease="refs\/heads\/\$CANDIDATE:\$CAND" origin "HEAD:refs\/heads\/\$CANDIDATE"/);
+  const block = s.slice(reject, s.indexOf('"$CAND:refs/heads/main"', reject));
+  assert.match(block, /git push --force-with-lease="refs\/heads\/\$CANDIDATE:\$CAND" origin "HEAD:refs\/heads\/\$CANDIDATE"/);
+  // A rejection must not destroy the work of jobs the Council did not blame.
+  assert.match(block, /revert_paths/);
+  assert.match(block, /git diff --name-only "\$MAIN" "\$CAND" > council\.revert/);
 });
 
 test('candidate publication uses atomic expected-head lease rather than unchecked branch push', async () => {

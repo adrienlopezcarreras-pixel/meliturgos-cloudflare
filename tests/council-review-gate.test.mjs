@@ -205,3 +205,12 @@ test('a Council objection naming one objective sends only that job to repair', a
   assert.equal(objectiveCulprits(['generic objection'], ids), null, 'no named objective: fall back to the diff');
   assert.equal(objectiveCulprits(['MEL-OTHER-01 missing'], ids), null);
 });
+
+
+test('a Council rejection reverts only the culprit jobs files, never innocent work', async () => {
+  const { culpritRevertPaths } = await import('../src/evolution/council-review.js');
+  const packages = { 'job-ui': [{ path: 'src/pages/a.js' }, { path: 'tests/a.test.mjs' }], 'job-chat': [{ path: 'src/capabilities/b.js' }] };
+  assert.deepEqual(culpritRevertPaths(new Set(['job-ui']), packages), ['src/pages/a.js', 'tests/a.test.mjs']);
+  assert.deepEqual(culpritRevertPaths(new Set(), packages), [], 'unknown culprits: the workflow reverts everything');
+  assert.deepEqual(culpritRevertPaths(new Set(['job-x']), { 'job-x': [{ path: '../escape.js' }, { path: '/etc/passwd' }] }), []);
+});

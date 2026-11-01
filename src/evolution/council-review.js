@@ -352,6 +352,21 @@ export function objectiveCulprits(objections = [], roadmapIds = {}) {
   return culprits.size ? culprits : null;
 }
 
+// Files to put back to main on a rejection: only those of the culprit jobs.
+// No culprit identified means the whole candidate is suspect (empty list).
+export function culpritRevertPaths(culprits, packages = {}) {
+  const ids = culprits instanceof Set ? culprits : new Set(Array.isArray(culprits) ? culprits : []);
+  if (!ids.size) return [];
+  const paths = new Set();
+  for (const id of ids) {
+    for (const file of packages[id] || []) {
+      const path = String(file?.path || file || '').trim();
+      if (path && !path.startsWith('/') && !path.includes('..')) paths.add(path);
+    }
+  }
+  return [...paths].slice(0, 200);
+}
+
 export function councilRejectionCulprits(diff, packages = {}) {
   const diffPaths = new Set([...String(diff || '').matchAll(/^diff --git a\/(\S+) b\//gm)].map(m => m[1]));
   // packages follow git log order (newest first): the newest package touching
@@ -417,6 +432,11 @@ export async function handleCouncilReviewRequest(request, env, { now = Date.now(
       const statement = env.DB.prepare(sql);
       await (repair ? statement.bind(reviewJson, ('COUNCIL_REJECTED: ' + objections.join(' | ')).slice(0, 900), now, id) : statement.bind(reviewJson, now, id)).run().catch(() => {});
     }
+    // A rejection used to revert EVERY file of the candidate, destroying the
+    // work of innocent jobs too (01/11: CHAT-04 lost its code because the
+    // objections were all about UI-AUDIT-02). Name the culprits' files so the
+    // workflow reverts only those. Empty list = unknown culprits = revert all.
+    record.revert_paths = rejected ? culpritRevertPaths(culprits, packages) : [];
   }
   return Response.json({ ok: true, cached: false, ...record });
 }
