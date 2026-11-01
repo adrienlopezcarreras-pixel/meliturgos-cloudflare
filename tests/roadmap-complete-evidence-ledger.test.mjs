@@ -17,7 +17,7 @@ test('mapping never becomes fake production certification',()=>{
   assert.equal(ledger.summary.production_not_evaluated,ledger.summary.total);
   assert.ok(ledger.items.every(x=>x.verified_live===false && x.production_receipt===null));
   for(const row of ledger.items){
-    if(Object.hasOwn(ROADMAP_PROOF_SOURCES,row.id))assert.equal(row.source_mapping,'MAPPED_NOT_CERTIFIED');
+    if(Object.hasOwn(ROADMAP_PROOF_SOURCES,row.id)){const source=ROADMAP_PROOF_SOURCES[row.id];const hasRuntime=Boolean((source.capabilities?.length||0)+(source.computer?.length||0));assert.equal(row.source_mapping,hasRuntime?'MAPPED_NOT_CERTIFIED':'NO_SOURCE');}
   }
 });
 test('orphan proof sources are highlighted explicitly',()=>{
