@@ -357,3 +357,30 @@ test('a verified roadmap acceptance receipt marks the objective proven in the pi
   const unproven = { ...job, result_json: { ...job.result_json, roadmap_code_acceptance: undefined } };
   assert.equal(pipeline(unproven).find(step => step.key === 'objective').done, false);
 });
+
+
+test('MEL-UI-AUDIT-04: pause, resume, three failures and release keep owner control; external blocks are neither success nor a second mission', async () => {
+  const { maxControlView, setAutonomyControl, getAutonomyControl, createAutonomyControlMemoryState } = await import('../src/evolution/autonomy-control.js');
+  const memoryState = createAutonomyControlMemoryState();
+  await setAutonomyControl(null, { memoryState, paused: false, max_autonomy: true });
+  await setAutonomyControl(null, { memoryState, paused: true, source: 'release-predeploy-binder', reason: 'predeploy-release-safety' });
+  const release = await getAutonomyControl(null, { memoryState });
+  const releaseView = maxControlView(release);
+  assert.equal(releaseView.owner_max_choice, true, 'release keeps the MAX choice');
+  assert.equal(releaseView.button, 'RELEASE_IN_PROGRESS');
+  assert.equal(releaseView.buttons_enabled, false);
+  await setAutonomyControl(null, { memoryState, paused: true, max_autonomy: false, source: 'owner-ui', reason: 'owner-pause' });
+  assert.equal(maxControlView(await getAutonomyControl(null, { memoryState })).button, 'RESUME');
+  await setAutonomyControl(null, { memoryState, paused: false, max_autonomy: true, source: 'owner-ui' });
+  const resumed = await getAutonomyControl(null, { memoryState });
+  const failed = [1, 2, 3].map(i => ({ id: 'f' + i, status: 'FAILED', updated_at: i }));
+  const view = maxControlView(resumed, { jobs: [...failed, { id: 'ext', status: 'WAITING_DEPENDENCY', updated_at: 0 }, { id: 'run', status: 'TEACHER_APPROVED', updated_at: 0 }] });
+  assert.equal(view.status, 'MAX_AUTONOMY', 'three failures never take the owner decision');
+  assert.equal(view.three_failures, true);
+  assert.equal(view.active_mission, 'run');
+  assert.equal(view.active_mission_count, 1);
+  assert.deepEqual(view.externally_blocked, ['ext']);
+  const blocked = describeJob({ id: 'ext', status: 'BLOCKED_EXTERNAL', optional_context: {} });
+  assert.equal(blocked.outcome, 'BLOCKED_EXTERNAL');
+  assert.notEqual(describeJob({ id: 'x', status: 'WAITING_DEPENDENCY', optional_context: {} }).outcome, 'PROVEN');
+});

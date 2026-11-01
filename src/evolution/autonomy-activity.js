@@ -12,7 +12,7 @@ import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { mentorMetrics, pipelineAlerts } from './autonomy-metrics.js';
 import { D1DevJobRepository, isPreparedDevBridgeJob } from '../dev/d1-dev-job-repository.js';
 import { D1EvolutionLedger } from './evolution-ledger.js';
-import { getAutonomyControl } from './autonomy-control.js';
+import { getAutonomyControl, isExternallyBlockedJob } from './autonomy-control.js';
 import { readAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
 import { readSurvivalState } from '../legacy/survival-mode.js';
 import { flattenRoadmap, isClosedRoadmapStatus } from '../roadmap/master-roadmap.js';
@@ -231,6 +231,9 @@ export function describeJob(job, now = Date.now()) {
       : String(job?.requested_by || '').startsWith('owner-chat') ? 'demande d’Adrien' : 'feuille de route',
     goal: clip(job?.goal, 600),
     status,
+    // MEL-UI-AUDIT-04: an external block is never shown as a success.
+    outcome: status === 'COMPLETED' ? (roadmapObjectiveProven(job) ? 'PROVEN' : 'DELIVERED')
+      : isExternallyBlockedJob(job) ? 'BLOCKED_EXTERNAL' : status === 'FAILED' ? 'FAILED' : 'IN_PROGRESS',
     status_text: status === 'COMPLETED' && roadmapObjectiveProven(job) ? 'Terminé : code livré et objectif prouvé.' : (STATUS_TEXT[status] || 'Statut ' + status + '.'),
     created_at: num(job?.created_at),
     updated_at: updated || null,

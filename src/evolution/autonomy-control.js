@@ -189,6 +189,38 @@ export async function setOwnerMaxAutonomy(db, {
   });
 }
 
+// MEL-UI-AUDIT-04: one view for the MAX buttons, from durable state only.
+// Pause/release suspend execution but keep the owner's MAX choice; three
+// failures in a row are reported, never turned into an owner decision; an
+// external block is neither a success nor a second active mission.
+const TERMINAL = new Set(['COMPLETED', 'FAILED', 'CANCELLED', 'REJECTED', 'SUPERSEDED']);
+const EXTERNAL = new Set(['BLOCKED_EXTERNAL', 'BLOCKED_HUMAN', 'WAITING_DEPENDENCY', 'WAITING_EXTERNAL']);
+export function isExternallyBlockedJob(job) {
+  const status = String(job?.status || '').toUpperCase();
+  return EXTERNAL.has(status) || /^(?:EXTERNAL_|BLOCKED_EXTERNAL|PHYSICAL_DEVICE_PROOF_REQUIRED)/.test(String(job?.error || ''));
+}
+export function maxControlView(control, { jobs = [] } = {}) {
+  const rows = Array.isArray(jobs) ? jobs : [];
+  const live = rows.filter(job => !TERMINAL.has(String(job?.status || '').toUpperCase()));
+  const blocked = live.filter(isExternallyBlockedJob);
+  const active = live.filter(job => !isExternallyBlockedJob(job) && String(job?.status || '').toUpperCase() !== 'QUEUED');
+  const recent = [...rows].sort((a, b) => Number(b?.updated_at || 0) - Number(a?.updated_at || 0)).slice(0, 3);
+  const threeFailures = recent.length === 3 && recent.every(job => String(job?.status || '').toUpperCase() === 'FAILED');
+  const releasePaused = isReleaseAutonomyPause(control);
+  const ownerMax = control?.max_autonomy === true || rememberedReleaseMax(control) || control?.max_remembered === true;
+  return {
+    status: control?.paused === true ? 'PAUSED' : (control?.max_autonomy === true ? 'MAX_AUTONOMY' : 'RUNNING'),
+    owner_max_choice: ownerMax,
+    button: control?.paused === true ? (releasePaused ? 'RELEASE_IN_PROGRESS' : 'RESUME') : 'PAUSE',
+    buttons_enabled: !releasePaused,
+    active_mission: active.length ? String(active[0].id) : null,
+    active_mission_count: Math.min(active.length, 1),
+    extra_active_detected: active.length > 1,
+    externally_blocked: blocked.map(job => String(job.id)),
+    three_failures: threeFailures,
+  };
+}
+
 export function resetAutonomyControlForTests(memoryState) {
   if (memoryState && typeof memoryState === 'object') memoryState.control = null;
 }
