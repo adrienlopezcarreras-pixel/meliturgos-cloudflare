@@ -12,7 +12,7 @@ export function createCompleteEvidenceLedger(items = flattenRoadmap(), sources =
     seen.add(item.id);
     const mapped = Object.hasOwn(sources, item.id);
     const source = mapped ? sources[item.id] : null;
-    const hasRuntimeMapping = Boolean(source && ((source.capabilities?.length || 0) + (source.computer?.length || 0)) > 0);
+    const hasRuntimeMapping = Boolean(source && ((source.capabilities?.length || 0) + (source.computerActions?.length || 0)) > 0);
     return {
       id: item.id,
       title: item.title,
@@ -20,7 +20,7 @@ export function createCompleteEvidenceLedger(items = flattenRoadmap(), sources =
       priority: item.priority,
       source_mapping: hasRuntimeMapping ? 'MAPPED_NOT_CERTIFIED' : 'NO_SOURCE',
       required_runtime_capabilities: [...(source?.capabilities || [])],
-      required_computer_actions: [...(source?.computer || [])],
+      required_computer_actions: [...(source?.computerActions || [])],
       production_verification: 'NOT_EVALUATED',
       production_receipt: null,
       verified_live: false,
