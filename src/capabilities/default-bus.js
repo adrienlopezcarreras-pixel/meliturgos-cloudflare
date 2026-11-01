@@ -1,3 +1,4 @@
+import { buildTeacherEscalation } from '../augmentio/teacher-escalation.js';
 import { ConnectorCatalog } from '../connectors/connector-catalog.js';
 import { InMemoryModelPerformanceStore } from '../models/model-performance-store.js';
 import { ExchangeMemorySync } from '../memory/exchange-sync.js';
@@ -158,6 +159,28 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     output_schema: { type: 'object', properties: { value: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['value'], additionalProperties: false },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ value: input.value }));
+
+  // MEL-COUNCIL-03: verify the real Teacher escalation payload contract (not external round-trip).
+  bus.discover({
+    id:'council.teacher-escalation.verify',name:'Teacher escalation payload contract',
+    category:'diagnostic',version:'1.0.0',provider:'core',
+    description:'Checks deterministic Teacher handoff data, candidate provenance and missing-best rejection without external Teacher calls.',
+    input_schema:{type:'object',additionalProperties:false},
+    output_schema:{type:'object',properties:{ok:{type:'boolean'},candidates:{type:'number'}},required:['ok','candidates'],additionalProperties:false},
+    risk:'LOW',permissions:[],health:'HEALTHY',enabled:true,
+  },async()=>{
+    const best={provider:'proof-b',text:'answer-b'};
+    const candidates=[{provider:'proof-a',text:'answer-a'},best];
+    const handoff=buildTeacherEscalation({requestId:'proof-request',input:'reasoning probe',capability:'REASONING',result:{best,candidates,failures:1}});
+    let rejected=false;
+    try{buildTeacherEscalation({requestId:'missing-best',input:'probe',result:{candidates}});}catch(e){rejected=e.message==='AUGMENTIO_RESULT_REQUIRED';}
+    if(!rejected||handoff.type!=='MEL_REQUEST'||handoff.subtype!=='MULTI_AI_REVIEW'||
+       handoff.request_id!=='proof-request'||handoff.requires_teacher_decision!==true||
+       handoff.mel_best?.provider!=='proof-b'||handoff.candidates.length!==2||handoff.failures!==1){
+      throw Error('TEACHER_ESCALATION_CONTRACT_FAILED');
+    }
+    return {ok:true,candidates:handoff.candidates.length};
+  });
 
   // GEN2-32: check real connector catalog scope/health/secret boundaries.
   bus.discover({
