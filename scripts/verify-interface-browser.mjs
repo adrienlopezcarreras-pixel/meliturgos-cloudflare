@@ -118,13 +118,13 @@ try{
    const loraSelected=await evaluate("document.querySelector('#chatLoraMode').value==='uncensored'&&document.querySelector('#chatLoraMode').getAttribute('aria-pressed')==='true'");
    record(path,'chat:lora-mode-pointer','real pointer click on bottom chat button','Explicit required-LoRA mode selected',loraSelected,loraClicked&&loraSelected?'PASS':'FAIL','browser-results.json');
    const beforeLoraRequests=requests.filter(r=>r.path==='/api/chat'&&r.method==='POST').length;
-   await evaluate("document.querySelector('#chatInput').value='Bonjour, ceci est un test local du mode Venice sans clé OpenRouter.'");
+   await evaluate("document.querySelector('#chatInput').value='Bonjour, ceci est un test local du mode LoRA sans adaptateur.'");
    await pointerClick('#chatSend');
    for(let i=0;i<100;i++){if(requests.filter(r=>r.path==='/api/chat'&&r.method==='POST').length>beforeLoraRequests)break;await pause(50);}
    await pause(200);
    const loraRequests=requests.filter(r=>r.path==='/api/chat'&&r.method==='POST').slice(beforeLoraRequests);
-   const rejectedLora=await evaluate("/VENICE_KEY_MISSING|OPENROUTER_API_KEY|OpenRouter/i.test(document.querySelector('#chatlog').textContent)");
-   record(path,'chat:venice-no-key','submit through real browser and production entrypoint without database','NDJSON transport with a visible Venice configuration error, exactly one request and no replacement',JSON.stringify({requests:loraRequests.map(r=>r.status),visibleError:rejectedLora}),loraRequests.length===1&&loraRequests[0].status===200&&rejectedLora?'PASS':'FAIL','browser-results.json');
+   const rejectedLora=await evaluate("document.querySelector('#chatlog').textContent.includes('LORA_COMPATIBLE_ACTIVE_ADAPTER_REQUIRED')");
+   record(path,'chat:lora-no-adapter','submit through real browser and production entrypoint without database','NDJSON transport with a visible adapter error, exactly one request and no replacement',JSON.stringify({requests:loraRequests.map(r=>r.status),visibleError:rejectedLora}),loraRequests.length===1&&loraRequests[0].status===200&&rejectedLora?'PASS':'FAIL','browser-results.json');
    await evaluate("document.querySelector('#chatLoraMode').focus()");
    await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',text:'\r',unmodifiedText:'\r',windowsVirtualKeyCode:13});
    await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
