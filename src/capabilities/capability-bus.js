@@ -180,3 +180,29 @@ export class CapabilityBus {
     }
   }
 }
+
+// MEL-MANIFEST-03: a delivered skill reaches the ONE canonical bus, or it does
+// not exist. Registration demands a verified delivery receipt: a red CI, a name
+// already taken, or a missing proof stops it. Otherwise MEL would believe it
+// owns a skill that was never shipped.
+export function skillDeliveryDescriptor(delivery = {}) {
+  const id = String(delivery.capability_id || '').trim();
+  const sha = String(delivery.candidate_sha || '').trim().toLowerCase();
+  if (!/^[a-z][a-z0-9._-]{2,80}$/.test(id)) throw Object.assign(new Error('SKILL_DELIVERY_ID_INVALID'), { code: 'SKILL_DELIVERY_ID_INVALID' });
+  if (!/^[a-f0-9]{40}$/.test(sha)) throw Object.assign(new Error('SKILL_DELIVERY_SHA_REQUIRED'), { code: 'SKILL_DELIVERY_SHA_REQUIRED' });
+  if (delivery.ci_passed !== true) throw Object.assign(new Error('SKILL_DELIVERY_CI_RED'), { code: 'SKILL_DELIVERY_CI_RED' });
+  if (!Number(delivery.ci_run_id)) throw Object.assign(new Error('SKILL_DELIVERY_PROOF_REQUIRED'), { code: 'SKILL_DELIVERY_PROOF_REQUIRED' });
+  return { schema: 'mel.skill-delivery-descriptor/v1', capability_id: id, candidate_sha: sha,
+    ci_run_id: Number(delivery.ci_run_id), roadmap_id: String(delivery.roadmap_id || '').slice(0, 60) || null };
+}
+
+// Registers the delivered skill on this bus, once. A name already taken is a
+// conflict, never a silent overwrite of a live capability.
+export function registerDeliveredSkill(bus, delivery, record, execute, healthcheck = null) {
+  const descriptor = skillDeliveryDescriptor(delivery);
+  if (!bus || typeof bus.discover !== 'function') throw Object.assign(new Error('CAPABILITY_BUS_REQUIRED'), { code: 'CAPABILITY_BUS_REQUIRED' });
+  if (String(record?.id || '') !== descriptor.capability_id) throw Object.assign(new Error('SKILL_DELIVERY_ID_MISMATCH'), { code: 'SKILL_DELIVERY_ID_MISMATCH' });
+  if (bus.records?.has?.(descriptor.capability_id)) throw Object.assign(new Error('SKILL_DELIVERY_NAME_CONFLICT'), { code: 'SKILL_DELIVERY_NAME_CONFLICT' });
+  bus.discover({ ...record, delivery: descriptor }, execute, healthcheck);
+  return descriptor;
+}

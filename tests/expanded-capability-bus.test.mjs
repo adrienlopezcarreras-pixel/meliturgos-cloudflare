@@ -131,3 +131,31 @@ test('MEL-CHAT-08: Google quota and timeout are typed and say whether the action
   assert.match(source, /retryable: true, action_may_have_run: false/);
   assert.match(source, /retryable: method === 'GET', action_may_have_run: method !== 'GET'/);
 });
+
+// MEL-MANIFEST-03: a validated delivery registers ONE descriptor; red CI, name
+// conflict or missing proof stop the registration.
+test('MEL-MANIFEST-03: only a validated delivery registers a skill on the canonical bus', async () => {
+  const { CapabilityBus, registerDeliveredSkill, skillDeliveryDescriptor } = await import('../src/capabilities/capability-bus.js');
+  const sha = 'a'.repeat(40);
+  const good = { capability_id: 'skill.new', candidate_sha: sha, ci_passed: true, ci_run_id: 42, roadmap_id: 'MEL-X-01' };
+  const record = { id: 'skill.new', name: 'n', category: 'test', version: '1.0.0', provider: 'p', description: 'd',
+    input_schema: { type: 'object', additionalProperties: false }, output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: 'OK', enabled: true };
+
+  const bus = new CapabilityBus();
+  const descriptor = registerDeliveredSkill(bus, good, record, async () => ({}));
+  assert.equal(descriptor.capability_id, 'skill.new');
+  assert.equal(descriptor.candidate_sha, sha);
+  assert.equal(descriptor.ci_run_id, 42);
+  assert.ok(bus.records.has('skill.new'), 'the skill exists on the one canonical bus');
+
+  // Registered twice: a name conflict, never a silent overwrite.
+  assert.throws(() => registerDeliveredSkill(bus, good, record, async () => ({})), e => e.code === 'SKILL_DELIVERY_NAME_CONFLICT');
+
+  for (const [patch, code] of [[{ ci_passed: false }, 'SKILL_DELIVERY_CI_RED'], [{ ci_run_id: 0 }, 'SKILL_DELIVERY_PROOF_REQUIRED'],
+    [{ candidate_sha: 'main' }, 'SKILL_DELIVERY_SHA_REQUIRED'], [{ capability_id: 'X' }, 'SKILL_DELIVERY_ID_INVALID']]) {
+    assert.throws(() => skillDeliveryDescriptor({ ...good, ...patch }), e => e.code === code, code);
+  }
+  assert.throws(() => registerDeliveredSkill(new CapabilityBus(), good, { ...record, id: 'autre' }, async () => ({})),
+    e => e.code === 'SKILL_DELIVERY_ID_MISMATCH');
+});
