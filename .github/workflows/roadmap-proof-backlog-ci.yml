@@ -26,6 +26,8 @@ jobs:
       - run: npm ci
       - name: Verify inventory and non-regression
         run: node --test tests/roadmap-proof-backlog.test.mjs tests/roadmap-truth.test.mjs
+      - name: Verify GEN2-11 Knowledge Graph contract (code evidence, not live production)
+        run: node --test tests/gen2/gen2-11-knowledge-graph-contract.test.mjs
       - name: Render missing-proof inventory without certifying items
         run: node scripts/roadmap-proof-backlog.mjs > roadmap-proof-backlog.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
