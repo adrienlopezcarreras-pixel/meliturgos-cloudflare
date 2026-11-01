@@ -1395,6 +1395,11 @@ export function resolveContinuationInferenceRoute({ voiceReply = false, professo
   };
 }
 
+// UNCENSORED answers are shown exactly as the model produced them.
+export function uncensoredRawText(ai) {
+  return typeof ai?.text === 'string' ? ai.text : String(ai?.text ?? '');
+}
+
 // Owner decision 31/10: in UNCENSORED mode, Venice Uncensored (OpenRouter)
 // is the fallback of MEL's own trained models, behind the weapons guard.
 export async function runNativeInference(options = {}) {
@@ -2829,6 +2834,32 @@ export async function handleNativeChat(request, env, options = {}) {
       maxCalls: 1,
       deadlineAt: chatDeadlineAt,
     }));
+  }
+
+  // Owner decision 01/11: the UNCENSORED button shows the model's exact text.
+  // No cleanup, grounding, quality replacement, Council rewrite or visual.
+  if (body.lora_mode === 'uncensored') {
+    const rawText = uncensoredRawText(ai);
+    let archiveSaved = false;
+    if (service) {
+      try {
+        await service.archiveMessage({ conversationId, deviceId, role: 'user', content: text, timestamp: Date.now(), provenance: userProvenance, metadata: userMetadata });
+        await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: rawText, model: ai.model, timestamp: Date.now() + 1, provenance: 'native-chat:uncensored-raw', metadata: { lora_mode: 'uncensored', post_processing: 'none' } });
+        archiveSaved = true;
+      } catch { archiveSaved = false; }
+    }
+    return Response.json({
+      ok: true,
+      text: rawText,
+      model: ai.model,
+      provider: ai.provider,
+      finish_reason: ai.finish_reason || null,
+      lora_mode: 'uncensored',
+      post_processing: 'none',
+      conversation_id: conversationId,
+      tool_results: toolResults,
+      archive_saved: archiveSaved,
+    }, { headers: { 'cache-control': 'no-store' } });
   }
 
   const toolExampleRequest=isToolProtocolExampleRequest(activeTaskText);

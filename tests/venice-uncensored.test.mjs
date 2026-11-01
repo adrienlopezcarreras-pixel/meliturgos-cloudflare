@@ -111,3 +111,24 @@ test('UNCENSORED never falls back to normal models when Venice key is absent', a
   );
   assert.equal(normalCalls, 0);
 });
+
+
+
+test('an UNCENSORED answer is returned exactly as the model wrote it', async () => {
+  const { uncensoredRawText } = await import('../src/api/native-chat.js');
+  const raw = '  <tool_call>{"x":1}</tool_call>\n[[COUNTER:3]] Réponse **brute** sans retouche.\n';
+  assert.equal(uncensoredRawText({ text: raw }), raw);
+  assert.equal(uncensoredRawText({}), '');
+});
+
+test('the UNCENSORED turn returns before any post-processing step', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const src = await readFile('src/api/native-chat.js', 'utf8');
+  const bypass = src.indexOf("if (body.lora_mode === 'uncensored') {\n    const rawText = uncensoredRawText(ai);");
+  assert.ok(bypass > 0, 'raw bypass present');
+  for (const step of ['stripInternalCounters(ai.text)', 'finalizeEvidenceAlignedResponse({\n    text: groundedResponseText', 'automaticCouncilRecovery = await runCouncilRecovery({', 'replaceUnusableResponse(qualityCandidateText', 'withOfficialVisual(qualityGuardedResponseText']) {
+    const at = src.indexOf(step);
+    assert.ok(at > bypass, step + ' runs after the UNCENSORED return');
+  }
+  assert.match(src.slice(bypass, bypass + 2000), /post_processing: 'none'/);
+});
