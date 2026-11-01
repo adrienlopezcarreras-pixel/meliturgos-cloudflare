@@ -130,3 +130,15 @@ test('the roadmap items that still have no proof source are only the ones no cap
   // A ratchet: this count may go down as proofs are added, never silently up.
   assert.ok(unproven.length <= 24, `${unproven.length} items DONE_VERIFIED sans preuve (régression)`);
 });
+
+test('a newer execution failure revokes an older VERIFIED_LIVE proof',async()=>{
+ const d=await db();
+ await exec(d,'code.read','SUCCEEDED',3600_000);
+ await exec(d,'code.read','FAILED',60000,'CODE_READ_RUNTIME_FAILURE');
+ let truth=await computeRoadmapTruth(d,MASTER_ROADMAP,{now});
+ assert.equal(truth.items['MEL-CODE-01'].truth,'BROKEN');
+ await exec(d,'code.read','SUCCEEDED',1000);
+ truth=await computeRoadmapTruth(d,MASTER_ROADMAP,{now});
+ assert.equal(truth.items['MEL-CODE-01'].truth,'VERIFIED_LIVE');
+ d.close();
+});

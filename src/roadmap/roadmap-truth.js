@@ -219,7 +219,9 @@ export function classifyRoadmapItem(itemId, evidence) {
     ...(source.capabilities || []).map(id => ({ kind: 'capability', id, ...(evidence.capabilities.get(id) || { ok: 0, ko: 0, last_ok: null, last_ko: null, error: null }) })),
     ...(source.computerActions || []).map(id => ({ kind: 'computer', id, ...(evidence.computer.get(id) || { ok: 0, ko: 0, last_ok: null, last_ko: null, error: null }) })),
   ];
-  const proven = proofs.filter(p => p.ok > 0);
+  // A more recent failed execution overrides an older success; historic success
+  // alone cannot certify the capability as currently operational.
+  const proven = proofs.filter(p => p.ok > 0 && !(p.ko > 0 && Number(p.last_ko || 0) >= Number(p.last_ok || 0)));
   const executed = proofs.filter(p => p.ok > 0 || p.ko > 0);
   let truth = ROADMAP_TRUTH.UNPROVEN;
   if (proofs.length && proven.length === proofs.length) truth = ROADMAP_TRUTH.VERIFIED_LIVE;
