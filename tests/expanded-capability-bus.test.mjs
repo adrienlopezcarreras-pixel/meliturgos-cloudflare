@@ -89,3 +89,45 @@ test('Vercel capabilities stay excluded even when a token and legacy opt-in flag
   const bindings = bus.list().find(row => row.id === 'system.bindings');
   assert.ok(bindings);
 });
+
+// MEL-CHAT-08: one identifier from validation to render; quota, timeout and
+// replay never produce a false success nor a double action.
+test('MEL-CHAT-08: dispatch contracts share one identifier and refuse false success or double action', async () => {
+  const { CapabilityBus } = await import('../src/capabilities/capability-bus.js');
+  const audits = [];
+  const schema = { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'], additionalProperties: false };
+  const record = id => ({ id, name: id, category: 'test', version: '1.0.0', provider: 'test', description: id,
+    input_schema: { type: 'object', properties: {}, additionalProperties: false }, output_schema: schema,
+    risk: 'LOW', permissions: [], health: 'OK', enabled: true });
+  let runs = 0;
+  const bus = new CapabilityBus({ audit: async e => { audits.push(e); } });
+  bus.discover(record('test.write'), async () => { runs++; return { ok: true }; });
+  bus.discover(record('test.bad'), async () => ({ unexpected: true }));
+
+  const detailed = await bus.executeDetailed('test.write', {}, { owner: 'o', requestId: 'req-1', idempotencyKey: 'key-1' });
+  assert.match(detailed.execution_id, /^[0-9a-f-]{8,64}$/i);
+  assert.equal(detailed.capability, 'test.write');
+  assert.deepEqual(detailed.output, { ok: true });
+  const ids = audits.filter(e => e.capability === 'test.write').map(e => e.id);
+  assert.equal(new Set(ids).size, 1, 'every audit row of one call shares the identifier');
+  assert.equal(ids[0], detailed.execution_id, 'the caller and the render share that same identifier');
+
+  await assert.rejects(bus.execute('test.write', {}, { owner: 'o', requestId: 'req-1', idempotencyKey: 'key-1' }), e => e.code === 'CAPABILITY_REPLAY_REFUSED');
+  assert.equal(runs, 1, 'a replayed dispatch never runs the action twice');
+  await bus.execute('test.write', {}, { owner: 'o', requestId: 'req-1' });
+  assert.equal(runs, 2, 'without an idempotency key an ordinary second call still runs');
+  assert.ok(audits.some(e => e.reason === 'CAPABILITY_REPLAY_REFUSED'));
+
+  await assert.rejects(bus.execute('test.bad', {}, { owner: 'o' }), e =>
+    e.output_contract_violation === true && e.action_may_have_run === true && typeof e.execution_id === 'string');
+  assert.ok(!audits.some(e => e.capability === 'test.bad' && e.status === 'SUCCEEDED'), 'a broken output is never a success');
+});
+
+test('MEL-CHAT-08: Google quota and timeout are typed and say whether the action may have run', async () => {
+  const mod = await import('../src/capabilities/google-workspace-capabilities.js');
+  assert.equal(typeof mod.registerGoogleWorkspaceCapabilities, 'function');
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile('src/capabilities/google-workspace-capabilities.js', 'utf8');
+  assert.match(source, /retryable: true, action_may_have_run: false/);
+  assert.match(source, /retryable: method === 'GET', action_may_have_run: method !== 'GET'/);
+});

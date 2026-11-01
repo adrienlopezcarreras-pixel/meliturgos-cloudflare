@@ -16,6 +16,8 @@ function publicHealthDiagnostic(value, fallback = 'HEALTHCHECK_DETAIL_REDACTED')
 
 /** Construct per composition root; adapters are trusted server code, never client JS. */
 export class CapabilityBus {
+  // Requests already dispatched in this runtime, to refuse a replay.
+  #dispatched = new Set();
   constructor({audit = async () => {}} = {}) { this.records = new Map(); this.audit = audit; }
   discover(record, execute, healthcheck = null) {
     for (const field of ['id','name','category','version','provider','description','input_schema','output_schema','risk','permissions','health','enabled']) requireValue(record[field] !== undefined, 'INVALID_CAPABILITY');
@@ -98,14 +100,32 @@ export class CapabilityBus {
   }
   enable(id, context) { authorize(['capabilities.manage'],context); this.records.get(this.describe(id).id).record.enabled = true; }
   disable(id, context) { authorize(['capabilities.manage'],context); this.records.get(this.describe(id).id).record.enabled = false; }
+  // MEL-CHAT-08: one execution identifier runs through validation, permission,
+  // dispatch, the typed result and the render. Callers read it from
+  // executeDetailed(); the audit rows of one call all carry it.
+  async executeDetailed(id, input, context = {}) {
+    const executionId = /^[0-9a-f-]{8,64}$/i.test(String(context?.executionId || ''))
+      ? String(context.executionId) : crypto.randomUUID();
+    const output = await this.execute(id, input, { ...context, executionId });
+    return { execution_id: executionId, capability: id, output };
+  }
+
   async execute(id, input, context = {}) {
     const entry = this.records.get(id); requireValue(entry, 'CAPABILITY_NOT_FOUND', 404);
     const event = {
-      id: crypto.randomUUID(),
+      id: /^[0-9a-f-]{8,64}$/i.test(String(context?.executionId || '')) ? String(context.executionId) : crypto.randomUUID(),
       capability: id,
       owner: context?.owner || null,
       requestId: context?.requestId || null,
     };
+    // A replayed dispatch must never run the action twice. Opt-in per call:
+    // the caller passes an idempotencyKey for an action it must not duplicate.
+    // requestId alone is reused legitimately and never arms this guard.
+    const replayKey = context?.idempotencyKey ? id + '\u0000' + String(context.idempotencyKey) : '';
+    if (replayKey && this.#dispatched.has(replayKey)) {
+      await this.audit({ ...event, status: 'DENIED', reason: 'CAPABILITY_REPLAY_REFUSED' });
+      throw Object.assign(new Error('CAPABILITY_REPLAY_REFUSED'), { code: 'CAPABILITY_REPLAY_REFUSED', status: 409, execution_id: event.id });
+    }
     let record;
     try {
       // Security gates run before any provider/network health probe. This keeps
@@ -130,10 +150,22 @@ export class CapabilityBus {
       throw error;
     }
     const startedAt = Date.now();
+    if (replayKey) this.#dispatched.add(replayKey);
     await this.audit({...event,status:'STARTED'});
     try {
       const output = await entry.execute(input,context);
-      validate(output,record.output_schema);
+      // An output that breaks its contract is never a success. The original
+      // validation error keeps its code and status; it only gains the facts a
+      // caller needs: which execution, and that the action may already have run.
+      try { validate(output,record.output_schema); }
+      catch (invalid) {
+        if (invalid && typeof invalid === 'object') {
+          invalid.execution_id = event.id;
+          invalid.output_contract_violation = true;
+          invalid.action_may_have_run = true;
+        }
+        throw invalid;
+      }
       await this.audit({...event,status:'SUCCEEDED',duration_ms:Math.max(0,Date.now()-startedAt)});
       return output;
     } catch (error) {
@@ -143,6 +175,7 @@ export class CapabilityBus {
         duration_ms:Math.max(0,Date.now()-startedAt),
         error_code:String(error?.code || error?.message || 'CAPABILITY_FAILED').slice(0,120),
       });
+      if (error && typeof error === 'object' && !error.execution_id) error.execution_id = event.id;
       throw error;
     }
   }
