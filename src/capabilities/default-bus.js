@@ -1,3 +1,4 @@
+import { ConnectorCatalog } from '../connectors/connector-catalog.js';
 import { InMemoryModelPerformanceStore } from '../models/model-performance-store.js';
 import { ExchangeMemorySync } from '../memory/exchange-sync.js';
 import { ModelRouter } from '../models/ModelRouter.js';
@@ -157,6 +158,28 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     output_schema: { type: 'object', properties: { value: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['value'], additionalProperties: false },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ value: input.value }));
+
+  // GEN2-32: check real connector catalog scope/health/secret boundaries.
+  bus.discover({
+    id:'connectors.sdk-catalog.verify',name:'Connector SDK catalog contract',category:'diagnostic',version:'1.0.0',provider:'core',
+    description:'Checks connector installation scopes, health gating, and manifest secret rejection in isolation.',
+    input_schema:{type:'object',additionalProperties:false},
+    output_schema:{type:'object',properties:{ok:{type:'boolean'},checks:{type:'number'}},required:['ok','checks'],additionalProperties:false},
+    risk:'LOW',permissions:[],health:'HEALTHY',enabled:true,
+  },async()=>{
+    const catalog=new ConnectorCatalog({healthProbe:async()=>({status:'healthy',code:'READY',latency_ms:2})});
+    const manifest={id:'proof-connector',name:'Proof connector',version:'1.0.0',capabilities:['data.read'],auth:'oauth2',scopes:{required:['data:read'],optional:[]}};
+    catalog.register(manifest);
+    let scopeRejected=false,secretRejected=false,healthRejected=false;
+    try{catalog.install({id:manifest.id,version:manifest.version,grantedScopes:[]});}catch(e){scopeRejected=e.message==='CONNECTOR_CATALOG_REQUIRED_SCOPE_MISSING';}
+    try{catalog.register({...manifest,version:'2.0.0',metadata:{access_token:'forbidden'}});}catch(e){secretRejected=e.message==='CONNECTOR_CATALOG_SECRET_FIELD_FORBIDDEN';}
+    catalog.install({id:manifest.id,version:manifest.version,grantedScopes:['data:read']});
+    try{catalog.enable(manifest.id);}catch(e){healthRejected=e.message==='CONNECTOR_CATALOG_HEALTH_REQUIRED';}
+    const health=await catalog.checkHealth(manifest.id);
+    const enabled=catalog.enable(manifest.id);
+    if(!scopeRejected||!secretRejected||!healthRejected||health.status!=='healthy'||enabled.state!=='enabled')throw Error('CONNECTOR_SDK_PROOF_FAILED');
+    return {ok:true,checks:5};
+  });
 
   // MEL-COUNCIL-04: actual per-task learned routing with explicit choice authority.
   bus.discover({
