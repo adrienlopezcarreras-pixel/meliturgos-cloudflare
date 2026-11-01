@@ -3058,9 +3058,22 @@ export async function handleNativeChat(request, env, options = {}) {
     } catch { archiveSaved = false; }
   }
 
+  // Privacy-preserving provenance: compare exact text stages without logging prompts,
+  // provider text, API keys, or unsalted hashes of potentially private replies.
+  const veniceTrace = requireLora && ai.provider === 'openrouter'
+    ? {
+        provider:'openrouter', model:ai.model,
+        raw_length:String(ai.text || '').length,
+        displayed_length:String(responseText || '').length,
+        output_modified:String(ai.text || '') !== String(responseText || ''),
+        council_regenerated:automaticCouncilAccepted === true,
+        finish_reason:ai.finish_reason || null,
+      }
+    : null;
   return Response.json({
     ok: true,
     text: responseText,
+    ...(veniceTrace ? { venice_trace:veniceTrace } : {}),
     model: ai.model,
     provider: ai.provider,
     ...(ai.inference_unavailable ? { analysis_available:false,analysis_error:'CHAT_INFERENCE_FAILED' } : {}),
