@@ -3,7 +3,7 @@ import { MEL_LEARNING_BENCHMARK_CASES, runLearningBenchmark, scoreBenchmarkRespo
 import { extractModelText } from '../models/ModelRouter.js';
 import { standardRegistry } from '../models/ModelRegistry.js';
 import { CANONICAL_LEARNING_BENCHMARK_SUITE, benchmarkSuiteFingerprint } from '../evaluation/benchmarks.js';
-import { assertAdapterApprovalForArtifact, assertAdapterArtifactForPlan, assertLoraPromotionGuard } from './lora-plan.js';
+import { assertAdapterApprovalForArtifact, assertAdapterArtifactForPlan } from './lora-plan.js';
 import { compareLoraImpact, runLoraImpactBenchmark } from './lora-impact-benchmark.js';
 
 export const DEFAULT_OPERATOR_BENCHMARK_MODEL = '@cf/zai-org/glm-4.7-flash';
@@ -493,48 +493,4 @@ export function aggregateBenchmarkScore(records = []) {
     scored_cases: scored.length,
     fixture_cases: records.filter(row => row?.source === 'FIXTURE').length,
     unavailable_cases: records.filter(row => row?.source === 'UNAVAILABLE').length });
-}
-
-// MEL-FOUNDER-08: a promotion PROPOSAL with its before/after receipt. It never
-// activates anything: it either refuses with the exact reason, or returns the
-// receipt the owner needs to decide. An incompatible adapter, a missing
-// benchmark or an insufficient gain is a refusal, never a silent pass.
-export function proposeLoraPromotion({ plan, artifact, approval, baseline, candidate } = {}) {
-  let evidence;
-  try {
-    evidence = assertLoraPromotionGuard({ plan, artifact, approval, baseline, candidate });
-  } catch (error) {
-    return {
-      schema: 'mel.lora-promotion-proposal/v1',
-      promotable: false,
-      activated: false,
-      code: String(error?.code || 'LORA_PROMOTION_REFUSED').slice(0, 80),
-      reason: String(error?.message || '').slice(0, 200),
-      receipt: null,
-    };
-  }
-  const before = Number(baseline?.overall ?? baseline?.score ?? NaN);
-  const after = Number(candidate?.overall ?? candidate?.score ?? NaN);
-  return {
-    schema: 'mel.lora-promotion-proposal/v1',
-    promotable: true,
-    // A proposal is not an activation: the owner still decides.
-    activated: false,
-    code: null,
-    receipt: {
-      base_model: plan.base_model,
-      runtime_model: plan.runtime_model,
-      artifact_id: evidence.artifact.id,
-      artifact_digest: evidence.artifact.digest,
-      finetune_id: evidence.artifact.finetune_id,
-      dataset_digest: evidence.dataset_digest,
-      training_manifest_digest: evidence.training_manifest_digest,
-      approval_id: evidence.approval.approval_id,
-      suite_digest: evidence.suite_digest,
-      before,
-      after,
-      measured_gain: evidence.measured_gain,
-      minimum_gain: evidence.minimum_gain,
-    },
-  };
 }

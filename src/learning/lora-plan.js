@@ -187,16 +187,3 @@ export function assertAdapterActivationEvidence({plan,artifact,approval,baseline
 }
 
 export const loraPolicy=Object.freeze({minimum_validated_examples:MIN_LORA_VALIDATED_EXAMPLES,base_weights_frozen:true,preferred_quantization:'none',preferred_rank:8,maximum_cloudflare_rank:32,maximum_cloudflare_adapter_bytes:MAX_CLOUDFLARE_ADAPTER_BYTES,preferred_target_modules:['q_proj','v_proj'],activation_requires_benchmark:true,activation_requires_measured_gain:true,activation_requires_no_major_regression:true,activation_requires_exact_base_model_match:true,activation_requires_runtime_model_match:true,activation_requires_exact_dataset_match:true,activation_requires_exact_training_manifest_match:true,activation_requires_exact_benchmark_artifact_match:true,activation_requires_explicit_artifact_approval:true,activation_requires_cloudflare_finetune_id:true,artifact_sha256_required:true});
-
-// MEL-FOUNDER-08: the promotion guard. An adapter whose base/runtime pair is
-// not a supported Cloudflare pair is incompatible and refused before any
-// benchmark is even read: a measured gain on an unusable adapter proves
-// nothing. Everything else is delegated to the activation evidence, so there
-// is one rule, not two.
-export function assertLoraPromotionGuard({ plan, artifact, approval, baseline, candidate } = {}) {
-  if (!isSupportedCloudflareLoraPair(plan?.base_model, plan?.runtime_model)
-    || !isSupportedCloudflareLoraPair(artifact?.base_model, artifact?.runtime_model)) {
-    throw Object.assign(new Error('LORA_ADAPTER_INCOMPATIBLE'), { code: 'LORA_ADAPTER_INCOMPATIBLE' });
-  }
-  return assertAdapterActivationEvidence({ plan, artifact, approval, baseline, candidate });
-}
