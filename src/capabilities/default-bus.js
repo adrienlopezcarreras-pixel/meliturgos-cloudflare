@@ -1,3 +1,4 @@
+import { PromptStrategyVersionRegistry } from '../registry/prompt-strategy-version-registry.js';
 import { apiVersionRegistry, resolveApiVersionRequest, API_CURRENT_VERSION } from '../api/api-versioning.js';
 import { generateCompletionMatrix } from '../roadmap/completion-matrix.js';
 import { generateFinalStatusReport, FINAL_STATUS_REPORT_SCHEMA } from '../roadmap/final-status-report.js';
@@ -146,6 +147,30 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     output_schema: { type: 'object', properties: { value: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['value'], additionalProperties: false },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ value: input.value }));
+
+  // GEN2-52: prove snapshot restore and rollback on an isolated real registry.
+  bus.discover({
+    id: 'prompt.strategy.versioning.verify', name: 'Prompts et stratégies — vérification versioning',
+    category: 'diagnostic', version: '1.0.0', provider: 'core',
+    description: 'Runs actual version, snapshot, restore and rollback contracts without mutating persistent state.',
+    input_schema: { type: 'object', additionalProperties: false },
+    output_schema: { type: 'object', properties: { ok: { type: 'boolean' }, rollback: { type: 'string' } },
+      required: ['ok', 'rollback'], additionalProperties: false },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async () => {
+    const source = new PromptStrategyVersionRegistry();
+    source.registerPrompt('proof.identity', 'v1', 'baseline');
+    source.registerPrompt('proof.identity', 'v2', 'candidate', { activate: true });
+    source.registerStrategy('proof.router', 'v1', { provider: 'free' });
+    const snapshot = source.exportSnapshot();
+    const restored = new PromptStrategyVersionRegistry(snapshot);
+    const rollback = restored.rollback('prompt', 'proof.identity');
+    if (restored.resolve('prompt', 'proof.identity').value !== 'baseline' || rollback.active !== 'v1' ||
+        restored.resolve('strategy', 'proof.router').value.provider !== 'free' || snapshot.entries.length !== 3) {
+      throw Object.assign(new Error('PROMPT_STRATEGY_VERSION_PROOF_FAILED'), { code: 'PROMPT_STRATEGY_VERSION_PROOF_FAILED' });
+    }
+    return { ok: true, rollback: rollback.active };
+  });
 
   // GEN2-51: inspect the actual API version resolver and canonical registry.
   bus.discover({
