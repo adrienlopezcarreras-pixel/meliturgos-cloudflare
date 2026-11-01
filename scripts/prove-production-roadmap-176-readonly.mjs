@@ -16,6 +16,18 @@ export function assessRoadmapResponse(body,expectedSha) {
   for(const id of ids){
     const result=body.truth.items?.[id];
     if(!result||!allowed.has(result.truth))return {ok:false,code:'ROADMAP_PRODUCTION_ITEM_TRUTH_INVALID'};
+    if(result.truth==='VERIFIED_LIVE'){
+      // The runtime's label alone is not an audit receipt. Every contributing
+      // proof must identify an executed source with a successful event.
+      if(!Array.isArray(result.proofs)||result.proofs.length===0 ||
+        result.proofs.some(p=>!['capability','computer','max-delivery'].includes(p?.kind)||
+          typeof p.id!=='string'||!p.id.trim()||!(Number(p.ok)>0))){
+        return {ok:false,code:'ROADMAP_PRODUCTION_VERIFIED_WITHOUT_RECEIPT'};
+      }
+      if(!result.last_proof_at||!Number.isFinite(Date.parse(result.last_proof_at))){
+        return {ok:false,code:'ROADMAP_PRODUCTION_RECEIPT_DATE_MISSING'};
+      }
+    }
     counts[result.truth]++;
     if(result.truth!=='VERIFIED_LIVE')missing.push({id,status:result.truth});
   }
