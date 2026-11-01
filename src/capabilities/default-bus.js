@@ -1,3 +1,4 @@
+import { apiVersionRegistry, resolveApiVersionRequest, API_CURRENT_VERSION } from '../api/api-versioning.js';
 import { generateCompletionMatrix } from '../roadmap/completion-matrix.js';
 import { generateFinalStatusReport, FINAL_STATUS_REPORT_SCHEMA } from '../roadmap/final-status-report.js';
 import { buildMelIdentityPrompt, MEL_IDENTITY } from '../identity/mel-persona.js';
@@ -145,6 +146,31 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     output_schema: { type: 'object', properties: { value: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['value'], additionalProperties: false },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ value: input.value }));
+
+  // GEN2-51: inspect the actual API version resolver and canonical registry.
+  bus.discover({
+    id: 'api.versioning.verify', name: 'Contrat de version API — vérification',
+    category: 'diagnostic', version: '1.0.0', provider: 'core',
+    description: 'Checks registered canonical v1 API and legacy alias resolution without mutating data.',
+    input_schema: { type: 'object', additionalProperties: false },
+    output_schema: { type: 'object', properties: {
+      ok: { type: 'boolean' }, version: { type: 'string' }, routes: { type: 'number' }
+    }, required: ['ok', 'version', 'routes'], additionalProperties: false },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async () => {
+    const registry = apiVersionRegistry();
+    const canonical = resolveApiVersionRequest(new Request('https://mel.test/api/v1/roadmap'), { handler: 'router' });
+    const legacy = resolveApiVersionRequest(new Request('https://mel.test/api/gen2/roadmap'), { handler: 'router' });
+    const rejected = resolveApiVersionRequest(new Request('https://mel.test/api/v9/roadmap'), { handler: 'router' });
+    if (registry.validation?.ok !== true || registry.current_version !== API_CURRENT_VERSION ||
+        !registry.supported_versions.includes(API_CURRENT_VERSION) || !registry.routes.length ||
+        canonical.status !== 'canonical' || !canonical.matched ||
+        legacy.status !== 'legacy' || !legacy.matched ||
+        rejected.unsupported !== true) {
+      throw Object.assign(new Error('API_VERSIONING_CONTRACT_FAILED'), { code: 'API_VERSIONING_CONTRACT_FAILED' });
+    }
+    return { ok: true, version: registry.current_version, routes: registry.routes.length };
+  });
 
   // GEN2-61: verify the real final status report generated from the canonical
   // roadmap matrix. Do not conflate a report existing with MEL being mature.
