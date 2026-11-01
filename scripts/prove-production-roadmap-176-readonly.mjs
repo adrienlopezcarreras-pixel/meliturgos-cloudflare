@@ -4,7 +4,7 @@ import {writeFile} from 'node:fs/promises';
 import process from 'node:process';
 import {pathToFileURL} from 'node:url';
 
-export function assessRoadmapResponse(body,expectedSha) {
+export function assessRoadmapResponse(body,expectedSha,{now=Date.now()}={}) {
   if(body?.ok!==true || !Array.isArray(body.phases) || !body.truth?.available)
     return {ok:false,code:'ROADMAP_PRODUCTION_TRUTH_UNAVAILABLE'};
   const ids=body.phases.flatMap(p=>(p.items||[]).map(i=>i.id));
@@ -24,14 +24,20 @@ export function assessRoadmapResponse(body,expectedSha) {
           typeof p.id!=='string'||!p.id.trim()||!(Number(p.ok)>0))){
         return {ok:false,code:'ROADMAP_PRODUCTION_VERIFIED_WITHOUT_RECEIPT'};
       }
-      if(!result.last_proof_at||!Number.isFinite(Date.parse(result.last_proof_at))){
-        return {ok:false,code:'ROADMAP_PRODUCTION_RECEIPT_DATE_MISSING'};
-      }
+      const proofAt=Date.parse(result.last_proof_at);
+      if(!Number.isFinite(proofAt))return {ok:false,code:'ROADMAP_PRODUCTION_RECEIPT_DATE_MISSING'};
+      // A valid old receipt is historical context, not current live coverage.
+      if(proofAt < now-7*86400000 || proofAt > now+300000)
+        return {ok:false,code:'ROADMAP_PRODUCTION_RECEIPT_OUTSIDE_WINDOW'};
     }
     counts[result.truth]++;
     if(result.truth!=='VERIFIED_LIVE')missing.push({id,status:result.truth});
   }
   if(Object.keys(body.truth.items).length!==176)return {ok:false,code:'ROADMAP_PRODUCTION_EXTRA_ITEM'};
+  for(const key of Object.keys(counts)){
+    if(body.truth.counts && body.truth.counts[key]!==counts[key])
+      return {ok:false,code:'ROADMAP_PRODUCTION_COUNTS_MISMATCH'};
+  }
   return {ok:true,code:'ROADMAP_PRODUCTION_176_TRUTH_MEASURED',deployed_sha:expectedSha,
     total:176,counts,verified_live:counts.VERIFIED_LIVE,
     coverage_percent:Math.round(counts.VERIFIED_LIVE*1000/176)/10,
