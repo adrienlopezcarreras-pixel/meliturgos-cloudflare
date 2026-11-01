@@ -31,7 +31,7 @@ test('roadmap status comes from real production executions, not from the declare
   assert.equal(truth.items['MEL-AUG-01'].truth, 'BROKEN');
   assert.equal(truth.items['MEL-AUG-01'].proofs[0].error, 'NO_ZERO_COST_PROVIDER_AVAILABLE');
   assert.equal(truth.items['GEN2-05'].truth, 'UNPROVEN', 'a 10-day-old success is not current proof');
-  assert.equal(truth.items['GEN2-02'].truth, 'DECLARED', 'no automatic proof defined');
+  assert.equal(truth.items['GEN2-02'].truth, 'UNPROVEN', 'registered verifier without production run is not certification');
   assert.equal(truth.items['GEN2-30'].proofs.find(p => p.id === 'pointer.click').ok, 1, 'second step of a multi-step PC command counts');
   assert.ok(truth.verified_live_percent < 100, 'the real percentage is no longer 100 %');
   assert.equal(truth.counts.VERIFIED_LIVE + truth.counts.PARTIAL_LIVE + truth.counts.BROKEN + truth.counts.UNPROVEN + truth.counts.DECLARED, truth.total);
