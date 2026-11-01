@@ -49,3 +49,17 @@ test('our own model failing in UNCENSORED hands over to Venice', async () => {
     assert.equal(out.provider, 'openrouter');
   } finally { globalThis.fetch = fetchImpl; }
 });
+
+test('UNCENSORED goes straight to the external model until our own model is proven', async () => {
+  const { runNativeInference } = await import('../src/api/native-chat.js');
+  const aiCalls = [];
+  const env = { OPENROUTER_API_KEY: 'sk-or-test-key-000000000000', AI: { run: async (model) => { aiCalls.push(model); return { response: 'safe' }; } } };
+  const realFetch = globalThis.fetch; let externalCalls = 0;
+  globalThis.fetch = async () => { externalCalls += 1; return new Response(JSON.stringify({ choices: [{ message: { content: 'réponse externe' } }] })); };
+  try {
+    const out = await runNativeInference({ env, messages: [{ role: 'user', content: 'bonjour' }], requireLora: true });
+    assert.equal(out.provider, 'openrouter');
+    assert.equal(externalCalls, 1);
+    assert.ok(aiCalls.every(model => !/lora|mistral|qwen/i.test(String(model))), 'our own model is not called first');
+  } finally { globalThis.fetch = realFetch; }
+});
