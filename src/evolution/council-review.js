@@ -342,6 +342,16 @@ export async function reviewVerificationEvidence(env, { job, implementation, ciR
   return record;
 }
 
+// The Council reviews the whole candidate diff. When its objections name
+// roadmap objectives (MEL-XXX-NN), only the jobs of those objectives caused
+// the rejection (01/11: CHAT-04 sent to repair for UI-AUDIT-02's gaps).
+export function objectiveCulprits(objections = [], roadmapIds = {}) {
+  const named = new Set(String((Array.isArray(objections) ? objections : []).join(' ')).match(/\bMEL-[A-Z]+(?:-[A-Z]+)*-\d{2}\b/g) || []);
+  if (!named.size) return null;
+  const culprits = new Set(Object.entries(roadmapIds).filter(([, id]) => named.has(String(id || ''))).map(([job]) => job));
+  return culprits.size ? culprits : null;
+}
+
 export function councilRejectionCulprits(diff, packages = {}) {
   const diffPaths = new Set([...String(diff || '').matchAll(/^diff --git a\/(\S+) b\//gm)].map(m => m[1]));
   // packages follow git log order (newest first): the newest package touching
@@ -392,7 +402,12 @@ export async function handleCouncilReviewRequest(request, env, { now = Date.now(
       const row = await env.DB.prepare('SELECT files_json FROM dev_jobs WHERE id=?').bind(id).first().catch(() => null);
       try { packages[id] = JSON.parse(row?.files_json || '[]'); } catch { packages[id] = []; }
     }
-    const culprits = councilRejectionCulprits(body.diff, packages);
+    const roadmapIds = {};
+    for (const id of jobs) {
+      const row = await env.DB.prepare("SELECT json_extract(optional_context,'$.roadmap_id') AS roadmap_id FROM dev_jobs WHERE id=?").bind(id).first().catch(() => null);
+      if (row?.roadmap_id) roadmapIds[id] = row.roadmap_id;
+    }
+    const culprits = objectiveCulprits(objections, roadmapIds) || councilRejectionCulprits(body.diff, packages);
     for (const id of jobs) {
       const repair = rejected && (!culprits.size || culprits.has(id));
       const reviewJson = JSON.stringify({ decision: result.decision, head, objections, unavailable, reviewed_at: now });
