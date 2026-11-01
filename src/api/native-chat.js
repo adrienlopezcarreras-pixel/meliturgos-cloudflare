@@ -1395,17 +1395,18 @@ export function resolveContinuationInferenceRoute({ voiceReply = false, professo
   };
 }
 
-// Owner decision 31/10: in UNCENSORED mode, Venice Uncensored (OpenRouter)
-// is the fallback of MEL's own trained models, behind the weapons guard.
+// A requested trained-model mode must use a verified MEL adapter, not an
+// unrelated external chat model. Keep the ordinary chat route unchanged.
 export async function runNativeInference(options = {}) {
-  const { env, messages, deadlineAt = null, requireLora = false } = options;
+  const { env, requireLora = false, activeAdapter = null, qwenAdapter = null } = options;
   if (!requireLora) return runNativeInferenceCore(options);
-  // The user-facing UNCENSORED switch explicitly selects Venice, not a locally
-  // promoted adapter or a default model. Never silently fall back.
-  if (!veniceConfigured(env)) {
-    throw Object.assign(new Error('VENICE_KEY_MISSING'), { code: 'VENICE_KEY_MISSING' });
+  let primaryReady = false, secondaryReady = false;
+  try { requireChatLora(activeAdapter); primaryReady = true; } catch {}
+  try { requireActiveQwen3Lora(qwenAdapter, env); secondaryReady = true; } catch {}
+  if (!primaryReady && !secondaryReady) {
+    throw Object.assign(new Error('LORA_COMPATIBLE_ACTIVE_ADAPTER_REQUIRED'), { code: 'LORA_COMPATIBLE_ACTIVE_ADAPTER_REQUIRED' });
   }
-  return runVeniceInference({ env, messages, deadlineAt });
+  return runNativeInferenceCore(options);
 }
 
 async function runNativeInferenceCore({ env, messages, text, parallel = false, maxCandidates = 4, inferenceSettings = null, activeAdapter = null, qwenAdapter = null, runtime = null, taskOverride = null, preferredModel = null, timeoutMs = null, maxCalls = null, deadlineAt = null, requireLora = false } = {}) {
