@@ -1400,6 +1400,10 @@ export function resolveContinuationInferenceRoute({ voiceReply = false, professo
 export async function runNativeInference(options = {}) {
   const { env, messages, deadlineAt = null, requireLora = false } = options;
   if (!requireLora || !veniceConfigured(env)) return runNativeInferenceCore(options);
+  // Owner decision 01/11: until MEL's own model is proven 100% uncensored
+  // (MEL_UNCENSORED_OWN_MODEL_PROVEN=true), UNCENSORED goes straight to the
+  // external model instead of spending neurons on a refusal first.
+  if (String(env?.MEL_UNCENSORED_OWN_MODEL_PROVEN || '').toLowerCase() !== 'true') return runVeniceInference({ env, messages, deadlineAt });
   try {
     const own = await runNativeInferenceCore(options);
     // A refusal from our model is not an UNCENSORED answer: Venice takes over.
@@ -2526,6 +2530,7 @@ export async function handleNativeChat(request, env, options = {}) {
     toolCount: toolResults.length,
     actionRequest: wantsAgentTools(activeTaskText),
     adapter: activeAdapter,
+    uncensored: requireLora === true,
     ai: typeof env?.AI?.run === 'function',
   })) {
     return streamChatResponse({

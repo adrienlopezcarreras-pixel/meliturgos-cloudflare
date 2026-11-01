@@ -49,3 +49,33 @@ test('our own model failing in UNCENSORED hands over to Venice', async () => {
     assert.equal(out.provider, 'openrouter');
   } finally { globalThis.fetch = fetchImpl; }
 });
+
+test('UNCENSORED goes straight to the external model until our own model is proven', async () => {
+  const { runNativeInference } = await import('../src/api/native-chat.js');
+  const aiCalls = [];
+  const env = { OPENROUTER_API_KEY: 'sk-or-test-key-000000000000', AI: { run: async (model) => { aiCalls.push(model); return { response: 'safe' }; } } };
+  const realFetch = globalThis.fetch; let externalCalls = 0;
+  globalThis.fetch = async () => { externalCalls += 1; return new Response(JSON.stringify({ choices: [{ message: { content: 'réponse externe' } }] })); };
+  try {
+    const out = await runNativeInference({ env, messages: [{ role: 'user', content: 'bonjour' }], requireLora: true });
+    assert.equal(out.provider, 'openrouter');
+    assert.equal(externalCalls, 1);
+    assert.ok(aiCalls.every(model => !/lora|mistral|qwen/i.test(String(model))), 'our own model is not called first');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('the Training page tells the owner UNCENSORED goes to Venice first', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const page = await readFile('src/pages/full-interface-v2.js', 'utf8');
+  assert.match(page, /Venice Uncensored \(modèle externe\) tant que nos modèles ne sont pas prouvés/);
+  assert.doesNotMatch(page, /Nos modèles d’abord, Venice Uncensored en secours/);
+});
+
+test('an UNCENSORED turn never takes the streaming path that bypasses Venice', async () => {
+  const { plainChatMayStream } = await import('../src/api/chat-stream.js');
+  const base = { stream: true, toolCount: 0, adapter: null, ai: true };
+  assert.equal(plainChatMayStream(base), true);
+  assert.equal(plainChatMayStream({ ...base, uncensored: true }), false);
+  const { readFile } = await import('node:fs/promises');
+  assert.match(await readFile('src/api/native-chat.js', 'utf8'), /uncensored: requireLora === true/);
+});

@@ -76,3 +76,17 @@ test('global revenue queue bound applies across runs and frees a slot only after
     assert.equal(calls,1);
   } finally {db.close();}
 });
+
+test('install-all tells the owner when the MAX revenue queue is full instead of a bare zero',async()=>{
+  const db=sqliteD1();
+  try {
+    const {D1DevJobRepository}=await import('../src/dev/d1-dev-job-repository.js');
+    const repo=new D1DevJobRepository(db);
+    for(let i=0;i<3;i++)await repo.create({id:'busy-'+i,goal:'existing source',requested_by:'mel-autonomy',optional_context:{source:'revenue-watch'}});
+    await seed(db,[['https://a.example/offer','task a','DISCOVERY_ONLY'],['https://b.example/offer','task b','DISCOVERY_ONLY']]);
+    const all=await installAllRevenueSources({DB:db},{enqueue:async()=>({job_id:'x'})});
+    assert.equal(all.installed,0);
+    assert.equal(all.queue_full,2);
+    assert.equal(all.max_active,3);
+  } finally {db.close();}
+});
