@@ -1,3 +1,5 @@
+import { buildMelIdentityPrompt, MEL_IDENTITY } from '../identity/mel-persona.js';
+import { systemPrompt } from '../identity/identity.js';
 import { councilOperationalCatalog } from '../council/operational-catalog.js';
 import { computeRoadmapTruth } from '../roadmap/roadmap-truth.js';
 import { CapabilityBus } from './capability-bus.js';
@@ -141,6 +143,26 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     output_schema: { type: 'object', properties: { value: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['value'], additionalProperties: false },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ value: input.value }));
+
+  // GEN2-02: execute the actual portable persona composition, not a static
+  // registry label. Fail closed if runtime composition loses its identity.
+  bus.discover({
+    id: 'identity.portability.verify', name: 'Identité MEL portable — vérification',
+    category: 'diagnostic', version: '1.0.0', provider: 'core',
+    description: 'Validates that the portable persona is included unchanged in the runtime system prompt.',
+    input_schema: { type: 'object', additionalProperties: false },
+    output_schema: { type: 'object', properties: {
+      ok: { type: 'boolean' }, name: { type: 'string' }, language: { type: 'string' }
+    }, required: ['ok', 'name', 'language'], additionalProperties: false },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async () => {
+    const portable = buildMelIdentityPrompt();
+    const composed = systemPrompt('test-owner');
+    if (!portable || !composed.startsWith(portable + '\n')) {
+      throw Object.assign(new Error('IDENTITY_PORTABILITY_INTEGRATION_FAILED'), { code: 'IDENTITY_PORTABILITY_INTEGRATION_FAILED' });
+    }
+    return { ok: true, name: MEL_IDENTITY.name, language: MEL_IDENTITY.language };
+  });
 
   const githubRepository = repository || runtimeEnv.MEL_GITHUB_REPOSITORY || DEFAULT_REPOSITORY;
   const definedIdentity = compileTimeDeployedGitIdentity();
