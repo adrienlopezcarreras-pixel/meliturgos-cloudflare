@@ -20,7 +20,12 @@ export function collectChatMedia(toolResults=[],origin='https://meliturgos.adrie
       const url=safe(item?.url),mime=String(item?.mime||item?.mime_type||item?.content_type||'').split(';',1)[0].trim().toLowerCase();
       if(!url||mime==='image/svg+xml'||/\.svg(?:$|[?#])/i.test(url)||seen.has(url)||media.length>=12)continue;
       const type=['image','audio','video','document'].includes(item.type)?item.type:mime.startsWith('image/')?'image':mime.startsWith('audio/')?'audio':mime.startsWith('video/')?'video':'document';
-      seen.add(url);media.push({type,url,mime:mime||null,title:String(item.title||item.name||type).slice(0,180),source_url:safe(item.source_url),attribution:String(item.attribution||'').slice(0,300),render_status:'PENDING_BROWSER'});
+      // MEL-CHAT-02: a generated artifact keeps its private reference (key)
+      // across resume; the same artifact is never listed twice.
+      const privateKey=item?.private===true&&/^generated\//.test(String(item.key||''))?String(item.key):null;
+      if(privateKey&&seen.has('key:'+privateKey))continue;
+      seen.add(url);if(privateKey)seen.add('key:'+privateKey);
+      media.push({type,url,mime:mime||null,title:String(item.title||item.name||type).slice(0,180),source_url:safe(item.source_url),attribution:String(item.attribution||'').slice(0,300),render_status:'PENDING_BROWSER',...(privateKey?{private:true,artifact_key:privateKey}:{})});
     }
     for(const source of [...(Array.isArray(result.references)?result.references:[]),...(Array.isArray(result.sources)?result.sources:[]),...(Array.isArray(result.research?.sources)?result.research.sources:[]),...(Array.isArray(result.artifact?.sources)?result.artifact.sources:[])]) {
       const url=safe(source?.url);if(!url||refs.has(url)||references.length>=20)continue;

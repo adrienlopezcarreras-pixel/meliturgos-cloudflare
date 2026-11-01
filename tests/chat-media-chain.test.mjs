@@ -202,3 +202,46 @@ test('Code mode displays the current pope photo even when the Vatican historical
   const {host}=browser(t,data.text,data);
   assert.equal(host.querySelectorAll('img').length,1);
 });
+
+// MEL-CHAT-02: source and private reference survive resume; auth, Range,
+// error and duplicate are tested explicitly.
+test('image, sound, video and document keep source and private reference after resume; duplicates, auth, Range and errors are explicit', async () => {
+  const { storePrivateArtifact } = await import('../src/media/workers-ai-media-capabilities.js');
+  const objects = new Map(); let reads = 0;
+  const env = { MELITURGOS_USER: 'owner', MELITURGOS_PASSWORD: 'test-only',
+    MEL_MEDIA_ENCRYPTION_KEY_ID: 'fixture', MEL_MEDIA_ENCRYPTION_KEY_B64: Buffer.alloc(32, 17).toString('base64'),
+    MEDIA_BUCKET: { async put(key, bytes, options) { objects.set(key, { bytes, customMetadata: options.customMetadata }); },
+      async get(key) { reads++; const o = objects.get(key); return o ? { customMetadata: o.customMetadata, arrayBuffer: async () => o.bytes.buffer.slice(o.bytes.byteOffset, o.bytes.byteOffset + o.bytes.byteLength) } : null; } } };
+  const audio = await storePrivateArtifact(env, new Uint8Array(64).fill(7), { capability: 'media.audio.generate', model: 'fixture', mime: 'audio/wav', extension: 'wav' });
+  const origin = 'https://mel.example';
+  const toolResults = [
+    { status: 'SUCCEEDED', capability: 'media.audio.generate', result: { artifact: audio } },
+    { status: 'SUCCEEDED', capability: 'media.audio.generate', result: { artifact: audio } },
+    { status: 'SUCCEEDED', capability: 'web.media.search', result: { media: [
+      { type: 'image', url: 'https://upload.wikimedia.org/a.png', mime: 'image/png', source_url: 'https://commons.wikimedia.org/wiki/A' },
+      { type: 'video', url: 'https://upload.wikimedia.org/b.webm', mime: 'video/webm', source_url: 'https://commons.wikimedia.org/wiki/B' },
+      { type: 'document', url: 'https://example.org/c.pdf', mime: 'application/pdf', source_url: 'https://example.org/' },
+      { type: 'image', url: 'https://upload.wikimedia.org/a.png', mime: 'image/png' },
+    ] } },
+  ];
+  const first = collectChatMedia(toolResults, origin);
+  const resumed = collectChatMedia(JSON.parse(JSON.stringify(toolResults)), origin);
+  assert.deepEqual(resumed, first, 'a resume renders the same media');
+  assert.deepEqual(first.media.map(m => m.type), ['audio', 'image', 'video', 'document'], 'duplicates dropped');
+  const privateAudio = first.media[0];
+  assert.equal(privateAudio.private, true);
+  assert.equal(privateAudio.artifact_key, audio.key);
+  assert.deepEqual(first.media.slice(1).map(m => m.source_url), ['https://commons.wikimedia.org/wiki/A', 'https://commons.wikimedia.org/wiki/B', 'https://example.org/']);
+  const path = new URL(privateAudio.url, origin);
+  const req = (headers = {}, auth = true) => new Request(origin + path.pathname + path.search, { headers: { ...(auth ? { authorization: 'Basic ' + btoa('owner:test-only') } : {}), ...headers } });
+  const before = reads;
+  assert.equal((await worker.fetch(req({ range: 'bytes=0-3' }, false), env)).status, 401, 'auth before any read');
+  assert.equal(reads, before);
+  const partial = await worker.fetch(req({ range: 'bytes=0-3' }), env);
+  assert.equal(partial.status, 206);
+  assert.equal((await partial.arrayBuffer()).byteLength, 4);
+  assert.equal((await worker.fetch(req({ range: 'bytes=999-' }), env)).status, 416);
+  const missing = await worker.fetch(new Request(origin + '/api/media/generated?key=bad', { headers: { authorization: 'Basic ' + btoa('owner:test-only') } }), env);
+  assert.equal(missing.status, 400);
+  assert.equal((await missing.json()).code, 'MEDIA_ARTIFACT_KEY_INVALID');
+});
