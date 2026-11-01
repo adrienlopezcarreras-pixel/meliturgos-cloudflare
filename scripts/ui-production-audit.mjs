@@ -156,3 +156,30 @@ async function main() {
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch(error => { console.error(error.message); process.exit(1); });
 }
+
+// MEL-UI-AUDIT-03: bench for the activity panel. Collapsing, reopening,
+// scrolling and refreshing must lose NO event, and the waiting queue must be
+// shown apart from the active mission, whose counter never exceeds one.
+export function activityPanelVerdict(observation = {}) {
+  const problems = [];
+  const before = Array.isArray(observation.events_before) ? observation.events_before : [];
+  const after = Array.isArray(observation.events_after) ? observation.events_after : [];
+  const lost = before.filter(id => !after.includes(id));
+  if (lost.length) problems.push('EVENTS_LOST:' + lost.slice(0, 5).join(','));
+  // Waiting and active are two different things; conflating them hid the queue.
+  if (observation.waiting_shown_separately !== true) problems.push('WAITING_NOT_SHOWN_SEPARATELY');
+  const active = Number(observation.active_count ?? 0);
+  if (!Number.isInteger(active) || active < 0 || active > 1) problems.push('ACTIVE_COUNT_ABOVE_ONE');
+  return { action: String(observation.action || '?'), status: problems.length ? 'FAIL' : 'PASS', problems };
+}
+
+export const ACTIVITY_PANEL_ACTIONS = Object.freeze(['collapse', 'reopen', 'scroll', 'refresh']);
+
+export function activityPanelReport(observations = []) {
+  const rows = (Array.isArray(observations) ? observations : []).map(activityPanelVerdict);
+  const seen = new Set(rows.map(row => row.action));
+  const missing = ACTIVITY_PANEL_ACTIONS.filter(action => !seen.has(action));
+  return { schema: 'mel.ui-activity-panel-bench/v1', actions: rows, actions_missing: missing,
+    fail: rows.filter(row => row.status === 'FAIL').length,
+    conclusive: rows.length > 0 && missing.length === 0 && rows.every(row => row.status === 'PASS') };
+}

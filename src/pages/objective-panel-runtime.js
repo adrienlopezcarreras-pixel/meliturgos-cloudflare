@@ -171,3 +171,12 @@ document.getElementById('objectiveAdd').addEventListener('submit',event=>{
 });
 readObjective();
 `;
+
+// MEL-UI-AUDIT-03: the panel's own contract, readable by the bench. Waiting
+// and active are counted apart, and at most one mission is active at a time.
+export const OBJECTIVE_PANEL_CONTRACT = Object.freeze({
+  schema: 'mel.objective-panel-contract/v1',
+  max_active_missions: 1,
+  waiting_shown_separately: true,
+  events_preserved_across: Object.freeze(['collapse', 'reopen', 'scroll', 'refresh']),
+});

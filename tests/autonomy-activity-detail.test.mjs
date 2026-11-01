@@ -357,3 +357,25 @@ test('a verified roadmap acceptance receipt marks the objective proven in the pi
   const unproven = { ...job, result_json: { ...job.result_json, roadmap_code_acceptance: undefined } };
   assert.equal(pipeline(unproven).find(step => step.key === 'objective').done, false);
 });
+
+// MEL-UI-AUDIT-03: collapsing, reopening, scrolling and refreshing lose no
+// event; waiting and active are separate, with at most one active mission.
+test('MEL-UI-AUDIT-03: the activity panel bench loses no event and never shows two active missions', async () => {
+  const { activityPanelVerdict, activityPanelReport, ACTIVITY_PANEL_ACTIONS } = await import('../scripts/ui-production-audit.mjs');
+  const { OBJECTIVE_PANEL_CONTRACT } = await import('../src/pages/objective-panel-runtime.js');
+  assert.equal(OBJECTIVE_PANEL_CONTRACT.max_active_missions, 1);
+  assert.deepEqual([...OBJECTIVE_PANEL_CONTRACT.events_preserved_across], [...ACTIVITY_PANEL_ACTIONS]);
+
+  const ok = action => ({ action, events_before: ['e1', 'e2', 'e3'], events_after: ['e1', 'e2', 'e3', 'e4'],
+    waiting_shown_separately: true, active_count: 1 });
+  assert.deepEqual(activityPanelVerdict(ok('collapse')).problems, []);
+  assert.match(activityPanelVerdict({ ...ok('reopen'), events_after: ['e1'] }).problems[0], /^EVENTS_LOST:e2,e3$/);
+  assert.deepEqual(activityPanelVerdict({ ...ok('scroll'), waiting_shown_separately: false }).problems, ['WAITING_NOT_SHOWN_SEPARATELY']);
+  assert.deepEqual(activityPanelVerdict({ ...ok('refresh'), active_count: 2 }).problems, ['ACTIVE_COUNT_ABOVE_ONE']);
+  assert.deepEqual(activityPanelVerdict({ ...ok('refresh'), active_count: 0 }).problems, [], 'no mission active is legitimate');
+
+  assert.equal(activityPanelReport(ACTIVITY_PANEL_ACTIONS.map(ok)).conclusive, true);
+  const partial = activityPanelReport([ok('collapse')]);
+  assert.equal(partial.conclusive, false);
+  assert.deepEqual(partial.actions_missing, ['reopen', 'scroll', 'refresh']);
+});
