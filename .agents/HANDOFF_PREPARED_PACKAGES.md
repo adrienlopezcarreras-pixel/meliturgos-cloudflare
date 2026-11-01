@@ -32,9 +32,37 @@ branche `prepared-<id>` depuis main → `node scripts/prepare-mission.mjs MEL-<I
 | MANIFEST-10 | src/roadmap/manifest-01-acceptance.js (pris par MANIFEST-01)<br>tests/autonomy-readiness.test.mjs (pris par MANIFEST-01) |
 **Débloquer** : dès qu'une mission est PROMUE DANS MAIN, retirer son paquet (contenu == main) puis coder+préparer celles qui attendaient son fichier.
 
-## Branches déjà codées, à re-préparer après la preuve attendue
-- `claude/audit-02-impl` (attend AUDIT-06) — `claude/audit-03-impl` (attend AUDIT-05) — `claude/manifest-10-impl` (attend MANIFEST-01).
-- `git checkout claude/<id>-impl && git merge origin/main`, résoudre, `npm test` 0 failed, puis la procédure.
+## TOUT LE CODE RESTANT EST DÉJÀ ÉCRIT — 8 branches prêtes
+Aucune mission ne reste à coder. Les 8 dernières attendent seulement que leur fichier se libère.
+Dès qu'une mission est PROMUE DANS MAIN : retirer son paquet (contenu == main), puis pour chaque
+branche ci-dessous dont le blocage est levé :
+
+```
+git checkout claude/<id>-impl && git merge origin/main   # résoudre si conflit
+npm test                                                  # doit afficher " 0 failed"
+git checkout -B prepared-<id> origin/main
+node scripts/prepare-mission.mjs MEL-<ID> claude/<id>-impl "<résumé>"
+node --test tests/prepared-mission-packages.test.mjs      # 0 failed
+# PR REST + merge
+```
+
+| Branche | Mission | Attend la preuve de | Ce que le code fait |
+|---|---|---|---|
+| `claude/audit-02-impl` | AUDIT-02 | AUDIT-06 | Rapport d'audit persisté et dédupliqué, sans réparation hors roadmap |
+| `claude/audit-03-impl` | AUDIT-03 | AUDIT-05 | Chaque constat porte sa preuve durable (table + références) |
+| `claude/manifest-10-impl` | MANIFEST-10 | MANIFEST-01 | Lignes de compte séparant code livré / usage prouvé / acceptation externe |
+| `claude/manifest-03-impl` | MANIFEST-03 | MANIFEST-08 | `registerDeliveredSkill` : CI rouge, conflit de nom ou preuve absente bloquent l'enregistrement |
+| `claude/founder-03-impl` | FOUNDER-03 | MANIFEST-08 **et** MANIFEST-03 | Une capacité manquante autorisée ouvre UN objectif reprenable ; fermé seulement par une livraison vérifiée |
+| `claude/ui-audit-06-impl` | UI-AUDIT-06 | UI-AUDIT-07 | Banc des contrôles : reçu API réel, indisponibilité/refus, second clic ne double rien |
+| `claude/ui-audit-05-impl` | UI-AUDIT-05 | UI-AUDIT-07 | Banc hors ligne : offline / permission refusée / arrêt bloquent ; un double n'est jamais un test physique |
+| `claude/ui-audit-03-impl` | UI-AUDIT-03 | UI-AUDIT-07 **et** UI-AUDIT-04 | Banc du panneau d'activité : aucun événement perdu, attente séparée de l'active, compteur ≤ 1 |
+
+**Ordre imposé** : `claude/founder-03-impl` est construit SUR `claude/manifest-03-impl` (les deux
+partagent `capability-bus.js`, et FOUNDER-03 consomme `registerDeliveredSkill`). Préparer MANIFEST-03
+d'abord, le faire prouver, puis FOUNDER-03.
+
+Les trois branches UI touchent toutes `scripts/ui-production-audit.mjs` : les préparer UNE À LA FOIS,
+en attendant la preuve de la précédente. `prepare-mission` refusera les autres, c'est voulu.
 
 ## PREUVE ROADMAP — le vrai chantier restant
 La page affiche 176 points, 53 « Vérifié en production », le reste « Déclaré, sans preuve ».
