@@ -22,8 +22,37 @@ export function inferPresentationMode(userText) {
   return structured?'structured':'natural';
 }
 
-export function buildResponseQualityInstruction(userText) {
+// MEL-CHAT-07: a message often carries several asks ("corrige X, puis
+// déploie, et dis-moi Y") and may correct an earlier answer. Both must reach
+// the model explicitly, or the reply answers only the first ask.
+export function extractSubRequests(userText) {
+  const text=cleanText(userText);
+  if(!text) return [];
+  const parts=text
+    .split(/(?:\n+|[;?!]\s+|\.\s+|,?\s+(?:puis|ensuite|et\s+aussi|et\s+ensuite|apr[eè]s\s+[çc]a)\s+|\s+et\s+(?=(?:dis|donne|explique|v[ée]rifie|corrige|fais|lance|montre|regarde|ajoute|supprime|d[ée]ploie|teste)\b))/i)
+    .map(part=>cleanText(part).replace(/^[-*\d.)\s]+/,''))
+    .filter(part=>part.length>=3);
+  return parts.length>1?parts.slice(0,8):[];
+}
+
+export function latestUserCorrection(messages=[]) {
+  const rows=Array.isArray(messages)?messages:[];
+  for(let i=rows.length-1;i>=0;i--){
+    const row=rows[i];
+    if(row?.role!=='user') continue;
+    const text=cleanText(typeof row.content==='string'?row.content:'');
+    if(/^(?:non\b|pas\s+[çc]a|je\s+voulais\s+dire|en\s+fait\b|plut[ôo]t\b|correction\b|pardon\b|erreur\b|tu\s+t['’]es\s+tromp)|\b(?:ce\s+n['’]est\s+pas\s+ce\s+que|je\s+n['’]ai\s+pas\s+dit|corrige\s+toi)\b/i.test(text))
+      return text.slice(0,400);
+  }
+  return null;
+}
+
+export const EVIDENCE_RECIPE='RECETTE DE PREUVE : sépare explicitement FAITS (vérifiés par un outil de cette requête), HYPOTHÈSES (déduites, non vérifiées), REFUS (ce que tu ne feras pas et pourquoi) et SOURCES CONSULTÉES (outil, fichier ou URL réellement lus). Ne présente jamais une hypothèse comme un fait.';
+
+export function buildResponseQualityInstruction(userText, { history=[] }={}) {
   const mode=inferResponseMode(userText);
+  const subRequests=extractSubRequests(userText);
+  const correction=latestUserCorrection([...(Array.isArray(history)?history:[]),{role:'user',content:cleanText(userText)}]);
   const presentationMode=inferPresentationMode(userText);
   const modeRule=mode==='compact_status'
     ? 'MODE COMPACT_STATUS : réponds par le statut/conclusion dans la première phrase, puis 1 à 3 phrases utiles. Ne récite pas tout l’historique ni tous les sous-systèmes.'
@@ -54,6 +83,9 @@ export function buildResponseQualityInstruction(userText) {
     'Si une action est déjà exécutée par un outil, parle au présent ou au passé factuel; ne dis pas « je vais le faire ».',
     'Si une action est seulement mise en file ou en cours, ne dis jamais « c’est fait », « terminé » ou « déployé ».',
     'Garde un ton naturel, calme et conversationnel; évite les répétitions et les formulations mécaniques.',
+    ...(subRequests.length?['SOUS-DEMANDES À TRAITER TOUTES, dans l’ordre : '+subRequests.map((r,i)=>(i+1)+') '+r).join(' ')+'. N’en omets aucune; si une ne peut pas être faite, dis laquelle et pourquoi.']:[]),
+    ...(correction?['DERNIÈRE CORRECTION D’ADRIEN (prioritaire sur toute réponse antérieure) : « '+correction+' ».']:[]),
+    EVIDENCE_RECIPE,
     '[/MEL_RESPONSE_QUALITY]'
   ].join(' ');
 }

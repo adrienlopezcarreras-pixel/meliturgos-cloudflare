@@ -216,3 +216,19 @@ test('Normal interface evidence-aligner remains untouched unless Professor Code 
     toolResults:[],
   }),ordinaryText);
 });
+
+
+test('MEL-CHAT-07: every sub-request and the latest correction reach the quality guard with the evidence recipe', async () => {
+  const q = await import('../src/api/response-quality.js');
+  const ask = 'corrige le bouton pause, puis déploie et dis-moi le SHA';
+  assert.deepEqual(q.extractSubRequests(ask), ['corrige le bouton pause', 'déploie', 'dis-moi le SHA']);
+  assert.deepEqual(q.extractSubRequests('statut ?'), []);
+  const history = [{ role: 'user', content: 'lance la mission A' }, { role: 'assistant', content: 'Mission A lancée.' }, { role: 'user', content: 'non, je voulais dire la mission B' }];
+  assert.equal(q.latestUserCorrection(history), 'non, je voulais dire la mission B');
+  assert.equal(q.latestUserCorrection([{ role: 'user', content: 'merci' }]), null);
+  const instruction = q.buildResponseQualityInstruction(ask, { history });
+  assert.match(instruction, /SOUS-DEMANDES À TRAITER TOUTES.*1\) corrige le bouton pause.*2\) déploie.*3\) dis-moi le SHA/);
+  assert.match(instruction, /DERNIÈRE CORRECTION D’ADRIEN.*mission B/);
+  for (const part of ['FAITS', 'HYPOTHÈSES', 'REFUS', 'SOURCES CONSULTÉES']) assert.match(instruction, new RegExp(part));
+  assert.doesNotMatch(q.buildResponseQualityInstruction('ok'), /SOUS-DEMANDES|DERNIÈRE CORRECTION/);
+});
