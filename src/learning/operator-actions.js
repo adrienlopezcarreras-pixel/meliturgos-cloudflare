@@ -472,3 +472,25 @@ export async function prepareOperatorLora(env = {}, options = {}, deps = {}) {
     },
   };
 }
+
+// MEL-CHAT-06: one record per benchmark case (input, version, tools executed,
+// result, metrics) with its source. Only real model answers are scored;
+// fixtures and unavailable providers are counted apart, never averaged in.
+const BENCHMARK_SOURCES = new Set(['MODEL', 'FIXTURE', 'UNAVAILABLE']);
+export function benchmarkCaseRecord({ caseId, input, version, source, tools = [], result = null, metrics = {} } = {}) {
+  const kind = String(source || '').toUpperCase();
+  if (!BENCHMARK_SOURCES.has(kind)) throw Object.assign(new Error('BENCHMARK_CASE_SOURCE_INVALID'), { code: 'BENCHMARK_CASE_SOURCE_INVALID' });
+  if (!caseId || !version) throw Object.assign(new Error('BENCHMARK_CASE_IDENTITY_REQUIRED'), { code: 'BENCHMARK_CASE_IDENTITY_REQUIRED' });
+  const score = Number(metrics?.score);
+  return Object.freeze({ case_id: String(caseId), input: String(input ?? '').slice(0, 4000), version: String(version), source: kind,
+    tools: Object.freeze((Array.isArray(tools) ? tools : []).map(String).slice(0, 20)),
+    result: kind === 'UNAVAILABLE' ? null : (result == null ? null : String(result).slice(0, 4000)),
+    metrics: Object.freeze({ ...metrics, score: kind === 'MODEL' && Number.isFinite(score) ? score : null }) });
+}
+export function aggregateBenchmarkScore(records = []) {
+  const scored = records.filter(row => row?.source === 'MODEL' && Number.isFinite(row?.metrics?.score));
+  return Object.freeze({ overall: scored.length ? scored.reduce((sum, row) => sum + row.metrics.score, 0) / scored.length : null,
+    scored_cases: scored.length,
+    fixture_cases: records.filter(row => row?.source === 'FIXTURE').length,
+    unavailable_cases: records.filter(row => row?.source === 'UNAVAILABLE').length });
+}

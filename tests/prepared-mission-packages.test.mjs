@@ -37,3 +37,13 @@ test('a failed prepared package is not reapplied, but a revised one is', async (
   assert.match(source, /package_sha256: await sha256Hex\(JSON\.stringify\(pkg\.changes\)\)/);
   assert.match(source, /lastPrepared\?\.package_sha256 === candidatePackage\?\.proposal\?\.provenance\?\.package_sha256 \? null : candidatePackage/);
 });
+
+
+test('building a package over a file another pending package owns is refused', () => {
+  const source = fs.readFileSync('scripts/prepare-mission.mjs', 'utf8');
+  // The collision is caught where it is cheap, not in the candidate CI.
+  assert.match(source, /PREPARED_PACKAGE_FILE_COLLISION/);
+  assert.match(source, /PREPARE_ALLOW_COLLISION/);
+  // A package already identical to main is delivered and must not block.
+  assert.match(source, /base !== null && base === change\.content/);
+});
