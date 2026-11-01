@@ -4,7 +4,7 @@ import {assessRoadmapResponse,measureRoadmapProduction} from '../scripts/prove-p
 const sha='a'.repeat(40);
 const response=()=>{
  const ids=Array.from({length:176},(_,i)=>'POINT-'+i);
- const items=Object.fromEntries(ids.map((id,i)=>[id,{truth:i===0?'VERIFIED_LIVE':'UNPROVEN',...(i===0?{last_proof_at:'2026-11-01T20:00:00.000Z',proofs:[{kind:'capability',id:'code.read',ok:1}]}:{})}]));
+ const items=Object.fromEntries(ids.map((id,i)=>[id,{truth:i===0?'VERIFIED_LIVE':'UNPROVEN',...(i===0?{last_proof_at:new Date().toISOString(),proofs:[{kind:'capability',id:'code.read',ok:1}]}:{})}]));
  return {ok:true,phases:[{items:ids.map(id=>({id}))}],truth:{available:true,total:176,items}};
 };
 test('returns only counts and IDs, not private proof payloads',()=>{
@@ -41,4 +41,19 @@ test('rejects VERIFIED_LIVE without real successful dated receipts',()=>{
  assert.equal(assessRoadmapResponse(body,sha).code,'ROADMAP_PRODUCTION_VERIFIED_WITHOUT_RECEIPT');
  body=response();body.truth.items['POINT-0'].last_proof_at=null;
  assert.equal(assessRoadmapResponse(body,sha).code,'ROADMAP_PRODUCTION_RECEIPT_DATE_MISSING');
+});
+
+test('rejects stale and future-dated success receipts',()=>{
+ const now=Date.parse('2026-11-01T22:00:00Z');
+ let body=response();
+ body.truth.items['POINT-0'].last_proof_at=new Date(now-8*86400000).toISOString();
+ assert.equal(assessRoadmapResponse(body,sha,{now}).code,'ROADMAP_PRODUCTION_RECEIPT_OUTSIDE_WINDOW');
+ body=response();
+ body.truth.items['POINT-0'].last_proof_at=new Date(now+600000).toISOString();
+ assert.equal(assessRoadmapResponse(body,sha,{now}).code,'ROADMAP_PRODUCTION_RECEIPT_OUTSIDE_WINDOW');
+});
+test('rejects inconsistent precomputed truth counts',()=>{
+ const body=response();
+ body.truth.counts={VERIFIED_LIVE:176,PARTIAL_LIVE:0,BROKEN:0,UNPROVEN:0,DECLARED:0};
+ assert.equal(assessRoadmapResponse(body,sha).code,'ROADMAP_PRODUCTION_COUNTS_MISMATCH');
 });
