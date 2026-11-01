@@ -99,3 +99,30 @@ enregistrée dans `src/`, et le nombre de points sans preuve ne peut que baisser
 
 ## Hors périmètre de cette session
 Le mode UNCENSORED (chemin Venice) : câblage vérifié fonctionnel, mais je n'y touche plus et je ne lis plus ses sorties.
+
+## Notes pour qui reprend les 42 points sans preuve
+
+**Où la preuve est lue, exactement.** `capabilityEvidence()` dans `src/roadmap/roadmap-truth.js`
+interroge `audit_logs WHERE action='capability_bus' AND created_at > (maintenant - 7 jours)`,
+et compte `ok` / `ko` par capacité. Fenêtre : `ROADMAP_TRUTH_WINDOW_MS` = 7 jours.
+Conséquences :
+- Une capacité jamais appelée en 7 jours → le point passe `UNPROVEN` (« Jamais exécuté »), pas `VERIFIED_LIVE`.
+- Une capacité appelée mais en échec → `BROKEN` (« En échec »).
+- Il faut que TOUTES les capacités listées pour un point soient `ok > 0`, sinon c'est `PARTIAL_LIVE`.
+  Donc : lister deux capacités double l'exigence. Ne lister que ce qui prouve vraiment.
+
+**Le second chemin de preuve, à ne pas oublier.** `deliveredRoadmapEvidence()` prouve un point sans
+aucune entrée dans `ROADMAP_PROOF_SOURCES`, si MAX l'a livré avec un reçu `roadmap_code_acceptance`
+(Council + CI exact-SHA). Pour un point qui correspond à une mission à contrat, faire livrer la mission
+par MAX est souvent plus simple et plus solide que de lui chercher une capacité.
+
+**Le cliquet (`tests/roadmap-truth.test.mjs`).** Le test affirme `unproven.length <= 42`.
+Il empêche une régression, mais il ne descend pas tout seul : **baisser le nombre dans le test à chaque
+fois que le compte réel baisse**, sinon on peut silencieusement remonter jusqu'à 42.
+
+**Interface, Android, Windows.** Ne pas inventer un mécanisme parallèle : les recettes navigateur
+existent déjà (`scripts/ui-production-audit.mjs`, points UI-AUDIT-02/04/06/07). Un rapport n'est
+concluant que s'il est épinglé à un SHA de 40 caractères et couvre desktop + mobile (`releaseAuditReport`).
+
+**Règle de fond.** Un point dont rien ne prouve l'exécution doit rester « Déclaré, sans preuve ».
+C'est la vérité, et c'est ce qui rend le reste du tableau digne de confiance.
