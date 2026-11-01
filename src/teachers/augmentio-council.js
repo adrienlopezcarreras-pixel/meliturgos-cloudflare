@@ -347,7 +347,10 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
   const providerPool = pool || createDefaultAugmentioPool(env);
   await providerPool.refreshHealth();
   const governor = new ZeroEuroGovernor();
-  const authorized = providerPool.list({ capability }).filter(provider => governor.allows(provider));
+  // Only MEL's top models deliberate (two distinct ones), never the weak free
+  // models that cost neurons and add no signal. When the top models cool down,
+  // the Council waits for them instead of falling back to weak ones.
+  const authorized = preferTopModels(providerPool.list({ capability }).filter(provider => governor.allows(provider)), env, { min: 2 });
   const eligible = authorized.filter(provider => !excluded.has(provider.id));
   if (authorized.length >= minResponses && eligible.length < minResponses) {
     // This is a cooldown, not a fresh inference failure: no provider was
@@ -377,10 +380,6 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
     throw error;
   }
 
-  // Only MEL's top models deliberate (two distinct ones at least), never the
-  // weak free models that cost neurons and add no signal.
-  const topEligible = preferTopModels(eligible, env, { min: Math.min(2, eligible.length) });
-  eligible.splice(0, eligible.length, ...topEligible);
   const assignments = buildAssignments(eligible);
   const byMember = new Map(assignments.map(row => [row.memberId, row]));
   const councilContext = {
