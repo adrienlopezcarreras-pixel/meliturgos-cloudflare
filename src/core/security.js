@@ -101,6 +101,7 @@ const RELEASE_SMOKE_ALLOWLIST = Object.freeze(new Map([
   ['GET', new Set([
     '/api/v1/version',
     '/api/gen2/code/self-check',
+    '/api/gen2/roadmap',
     '/api/gen2/connections/google/status',
     '/api/gen2/connections/pipedream/status',
     '/api/gen2/connections/pipedream/accounts',
@@ -144,6 +145,7 @@ const PARALLEL_PROOF_ALLOWLIST = Object.freeze(new Map([
   ])],
   ['GET', new Set([
     '/api/gen2/code/self-check',
+    '/api/gen2/roadmap',
     // Read-only CapabilityBus inventory/health refresh for exact-SHA
     // downstream diagnostics. It returns bounded capability metadata only.
     '/api/gen2/capabilities',
