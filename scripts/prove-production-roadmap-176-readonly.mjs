@@ -27,8 +27,10 @@ export function assessRoadmapResponse(body,expectedSha,{now=Date.now()}={}) {
       }
       const delivery=result.proofs.length===1&&result.proofs[0].kind==='max-delivery';
       if(delivery){
-        // An accepted exact-SHA code job can prove an objective even if that
-        // objective ALSO has a runtime capability mapping (see roadmap-truth).
+        // Code that landed is not a live capability. A mapped objective still
+        // has to show the runtime or PC receipt named in ROADMAP_PROOF_SOURCES.
+        if(ROADMAP_PROOF_SOURCES[id])
+          return {ok:false,code:'ROADMAP_PRODUCTION_RECEIPT_SOURCE_MISMATCH'};
         const receipt=result.proofs[0];
         if(!/^full-candidate-ci#[0-9]+$/.test(receipt.id) ||
           !/^[0-9a-f]{40}$/i.test(String(receipt.candidate_sha||'')) ||

@@ -173,3 +173,13 @@ test('public capture exposes only fixed release provenance, never an owner pause
  await setAutonomyControl(db,{paused:true,source:'owner-ui',reason:'Private owner explanation'});
  c=await read();assert.equal(c.source,null);assert.equal(c.reason,null);assert.equal(c.max_remembered,false);
 }));
+
+test('public capture shows a rollback pause, still hides an owner message',()=>usingDb(async db=>{
+ await owner(db);
+ await setAutonomyControl(db,{paused:true,source:'release-rollback-restore',reason:'restore-predeploy-autonomy-state'});
+ const body=await (await maybeHandleAutonomyApi(new Request('https://mel.test/api/gen2/autonomy/control'),{DB:db})).json();
+ assert.equal(body.source,'release-rollback-restore');
+ assert.equal(body.reason,'restore-predeploy-autonomy-state');
+ assert.equal(body.max_remembered,true);
+ assert.equal(body.paused,true);
+}));

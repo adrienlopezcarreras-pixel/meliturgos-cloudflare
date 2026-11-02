@@ -30,8 +30,14 @@ export function isRollbackAutonomyPause(control) {
     && control?.reason === ROLLBACK_PAUSE_REASON;
 }
 
-// MAX resumes after a rollback whenever MAX was the owner's live choice. The
-// one and only exception is an owner stop, which is never auto-resumed.
+// An owner stop is the only pause MAX must not undo by itself.
+export function isOwnerAutonomyStop(control) {
+  return control?.source === 'owner-ui'
+    || control?.reason === 'owner-emergency-stop'
+    || control?.reason === 'owner-stop'
+    || control?.reason === 'owner-pause';
+}
+
 export function shouldResumeAfterRollback(control) {
   return isRollbackAutonomyPause(control) && control?.max_remembered === true;
 }
@@ -40,12 +46,14 @@ export function shouldResumeAfterRollback(control) {
 // is not theirs. The only stop that stays off is one they set by hand. The
 // short predeploy pause is left alone so a release can swap the Worker safely.
 // A missing source/reason still resumes when max_remembered is set: the public
-// control row can hide those labels, and a rollback must not strand MAX.
+// control row can hide those labels. A rollback pause also resumes when that
+// flag was wiped: a second rollback used to be treated as a protected stop.
 export function shouldRestoreOwnerMax(control) {
-  if (control?.paused !== true || control?.max_remembered !== true) return false;
+  if (control?.paused !== true) return false;
   if (control?.reason === 'predeploy-release-safety') return false;
-  if (control?.source === 'owner-ui' || control?.reason === 'owner-emergency-stop' || control?.reason === 'owner-stop') return false;
-  return true;
+  if (isOwnerAutonomyStop(control)) return false;
+  if (control?.max_remembered === true) return true;
+  return isRollbackAutonomyPause(control);
 }
 
 // A release suspends execution, not the owner's choice. Owner/safety stops
@@ -155,7 +163,9 @@ export async function setAutonomyControl(db, {
   }
   const releasePause = paused === true && ['release-predeploy-binder', 'release-launch-bootstrap', ROLLBACK_PAUSE_SOURCE].includes(source);
   const rollbackPause = paused === true && source === ROLLBACK_PAUSE_SOURCE;
-  const protectedPause = releasePause && current.paused === true && !isReleaseAutonomyPause(current);
+  // A release must not overwrite an owner stop. A previous rollback is not one:
+  // treating it as protected cleared max_remembered on 02/11.
+  const protectedPause = releasePause && current.paused === true && isOwnerAutonomyStop(current);
   const nextPaused = typeof paused === 'boolean' ? paused : current.paused === true;
   const requestedMax = typeof max_autonomy === 'boolean'
     ? max_autonomy

@@ -331,28 +331,46 @@ export async function executeBrowserStep(page, step, allowedOrigins) {
           }
         }).catch(() => {});
       }
-      await input.setInputFiles({
-        name: fileName,
-        mimeType,
-        buffer: bytes,
-      }, { timeout: ACTION_TIMEOUT_MS });
-      if (releaseFileProof && typeof input.evaluate === 'function') {
-        await input.evaluate((element, payload) => {
-          if (!element) return;
-          const missing = !element.files || element.files.length === 0;
-          if (missing && payload && typeof payload.text === 'string'
-            && typeof File === 'function' && typeof DataTransfer === 'function') {
-            try {
-              const file = new File([payload.text], String(payload.name || 'upload.txt'), { type: payload.mime || 'text/plain' });
-              const transfer = new DataTransfer();
-              transfer.items.add(file);
-              element.files = transfer.files;
-            } catch { /* the webdriver assignment already holds the file */ }
+      const proofFile = { name: fileName, mimeType, buffer: bytes };
+      // The full-mode input stays in an inactive panel. Cloudflare's
+      // setInputFiles then never reaches the page listener. Open that panel
+      // and use the real Joindre button, which is what fires the POST.
+      // A missing or non-200 response remains a hard failure below.
+      let deliveredByChooser = false;
+      if (releaseFileProof && selector === '#chatFileInput' && typeof page.waitForEvent === 'function') {
+        const nav = page.locator('#nav button[data-view="chat"]');
+        if (nav && typeof nav.click === 'function') await nav.click({ timeout: 4000 }).catch(() => {});
+        const attach = page.locator('#chatAttach');
+        if (attach && typeof attach.click === 'function') {
+          const chooserPromise = page.waitForEvent('filechooser', { timeout: 5000 }).catch(() => null);
+          const opened = await attach.click({ timeout: 4000 }).then(() => true, () => false);
+          const chooser = await chooserPromise;
+          if (opened && chooser && typeof chooser.setFiles === 'function') {
+            await chooser.setFiles(proofFile);
+            deliveredByChooser = true;
           }
-          if (!element.files || element.files.length === 0 || typeof element.dispatchEvent !== 'function') return;
-          element.dispatchEvent(new Event('input', { bubbles: true }));
-          element.dispatchEvent(new Event('change', { bubbles: true }));
-        }, { text: step.file_text, name: fileName, mime: mimeType }).catch(() => {});
+        }
+      }
+      if (!deliveredByChooser) {
+        await input.setInputFiles(proofFile, { timeout: ACTION_TIMEOUT_MS });
+        if (releaseFileProof && typeof input.evaluate === 'function') {
+          await input.evaluate((element, payload) => {
+            if (!element) return;
+            const missing = !element.files || element.files.length === 0;
+            if (missing && payload && typeof payload.text === 'string'
+              && typeof File === 'function' && typeof DataTransfer === 'function') {
+              try {
+                const file = new File([payload.text], String(payload.name || 'upload.txt'), { type: payload.mime || 'text/plain' });
+                const transfer = new DataTransfer();
+                transfer.items.add(file);
+                element.files = transfer.files;
+              } catch { /* the webdriver assignment already holds the file */ }
+            }
+            if (!element.files || element.files.length === 0 || typeof element.dispatchEvent !== 'function') return;
+            element.dispatchEvent(new Event('input', { bubbles: true }));
+            element.dispatchEvent(new Event('change', { bubbles: true }));
+          }, { text: step.file_text, name: fileName, mime: mimeType }).catch(() => {});
+        }
       }
       const uploadOutcome = uploadResponse ? await uploadResponse : null;
       if (uploadResponse && (uploadOutcome?.status !== 200 || !uploadOutcome?.accepted)) {
