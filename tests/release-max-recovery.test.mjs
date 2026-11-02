@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
-import { getAutonomyControl, setAutonomyControl, rememberedReleaseMax } from '../src/evolution/autonomy-control.js';
+import { getAutonomyControl, setAutonomyControl, rememberedReleaseMax, shouldResumeAfterRollback } from '../src/evolution/autonomy-control.js';
 import { maybeHandleAutonomyApi } from '../src/evolution/autonomy-api.js';
 import { maybeHandleReleaseLaunchBootstrap } from '../src/evolution/release-launch-bootstrap.js';
 import { tryAcquireAutonomyRuntimeLease, releaseAutonomyRuntimeLease } from '../src/evolution/autonomy-runtime-lease.js';
@@ -133,8 +133,15 @@ test('owner and safety pauses before or during readiness dominate every automati
   await setAutonomyControl(db,{paused:true,source:'owner-ui',reason:'owner-emergency-stop'});return ready(SHA);
  }}),error=>error.code==='AUTONOMY_CONTROL_CHANGED');
  c=await getAutonomyControl(db);assert.equal(c.reason,'owner-emergency-stop');assert.equal(c.max_autonomy,false);
- await setAutonomyControl(db,{paused:true,source:'release-rollback-restore',reason:'rollback-safety'});
- await pause(db,true);c=await getAutonomyControl(db);assert.equal(c.reason,'rollback-safety');assert.equal(c.max_remembered,false);
+ // Un retour arrière automatique ne peut pas écraser un arrêt d'urgence du
+ // propriétaire : le coupe-circuit domine, et MAX ne redémarre jamais tant que
+ // c'est le propriétaire qui l'a arrêté (02/11 : la reprise auto après retour
+ // arrière ne s'applique qu'au retour arrière lui-même, pas à un arrêt humain).
+ await setAutonomyControl(db,{paused:true,source:'release-rollback-restore',reason:'restore-predeploy-autonomy-state'});
+ c=await getAutonomyControl(db);
+ assert.equal(c.reason,'owner-emergency-stop','l\'arrêt propriétaire domine le retour arrière');
+ assert.equal(c.max_remembered,false);
+ assert.equal(shouldResumeAfterRollback(c),false,'un arrêt propriétaire ne repart jamais via un retour arrière');
 }));
 
 test('cancelled outcome is explicitly recoverable, never a grant to start MAX',()=>{

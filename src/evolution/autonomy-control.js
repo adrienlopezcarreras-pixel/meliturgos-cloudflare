@@ -8,11 +8,39 @@ export function isReleaseAutonomyPause(control) {
     && ['predeploy-release-safety', 'NEW_RELEASE_AWAITING_OWNER_LAUNCH'].includes(control.reason);
 }
 
+// A rollback MUST stop MAX while the Worker code is swapped under it: the
+// release workflow refuses to roll back without proving that paused state.
+// What it must not do is destroy the owner's choice. Before 02/11 the rollback
+// source was not recognised here, so max_remembered was wiped and MAX could
+// only come back by hand — a failed smoke probe left MEL stopped all night.
+// The pause stays; only the owner's intent now survives it.
+export const ROLLBACK_PAUSE_SOURCE = 'release-rollback-restore';
+export const ROLLBACK_PAUSE_REASON = 'restore-predeploy-autonomy-state';
+// A failed release rolls MAX back; MAX then resumes by itself. The only stop
+// that is never auto-resumed is one the OWNER sets by hand — their kill switch
+// must always win (MEL-SEC-04). The deploy pipeline (CI + Council review +
+// production smoke) already stops bad CODE from sticking, so resuming on the
+// restored, previously-good version cannot ship anything the Council refused.
+// rollback_count is kept for observability (how many times in a row), not as a
+// stop: the owner asked that MAX always come back unless they stop it.
+
+export function isRollbackAutonomyPause(control) {
+  return control?.paused === true
+    && control?.source === ROLLBACK_PAUSE_SOURCE
+    && control?.reason === ROLLBACK_PAUSE_REASON;
+}
+
+// MAX resumes after a rollback whenever MAX was the owner's live choice. The
+// one and only exception is an owner stop, which is never auto-resumed.
+export function shouldResumeAfterRollback(control) {
+  return isRollbackAutonomyPause(control) && control?.max_remembered === true;
+}
+
 // A release suspends execution, not the owner's choice. Owner/safety stops
 // clear that choice; rollback is a safety stop, never an automatic resume.
 export function rememberedReleaseMax(control) {
   return (control?.paused !== true && control?.max_autonomy === true)
-    || (isReleaseAutonomyPause(control) && control?.max_remembered === true);
+    || ((isReleaseAutonomyPause(control) || isRollbackAutonomyPause(control)) && control?.max_remembered === true);
 }
 
 // Technical release pauses may update the row several times without changing
@@ -27,6 +55,7 @@ function defaultControl({ paused = false, source = 'default', reason = null } = 
     paused: paused === true,
     max_autonomy: false,
     max_remembered: false,
+    rollback_count: 0,
     owner_override: false,
     status: paused === true ? 'PAUSED' : 'RUNNING',
     updated_at: null,
@@ -77,6 +106,7 @@ export async function getAutonomyControl(db, { memoryState = null } = {}) {
     owner_override: maxAutonomy,
     // MAX chosen by the owner, kept while a pause (e.g. a release) is in force.
     max_remembered: metadata.max_remembered === true || storedMaxAutonomy,
+    rollback_count: Number(metadata.rollback_count || 0),
     status: paused ? 'PAUSED' : (maxAutonomy ? 'MAX_AUTONOMY' : 'RUNNING'),
     updated_at: metadata.updated_at ?? row.last_seen ?? null,
     owner_control_version: ownerControlVersion({ ...metadata, updated_at: metadata.updated_at ?? row.last_seen }),
@@ -111,7 +141,8 @@ export async function setAutonomyControl(db, {
   if (expected_updated_at !== undefined && current.updated_at !== expected_updated_at) {
     throw Object.assign(new Error('AUTONOMY_CONTROL_CHANGED'), { code: 'AUTONOMY_CONTROL_CHANGED', status: 409 });
   }
-  const releasePause = paused === true && ['release-predeploy-binder', 'release-launch-bootstrap'].includes(source);
+  const releasePause = paused === true && ['release-predeploy-binder', 'release-launch-bootstrap', ROLLBACK_PAUSE_SOURCE].includes(source);
+  const rollbackPause = paused === true && source === ROLLBACK_PAUSE_SOURCE;
   const protectedPause = releasePause && current.paused === true && !isReleaseAutonomyPause(current);
   const nextPaused = typeof paused === 'boolean' ? paused : current.paused === true;
   const requestedMax = typeof max_autonomy === 'boolean'
@@ -124,6 +155,11 @@ export async function setAutonomyControl(db, {
     max_autonomy: nextMax,
     max_remembered: nextMax || (releasePause && !protectedPause && rememberedReleaseMax(current)),
     owner_override: nextMax,
+    // Counts consecutive rollbacks so a flaky release probe cannot loop. Any
+    // state the owner sets by hand clears it, because they have looked.
+    rollback_count: rollbackPause
+      ? Number(current.rollback_count || 0) + 1
+      : (String(source || '') === 'owner-ui' || nextMax === true ? 0 : Number(current.rollback_count || 0)),
     status: nextPaused ? 'PAUSED' : (nextMax ? 'MAX_AUTONOMY' : 'RUNNING'),
     updated_at: updatedAt,
     owner_control_version: releasePause ? ownerControlVersion(current) : updatedAt,
