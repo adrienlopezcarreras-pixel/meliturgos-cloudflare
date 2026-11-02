@@ -84,4 +84,6 @@ test('MAX receipt requires exact CI run, full SHA and job identifier',()=>{
  const wrap=proof=>({available:true,total:1,items:{x:{truth:'VERIFIED_LIVE',last_proof_at:'2026-11-02T09:00:00.000Z',proofs:[proof]}}});
  assert.throws(()=>createCompleteEvidenceLedger(items,{},wrap({kind:'max-delivery',id:'full-candidate-ci#42',ok:1,candidate_sha:'abc',job_id:'job'})),/ROADMAP_DELIVERY_RECEIPT_INVALID/);
  assert.equal(createCompleteEvidenceLedger(items,{},wrap({kind:'max-delivery',id:'full-candidate-ci#42',ok:1,candidate_sha:'f'.repeat(40),job_id:'job'})).summary.verified_live,1);
+ const mapped=[{id:'x',title:'X',status:'DONE_VERIFIED',priority:'P1'}];
+ assert.throws(()=>createCompleteEvidenceLedger(mapped,{x:{capabilities:['code.read']}},wrap({kind:'max-delivery',id:'full-candidate-ci#42',ok:1,candidate_sha:'f'.repeat(40),job_id:'job'})),/ROADMAP_RECEIPT_SOURCE_MISMATCH/);
 });

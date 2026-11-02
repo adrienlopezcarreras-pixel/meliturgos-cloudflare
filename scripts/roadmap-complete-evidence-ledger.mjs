@@ -27,6 +27,7 @@ export function createCompleteEvidenceLedger(items = flattenRoadmap(), sources =
       }
       const delivered = proofs.length === 1 && proofs[0].kind === 'max-delivery';
       if (delivered) {
+        if (hasRuntimeMapping) throw new Error('ROADMAP_RECEIPT_SOURCE_MISMATCH: '+item.id);
         const p = proofs[0];
         if (!/^full-candidate-ci#[0-9]+$/.test(p.id) ||
             !/^[a-f0-9]{40}$/i.test(String(p.candidate_sha || '')) ||
