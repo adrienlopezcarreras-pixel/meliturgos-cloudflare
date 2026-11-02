@@ -144,6 +144,13 @@ test('MAX repart seul après un retour arrière, jamais après un arrêt propri�
   // Mais le choix du propriétaire survit, au lieu d'être détruit, et MAX repart.
   assert.equal(rollback.max_remembered, true, 'le choix MAX du propriétaire survit au retour arrière');
   assert.equal(c.shouldResumeAfterRollback(rollback), true, 'MAX repart seul après un retour arrière');
+  const again = await c.setAutonomyControl(null, {
+    memoryState: state, paused: true, max_autonomy: false,
+    source: c.ROLLBACK_PAUSE_SOURCE, reason: c.ROLLBACK_PAUSE_REASON,
+  });
+  assert.equal(again.max_remembered, true, 'un second retour arrière ne détruit pas le choix');
+  assert.equal(c.shouldRestoreOwnerMax({ ...again, max_remembered: false }), true,
+    'un retour arrière dont le drapeau a été effacé repart quand même');
 
   // Même après de nombreux retours arrière, MAX repart toujours : la seule
   // chose qui l'arrête, c'est le propriétaire.
@@ -163,7 +170,13 @@ test('MAX repart seul après un retour arrière, jamais après un arrêt propri�
     paused: true, max_remembered: true, source: 'release-launch-bootstrap', reason: 'NEW_RELEASE_AWAITING_OWNER_LAUNCH',
   }), true, 'une release terminée relance MAX si le propriétaire l’avait choisi');
   assert.equal(c.shouldRestoreOwnerMax({
+    paused: true, max_remembered: true, source: null, reason: null,
+  }), true, 'un choix MAX conservé sans libellé de pause repart quand même');
+  assert.equal(c.shouldRestoreOwnerMax({
     paused: true, max_remembered: true, source: 'release-predeploy-binder', reason: 'predeploy-release-safety',
   }), false, 'la pause courte de déploiement n’est pas une reprise');
   assert.equal(c.shouldRestoreOwnerMax(ownerStop), false);
+  assert.equal(c.shouldRestoreOwnerMax({
+    paused: true, max_remembered: true, source: 'owner-ui', reason: 'owner-emergency-stop',
+  }), false, 'le coupe-circuit propriétaire gagne même si le choix MAX est encore noté');
 });

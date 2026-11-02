@@ -299,29 +299,78 @@ export async function executeBrowserStep(page, step, allowedOrigins) {
           }).catch(() => null)
         : null;
       const input = page.locator(selector);
-      // Professor chat lives in a hidden view until the user opens Conversation.
-      // A file input there accepts the proof file but does not emit change, so
-      // the real upload never starts. Show that view, then send change once.
+      // Professor's file input is `hidden` inside a display:none chat view.
+      // Cloudflare Browser Rendering then keeps the proof file off the element
+      // and does not emit change, so the real listener never POSTs. Reveal the
+      // control first. A non-200 upload is still a hard failure below.
       if (typeof input.evaluate === 'function') {
         await input.evaluate(element => {
-          let node = element;
+          if (!element) return;
+          try { element.hidden = false; } catch { /* older DOM */ }
+          if (typeof element.removeAttribute === 'function') element.removeAttribute('hidden');
+          const style = element.style;
+          if (style && typeof style.setProperty === 'function') {
+            style.setProperty('display', 'block', 'important');
+            style.setProperty('visibility', 'visible', 'important');
+            style.setProperty('opacity', '1', 'important');
+            style.setProperty('position', 'fixed', 'important');
+            style.setProperty('inset', '0 auto auto 0', 'important');
+            style.setProperty('width', '64px', 'important');
+            style.setProperty('height', '24px', 'important');
+            style.setProperty('z-index', '2147483646', 'important');
+          }
+          let node = element.parentElement;
           while (node) {
-            if (node.classList && node.classList.contains('view')) node.classList.add('active');
+            if (node.classList && node.classList.contains('view') && typeof node.classList.add === 'function') {
+              node.classList.add('active');
+            }
+            if (typeof node.removeAttribute === 'function' && node.hasAttribute && node.hasAttribute('hidden')) {
+              node.removeAttribute('hidden');
+            }
             node = node.parentElement;
           }
         }).catch(() => {});
       }
-      await input.setInputFiles({
-        name: fileName,
-        mimeType,
-        buffer: bytes,
-      }, { timeout: ACTION_TIMEOUT_MS });
-      if (releaseFileProof && typeof input.evaluate === 'function') {
-        await input.evaluate(element => {
-          if (!element?.files?.length) return;
-          element.dispatchEvent(new Event('input', { bubbles: true }));
-          element.dispatchEvent(new Event('change', { bubbles: true }));
-        }).catch(() => {});
+      const proofFile = { name: fileName, mimeType, buffer: bytes };
+      // The full-mode input stays in an inactive panel. Cloudflare's
+      // setInputFiles then never reaches the page listener. Open that panel
+      // and use the real Joindre button, which is what fires the POST.
+      // A missing or non-200 response remains a hard failure below.
+      let deliveredByChooser = false;
+      if (releaseFileProof && selector === '#chatFileInput' && typeof page.waitForEvent === 'function') {
+        const nav = page.locator('#nav button[data-view="chat"]');
+        if (nav && typeof nav.click === 'function') await nav.click({ timeout: 4000 }).catch(() => {});
+        const attach = page.locator('#chatAttach');
+        if (attach && typeof attach.click === 'function') {
+          const chooserPromise = page.waitForEvent('filechooser', { timeout: 5000 }).catch(() => null);
+          const opened = await attach.click({ timeout: 4000 }).then(() => true, () => false);
+          const chooser = await chooserPromise;
+          if (opened && chooser && typeof chooser.setFiles === 'function') {
+            await chooser.setFiles(proofFile);
+            deliveredByChooser = true;
+          }
+        }
+      }
+      if (!deliveredByChooser) {
+        await input.setInputFiles(proofFile, { timeout: ACTION_TIMEOUT_MS });
+        if (releaseFileProof && typeof input.evaluate === 'function') {
+          await input.evaluate((element, payload) => {
+            if (!element) return;
+            const missing = !element.files || element.files.length === 0;
+            if (missing && payload && typeof payload.text === 'string'
+              && typeof File === 'function' && typeof DataTransfer === 'function') {
+              try {
+                const file = new File([payload.text], String(payload.name || 'upload.txt'), { type: payload.mime || 'text/plain' });
+                const transfer = new DataTransfer();
+                transfer.items.add(file);
+                element.files = transfer.files;
+              } catch { /* the webdriver assignment already holds the file */ }
+            }
+            if (!element.files || element.files.length === 0 || typeof element.dispatchEvent !== 'function') return;
+            element.dispatchEvent(new Event('input', { bubbles: true }));
+            element.dispatchEvent(new Event('change', { bubbles: true }));
+          }, { text: step.file_text, name: fileName, mime: mimeType }).catch(() => {});
+        }
       }
       const uploadOutcome = uploadResponse ? await uploadResponse : null;
       if (uploadResponse && (uploadOutcome?.status !== 200 || !uploadOutcome?.accepted)) {
