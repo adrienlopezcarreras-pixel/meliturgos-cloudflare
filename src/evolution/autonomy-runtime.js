@@ -1,7 +1,7 @@
 import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { runAutonomyRuntimeTick as runCoreAutonomyRuntimeTick, autonomyTickAdvanced, currentAutonomyRepository } from './autonomy-runtime-core.js';
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
-import { getAutonomyControl, setOwnerMaxAutonomy, shouldResumeAfterRollback } from './autonomy-control.js';
+import { getAutonomyControl, setOwnerMaxAutonomy, shouldRestoreOwnerMax } from './autonomy-control.js';
 import { AutonomySupervisor, selectActionableAutonomyJob, selectActionableAutonomyJobs, setRuntimeRoadmapRegressions, listAutonomySchedulerJobs } from './autonomy-supervisor.js';
 import { activeRoadmapRegressions } from '../roadmap/roadmap-regressions.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
@@ -755,7 +755,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   // it stopped until a human clicks is the opposite of autonomy. Bounded by
   // rollback_count so a flaky release probe cannot loop for ever, and an
   // owner stop is never touched.
-  if (shouldResumeAfterRollback(control) && env?.DB) {
+  if (shouldRestoreOwnerMax(control) && env?.DB) {
     control = await setOwnerMaxAutonomy(env.DB, {
       enabled: true,
       paused: false,

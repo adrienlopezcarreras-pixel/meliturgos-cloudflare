@@ -298,11 +298,31 @@ export async function executeBrowserStep(page, step, allowedOrigins) {
             return { status, accepted, code };
           }).catch(() => null)
         : null;
-      await page.locator(selector).setInputFiles({
+      const input = page.locator(selector);
+      // Professor chat lives in a hidden view until the user opens Conversation.
+      // A file input there accepts the proof file but does not emit change, so
+      // the real upload never starts. Show that view, then send change once.
+      if (typeof input.evaluate === 'function') {
+        await input.evaluate(element => {
+          let node = element;
+          while (node) {
+            if (node.classList && node.classList.contains('view')) node.classList.add('active');
+            node = node.parentElement;
+          }
+        }).catch(() => {});
+      }
+      await input.setInputFiles({
         name: fileName,
         mimeType,
         buffer: bytes,
       }, { timeout: ACTION_TIMEOUT_MS });
+      if (releaseFileProof && typeof input.evaluate === 'function') {
+        await input.evaluate(element => {
+          if (!element?.files?.length) return;
+          element.dispatchEvent(new Event('input', { bubbles: true }));
+          element.dispatchEvent(new Event('change', { bubbles: true }));
+        }).catch(() => {});
+      }
       const uploadOutcome = uploadResponse ? await uploadResponse : null;
       if (uploadResponse && (uploadOutcome?.status !== 200 || !uploadOutcome?.accepted)) {
         const status = uploadOutcome?.status || 408;

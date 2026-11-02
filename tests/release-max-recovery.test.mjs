@@ -47,7 +47,7 @@ test('successful release with MAX deliberately off does not remember an automati
  await owner(db,false);await pause(db);await pause(db,true);
  assert.equal(rememberedReleaseMax(await getAutonomyControl(db)),false);
  const workflow=readFileSync(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
- assert.match(workflow,/const maxAutonomy=rememberedReleaseMax\(d\)/);
+ assert.match(workflow,/const maxAutonomy=rememberedReleaseMax\(d\) \|\| d\.max_remembered===true/);
  assert.match(workflow,/if: success\(\) && \(env.OWNER_MAX_AUTORELEASE == 'true' \|\| env.PREVIOUS_MAX_AUTONOMY == 'true'\)/);
 }));
 

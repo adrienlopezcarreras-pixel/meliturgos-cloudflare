@@ -442,7 +442,9 @@ jobs:
           if(typeof d?.paused!=='boolean' || typeof d?.max_autonomy!=='boolean') throw new Error('PREDEPLOY_AUTONOMY_CONTROL_INVALID');
           const paused=d.paused===true;
           const reportedMax=d.max_autonomy===true;
-          const maxAutonomy=rememberedReleaseMax(d);
+          // max_autonomy is false while paused. The owner's choice is max_remembered,
+          // including after a rollback whose source is not shown on the public API.
+          const maxAutonomy=rememberedReleaseMax(d) || d.max_remembered===true;
           if(paused&&reportedMax){
             console.log('Legacy contradictory autonomy control normalized fail-safe: PAUSED=true, MAX=false.');
           }

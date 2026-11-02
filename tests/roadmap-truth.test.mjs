@@ -147,3 +147,30 @@ test('a newer execution failure revokes an older VERIFIED_LIVE proof',async()=>{
  assert.equal(truth.items['MEL-CODE-01'].truth,'VERIFIED_LIVE');
  d.close();
 });
+
+test('D1 counts more than 500 successful multi-step computer commands without dropping late actions', async () => {
+  const d = await db();
+  const plan = JSON.stringify({steps:[{action:'cursor.move'},{action:'pointer.click'}]});
+  for(let i=0;i<505;i++){
+    await d.prepare('INSERT INTO computer_commands VALUES(?,?,?,?,?,?,?,?,?,?)')
+      .bind('all-steps-'+i,'pc','session',plan,'SUCCEEDED',now-3000-i,null,now-1000-i,'{}',null).run();
+  }
+  const truth = await computeRoadmapTruth(d,[{items:[{id:'GEN2-30'}]}],{now});
+  const pointer = truth.items['GEN2-30'].proofs.find(p=>p.id==='pointer.click');
+  assert.equal(pointer.ok,505,'all 505 successful secondary steps must be counted');
+  d.close();
+});
+
+test('a failed multi-step computer command does not falsely mark later planned steps as executed', async () => {
+  const d = await db();
+  const plan = JSON.stringify({steps:[{action:'keyboard.type'},{action:'pointer.click'}]});
+  await d.prepare('INSERT INTO computer_commands VALUES(?,?,?,?,?,?,?,?,?,?)')
+    .bind('failed-sequence','pc','session',plan,'FAILED',now-3000,null,now-1000,'{}','PC_COMMAND_FAILED').run();
+  const truth = await computeRoadmapTruth(d,[{items:[{id:'GEN2-30'}]}],{now});
+  const pointer = truth.items['GEN2-30'].proofs.find(p=>p.id==='pointer.click');
+  const firstAction = truth.items['GEN2-30'].proofs.find(p=>p.id==='keyboard.type');
+  assert.equal(pointer?.ok ?? 0,0);
+  assert.equal(pointer?.ko ?? 0,0,'unreached second step must not be treated as a failure');
+  assert.equal(firstAction.ko,1);
+  d.close();
+});

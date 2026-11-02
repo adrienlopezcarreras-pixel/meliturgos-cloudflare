@@ -154,30 +154,28 @@ async function capabilityEvidence(db, since) {
 
 async function computerEvidence(db, since) {
   try {
+    // All successful steps count, not just the first step or the first 500
+    // commands. A failed command only proves failure of the first action:
+    // subsequent planned steps may not have been executed.
     const rows = (await db.prepare(
-      `SELECT json_extract(plan_json,'$.steps[0].action') AS action,
-              SUM(status='SUCCEEDED') AS ok, SUM(status='FAILED') AS ko,
-              MAX(CASE WHEN status='SUCCEEDED' THEN finished_at END) AS last_ok,
-              MAX(CASE WHEN status='FAILED' THEN finished_at END) AS last_ko,
-              MAX(CASE WHEN status='FAILED' THEN error_code END) AS error
-         FROM computer_commands WHERE created_at > ? GROUP BY action`
+      `SELECT json_extract(step.value,'$.action') AS action,
+              SUM(c.status='SUCCEEDED') AS ok,
+              SUM(c.status='FAILED' AND CAST(step.key AS INTEGER)=0) AS ko,
+              MAX(CASE WHEN c.status='SUCCEEDED' THEN c.finished_at END) AS last_ok,
+              MAX(CASE WHEN c.status='FAILED' AND CAST(step.key AS INTEGER)=0 THEN c.finished_at END) AS last_ko,
+              MAX(CASE WHEN c.status='FAILED' AND CAST(step.key AS INTEGER)=0 THEN c.error_code END) AS error
+         FROM computer_commands AS c
+         JOIN json_each(c.plan_json,'$.steps') AS step
+         WHERE c.created_at > ?
+           AND (c.status='SUCCEEDED' OR (c.status='FAILED' AND CAST(step.key AS INTEGER)=0))
+           AND json_extract(step.value,'$.action') IS NOT NULL
+         GROUP BY action`
     ).bind(since).all())?.results || [];
-    // Multi-step commands (cursor.move + pointer.click) record their first step; count every step action too.
-    const steps = (await db.prepare(
-      `SELECT plan_json, status, finished_at FROM computer_commands WHERE created_at > ? AND status='SUCCEEDED' AND json_array_length(json_extract(plan_json,'$.steps')) > 1 LIMIT 500`
-    ).bind(since).all())?.results || [];
-    const map = new Map(rows.map(r => [String(r.action), { ok: Number(r.ok || 0), ko: Number(r.ko || 0), last_ok: r.last_ok ? Number(r.last_ok) : null, last_ko: r.last_ko ? Number(r.last_ko) : null, error: r.error || null }]));
-    for (const row of steps) {
-      let plan = null;
-      try { plan = JSON.parse(row.plan_json); } catch {}
-      for (const step of Array.isArray(plan?.steps) ? plan.steps.slice(1) : []) {
-        const entry = map.get(String(step?.action)) || { ok: 0, ko: 0, last_ok: null, last_ko: null, error: null };
-        entry.ok += 1;
-        entry.last_ok = Math.max(entry.last_ok || 0, Number(row.finished_at || 0)) || entry.last_ok;
-        map.set(String(step?.action), entry);
-      }
-    }
-    return map;
+    return new Map(rows.map(r => [String(r.action), {
+      ok: Number(r.ok || 0), ko: Number(r.ko || 0),
+      last_ok: r.last_ok ? Number(r.last_ok) : null,
+      last_ko: r.last_ko ? Number(r.last_ko) : null, error: r.error || null
+    }]));
   } catch {
     return new Map();
   }
