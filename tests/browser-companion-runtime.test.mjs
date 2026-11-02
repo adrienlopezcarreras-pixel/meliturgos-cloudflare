@@ -258,7 +258,7 @@ test('MEL-FILE proof fails closed when browser response observation is unavailab
   assert.equal(uploadAttempted, false);
 });
 
-test('full-mode file proof uses the real attach button and still requires the upload response', async () => {
+test('full-mode file proof calls the page upload and still requires the upload response', async () => {
   let inputUploads = 0;
   const page = {
     url: () => 'https://example.com/professor',
@@ -269,13 +269,20 @@ test('full-mode file proof uses the real attach button and still requires the up
         resolve({ status:()=>200, json:async()=>({ ok:true, id:'proof-id', name:'mel-file-full-proof.txt' }) });
       }; });
     },
-    waitForEvent(name) {
-      if (name !== 'filechooser') throw new Error('unexpected event');
-      return Promise.resolve({ setFiles: async () => page.onUpload() });
+    async evaluate(fn, payload) {
+      const previous = { window: globalThis.window, document: globalThis.document, File: globalThis.File };
+      globalThis.window = { melUploadChatFiles: async () => { page.onUpload(); } };
+      globalThis.document = { querySelectorAll: () => [] };
+      globalThis.File = class File { constructor(bits, name, opts){ this.bits=bits; this.name=name; this.type=opts?.type; } };
+      try { return await fn(payload); }
+      finally {
+        globalThis.window = previous.window;
+        globalThis.document = previous.document;
+        globalThis.File = previous.File;
+      }
     },
     locator(selector) {
       if (selector === '#nav button[data-view="chat"]') return { click: async () => {} };
-      if (selector === '#chatAttach') return { click: async () => {} };
       return { setInputFiles: async () => { inputUploads += 1; } };
     },
   };
@@ -286,6 +293,35 @@ test('full-mode file proof uses the real attach button and still requires the up
   assert.equal(result.kind, 'upload');
   assert.equal(result.file_name, 'mel-file-full-proof.txt');
   assert.equal(inputUploads, 0);
+});
+
+test('full-mode file proof still fails when the page upload is not acknowledged', async () => {
+  const page = {
+    url: () => 'https://example.com/professor',
+    waitForResponse(predicate) {
+      return new Promise(resolve => { this.onUpload = () => {
+        predicate({ url:()=> 'https://example.com/api/files/upload', request:()=>({ method:()=> 'POST' }) });
+        resolve({ status:()=>200, json:async()=>({ ok:true, name:'mel-file-full-proof.txt' }) });
+      }; });
+    },
+    async evaluate(fn, payload) {
+      const previous = { window: globalThis.window, document: globalThis.document, File: globalThis.File };
+      globalThis.window = { melUploadChatFiles: async () => { page.onUpload(); } };
+      globalThis.document = { querySelectorAll: () => [] };
+      globalThis.File = class File { constructor() {} };
+      try { return await fn(payload); }
+      finally {
+        globalThis.window = previous.window;
+        globalThis.document = previous.document;
+        globalThis.File = previous.File;
+      }
+    },
+    locator() { return { click: async () => {}, setInputFiles: async () => {} }; },
+  };
+  await assert.rejects(executeBrowserStep(page, {
+    id:'proof', action:'browser.upload-file', selector:'#chatFileInput',
+    file_name:'mel-file-full-proof.txt', file_text:'MEL_FILE_FULL_PROOF_abc',
+  }, ['https://example.com']), { code: 'BROWSER_UPLOAD_API_NOT_ACKNOWLEDGED' });
 });
 
 test('hidden professor file input still posts when setInputFiles emits no change', async () => {
