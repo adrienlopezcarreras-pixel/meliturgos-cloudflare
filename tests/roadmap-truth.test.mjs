@@ -149,12 +149,11 @@ test('every proof source names a real roadmap item and real registered capabilit
   }
 });
 
-test('the roadmap items that still have no proof source are only the ones no capability can prove', async () => {
+test('every historical DONE_VERIFIED item now has a runtime proof source', async () => {
   const { ROADMAP_PROOF_SOURCES } = await import('../src/roadmap/roadmap-truth.js');
   const { flattenRoadmap } = await import('../src/roadmap/master-roadmap.js');
   const unproven = flattenRoadmap().filter(item => !ROADMAP_PROOF_SOURCES[item.id] && item.status === 'DONE_VERIFIED');
-  // A ratchet: this count may go down as proofs are added, never silently up.
-  assert.ok(unproven.length <= 24, `${unproven.length} items DONE_VERIFIED sans preuve (régression)`);
+  assert.deepEqual(unproven.map(item => item.id), []);
 });
 
 test('a newer execution failure revokes an older VERIFIED_LIVE proof',async()=>{

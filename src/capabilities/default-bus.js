@@ -18,6 +18,7 @@ import { buildMelIdentityPrompt, MEL_IDENTITY } from '../identity/mel-persona.js
 import { systemPrompt } from '../identity/identity.js';
 import { councilOperationalCatalog } from '../council/operational-catalog.js';
 import { computeRoadmapTruth } from '../roadmap/roadmap-truth.js';
+import { registerDeclaredRoadmapProofs } from '../roadmap/declared-roadmap-proofs.js';
 import { createCompleteEvidenceLedger } from '../../scripts/roadmap-complete-evidence-ledger.mjs';
 import { CapabilityBus } from './capability-bus.js';
 import { registerGitHubCodeCapabilities } from './github-code-capabilities.js';
@@ -998,5 +999,6 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   registerEventBusCapabilities(bus, { db: runtimeEnv.DB });
   registerSkillRegistryCapabilities(bus, { env: runtimeEnv });
   registerSelfAuditCapabilities(bus, runtimeEnv);
+  registerDeclaredRoadmapProofs(bus);
   return bus;
 }
