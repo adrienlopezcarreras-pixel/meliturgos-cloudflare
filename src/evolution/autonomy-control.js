@@ -36,6 +36,17 @@ export function shouldResumeAfterRollback(control) {
   return isRollbackAutonomyPause(control) && control?.max_remembered === true;
 }
 
+// The owner asked for one rule: MAX comes back by itself after a release or a
+// rollback. The only stop that stays off is one they set by hand. The short
+// predeploy pause is left alone so a release can swap the Worker safely.
+export function shouldRestoreOwnerMax(control) {
+  if (control?.paused !== true || control?.max_remembered !== true) return false;
+  if (control?.reason === 'predeploy-release-safety') return false;
+  if (control?.source === 'owner-ui' || control?.reason === 'owner-emergency-stop' || control?.reason === 'owner-stop') return false;
+  return shouldResumeAfterRollback(control)
+    || (isReleaseAutonomyPause(control) && control.reason === 'NEW_RELEASE_AWAITING_OWNER_LAUNCH');
+}
+
 // A release suspends execution, not the owner's choice. Owner/safety stops
 // clear that choice; rollback is a safety stop, never an automatic resume.
 export function rememberedReleaseMax(control) {

@@ -158,4 +158,12 @@ test('MAX repart seul après un retour arrière, jamais après un arrêt propri�
 
   // Un retour arrière sans MAX avant ne réveille rien.
   assert.equal(c.shouldResumeAfterRollback({ ...rollback, max_remembered: false }), false);
+  assert.equal(c.shouldRestoreOwnerMax(rollback), true);
+  assert.equal(c.shouldRestoreOwnerMax({
+    paused: true, max_remembered: true, source: 'release-launch-bootstrap', reason: 'NEW_RELEASE_AWAITING_OWNER_LAUNCH',
+  }), true, 'une release terminée relance MAX si le propriétaire l’avait choisi');
+  assert.equal(c.shouldRestoreOwnerMax({
+    paused: true, max_remembered: true, source: 'release-predeploy-binder', reason: 'predeploy-release-safety',
+  }), false, 'la pause courte de déploiement n’est pas une reprise');
+  assert.equal(c.shouldRestoreOwnerMax(ownerStop), false);
 });
