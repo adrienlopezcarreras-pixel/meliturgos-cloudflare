@@ -48,9 +48,12 @@ export function inventoryControls(html) {
   const escape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const reference = id => new RegExp(`(#${escape(id)}\\b|getElementById\\(['"]${escape(id)}['"]\\))`);
   const controls = [];
+  const seenControlIds = new Set();
   for (const match of source.matchAll(/<button\b([^>]*)>/g)) {
     const id = match[1].match(/\bid="([^"]+)"/)?.[1];
     if (!id) continue;
+    const duplicate_id = seenControlIds.has(id);
+    seenControlIds.add(id);
     let via = null, at = script.search(reference(id));
     if (at >= 0) via = 'script';
     else if (/\btype="submit"/.test(match[1])) {
@@ -58,7 +61,7 @@ export function inventoryControls(html) {
       if (form && (at = script.search(reference(form))) >= 0) via = 'form';
     }
     const handler = at >= 0 ? script.slice(at, at + 700) : '';
-    controls.push({ id, handled: via !== null, via,
+    controls.push({ id, duplicate_id, handled: via !== null, via,
       api: [...new Set([...handler.matchAll(/['"](\/api\/[A-Za-z0-9/_.-]+)/g)].map(m => m[1]))].slice(0, 6),
       mutating: /method:\s*['"](?:POST|PUT|PATCH|DELETE)['"]/i.test(handler) });
   }
@@ -70,9 +73,32 @@ export function inventoryControls(html) {
 // PASS otherwise. No unauthorized mutation is ever performed.
 export function controlReceipt(controls = [], { jsErrors = [] } = {}) {
   const rows = controls.map(control => ({ id: control.id, api: control.api,
-    status: !control.handled || jsErrors.length ? 'FAIL' : control.mutating ? 'BLOCKED' : 'PASS' }));
+    status: !control.handled || control.duplicate_id || jsErrors.length ? 'FAIL' : control.mutating ? 'BLOCKED' : 'PASS' }));
   const count = status => rows.filter(row => row.status === status).length;
   return { schema: 'mel.ui-control-receipt/v1', controls: rows, pass: count('PASS'), fail: count('FAIL'), blocked: count('BLOCKED'), mutations_performed: 0 };
+}
+
+// MEL-UI-AUDIT-02: browser recipe of the chat and media journeys. Each step
+// (send, stream, interrupt, resume, attachment) must keep the requested mode
+// and the references, and its render must say RESULT or ERROR — an error is
+// never shown as a result.
+export const CHAT_JOURNEY_STEPS = ['send', 'stream', 'interrupt', 'resume', 'attachment'];
+export function chatJourneyReceipt(steps = []) {
+  const rows = CHAT_JOURNEY_STEPS.map(step => {
+    const seen = (Array.isArray(steps) ? steps : []).find(row => row?.step === step);
+    if (!seen) return { step, status: 'BLOCKED', reason: 'NOT_OBSERVED' };
+    const problems = [];
+    if (seen.requested_mode && seen.mode !== seen.requested_mode) problems.push('MODE_LOST');
+    const sent = (seen.sent_references || []).map(ref => ref?.url || ref);
+    const kept = new Set((seen.references || []).map(ref => ref?.url || ref));
+    if (sent.some(ref => !kept.has(ref))) problems.push('REFERENCE_LOST');
+    if (!['RESULT', 'ERROR', 'PARTIAL_ERROR'].includes(seen.outcome)) problems.push('OUTCOME_UNMARKED');
+    if (seen.failed === true && seen.outcome === 'RESULT') problems.push('ERROR_RENDERED_AS_RESULT');
+    if (seen.archived_outcome && seen.archived_outcome !== seen.outcome) problems.push('ARCHIVE_OUTCOME_MISMATCH');
+    return { step, status: problems.length ? 'FAIL' : 'PASS', problems };
+  });
+  const count = status => rows.filter(row => row.status === status).length;
+  return { schema: 'mel.ui-chat-journey/v1', steps: rows, pass: count('PASS'), fail: count('FAIL'), blocked: count('BLOCKED') };
 }
 
 export async function observe(browser, baseUrl, headers, path, panel) {

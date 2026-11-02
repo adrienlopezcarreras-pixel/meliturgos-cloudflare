@@ -83,17 +83,32 @@ function symbolWords(value) {
     .split(/[^a-z0-9]+/).filter(word => word.length > 2)
     .map(word => word.replace(/ies$/, 'y'));
 }
-function sourceRelevance(path, needle, words) {
+// MEL-CHAT-05: a query that looks like a code symbol (camelCase, snake_case,
+// or a plain identifier) is answered by source, not by prose. Ranking on the
+// path alone buried a symbol whose file name shares no word with it under
+// dozens of tied documentation files, outside the 24-file bound, and the
+// search then reported an absence it had never looked for.
+const DOC_PATH = /(?:^|\/)(?:docs?|documentation|\.agents)\//i;
+const DOC_EXT = /\.(?:md|markdown|mdx|txt|rst|adoc)$/i;
+export function looksLikeSymbol(query) {
+  const value = String(query || '').trim();
+  return value.length >= 3 && !/\s/.test(value) && /^[A-Za-z_$][A-Za-z0-9_$.]*$/.test(value);
+}
+function sourceRelevance(path, needle, words, { symbolQuery = false } = {}) {
   const lower = path.toLowerCase();
   if (lower === needle) return 20000;
   if (lower.includes(needle)) return 10000;
   const parts = symbolWords(path), basename = symbolWords(path.split('/').at(-1));
+  const documentation = DOC_PATH.test(path) || DOC_EXT.test(path);
   let score = path.startsWith('src/') ? 1 : 0;
   for (const word of words) {
     if (basename.includes(word)) score += 6;
     else if (parts.includes(word)) score += 2;
     else if (lower.includes(word)) score += 1;
   }
+  // Documentation never outranks source for a symbol query: a prose mention
+  // is not a definition, and it must not consume the read bound.
+  if (symbolQuery && documentation) score -= 1000;
   return score;
 }
 
@@ -169,14 +184,16 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
     const files = snapshot.files.filter(inScope);
     const skippedLarge = snapshot.largeFiles.filter(inScope).length;
     const words = [...new Set(symbolWords(queryText))].filter(word => !/^(?:create|register|default|handle|build|infer|function|const|export)$/.test(word)).slice(0,8);
-    const selected = files.map((file,index) => ({...file,index,score:sourceRelevance(file.path,needle,words)}))
+    const symbolQuery = looksLikeSymbol(queryText);
+    const selected = files.map((file,index) => ({...file,index,score:sourceRelevance(file.path,needle,words,{symbolQuery})}))
       .sort((a,b) => b.score-a.score || a.index-b.index).slice(0,MAX_SEARCH_FILES);
     const matches = [];
     let searched = 0, failed = 0;
+    const failedPaths = [];
     for (const file of selected) {
       if (matches.length >= MAX_MATCHES) break;
       let source;
-      try { source = await read(file.path); searched++; } catch { failed++; continue; }
+      try { source = await read(file.path); searched++; } catch (error) { failed++; if (failedPaths.length < 10) failedPaths.push({ path: file.path, code: String(error?.code || 'CODE_READ_FAILED').slice(0, 80) }); continue; }
       const lines = source.content.split(/\r?\n/);
       for (let i = 0; i < lines.length && matches.length < MAX_MATCHES; i++) {
         if (!lines[i].toLowerCase().includes(needle)) continue;
@@ -184,9 +201,13 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
       }
     }
     const limitReached = files.length > MAX_SEARCH_FILES || matches.length >= MAX_MATCHES;
-    return {query:String(query),path:prefix,matches,searched_files:searched,failed_files:failed,candidate_files:files.length,
+    return {query:String(query),path:prefix,matches,searched_files:searched,failed_files:failed,failed_paths:failedPaths,candidate_files:files.length,
       skipped_large_files:skippedLarge,tree_complete:snapshot.complete,limit_reached:limitReached,
       search_complete:snapshot.complete && !limitReached && !failed && !skippedLarge,
+      // Absence is a conclusion only when the whole scope was really read.
+      // Anything skipped, truncated or cut by the bound keeps it unproven.
+      absence_conclusive:matches.length === 0 && snapshot.complete && !limitReached && !failed && !skippedLarge,
+      symbol_query:symbolQuery,
       source_ref:contentRef,branch:ref,repository:repo};
   }
 
@@ -304,9 +325,18 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
   return { read, search, head, approvedSnapshot, health, paths, repository: repo, branch: ref, content_ref: contentRef, pinned_sha: pinned || null };
 }
 
+// MEL-CHAT-04: the chat capability cites the exact lines a full read covered
+// and the pinned ref, so a diagnosis names what was really read. The reader's
+// own complete-file contract is unchanged.
+function citedRead(result, reader) {
+  if (Number.isInteger(result?.start_line)) return result;
+  const total = String(result?.content || '').split(/\r?\n/).length;
+  return { ...result, start_line: 1, end_line: total, total_lines: total, partial: false, source_ref: reader.content_ref || result.branch };
+}
+
 export function registerGitHubCodeCapabilities(bus, options = {}) {
   const reader = createGitHubCodeReader(options);
-  bus.discover({ id: 'code.read', name: 'GitHub code read', category: 'development', version: '1.2.0', provider: 'github', description: 'Read non-secret MEL source; optional 1-based start_line/end_line selects up to 200 lines from a large file. Partial reads do not prove inspection of the whole file.', input_schema: { type: 'object', properties: { path: { type: 'string', minLength: 1, maxLength: 1000 }, start_line:{type:'integer',minimum:1}, end_line:{type:'integer',minimum:1} }, required: ['path'], additionalProperties: false }, output_schema: { type: 'object', properties: { start_line:{type:'integer'}, end_line:{type:'integer'}, total_lines:{type:'integer'}, partial:{type:'boolean'}, source_ref:{type:'string'}, path: { type: 'string', minLength: 1, maxLength: 1000 }, content: { type: 'string', minLength: 0, maxLength: MAX_FILE_BYTES }, sha: { type: 'string', minLength: 0, maxLength: 300 }, branch: { type: 'string', minLength: 1, maxLength: 200 }, repository: { type: 'string', minLength: 1, maxLength: 200 } }, required: ['path','content','sha','branch','repository'], additionalProperties: false }, risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true }, input => reader.read(input.path, input), () => reader.health());
-  bus.discover({ id: 'code.search', name: 'GitHub code search', category: 'development', version: '1.2.0', provider: 'github', description: 'Search up to 24 non-secret MEL source files, ranked by symbol/path relevance. Inspect search_complete, tree_complete and skipped/failed counts before concluding absence.', input_schema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 300 }, path: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['query'], additionalProperties: false }, output_schema: { type: 'object', properties: { failed_files:{type:'integer'}, candidate_files:{type:'integer'}, skipped_large_files:{type:'integer'}, tree_complete:{type:'boolean'}, limit_reached:{type:'boolean'}, search_complete:{type:'boolean'}, source_ref:{type:'string'}, query: { type: 'string', minLength: 1, maxLength: 300 }, path: { type: 'string', minLength: 0, maxLength: 1000 }, matches: { type: 'array', items: { type: 'object', properties: { path: { type: 'string', minLength: 1, maxLength: 1000 }, line: { type: 'integer' }, excerpt: { type: 'string', minLength: 0, maxLength: 500 } }, required: ['path','line','excerpt'], additionalProperties: false } }, searched_files: { type: 'integer' }, branch: { type: 'string', minLength: 1, maxLength: 200 }, repository: { type: 'string', minLength: 1, maxLength: 200 } }, required: ['query','path','matches','searched_files','branch','repository'], additionalProperties: false }, risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true }, input => reader.search(input), () => reader.health());
+  bus.discover({ id: 'code.read', name: 'GitHub code read', category: 'development', version: '1.2.0', provider: 'github', description: 'Read non-secret MEL source; optional 1-based start_line/end_line selects up to 200 lines from a large file. Partial reads do not prove inspection of the whole file.', input_schema: { type: 'object', properties: { path: { type: 'string', minLength: 1, maxLength: 1000 }, start_line:{type:'integer',minimum:1}, end_line:{type:'integer',minimum:1} }, required: ['path'], additionalProperties: false }, output_schema: { type: 'object', properties: { start_line:{type:'integer'}, end_line:{type:'integer'}, total_lines:{type:'integer'}, partial:{type:'boolean'}, source_ref:{type:'string'}, path: { type: 'string', minLength: 1, maxLength: 1000 }, content: { type: 'string', minLength: 0, maxLength: MAX_FILE_BYTES }, sha: { type: 'string', minLength: 0, maxLength: 300 }, branch: { type: 'string', minLength: 1, maxLength: 200 }, repository: { type: 'string', minLength: 1, maxLength: 200 } }, required: ['path','content','sha','branch','repository'], additionalProperties: false }, risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true }, async input => citedRead(await reader.read(input.path, input), reader), () => reader.health());
+  bus.discover({ id: 'code.search', name: 'GitHub code search', category: 'development', version: '1.3.0', provider: 'github', description: 'Search up to 24 non-secret MEL source files, ranked by symbol/path relevance; documentation never outranks source for a symbol query. Inspect search_complete, tree_complete and skipped/failed counts before concluding absence.', input_schema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 300 }, path: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['query'], additionalProperties: false }, output_schema: { type: 'object', properties: { failed_files:{type:'integer'}, failed_paths:{type:'array',items:{type:'object',properties:{path:{type:'string',minLength:1,maxLength:1000},code:{type:'string',minLength:1,maxLength:80}},required:['path','code'],additionalProperties:false}}, candidate_files:{type:'integer'}, skipped_large_files:{type:'integer'}, tree_complete:{type:'boolean'}, limit_reached:{type:'boolean'}, search_complete:{type:'boolean'}, absence_conclusive:{type:'boolean'}, symbol_query:{type:'boolean'}, source_ref:{type:'string'}, query: { type: 'string', minLength: 1, maxLength: 300 }, path: { type: 'string', minLength: 0, maxLength: 1000 }, matches: { type: 'array', items: { type: 'object', properties: { path: { type: 'string', minLength: 1, maxLength: 1000 }, line: { type: 'integer' }, excerpt: { type: 'string', minLength: 0, maxLength: 500 } }, required: ['path','line','excerpt'], additionalProperties: false } }, searched_files: { type: 'integer' }, branch: { type: 'string', minLength: 1, maxLength: 200 }, repository: { type: 'string', minLength: 1, maxLength: 200 } }, required: ['query','path','matches','searched_files','branch','repository'], additionalProperties: false }, risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true }, input => reader.search(input), () => reader.health());
   return reader;
 }

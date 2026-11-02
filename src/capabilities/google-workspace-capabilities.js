@@ -66,7 +66,11 @@ async function requestJson(fetchImpl, token, url, { method = 'GET', body, code =
     });
   } catch (cause) {
     const kind = String(cause?.name || '');
-    throw error(code + (kind === 'TimeoutError' || kind === 'AbortError' ? '_TIMEOUT' : '_NETWORK'), 503);
+    // MEL-CHAT-08: a timeout on a non-GET call is not a failure to retry
+    // blindly — the write may already have been applied upstream.
+    throw Object.assign(
+      error(code + (kind === 'TimeoutError' || kind === 'AbortError' ? '_TIMEOUT' : '_NETWORK'), 503),
+      { retryable: method === 'GET', action_may_have_run: method !== 'GET' });
   }
   if (response.status === 401 || response.status === 403) {
     await response.body?.cancel?.();
@@ -74,7 +78,8 @@ async function requestJson(fetchImpl, token, url, { method = 'GET', body, code =
   }
   if (response.status === 429) {
     await response.body?.cancel?.();
-    throw error(code + '_RATE_LIMITED', 503);
+    // Quota refused the call outright: nothing ran, so this one is safe to retry.
+    throw Object.assign(error(code + '_RATE_LIMITED', 503), { retryable: true, action_may_have_run: false });
   }
   if (!response.ok) {
     await response.body?.cancel?.();

@@ -1,7 +1,7 @@
 import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { runAutonomyRuntimeTick as runCoreAutonomyRuntimeTick, autonomyTickAdvanced, currentAutonomyRepository } from './autonomy-runtime-core.js';
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
-import { getAutonomyControl, setOwnerMaxAutonomy } from './autonomy-control.js';
+import { getAutonomyControl, setOwnerMaxAutonomy, shouldResumeAfterRollback } from './autonomy-control.js';
 import { AutonomySupervisor, selectActionableAutonomyJob, selectActionableAutonomyJobs, setRuntimeRoadmapRegressions, listAutonomySchedulerJobs } from './autonomy-supervisor.js';
 import { activeRoadmapRegressions } from '../roadmap/roadmap-regressions.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
@@ -750,6 +750,20 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   let control = await getAutonomyControl(env?.DB, { memoryState: options.autonomyControlState || null });
   const repository = options.repository || (env?.DB ? new D1DevJobRepository(env.DB) : null);
   const survival = await readSurvivalState(env?.DB).catch(() => ({ active: false }));
+  // A rollback stopped MAX to swap the Worker code safely. Once that is done
+  // and MAX was the owner's live choice, MEL starts again by itself: leaving
+  // it stopped until a human clicks is the opposite of autonomy. Bounded by
+  // rollback_count so a flaky release probe cannot loop for ever, and an
+  // owner stop is never touched.
+  if (shouldResumeAfterRollback(control) && env?.DB) {
+    control = await setOwnerMaxAutonomy(env.DB, {
+      enabled: true,
+      paused: false,
+      source: 'rollback-auto-resume',
+      reason: 'MAX_RESTORED_AFTER_ROLLBACK',
+      memoryState: options.autonomyControlState || null,
+    });
+  }
   if (shouldResumeForSurvival(control, survival) && env?.DB) {
     control = await setOwnerMaxAutonomy(env.DB, {
       enabled: true,

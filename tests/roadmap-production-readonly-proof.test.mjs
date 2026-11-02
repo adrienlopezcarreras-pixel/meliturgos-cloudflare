@@ -1,0 +1,86 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {assessRoadmapResponse,measureRoadmapProduction} from '../scripts/prove-production-roadmap-176-readonly.mjs';
+const sha='a'.repeat(40);
+const response=()=>{
+ const ids=Array.from({length:176},(_,i)=>i===0?'MEL-CODE-01':'POINT-'+i);
+ const items=Object.fromEntries(ids.map((id,i)=>[id,{truth:i===0?'VERIFIED_LIVE':'UNPROVEN',...(i===0?{last_proof_at:new Date().toISOString(),proofs:[{kind:'capability',id:'code.read',ok:1}]}:{})}]));
+ return {ok:true,phases:[{items:ids.map(id=>({id}))}],truth:{available:true,total:176,items}};
+};
+test('returns only counts and IDs, not private proof payloads',()=>{
+ const result=assessRoadmapResponse(response(),sha);
+ assert.equal(result.ok,true);
+ assert.equal(result.verified_live,1);
+ assert.equal(result.remaining.length,175);
+ assert.equal(result.coverage_percent,0.6);
+ assert.equal(result.deployed_sha,sha);
+ assert.ok(!JSON.stringify(result).includes('proofs'));
+});
+test('fails closed for missing D1, omitted item or inconsistent counts',()=>{
+ let body=response();body.truth.available=false;
+ assert.equal(assessRoadmapResponse(body,sha).ok,false);
+ body=response();delete body.truth.items['POINT-1'];
+ assert.equal(assessRoadmapResponse(body,sha).ok,false);
+ body=response();body.truth.total=175;
+ assert.equal(assessRoadmapResponse(body,sha).ok,false);
+});
+test('probe performs exactly three GET requests and checks SHA both ends',async()=>{
+ const calls=[];
+ const fetchImpl=async(url,opts)=>{calls.push({url,opts});return {status:200,json:async()=>url.endsWith('self-check')?{ok:true,exact_deployment_identity_known:true,deployed_sha:sha}:response()};};
+ const result=await measureRoadmapProduction({token:'proof',expectedSha:sha,fetchImpl});
+ assert.equal(result.ok,true);
+ assert.equal(calls.length,3);
+ assert.ok(calls.every(c=>c.opts.method==='GET'));
+ assert.ok(calls[1].url.endsWith('/api/gen2/roadmap'));
+});
+
+test('rejects VERIFIED_LIVE without real successful dated receipts',()=>{
+ let body=response();body.truth.items['MEL-CODE-01'].proofs=[];
+ assert.equal(assessRoadmapResponse(body,sha).code,'ROADMAP_PRODUCTION_VERIFIED_WITHOUT_RECEIPT');
+ body=response();body.truth.items['MEL-CODE-01'].proofs[0].ok=0;
+ assert.equal(assessRoadmapResponse(body,sha).code,'ROADMAP_PRODUCTION_VERIFIED_WITHOUT_RECEIPT');
+ body=response();body.truth.items['MEL-CODE-01'].last_proof_at=null;
+ assert.equal(assessRoadmapResponse(body,sha).code,'ROADMAP_PRODUCTION_RECEIPT_DATE_MISSING');
+});
+
+test('rejects stale and future-dated success receipts',()=>{
+ const now=Date.parse('2026-11-01T22:00:00Z');
+ let body=response();
+ body.truth.items['MEL-CODE-01'].last_proof_at=new Date(now-8*86400000).toISOString();
+ assert.equal(assessRoadmapResponse(body,sha,{now}).code,'ROADMAP_PRODUCTION_RECEIPT_OUTSIDE_WINDOW');
+ body=response();
+ body.truth.items['MEL-CODE-01'].last_proof_at=new Date(now+600000).toISOString();
+ assert.equal(assessRoadmapResponse(body,sha,{now}).code,'ROADMAP_PRODUCTION_RECEIPT_OUTSIDE_WINDOW');
+});
+test('rejects inconsistent precomputed truth counts',()=>{
+ const body=response();
+ body.truth.counts={VERIFIED_LIVE:176,PARTIAL_LIVE:0,BROKEN:0,UNPROVEN:0,DECLARED:0};
+ assert.equal(assessRoadmapResponse(body,sha).code,'ROADMAP_PRODUCTION_COUNTS_MISMATCH');
+});
+
+test('rejects success attributed to an unrelated or missing capability',()=>{
+ let body=response();
+ body.truth.items['MEL-CODE-01'].proofs[0].id='unrelated.success';
+ assert.equal(assessRoadmapResponse(body,sha).code,'ROADMAP_PRODUCTION_RECEIPT_SOURCE_MISMATCH');
+ body=response();
+ body.truth.items['MEL-CODE-01'].proofs.push({kind:'capability',id:'extra',ok:1});
+ assert.equal(assessRoadmapResponse(body,sha).code,'ROADMAP_PRODUCTION_RECEIPT_SOURCE_MISMATCH');
+});
+test('unmapped objectives need an accepted exact SHA delivery receipt',()=>{
+ let body=response();
+ body.truth.items['POINT-1']={truth:'VERIFIED_LIVE',last_proof_at:new Date().toISOString(),proofs:[{kind:'capability',id:'echo',ok:1}]};
+ assert.equal(assessRoadmapResponse(body,sha).code,'ROADMAP_PRODUCTION_RECEIPT_SOURCE_MISMATCH');
+ body.truth.items['POINT-1'].proofs=[{kind:'max-delivery',id:'full-candidate-ci#41059036430',job_id:'job-1',candidate_sha:sha,ok:1}];
+ assert.equal(assessRoadmapResponse(body,sha).ok,true);
+});
+
+test('accepted exact-SHA code receipt can prove a mapped roadmap item',()=>{
+ const body=response();
+ body.truth.items['MEL-CODE-01']={
+   truth:'VERIFIED_LIVE',last_proof_at:new Date().toISOString(),
+   proofs:[{kind:'max-delivery',id:'full-candidate-ci#41059036430',job_id:'job-01',candidate_sha:sha,ok:1}]
+ };
+ assert.equal(assessRoadmapResponse(body,sha).ok,true);
+ body.truth.items['MEL-CODE-01'].proofs[0].candidate_sha='invalid';
+ assert.equal(assessRoadmapResponse(body,sha).code,'ROADMAP_PRODUCTION_RECEIPT_SOURCE_MISMATCH');
+});

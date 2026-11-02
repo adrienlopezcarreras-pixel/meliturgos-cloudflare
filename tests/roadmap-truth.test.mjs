@@ -31,7 +31,7 @@ test('roadmap status comes from real production executions, not from the declare
   assert.equal(truth.items['MEL-AUG-01'].truth, 'BROKEN');
   assert.equal(truth.items['MEL-AUG-01'].proofs[0].error, 'NO_ZERO_COST_PROVIDER_AVAILABLE');
   assert.equal(truth.items['GEN2-05'].truth, 'UNPROVEN', 'a 10-day-old success is not current proof');
-  assert.equal(truth.items['GEN2-02'].truth, 'DECLARED', 'no automatic proof defined');
+  assert.equal(truth.items['GEN2-02'].truth, 'UNPROVEN', 'registered verifier without production run is not certification');
   assert.equal(truth.items['GEN2-30'].proofs.find(p => p.id === 'pointer.click').ok, 1, 'second step of a multi-step PC command counts');
   assert.ok(truth.verified_live_percent < 100, 'the real percentage is no longer 100 %');
   assert.equal(truth.counts.VERIFIED_LIVE + truth.counts.PARTIAL_LIVE + truth.counts.BROKEN + truth.counts.UNPROVEN + truth.counts.DECLARED, truth.total);
@@ -94,4 +94,56 @@ test('a MAX-delivered objective with a verified acceptance receipt is proven; an
   assert.equal(truth.items['MEL-FOUNDER-01'].truth, 'VERIFIED_LIVE');
   assert.equal(truth.items['MEL-FOUNDER-01'].proofs[0].id, 'full-candidate-ci#41076058090');
   assert.notEqual(truth.items['MEL-FOUNDER-04'].truth, 'VERIFIED_LIVE');
+  // An accepted CI receipt remains history after seven days, but is not
+  // present-tense LIVE proof of the current deployment.
+  await d.prepare('UPDATE dev_jobs SET updated_at = ? WHERE id = ?').bind(now - 8 * 86_400_000, 'founder-01').run();
+  const expired = await computeRoadmapTruth(d, phases, { now });
+  assert.notEqual(expired.items['MEL-FOUNDER-01'].truth, 'VERIFIED_LIVE');
+});
+
+// 01/11: 85 DONE_VERIFIED items had no proof source, so they read
+// « Déclaré, sans preuve » for ever and MEL could not rely on them.
+test('every proof source names a real roadmap item and real registered capabilities', async () => {
+  const { ROADMAP_PROOF_SOURCES } = await import('../src/roadmap/roadmap-truth.js');
+  const { flattenRoadmap } = await import('../src/roadmap/master-roadmap.js');
+  const { readdir, readFile } = await import('node:fs/promises');
+  const ids = new Set(flattenRoadmap().map(item => item.id));
+  // Capabilities are registered across src/, not only in src/capabilities.
+  const registered = new Set();
+  const walk = async dir => {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const path = dir + '/' + entry.name;
+      if (entry.isDirectory()) { await walk(path); continue; }
+      if (!entry.name.endsWith('.js')) continue;
+      for (const match of (await readFile(path, 'utf8')).matchAll(/id: *'([a-z][a-z0-9._-]+)'/g)) registered.add(match[1]);
+    }
+  };
+  await walk('src');
+  for (const [itemId, source] of Object.entries(ROADMAP_PROOF_SOURCES)) {
+    assert.ok(ids.has(itemId), `${itemId} n'existe pas dans la feuille de route`);
+    for (const capability of source.capabilities || []) {
+      // An invented capability would be a proof that can never run: worse than no proof.
+      assert.ok(registered.has(capability), `${itemId} cite une capacité inexistante : ${capability}`);
+    }
+  }
+});
+
+test('the roadmap items that still have no proof source are only the ones no capability can prove', async () => {
+  const { ROADMAP_PROOF_SOURCES } = await import('../src/roadmap/roadmap-truth.js');
+  const { flattenRoadmap } = await import('../src/roadmap/master-roadmap.js');
+  const unproven = flattenRoadmap().filter(item => !ROADMAP_PROOF_SOURCES[item.id] && item.status === 'DONE_VERIFIED');
+  // A ratchet: this count may go down as proofs are added, never silently up.
+  assert.ok(unproven.length <= 24, `${unproven.length} items DONE_VERIFIED sans preuve (régression)`);
+});
+
+test('a newer execution failure revokes an older VERIFIED_LIVE proof',async()=>{
+ const d=await db();
+ await exec(d,'code.read','SUCCEEDED',3600_000);
+ await exec(d,'code.read','FAILED',60000,'CODE_READ_RUNTIME_FAILURE');
+ let truth=await computeRoadmapTruth(d,MASTER_ROADMAP,{now});
+ assert.equal(truth.items['MEL-CODE-01'].truth,'BROKEN');
+ await exec(d,'code.read','SUCCEEDED',1000);
+ truth=await computeRoadmapTruth(d,MASTER_ROADMAP,{now});
+ assert.equal(truth.items['MEL-CODE-01'].truth,'VERIFIED_LIVE');
+ d.close();
 });

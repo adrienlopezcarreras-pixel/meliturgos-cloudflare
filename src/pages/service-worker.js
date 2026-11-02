@@ -25,6 +25,6 @@ self.addEventListener('fetch',event=>{
   const url=new URL(request.url);if(url.origin!==self.location.origin)return;
   if(url.pathname.startsWith('/api/')||url.pathname==='/sw.js'||url.pathname==='/manifest.webmanifest')return;
   if(request.mode==='navigate'||(request.headers.get('accept')||'').includes('text/html'))return;
-  if(url.pathname==='/normal-runtime.js'){event.respondWith(fetch(request,{cache:'no-store'}));return;}\n  if(url.pathname.startsWith('/assets/'))event.respondWith(staleWhileRevalidate(request,event));
+  if(url.pathname==='/normal-runtime.js'){event.respondWith((async()=>{const cache=await caches.open(CACHE);try{const fresh=await fetch(request,{cache:'no-store'});if(fresh&&fresh.ok){await cache.put(request,fresh.clone());return fresh;}const cached=await cache.match(request);return cached||fresh;}catch(error){const cached=await cache.match(request);if(cached)return cached;throw error;}})());return;}\n  if(url.pathname.startsWith('/assets/'))event.respondWith(staleWhileRevalidate(request,event));
 });
 `;

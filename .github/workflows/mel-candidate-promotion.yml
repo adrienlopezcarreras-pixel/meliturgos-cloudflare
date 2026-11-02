@@ -141,9 +141,24 @@ jobs:
           # Council already sent the responsible jobs to REPAIR_REQUIRED.
           if [ "$DECISION" = "REJECTED" ]; then
             git checkout -B council-rejected "$CAND"
-            git diff --name-only "$MAIN" "$CAND" | while IFS= read -r f; do
-              if git cat-file -e "$MAIN:$f" 2>/dev/null; then git checkout "$MAIN" -- "$f"; else git rm -q -- "$f"; fi
-            done
+            # Revert only the files of the jobs the Council held responsible.
+            # An empty list means the culprits are unknown: revert everything.
+            printf '%s' "$REVIEW" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)}catch{};const p=Array.isArray(j.revert_paths)?j.revert_paths:[];process.stdout.write(p.filter(x=>typeof x==="string"&&x&&!x.startsWith("/")&&!x.includes("..")).join("\n"))})' > council.revert
+            if [ -s council.revert ]; then
+              echo "::notice title=MEL Council::Reverting only the culprit files ($(wc -l < council.revert) path(s))"
+              cat council.revert
+            else
+              git diff --name-only "$MAIN" "$CAND" > council.revert
+            fi
+            while IFS= read -r f; do
+              [ -n "$f" ] || continue
+              if git cat-file -e "$MAIN:$f" 2>/dev/null; then git checkout "$MAIN" -- "$f"; else git rm -q --ignore-unmatch -- "$f"; fi
+            done < council.revert
+            rm -f council.revert
+            if git diff --quiet --cached "$CAND" && git diff --quiet "$CAND"; then
+              echo "::warning title=MEL candidate::Council REJECTED $CAND but no culprit file changed - candidate left as is."
+              exit 0
+            fi
             git commit -q -m "Reconcile candidate with main after Council rejection of $CAND"
             git push --force-with-lease="refs/heads/$CANDIDATE:$CAND" origin "HEAD:refs/heads/$CANDIDATE"
             echo "::warning title=MEL candidate::Council REJECTED $CAND - candidate reset to main content, ci_dispatch=$(dispatch_ci)"

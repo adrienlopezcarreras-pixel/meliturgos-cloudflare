@@ -123,3 +123,39 @@ test('legacy control metadata derives owner version before its first technical p
   assert.equal(paused.owner_control_version,100);
   assert.ok(paused.updated_at>100);
 });
+
+// 02/11 : une sonde de release instable a mis MAX en pause toute la nuit, et
+// rien ne le redémarrait. Le retour arrière doit toujours stopper MAX pendant
+// l'échange du code, mais ensuite MAX repart seul — sauf si c'est le
+// propriétaire qui l'a arrêté.
+test('MAX repart seul après un retour arrière, jamais après un arrêt propriétaire', async () => {
+  const c = await import('../src/evolution/autonomy-control.js');
+  const state = c.createAutonomyControlMemoryState();
+
+  await c.setAutonomyControl(null, { memoryState: state, paused: false, max_autonomy: true });
+  const rollback = await c.setAutonomyControl(null, {
+    memoryState: state, paused: true, max_autonomy: false,
+    source: c.ROLLBACK_PAUSE_SOURCE, reason: c.ROLLBACK_PAUSE_REASON,
+  });
+
+  // La pause reste : le code est échangé sous MEL, MAX doit être coupé.
+  assert.equal(rollback.paused, true, 'le retour arrière coupe toujours MAX');
+  assert.equal(rollback.max_autonomy, false);
+  // Mais le choix du propriétaire survit, au lieu d'être détruit, et MAX repart.
+  assert.equal(rollback.max_remembered, true, 'le choix MAX du propriétaire survit au retour arrière');
+  assert.equal(c.shouldResumeAfterRollback(rollback), true, 'MAX repart seul après un retour arrière');
+
+  // Même après de nombreux retours arrière, MAX repart toujours : la seule
+  // chose qui l'arrête, c'est le propriétaire.
+  assert.equal(c.shouldResumeAfterRollback({ ...rollback, rollback_count: 99 }), true,
+    'MAX repart quel que soit le nombre de retours arrière');
+
+  // Un arrêt du propriétaire n'est JAMAIS repris tout seul.
+  const ownerStop = await c.setAutonomyControl(null, {
+    memoryState: state, paused: true, max_autonomy: false, source: 'owner-ui', reason: 'owner-stop',
+  });
+  assert.equal(c.shouldResumeAfterRollback(ownerStop), false, 'un arrêt propriétaire ne repart jamais seul');
+
+  // Un retour arrière sans MAX avant ne réveille rien.
+  assert.equal(c.shouldResumeAfterRollback({ ...rollback, max_remembered: false }), false);
+});
