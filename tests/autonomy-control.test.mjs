@@ -179,4 +179,20 @@ test('MAX repart seul après un retour arrière, jamais après un arrêt propri�
   assert.equal(c.shouldRestoreOwnerMax({
     paused: true, max_remembered: true, source: 'owner-ui', reason: 'owner-emergency-stop',
   }), false, 'le coupe-circuit propriétaire gagne même si le choix MAX est encore noté');
+  assert.equal(c.isTechnicalAutonomyPause({
+    paused: true, max_remembered: false, source: null, reason: null,
+    owner_control_version: 100, updated_at: 200,
+  }), true, 'une pause de release qui a effacé le drapeau reste une pause technique');
+  assert.equal(c.isTechnicalAutonomyPause({
+    paused: true, max_remembered: false, source: 'owner-ui', reason: 'owner-stop',
+    owner_control_version: 100, updated_at: 200,
+  }), false, 'un arrêt propriétaire n’est jamais une pause technique');
+  assert.equal(c.isTechnicalAutonomyPause({
+    paused: true, owner_stopped: true, source: null, reason: null,
+    owner_control_version: 100, updated_at: 200,
+  }), false);
+  assert.equal(c.isTechnicalAutonomyPause({
+    paused: true, max_remembered: false, source: null, reason: null,
+    owner_control_version: 200, updated_at: 200,
+  }), false, 'le propriétaire a écrit cette pause');
 });
