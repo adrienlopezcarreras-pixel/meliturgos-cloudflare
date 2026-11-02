@@ -9,6 +9,9 @@ test('Council sees only live registered operations, never secrets, tests or inve
  const catalog=councilOperationalCatalog({list:()=>[row('work.create'),row('echo'),row('evolution.enqueue')]});
  assert.deepEqual(catalog.operations.map(r=>r.id),['evolution.enqueue','work.create']);
  assert.equal(catalog.lora.training_tool_registered,false);assert.equal(catalog.lora.preparation_is_training,false);
+ const training=councilOperationalCatalog({list:()=>[row('lora.train'),row('lora.continuous-training.verify')]});
+ assert.equal(training.lora.training_tool_registered,true,'a real training id still counts');
+ assert.equal(councilOperationalCatalog({list:()=>[row('lora.continuous-training.verify')]}).lora.training_tool_registered,false,'a verify contract is not a training tool');
  assert.equal(catalog.operations[0].tested_now,false);assert.equal(JSON.stringify(catalog).includes('PRIVATE_VALUE'),false);
  const qwen=councilOperationalCatalog({list:()=>[]},{MEL_LORA_BASE_MODEL:'Qwen/Qwen2.5-1.5B-Instruct'});
  assert.equal(qwen.lora.runtime_model,null,'never claim a Mistral adapter is usable on Qwen');

@@ -169,9 +169,9 @@ test('remembered preference never becomes effective MAX merely because a stored 
 test('public capture exposes only fixed release provenance, never an owner pause message',()=>usingDb(async db=>{
  await owner(db);await pause(db,true);
  const read=async()=>{const r=await maybeHandleAutonomyApi(new Request('https://mel.test/api/gen2/autonomy/control'),{DB:db});return r.json();};
- let c=await read();assert.equal(c.max_remembered,true);assert.equal(c.source,'release-launch-bootstrap');
+ let c=await read();assert.equal(c.max_remembered,true);assert.equal(c.source,'release-launch-bootstrap');assert.equal(c.owner_stopped,false);
  await setAutonomyControl(db,{paused:true,source:'owner-ui',reason:'Private owner explanation'});
- c=await read();assert.equal(c.source,null);assert.equal(c.reason,null);assert.equal(c.max_remembered,false);
+ c=await read();assert.equal(c.source,null);assert.equal(c.reason,null);assert.equal(c.max_remembered,false);assert.equal(c.owner_stopped,true);
 }));
 
 test('public capture shows a rollback pause, still hides an owner message',()=>usingDb(async db=>{
