@@ -6,7 +6,7 @@ import { approvedEvolutionRoadmap } from '../roadmap/evolution-autonomy-queue.js
 import { flattenRoadmap, ROADMAP_STATUSES, isClosedRoadmapStatus } from '../roadmap/master-roadmap.js';
 import { isClaimedPreparedDevBridgeJob } from '../dev/bridge-job-state.js';
 import { providerRetryContext, isRotatableProviderExhaustion, singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
-import { unmetRoadmapPrerequisites } from '../roadmap/roadmap-dependencies.js';
+import { unmetSoftwarePrerequisites, preparedBypassesExhaustion } from './own-roadmap-advance.js';
 export { providerRetryContext } from './provider-exhaustion-rotation.js';
 
 // Strict category order: roadmap, recorded errors, then ecosystem watches.
@@ -209,7 +209,7 @@ export function selectActionableAutonomyJobs(jobs = [], { epochMs = 0, roadmap =
       const item = roadmap.find(row => row.id === roadmapIdFromJob(job));
       if (!item && roadmap.some(row => !isVerifiedRoadmap(row) && !verifiedIds.includes(row.id))) return false;
       return !item || (!BLOCKED_ROADMAP.has(String(item.status || '').toUpperCase())
-        && !unmetRoadmapPrerequisites(item, roadmap, verifiedIds).length);
+        && !unmetSoftwarePrerequisites(item, roadmap, verifiedIds).length);
     })
     .filter((job) => !TERMINAL_JOB.has(String(job?.status || '').toUpperCase()))
     .filter((job) => !isPassiveRuntimeJob(job))
@@ -239,8 +239,9 @@ export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedId
     .filter((item) => item && item.id)
     .filter((item) => !isVerifiedRoadmap(item))
     .filter((item) => !BLOCKED_ROADMAP.has(String(item.status || '').trim().toUpperCase()))
-    .filter((item) => !unmetRoadmapPrerequisites(item, roadmap, verifiedIds).length)
-    .filter((item) => (!completed.has(item.id) || String(item.status).toUpperCase() === 'REGRESSED') && !blocked.has(item.id))
+    .filter((item) => !unmetSoftwarePrerequisites(item, roadmap, verifiedIds).length)
+    .filter((item) => (!completed.has(item.id) || String(item.status).toUpperCase() === 'REGRESSED')
+      && (!blocked.has(item.id) || preparedBypassesExhaustion(item.id)))
     .sort((a, b) => score(a) - score(b) || String(a.id).localeCompare(String(b.id)))[0] || null;
 }
 
@@ -446,11 +447,11 @@ export class AutonomySupervisor {
             || !['QUEUED', 'TEACHER_APPROVED'].includes(String(job.status || '').toUpperCase())) return false;
         const item = this.roadmap.find(row => row.id === roadmapIdFromJob(job));
         return item && (BLOCKED_ROADMAP.has(String(item.status || '').toUpperCase())
-          || unmetRoadmapPrerequisites(item, this.roadmap, current.verifiedDependencyIds).length > 0);
+          || unmetSoftwarePrerequisites(item, this.roadmap, current.verifiedDependencyIds).length > 0);
       });
       if (blocked) {
         const item = this.roadmap.find(row => row.id === roadmapIdFromJob(blocked));
-        const dependencies = unmetRoadmapPrerequisites(item, this.roadmap, current.verifiedDependencyIds);
+        const dependencies = unmetSoftwarePrerequisites(item, this.roadmap, current.verifiedDependencyIds);
         try {
           await this.repository.update(blocked.id, {
             status: 'WAITING_DEPENDENCY',
@@ -485,7 +486,7 @@ export class AutonomySupervisor {
       const item = this.roadmap.find(row => row.id === roadmapIdFromJob(wanted));
       if (wanted && !item && unfinishedRoadmap.length) return { created: false, job: null, next: current.next, complete: false, external_progress: { job_id: wanted.id, status: 'ROADMAP_PRIORITY_ABSOLUTE' } };
       if (item && (BLOCKED_ROADMAP.has(String(item.status || '').toUpperCase())
-        || unmetRoadmapPrerequisites(item, this.roadmap, current.verifiedDependencyIds).length)) {
+        || unmetSoftwarePrerequisites(item, this.roadmap, current.verifiedDependencyIds).length)) {
         return { created: false, job: null, next: current.next, complete: false,
           external_progress: { job_id: wanted.id, status: 'ROADMAP_PREREQUISITES_PENDING' } };
       }

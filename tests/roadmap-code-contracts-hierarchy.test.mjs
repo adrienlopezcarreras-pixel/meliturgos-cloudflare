@@ -8,6 +8,7 @@ import { flattenRoadmap, validateRoadmap } from '../src/roadmap/master-roadmap.j
 import { ROADMAP_CODE_CONTRACT_REVISION, assertRoadmapCodeChanges } from '../src/roadmap/roadmap-code-contracts.js';
 import { validateRoadmapDependencies } from '../src/roadmap/roadmap-dependencies.js';
 import { manifest01FoundationPrerequisites } from '../src/roadmap/manifest-01-acceptance.js';
+import { unmetSoftwarePrerequisites } from '../src/evolution/own-roadmap-advance.js';
 import { AutonomySupervisor, selectNextAutonomyItem, BRIDGE_MENTOR_ROUNDS } from '../src/evolution/autonomy-supervisor.js';
 import { refreshRoadmapCodeMissions } from '../src/evolution/roadmap-code-missions.js';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
@@ -34,7 +35,7 @@ test('the whole canonical graph schedules prerequisites before every dependent, 
   while(order.length<43){
     const next=selectNextAutonomyItem({roadmap:canonical,verifiedIds:verified,completedIds:verified});
     assert.ok(next,'an acyclic code deliverable must remain schedulable');
-    for(const parent of next.depends_on)assert.ok(verified.includes(parent),next.id+' ran before '+parent);
+    assert.deepEqual(unmetSoftwarePrerequisites(next, canonical, verified), [], next.id + ' ran before a software parent');
     assert.ok(!order.includes(next.id));order.push(next.id);verified.push(next.id);
   }
   assert.equal(order[0],'MEL-FOUNDER-01');

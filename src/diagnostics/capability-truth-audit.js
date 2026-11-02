@@ -315,6 +315,30 @@ const SAFE_SAMPLES = Object.freeze({
     const row = firstArray(result, 'artifacts')[0];
     return row?.id ? { id: String(row.id) } : row?.filename ? { filename: String(row.filename) } : undefined;
   },
+  'context.queue.verify': {},
+  'lora.continuous-training.verify': {},
+  'wordpress.public-boundary.verify': {},
+  'connectors.installable-catalog.verify': {},
+  'voice.wake-phrase.verify': {},
+  'avatar.motion.verify': {},
+  'avatar.lipsync.verify': {},
+  'avatar.identity.verify': {},
+  'pwa.manifest.verify': {},
+  'android.companion-protocol.verify': {},
+  'android.release-protocol.verify': {},
+  'windows.companion-selection.verify': {},
+  'device.power-confirmation.verify': {},
+  'device.wake-on-lan.verify': {},
+  'security.secret-harvest.verify': {},
+  'sovereignty.regeneration.verify': {},
+  'lora.daily-trace.verify': {},
+  'ui.control-center.verify': {},
+  'ui.home-minimal.verify': {},
+  'ui.touch-avatar.verify': {},
+  'ui.favicon.verify': {},
+  'ui.file-paste.verify': {},
+  'migration.gen1-contract.verify': {},
+  'release.smoke-contract.verify': {},
 });
 
 // Automatic deep audits must be zero-added-cost by proof, not assumption.
