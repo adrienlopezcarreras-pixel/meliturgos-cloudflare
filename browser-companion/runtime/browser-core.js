@@ -332,26 +332,27 @@ export async function executeBrowserStep(page, step, allowedOrigins) {
         }).catch(() => {});
       }
       const proofFile = { name: fileName, mimeType, buffer: bytes };
-      // The full-mode input stays in an inactive panel. Cloudflare's
-      // setInputFiles then never reaches the page listener. Open that panel
-      // and use the real Joindre button, which is what fires the POST.
-      // A missing or non-200 response remains a hard failure below.
-      let deliveredByChooser = false;
-      if (releaseFileProof && selector === '#chatFileInput' && typeof page.waitForEvent === 'function') {
+      // Cloudflare Browser Rendering never delivers a change event from the
+      // hidden full-mode input, and its file chooser does not open. Call the
+      // page's own upload function, which is what Joindre runs, and still
+      // require the real /api/files/upload response below.
+      let postedByPage = false;
+      if (releaseFileProof && selector === '#chatFileInput' && typeof page.evaluate === 'function') {
         const nav = page.locator('#nav button[data-view="chat"]');
-        if (nav && typeof nav.click === 'function') await nav.click({ timeout: 4000 }).catch(() => {});
-        const attach = page.locator('#chatAttach');
-        if (attach && typeof attach.click === 'function') {
-          const chooserPromise = page.waitForEvent('filechooser', { timeout: 5000 }).catch(() => null);
-          const opened = await attach.click({ timeout: 4000 }).then(() => true, () => false);
-          const chooser = await chooserPromise;
-          if (opened && chooser && typeof chooser.setFiles === 'function') {
-            await chooser.setFiles(proofFile);
-            deliveredByChooser = true;
-          }
-        }
+        if (nav && typeof nav.click === 'function') await nav.click({ timeout: 2000 }).catch(() => {});
+        postedByPage = await page.evaluate(async payload => {
+          if (!payload || typeof payload.text !== 'string') return false;
+          document.querySelectorAll('.view').forEach(node => {
+            if (node.classList) node.classList.toggle('active', node.getAttribute('data-panel') === 'chat');
+          });
+          const upload = window.melUploadChatFiles;
+          if (typeof upload !== 'function') return false;
+          const file = new File([payload.text], String(payload.name || 'upload.txt'), { type: payload.mime || 'text/plain' });
+          await upload([file], 'file-picker');
+          return true;
+        }, { text: step.file_text, name: fileName, mime: mimeType }).catch(() => false);
       }
-      if (!deliveredByChooser) {
+      if (!postedByPage) {
         await input.setInputFiles(proofFile, { timeout: ACTION_TIMEOUT_MS });
         if (releaseFileProof && typeof input.evaluate === 'function') {
           await input.evaluate((element, payload) => {
