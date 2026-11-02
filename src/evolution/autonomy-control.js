@@ -56,6 +56,19 @@ export function shouldRestoreOwnerMax(control) {
   return isRollbackAutonomyPause(control);
 }
 
+// The public control row hides an owner pause message, and a rollback used to
+// wipe max_remembered. A release write keeps the owner's version and moves
+// updated_at forward. An owner stop sets the two equal, and a worker that
+// reports owner_stopped is never treated as a technical pause.
+export function isTechnicalAutonomyPause(control) {
+  if (control?.paused !== true || control?.owner_stopped === true) return false;
+  if (isOwnerAutonomyStop(control)) return false;
+  const ownerVersion = Number(control?.owner_control_version);
+  const updated = Number(control?.updated_at);
+  return Number.isSafeInteger(ownerVersion) && ownerVersion > 0
+    && Number.isSafeInteger(updated) && updated > ownerVersion;
+}
+
 // A release suspends execution, not the owner's choice. Owner/safety stops
 // clear that choice; rollback is a safety stop, never an automatic resume.
 export function rememberedReleaseMax(control) {

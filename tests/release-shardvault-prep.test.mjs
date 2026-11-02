@@ -183,6 +183,9 @@ test('release rollback restores code through exact-SHA OIDC while preserving PAU
   assert.doesNotMatch(rollback,/wrangler secret put/);
   assert.match(rollback,/paused=true&max=false/);
   assert.match(rollback,/MAX kept disabled/);
+  assert.match(rollback,/expected_sha=\$\{PREVIOUS_DEPLOYED_SHA\}&restore_sha=\$\{PREVIOUS_DEPLOYED_SHA\}&paused=false&max=true/);
+  const maxRestore=rollback.indexOf('paused=false&max=true');
+  assert.ok(maxRestore>verifyControl,'MAX is restored only after the previous Worker is back');
 });
 
 

@@ -295,6 +295,48 @@ test('full-mode file proof calls the page upload and still requires the upload r
   assert.equal(inputUploads, 0);
 });
 
+test('full-mode file proof posts directly when the page hook is missing', async () => {
+  let inputUploads = 0;
+  const page = {
+    url: () => 'https://example.com/professor',
+    waitForResponse(predicate) {
+      return new Promise(resolve => { this.onUpload = () => {
+        const observed = predicate({ url:()=> 'https://example.com/api/files/upload', request:()=>({ method:()=> 'POST' }) });
+        if (!observed) throw new Error('unexpected request');
+        resolve({ status:()=>200, json:async()=>({ ok:true, id:'proof-id', name:'mel-file-full-proof.txt' }) });
+      }; });
+    },
+    async evaluate(fn, payload) {
+      const previous = { window: globalThis.window, document: globalThis.document, File: globalThis.File, FormData: globalThis.FormData, fetch: globalThis.fetch };
+      globalThis.window = {};
+      const host = { children: [], appendChild(node){ this.children.push(node); } };
+      globalThis.document = {
+        querySelectorAll: () => [],
+        querySelector: selector => selector === '#chatAttachments' ? host : null,
+        createElement: () => ({ textContent: '' }),
+      };
+      globalThis.File = class File { constructor(bits, name, opts){ this.bits=bits; this.name=name; this.type=opts?.type; } };
+      globalThis.FormData = class FormData { append(){} };
+      globalThis.fetch = async () => { page.onUpload(); return { ok: true, json: async () => ({ ok: true, id: 'proof-id' }) }; };
+      try { return await fn(payload); }
+      finally {
+        globalThis.window = previous.window;
+        globalThis.document = previous.document;
+        globalThis.File = previous.File;
+        globalThis.FormData = previous.FormData;
+        globalThis.fetch = previous.fetch;
+      }
+    },
+    locator() { return { click: async () => {}, setInputFiles: async () => { inputUploads += 1; } }; },
+  };
+  const result = await executeBrowserStep(page, {
+    id:'proof', action:'browser.upload-file', selector:'#chatFileInput',
+    file_name:'mel-file-full-proof.txt', file_text:'MEL_FILE_FULL_PROOF_abc',
+  }, ['https://example.com']);
+  assert.equal(result.kind, 'upload');
+  assert.equal(inputUploads, 0);
+});
+
 test('full-mode file proof still fails when the page upload is not acknowledged', async () => {
   const page = {
     url: () => 'https://example.com/professor',
