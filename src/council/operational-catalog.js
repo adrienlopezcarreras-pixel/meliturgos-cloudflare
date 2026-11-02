@@ -21,7 +21,7 @@ export function councilOperationalCatalog(bus,env={}) {
   lora:{base_model:baseModel,runtime_model:String(env.MEL_LORA_RUNTIME_MODEL||CLOUDFLARE_LORA_MODEL_PAIRS[baseModel]||'')||null,
    exact_base_model_match_required:loraPolicy.activation_requires_exact_base_model_match,
    preparation_is_training:false,training_is_activation:false,
-   training_tool_registered:rows.some(row=>/^(?:learning\.|lora\.).*(?:train|request)/.test(row.id)&&row.enabled)},
+   training_tool_registered:rows.some(row=>/^(?:learning\.|lora\.).*(?:train|request)/.test(row.id)&&!/\.verify$/.test(row.id)&&row.enabled)},
   rules:[
    'Un outil absent du catalogue n’est pas disponible ; proposer son raccordement supervisé, pas un appel fictif.',
    'Les erreurs de code, encodage, quota et autorisation relèvent d’une correction du système, pas d’un entraînement LoRA.',
