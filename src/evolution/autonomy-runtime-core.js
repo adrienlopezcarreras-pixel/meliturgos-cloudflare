@@ -52,6 +52,15 @@ export function autonomyTickAdvanced(events) {
   return (Array.isArray(events) ? events : []).some(event => USEFUL_AUTONOMY_EVENTS.has(event));
 }
 
+// MEL-FOUNDER-02: a tick states its outcome explicitly. A tick that only
+// resumed the same persisted step (no useful event) is NO_PROGRESS, never a
+// success; WAITING_EXTERNAL keeps a provider/Teacher/CI wait out of stalls.
+export function autonomyTickOutcome({ advanced = false, waitingExternal = false, workRemaining = true } = {}) {
+  if (advanced) return 'ADVANCED';
+  if (!workRemaining) return 'IDLE_COMPLETE';
+  return waitingExternal ? 'WAITING_EXTERNAL' : 'NO_PROGRESS';
+}
+
 const INSPECTION_FILES = [
   'AUTONOMY_STATE.json',
   'TEACHER_BRIDGE.md',
@@ -1127,6 +1136,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     advanced,
     progress: {
       advanced,
+      outcome: autonomyTickOutcome({ advanced, waitingExternal, workRemaining }),
       events: progressEvents,
       work_remaining: workRemaining,
       waiting_external: waitingExternal,

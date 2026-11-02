@@ -764,3 +764,28 @@ test('MEL-MANIFEST-01 can enter the real Council/Teacher pipeline without a seco
   assert.equal((await fixture.repository.list()).length, 1,
     'the same Manifest mission remains pending external Teacher review');
 });
+
+// MEL-FOUNDER-02: three ticks resume the same identifier and persisted step,
+// release the lease each time, and tell a no-progress tick from a success.
+test('three ticks resume the same job and step, release the lease and distinguish no progress from success', async () => {
+  const { autonomyTickOutcome } = await import('../src/evolution/autonomy-runtime-core.js');
+  const { tryAcquireAutonomyRuntimeLease, releaseAutonomyRuntimeLease } = await import('../src/evolution/autonomy-runtime-lease.js');
+  const fixture = runtimeFixture();
+  const runtimeLeaseStore = new Map();
+  const ticks = [];
+  for (let i = 0; i < 3; i += 1) {
+    ticks.push(await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository, runtimeLeaseStore }));
+    const probe = await tryAcquireAutonomyRuntimeLease({ owner: 'probe-' + i, memoryStore: runtimeLeaseStore });
+    assert.equal(probe.acquired, true, `tick ${i + 1} released the lease`);
+    assert.equal(await releaseAutonomyRuntimeLease({ owner: 'probe-' + i, memoryStore: runtimeLeaseStore }), true);
+  }
+  const ids = ticks.map(tick => tick.progress.job_id);
+  assert.ok(ids[0]);
+  assert.deepEqual(ids, [ids[0], ids[0], ids[0]], 'the same identifier is resumed');
+  assert.deepEqual(ticks.map(tick => tick.progress.job_status), ['WAITING_TEACHER', 'WAITING_TEACHER', 'WAITING_TEACHER']);
+  assert.equal((await fixture.repository.list()).length, 1, 'no duplicate job');
+  assert.equal(ticks[0].progress.outcome, 'ADVANCED');
+  assert.deepEqual(ticks.slice(1).map(tick => [tick.progress.advanced, tick.progress.outcome]), [[false, 'WAITING_EXTERNAL'], [false, 'WAITING_EXTERNAL']]);
+  assert.equal(autonomyTickOutcome({ advanced: false, waitingExternal: false }), 'NO_PROGRESS');
+  assert.equal(autonomyTickOutcome({ advanced: false, workRemaining: false }), 'IDLE_COMPLETE');
+});
