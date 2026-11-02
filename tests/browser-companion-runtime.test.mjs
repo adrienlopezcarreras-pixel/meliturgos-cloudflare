@@ -258,61 +258,67 @@ test('MEL-FILE proof fails closed when browser response observation is unavailab
   assert.equal(uploadAttempted, false);
 });
 
-test('full-mode file proof posts from the input change, not from page.evaluate', async () => {
-  class ProofTransfer {
-    constructor() { this.files = []; this.items = { add: file => { this.files.push(file); } }; }
-  }
-  const previous = globalThis.DataTransfer;
-  globalThis.DataTransfer = ProofTransfer;
-  const element = {
-    hidden: true,
-    files: [],
-    style: { setProperty() {} },
-    removeAttribute() { this.hidden = false; },
-    parentElement: { classList: { contains: name => name === 'view', add() {} }, hasAttribute: () => false, parentElement: null },
-    dispatchEvent(event) {
-      if (event.type === 'change' && this.files.length) page.onUpload();
-    },
-  };
+test('full-mode file proof posts after evaluate returns, not during it', async () => {
+  let evaluateDepth = 0;
+  let postedDuringEvaluate = false;
   let inputUploads = 0;
-  let pageEvaluations = 0;
   const page = {
     url: () => 'https://example.com/professor',
     waitForResponse(predicate) {
       return new Promise(resolve => { this.onUpload = () => {
+        if (evaluateDepth > 0) postedDuringEvaluate = true;
         const observed = predicate({ url:()=> 'https://example.com/api/files/upload', request:()=>({ method:()=> 'POST' }) });
         if (!observed) throw new Error('unexpected request');
         resolve({ status:()=>200, json:async()=>({ ok:true, id:'proof-id', name:'mel-file-full-proof.txt' }) });
       }; });
     },
-    async evaluate() { pageEvaluations += 1; throw new Error('page.evaluate must not start the upload'); },
+    async evaluate(fn, payload) {
+      evaluateDepth += 1;
+      const previous = globalThis.melUploadChatFiles;
+      globalThis.melUploadChatFiles = files => {
+        const file = files && files[0];
+        if (!file || file.name !== 'mel-file-full-proof.txt' || typeof file.text !== 'function') {
+          throw new Error('page uploader was not given the proof file');
+        }
+        page.onUpload();
+      };
+      try { fn(payload); }
+      finally {
+        evaluateDepth -= 1;
+        if (previous === undefined) delete globalThis.melUploadChatFiles;
+        else globalThis.melUploadChatFiles = previous;
+      }
+    },
     locator(selector) {
       if (String(selector).includes('data-view')) return { click: async () => {} };
       return {
-        evaluate: async (fn, arg) => fn(element, arg),
+        evaluate: async () => {},
         setInputFiles: async () => { inputUploads += 1; },
       };
     },
   };
-  try {
-    const result = await executeBrowserStep(page, {
-      id:'proof', action:'browser.upload-file', selector:'#chatFileInput',
-      file_name:'mel-file-full-proof.txt', file_text:'MEL_FILE_FULL_PROOF_abc',
-    }, ['https://example.com']);
-    assert.equal(result.kind, 'upload');
-    assert.equal(inputUploads, 1);
-    assert.equal(pageEvaluations, 0);
-    assert.equal(element.hidden, false);
-  } finally {
-    if (previous === undefined) delete globalThis.DataTransfer;
-    else globalThis.DataTransfer = previous;
-  }
+  const result = await executeBrowserStep(page, {
+    id:'proof', action:'browser.upload-file', selector:'#chatFileInput',
+    file_name:'mel-file-full-proof.txt', file_text:'MEL_FILE_FULL_PROOF_abc',
+  }, ['https://example.com']);
+  assert.equal(result.kind, 'upload');
+  assert.equal(inputUploads, 0);
+  assert.equal(postedDuringEvaluate, false);
+  assert.equal(JSON.stringify(result).includes('MEL_FILE_FULL_PROOF_abc'), false);
 });
 
-test('full-mode file proof still fails when the change does not post', async () => {
+test('full-mode file proof still fails when the page uploader does not post', async () => {
   const page = {
     url: () => 'https://example.com/professor',
     waitForResponse() { return Promise.reject(new Error('Timeout 12000ms exceeded')); },
+    async evaluate(fn, payload) {
+      const previous = globalThis.melUploadChatFiles;
+      globalThis.melUploadChatFiles = () => {};
+      try { fn(payload); } finally {
+        if (previous === undefined) delete globalThis.melUploadChatFiles;
+        else globalThis.melUploadChatFiles = previous;
+      }
+    },
     locator() { return { click: async () => {}, setInputFiles: async () => {}, evaluate: async () => {} }; },
   };
   await assert.rejects(executeBrowserStep(page, {
@@ -322,21 +328,6 @@ test('full-mode file proof still fails when the change does not post', async () 
 });
 
 test('full-mode file proof still fails when the upload is not acknowledged', async () => {
-  class ProofTransfer {
-    constructor() { this.files = []; this.items = { add: file => { this.files.push(file); } }; }
-  }
-  const previous = globalThis.DataTransfer;
-  globalThis.DataTransfer = ProofTransfer;
-  const element = {
-    hidden: true,
-    files: [],
-    style: { setProperty() {} },
-    removeAttribute() { this.hidden = false; },
-    parentElement: null,
-    dispatchEvent(event) {
-      if (event.type === 'change' && this.files.length) page.onUpload();
-    },
-  };
   const page = {
     url: () => 'https://example.com/professor',
     waitForResponse(predicate) {
@@ -345,77 +336,42 @@ test('full-mode file proof still fails when the upload is not acknowledged', asy
         resolve({ status:()=>200, json:async()=>({ ok:true, name:'mel-file-full-proof.txt' }) });
       }; });
     },
-    locator() { return { click: async () => {}, setInputFiles: async () => {}, evaluate: async (fn, arg) => fn(element, arg) }; },
+    async evaluate(fn, payload) {
+      const previous = globalThis.melUploadChatFiles;
+      globalThis.melUploadChatFiles = () => { page.onUpload(); };
+      try { fn(payload); } finally {
+        if (previous === undefined) delete globalThis.melUploadChatFiles;
+        else globalThis.melUploadChatFiles = previous;
+      }
+    },
+    locator() { return { click: async () => {}, setInputFiles: async () => {}, evaluate: async () => {} }; },
   };
-  try {
-    await assert.rejects(executeBrowserStep(page, {
-      id:'proof', action:'browser.upload-file', selector:'#chatFileInput',
-      file_name:'mel-file-full-proof.txt', file_text:'MEL_FILE_FULL_PROOF_abc',
-    }, ['https://example.com']), { code: 'BROWSER_UPLOAD_API_NOT_ACKNOWLEDGED' });
-  } finally {
-    if (previous === undefined) delete globalThis.DataTransfer;
-    else globalThis.DataTransfer = previous;
-  }
+  await assert.rejects(executeBrowserStep(page, {
+    id:'proof', action:'browser.upload-file', selector:'#chatFileInput',
+    file_name:'mel-file-full-proof.txt', file_text:'MEL_FILE_FULL_PROOF_abc',
+  }, ['https://example.com']), { code: 'BROWSER_UPLOAD_API_NOT_ACKNOWLEDGED' });
 });
 
-test('hidden professor file input still posts when setInputFiles emits no change', async () => {
-  class ProofTransfer {
-    constructor() {
-      this.files = [];
-      this.items = { add: file => { this.files.push(file); } };
-    }
-  }
-  const previous = globalThis.DataTransfer;
-  globalThis.DataTransfer = ProofTransfer;
-  const element = {
-    hidden: true,
-    files: [],
-    style: { setProperty() {} },
-    removeAttribute() { this.hidden = false; },
-    parentElement: {
-      classList: { contains: name => name === 'view', add() {} },
-      hasAttribute: () => false,
-      parentElement: null,
-    },
-    dispatchEvent(event) {
-      if (event.type === 'change' && this.files.length) page.onUpload();
-    },
-  };
-  let observed = false;
+test('hidden professor file input does not count an in-evaluate change as the upload', async () => {
   const page = {
     url: () => 'https://example.com/professor',
-    waitForResponse(predicate) {
-      return new Promise(resolve => {
-        this.onUpload = () => {
-          observed = predicate({
-            url: () => 'https://example.com/api/files/upload',
-            request: () => ({ method: () => 'POST' }),
-          });
-          resolve({
-            status: () => 200,
-            json: async () => ({ ok: true, id: 'proof-id', name: 'mel-file-full-proof.txt' }),
-          });
-        };
-      });
-    },
+    waitForResponse() { return Promise.reject(new Error('Timeout 12000ms exceeded')); },
     locator() {
       return {
-        evaluate: async (fn, arg) => fn(element, arg),
+        evaluate: async (fn, arg) => fn({
+          hidden: true,
+          files: [],
+          style: { setProperty() {} },
+          removeAttribute() {},
+          parentElement: null,
+          dispatchEvent() { page.onUpload(); },
+        }, arg),
         setInputFiles: async () => {},
       };
     },
   };
-  try {
-    const result = await executeBrowserStep(page, {
-      id: 'proof', action: 'browser.upload-file', selector: '#chatFileInput',
-      file_name: 'mel-file-full-proof.txt', file_text: 'MEL_FILE_FULL_PROOF_abc',
-    }, ['https://example.com']);
-    assert.equal(result.kind, 'upload');
-    assert.equal(element.hidden, false);
-    assert.equal(observed, true);
-    assert.equal(JSON.stringify(result).includes('MEL_FILE_FULL_PROOF_abc'), false);
-  } finally {
-    if (previous === undefined) delete globalThis.DataTransfer;
-    else globalThis.DataTransfer = previous;
-  }
+  await assert.rejects(executeBrowserStep(page, {
+    id: 'proof', action: 'browser.upload-file', selector: '#chatFileInput',
+    file_name: 'mel-file-full-proof.txt', file_text: 'MEL_FILE_FULL_PROOF_abc',
+  }, ['https://example.com']), { code: 'BROWSER_UPLOAD_HTTP_NOT_OBSERVED' });
 });

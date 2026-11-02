@@ -332,33 +332,50 @@ export async function executeBrowserStep(page, step, allowedOrigins) {
         }).catch(() => {});
       }
       const proofFile = { name: fileName, mimeType, buffer: bytes };
-      // A fetch started inside page.evaluate is never delivered by Cloudflare
-      // Browser Rendering, so waitForResponse cannot see it. The normal-mode
-      // proof already works: Playwright owns the file, and the page change
-      // listener starts the POST. Full mode uses that same path. The observer
-      // registered above stays mandatory.
+      // A fetch that begins while Runtime.evaluate is on the stack is never
+      // delivered to waitForResponse by Cloudflare Browser Rendering. Normal
+      // mode already posts from Playwright's own setInputFiles. Full mode's
+      // hidden chat input does not, so schedule the page's own uploader and
+      // return before it runs. The observer above stays mandatory.
+      let fullModeScheduled = false;
       if (releaseFileProof && selector === '#chatFileInput') {
         const nav = page.locator('#nav button[data-view="chat"]');
         if (nav && typeof nav.click === 'function') await nav.click({ timeout: 2000 }).catch(() => {});
+        if (typeof page.evaluate === 'function') {
+          fullModeScheduled = true;
+          await page.evaluate(payload => {
+            const upload = globalThis.melUploadChatFiles;
+            const start = () => {
+              try {
+                if (typeof upload !== 'function' || !payload || typeof payload.text !== 'string') return;
+                const file = new File([payload.text], String(payload.name || 'upload.txt'), { type: payload.mime || 'text/plain' });
+                upload([file], 'file-picker');
+              } catch { /* no request: the observer fails closed */ }
+            };
+            setTimeout(start, 0);
+          }, { text: step.file_text, name: fileName, mime: mimeType }).catch(() => {});
+        }
       }
-      await input.setInputFiles(proofFile, { timeout: ACTION_TIMEOUT_MS });
-      if (releaseFileProof && typeof input.evaluate === 'function') {
-        await input.evaluate((element, payload) => {
-          if (!element) return;
-          const missing = !element.files || element.files.length === 0;
-          if (missing && payload && typeof payload.text === 'string'
-            && typeof File === 'function' && typeof DataTransfer === 'function') {
-            try {
-              const file = new File([payload.text], String(payload.name || 'upload.txt'), { type: payload.mime || 'text/plain' });
-              const transfer = new DataTransfer();
-              transfer.items.add(file);
-              element.files = transfer.files;
-            } catch { /* the webdriver assignment already holds the file */ }
-          }
-          if (!element.files || element.files.length === 0 || typeof element.dispatchEvent !== 'function') return;
-          element.dispatchEvent(new Event('input', { bubbles: true }));
-          element.dispatchEvent(new Event('change', { bubbles: true }));
-        }, { text: step.file_text, name: fileName, mime: mimeType }).catch(() => {});
+      if (!fullModeScheduled) {
+        await input.setInputFiles(proofFile, { timeout: ACTION_TIMEOUT_MS });
+        if (releaseFileProof && selector !== '#chatFileInput' && typeof input.evaluate === 'function') {
+          await input.evaluate((element, payload) => {
+            if (!element) return;
+            const missing = !element.files || element.files.length === 0;
+            if (missing && payload && typeof payload.text === 'string'
+              && typeof File === 'function' && typeof DataTransfer === 'function') {
+              try {
+                const file = new File([payload.text], String(payload.name || 'upload.txt'), { type: payload.mime || 'text/plain' });
+                const transfer = new DataTransfer();
+                transfer.items.add(file);
+                element.files = transfer.files;
+              } catch { /* the webdriver assignment already holds the file */ }
+            }
+            if (!element.files || element.files.length === 0 || typeof element.dispatchEvent !== 'function') return;
+            element.dispatchEvent(new Event('input', { bubbles: true }));
+            element.dispatchEvent(new Event('change', { bubbles: true }));
+          }, { text: step.file_text, name: fileName, mime: mimeType }).catch(() => {});
+        }
       }
       const uploadOutcome = uploadResponse ? await uploadResponse : null;
       if (uploadResponse && (uploadOutcome?.status !== 200 || !uploadOutcome?.accepted)) {
