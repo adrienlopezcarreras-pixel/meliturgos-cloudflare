@@ -67,3 +67,21 @@ test('runtime proof cannot silently omit any inventory item',()=>{
  assert.equal(unavailable.summary.verified_live,0);
  assert.equal(unavailable.items[0].production_verification,'NOT_EVALUATED');
 });
+
+test('VERIFIED_LIVE cannot be forged with missing, failed or mismatched receipts',()=>{
+ const items=[{id:'x',title:'X',status:'DONE_VERIFIED',priority:'P1'}];
+ const sources={x:{capabilities:['code.read']}};
+ const wrap=proofs=>({available:true,total:1,items:{x:{truth:'VERIFIED_LIVE',last_proof_at:'2026-11-02T09:00:00.000Z',proofs}}});
+ for(const proofs of [[],[{kind:'capability',id:'code.read',ok:0}],
+   [{kind:'capability',id:'wrong.capability',ok:1}],
+   [{kind:'capability',id:'code.read',ok:1},{kind:'capability',id:'code.read',ok:1}]])
+   assert.throws(()=>createCompleteEvidenceLedger(items,sources,wrap(proofs)),/ROADMAP_/);
+ assert.equal(createCompleteEvidenceLedger(items,sources,wrap([{kind:'capability',id:'code.read',ok:1}])).summary.verified_live,1);
+});
+
+test('MAX receipt requires exact CI run, full SHA and job identifier',()=>{
+ const items=[{id:'x',title:'X',status:'DONE_VERIFIED',priority:'P1'}];
+ const wrap=proof=>({available:true,total:1,items:{x:{truth:'VERIFIED_LIVE',last_proof_at:'2026-11-02T09:00:00.000Z',proofs:[proof]}}});
+ assert.throws(()=>createCompleteEvidenceLedger(items,{},wrap({kind:'max-delivery',id:'full-candidate-ci#42',ok:1,candidate_sha:'abc',job_id:'job'})),/ROADMAP_DELIVERY_RECEIPT_INVALID/);
+ assert.equal(createCompleteEvidenceLedger(items,{},wrap({kind:'max-delivery',id:'full-candidate-ci#42',ok:1,candidate_sha:'f'.repeat(40),job_id:'job'})).summary.verified_live,1);
+});
