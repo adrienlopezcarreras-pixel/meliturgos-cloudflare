@@ -74,13 +74,11 @@ test('unmapped objectives need an accepted exact SHA delivery receipt',()=>{
  assert.equal(assessRoadmapResponse(body,sha).ok,true);
 });
 
-test('accepted exact-SHA code receipt can prove a mapped roadmap item',()=>{
+test('a code receipt does not prove a mapped objective; runtime evidence still has to match',()=>{
  const body=response();
  body.truth.items['MEL-CODE-01']={
    truth:'VERIFIED_LIVE',last_proof_at:new Date().toISOString(),
    proofs:[{kind:'max-delivery',id:'full-candidate-ci#41059036430',job_id:'job-01',candidate_sha:sha,ok:1}]
  };
- assert.equal(assessRoadmapResponse(body,sha).ok,true);
- body.truth.items['MEL-CODE-01'].proofs[0].candidate_sha='invalid';
  assert.equal(assessRoadmapResponse(body,sha).code,'ROADMAP_PRODUCTION_RECEIPT_SOURCE_MISMATCH');
 });

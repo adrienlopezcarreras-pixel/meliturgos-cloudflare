@@ -9,7 +9,7 @@ import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { AutonomySupervisor, isSupervisedAutonomyJob } from './autonomy-supervisor.js';
 import { runAutonomyRuntimeTick } from './autonomy-runtime.js';
 import { getAutonomyReadiness } from './autonomy-readiness.js';
-import { getAutonomyControl, setAutonomyControl, setOwnerMaxAutonomy, isReleaseAutonomyPause } from './autonomy-control.js';
+import { getAutonomyControl, setAutonomyControl, setOwnerMaxAutonomy, isReleaseAutonomyPause, isRollbackAutonomyPause } from './autonomy-control.js';
 import { AUTONOMY_RUNTIME_CRON } from './autonomy-schedule.js';
 import { getAutonomyLaunchReadiness, prepareAutonomyLaunch } from './launch-readiness.js';
 import { D1AlternativeRegistryStore } from '../portability/d1-alternative-registry-store.js';
@@ -185,9 +185,9 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
       updated_at: control.updated_at,
       owner_control_version: control.owner_control_version,
       max_remembered: control.max_remembered === true,
-      // Only fixed release labels are public; owner-supplied pause text stays private.
-      source: isReleaseAutonomyPause(control) ? control.source : null,
-      reason: isReleaseAutonomyPause(control) ? control.reason : null,
+      // Fixed release and rollback labels are public. Owner-written pause text stays private.
+      source: (isReleaseAutonomyPause(control) || isRollbackAutonomyPause(control)) ? control.source : null,
+      reason: (isReleaseAutonomyPause(control) || isRollbackAutonomyPause(control)) ? control.reason : null,
       launch_approved_sha: control.launch_approved_sha,
     }, { headers: { 'cache-control': 'no-store' } });
   }

@@ -209,10 +209,15 @@ async function deliveredRoadmapEvidence(db, since) {
 }
 
 export function classifyRoadmapItem(itemId, evidence) {
-  const delivery = evidence.delivered?.get(itemId);
-  if (delivery) return { truth: ROADMAP_TRUTH.VERIFIED_LIVE, last_proof_at: delivery.last_ok ? new Date(delivery.last_ok).toISOString() : null, proofs: [delivery] };
   const source = ROADMAP_PROOF_SOURCES[itemId];
-  if (!source) return { truth: ROADMAP_TRUTH.DECLARED, proofs: [] };
+  const delivery = evidence.delivered?.get(itemId);
+  // A merged code receipt proves an objective only when nothing else can.
+  // If a runtime capability or PC action is the proof, a delivery must not
+  // stand in for it or hide a later failure.
+  if (!source) {
+    if (delivery) return { truth: ROADMAP_TRUTH.VERIFIED_LIVE, last_proof_at: delivery.last_ok ? new Date(delivery.last_ok).toISOString() : null, proofs: [delivery] };
+    return { truth: ROADMAP_TRUTH.DECLARED, proofs: [] };
+  }
   const proofs = [
     ...(source.capabilities || []).map(id => ({ kind: 'capability', id, ...(evidence.capabilities.get(id) || { ok: 0, ko: 0, last_ok: null, last_ko: null, error: null }) })),
     ...(source.computerActions || []).map(id => ({ kind: 'computer', id, ...(evidence.computer.get(id) || { ok: 0, ko: 0, last_ok: null, last_ko: null, error: null }) })),

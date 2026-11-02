@@ -101,6 +101,27 @@ test('a MAX-delivered objective with a verified acceptance receipt is proven; an
   assert.notEqual(expired.items['MEL-FOUNDER-01'].truth, 'VERIFIED_LIVE');
 });
 
+test('a code receipt never certifies an objective that has a runtime proof source', async () => {
+  const { ROADMAP_CODE_CONTRACT_REVISION } = await import('../src/roadmap/roadmap-code-contracts.js');
+  const d = await db();
+  await d.prepare('CREATE TABLE dev_jobs(id TEXT PRIMARY KEY,status TEXT,requested_by TEXT,files_json TEXT,optional_context TEXT,result_json TEXT,updated_at INTEGER)').run();
+  const sha = 'a'.repeat(40);
+  const result = {
+    roadmap_code_acceptance: { schema: 'mel.roadmap-code-acceptance/v1', status: 'VERIFIED', roadmap_id: 'MEL-CODE-01', contract_revision: ROADMAP_CODE_CONTRACT_REVISION,
+      candidate_sha: sha, candidate_branch: 'candidate/mel-clean-autonomy', ci_run_id: 9, code_paths: ['src/api/agent-tools.js'], test_paths: ['tests/native-chat-connected-replay.test.mjs'], external_acceptance_verified: false },
+    autonomy_completion: { status: 'VERIFIED', candidate_sha: sha, candidate_branch: 'candidate/mel-clean-autonomy', ci: { verified: true, workflow: 'full-candidate-ci', run_id: 9, head_sha: sha, head_branch: 'candidate/mel-clean-autonomy', conclusion: 'success' }, mel_implementation: { verified: true, providers_attempted: 2 } },
+    verify_existing: { status: 'VERIFIED', candidate_sha: sha },
+  };
+  await d.prepare('INSERT INTO dev_jobs VALUES(?,?,?,?,?,?,?)').bind('code-01', 'COMPLETED', 'mel-autonomy', '[]',
+    JSON.stringify({ roadmap_id: 'MEL-CODE-01', roadmap_contract_revision: ROADMAP_CODE_CONTRACT_REVISION }), JSON.stringify(result), now - 1000).run();
+  const hidden = await computeRoadmapTruth(d, [{ items: [{ id: 'MEL-CODE-01' }] }], { now });
+  assert.notEqual(hidden.items['MEL-CODE-01'].truth, 'VERIFIED_LIVE');
+  await exec(d, 'code.read', 'FAILED', 1000, 'CODE_READ_RUNTIME_FAILURE');
+  const broken = await computeRoadmapTruth(d, [{ items: [{ id: 'MEL-CODE-01' }] }], { now });
+  assert.equal(broken.items['MEL-CODE-01'].truth, 'BROKEN');
+  d.close();
+});
+
 // 01/11: 85 DONE_VERIFIED items had no proof source, so they read
 // « Déclaré, sans preuve » for ever and MEL could not rely on them.
 test('every proof source names a real roadmap item and real registered capabilities', async () => {
