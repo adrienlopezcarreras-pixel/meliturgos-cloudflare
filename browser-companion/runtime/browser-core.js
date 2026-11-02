@@ -332,64 +332,33 @@ export async function executeBrowserStep(page, step, allowedOrigins) {
         }).catch(() => {});
       }
       const proofFile = { name: fileName, mimeType, buffer: bytes };
-      // Cloudflare Browser Rendering never delivers a change event from the
-      // hidden full-mode input, and its file chooser does not open. Call the
-      // page's own upload function, which is what Joindre runs, and still
-      // require the real /api/files/upload response below.
-      let postedByPage = false;
-      if (releaseFileProof && selector === '#chatFileInput' && typeof page.evaluate === 'function') {
+      // A fetch started inside page.evaluate is never delivered by Cloudflare
+      // Browser Rendering, so waitForResponse cannot see it. The normal-mode
+      // proof already works: Playwright owns the file, and the page change
+      // listener starts the POST. Full mode uses that same path. The observer
+      // registered above stays mandatory.
+      if (releaseFileProof && selector === '#chatFileInput') {
         const nav = page.locator('#nav button[data-view="chat"]');
         if (nav && typeof nav.click === 'function') await nav.click({ timeout: 2000 }).catch(() => {});
-        // Cloudflare Browser Rendering does not deliver a response while
-        // Runtime.evaluate is still awaiting it — the video renderer returns
-        // immediately for the same reason. Start the POST and return. The
-        // waitForResponse registered above remains the proof.
-        postedByPage = await page.evaluate(payload => {
-          if (!payload || typeof payload.text !== 'string') return false;
-          document.querySelectorAll('.view').forEach(node => {
-            if (node.classList) node.classList.toggle('active', node.getAttribute('data-panel') === 'chat');
-          });
-          const file = new File([payload.text], String(payload.name || 'upload.txt'), { type: payload.mime || 'text/plain' });
-          const upload = window.melUploadChatFiles;
-          if (typeof upload === 'function') {
-            try { upload([file], 'file-picker'); return true; }
-            catch { /* the page hook failed before a request; post directly */ }
-          }
-          const body = new FormData();
-          body.append('file', file);
-          fetch('/api/files/upload', { method: 'POST', body, credentials: 'same-origin' }).then(async response => {
-            let data = {};
-            try { data = await response.json(); } catch { data = {}; }
-            const host = document.querySelector('#chatAttachments');
-            if (host && response.ok && data?.ok === true && typeof data.id === 'string' && data.id) {
-              const line = document.createElement('div');
-              line.textContent = String(payload.name || '');
-              host.appendChild(line);
-            }
-          }).catch(() => {});
-          return true;
-        }, { text: step.file_text, name: fileName, mime: mimeType }).catch(() => false);
       }
-      if (!postedByPage) {
-        await input.setInputFiles(proofFile, { timeout: ACTION_TIMEOUT_MS });
-        if (releaseFileProof && typeof input.evaluate === 'function') {
-          await input.evaluate((element, payload) => {
-            if (!element) return;
-            const missing = !element.files || element.files.length === 0;
-            if (missing && payload && typeof payload.text === 'string'
-              && typeof File === 'function' && typeof DataTransfer === 'function') {
-              try {
-                const file = new File([payload.text], String(payload.name || 'upload.txt'), { type: payload.mime || 'text/plain' });
-                const transfer = new DataTransfer();
-                transfer.items.add(file);
-                element.files = transfer.files;
-              } catch { /* the webdriver assignment already holds the file */ }
-            }
-            if (!element.files || element.files.length === 0 || typeof element.dispatchEvent !== 'function') return;
-            element.dispatchEvent(new Event('input', { bubbles: true }));
-            element.dispatchEvent(new Event('change', { bubbles: true }));
-          }, { text: step.file_text, name: fileName, mime: mimeType }).catch(() => {});
-        }
+      await input.setInputFiles(proofFile, { timeout: ACTION_TIMEOUT_MS });
+      if (releaseFileProof && typeof input.evaluate === 'function') {
+        await input.evaluate((element, payload) => {
+          if (!element) return;
+          const missing = !element.files || element.files.length === 0;
+          if (missing && payload && typeof payload.text === 'string'
+            && typeof File === 'function' && typeof DataTransfer === 'function') {
+            try {
+              const file = new File([payload.text], String(payload.name || 'upload.txt'), { type: payload.mime || 'text/plain' });
+              const transfer = new DataTransfer();
+              transfer.items.add(file);
+              element.files = transfer.files;
+            } catch { /* the webdriver assignment already holds the file */ }
+          }
+          if (!element.files || element.files.length === 0 || typeof element.dispatchEvent !== 'function') return;
+          element.dispatchEvent(new Event('input', { bubbles: true }));
+          element.dispatchEvent(new Event('change', { bubbles: true }));
+        }, { text: step.file_text, name: fileName, mime: mimeType }).catch(() => {});
       }
       const uploadOutcome = uploadResponse ? await uploadResponse : null;
       if (uploadResponse && (uploadOutcome?.status !== 200 || !uploadOutcome?.accepted)) {
