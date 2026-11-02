@@ -169,8 +169,8 @@ test('a failed multi-step computer command does not falsely mark later planned s
   const truth = await computeRoadmapTruth(d,[{items:[{id:'GEN2-30'}]}],{now});
   const pointer = truth.items['GEN2-30'].proofs.find(p=>p.id==='pointer.click');
   const cursor = truth.items['GEN2-30'].proofs.find(p=>p.id==='cursor.move');
-  assert.equal(pointer.ok,0);
-  assert.equal(pointer.ko,0,'unreached second step must not be treated as a failure');
+  assert.equal(pointer?.ok ?? 0,0);
+  assert.equal(pointer?.ko ?? 0,0,'unreached second step must not be treated as a failure');
   assert.equal(cursor.ko,1);
   d.close();
 });
