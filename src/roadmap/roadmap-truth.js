@@ -129,6 +129,33 @@ export const ROADMAP_PROOF_SOURCES = Object.freeze({
   'GEN2-62': { capabilities: ['roadmap.human-actions-required'] },
   'MEL-UI-07': { capabilities: ['presentation.layout.plan'] },
   'GEN2-42': { capabilities: ['capability.audit'] },
+  // Software contracts for rows that previously had no runtime proof.
+  // A successful execution certifies that contract, not a physical device,
+  // a visual review, or a new training run.
+  'MEL-CONTEXT-01': { capabilities: ['context.queue.verify'] },
+  'MEL-EVOL-06': { capabilities: ['lora.continuous-training.verify'] },
+  'MEL-CONN-01': { capabilities: ['wordpress.public-boundary.verify'] },
+  'MEL-CONN-02': { capabilities: ['connectors.installable-catalog.verify'] },
+  'MEL-VOICE-01': { capabilities: ['voice.wake-phrase.verify'] },
+  'MEL-AVATAR-01': { capabilities: ['avatar.motion.verify'] },
+  'MEL-AVATAR-02': { capabilities: ['avatar.lipsync.verify'] },
+  'MEL-AVATAR-03': { capabilities: ['avatar.identity.verify'] },
+  'GEN2-26': { capabilities: ['pwa.manifest.verify'] },
+  'GEN2-27': { capabilities: ['android.companion-protocol.verify'] },
+  'GEN2-58': { capabilities: ['android.release-protocol.verify'] },
+  'GEN2-59': { capabilities: ['windows.companion-selection.verify'] },
+  'MEL-DEVICE-02': { capabilities: ['device.power-confirmation.verify'] },
+  'MEL-DEVICE-03': { capabilities: ['device.wake-on-lan.verify'] },
+  'MEL-SEC-05': { capabilities: ['security.secret-harvest.verify'] },
+  'MEL-SOV-01': { capabilities: ['sovereignty.regeneration.verify'] },
+  'MEL-LORA-TRACE-01': { capabilities: ['lora.daily-trace.verify'] },
+  'GEN2-54': { capabilities: ['ui.control-center.verify'] },
+  'MEL-UI-01': { capabilities: ['ui.home-minimal.verify'] },
+  'MEL-UI-02': { capabilities: ['ui.touch-avatar.verify'] },
+  'MEL-UI-03': { capabilities: ['ui.favicon.verify'] },
+  'MEL-UI-06': { capabilities: ['ui.file-paste.verify'] },
+  'GEN2-57': { capabilities: ['migration.gen1-contract.verify'] },
+  'MEL-REL-03': { capabilities: ['release.smoke-contract.verify'] },
 });
 
 export const ROADMAP_TRUTH = Object.freeze({

@@ -12,6 +12,7 @@ import {
  evaluateOptionalAiResultProof,
  getOwnerCompanionComputeReadiness,
 } from "./companion-compute-admission.js";
+import { requiredPowerConfirmation } from "./power-confirmation.js";
 import { miniReadOnlyPcCommand } from "./mini-readonly-companion.js";
 import { miniMaintenanceAssessCommand } from "./mini-maintenance-companion.js";
 import { companionBleDiagnosticsCommand } from "./companion-ble-diagnostics.js";
@@ -478,9 +479,8 @@ async function ownerPower(request,env){
  const b=await request.json().catch(()=>({}));
  const id=safe(b.computer_id),action=safe(b.action,64),confirmation=safe(b.confirmation,128);
  if(!id)return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);
- if(!["power.off","power.restart"].includes(action))return json({ok:false,code:"POWER_ACTION_INVALID"},400);
- const expected=action==="power.off"?"POWER_OFF_APPROVED":"POWER_RESTART_APPROVED";
- if(confirmation!==expected)return json({ok:false,code:"OWNER_CONFIRMATION_REQUIRED"},403);
+ if(!requiredPowerConfirmation(action))return json({ok:false,code:"POWER_ACTION_INVALID"},400);
+ if(confirmation!==requiredPowerConfirmation(action))return json({ok:false,code:"OWNER_CONFIRMATION_REQUIRED"},403);
  const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=? LIMIT 1").bind(id).first();
  const device=normalizeDevice(row);
  if(!device)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404);
