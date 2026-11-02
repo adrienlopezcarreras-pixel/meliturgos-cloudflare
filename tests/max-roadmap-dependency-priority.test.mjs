@@ -189,7 +189,7 @@ test('no runnable work is not a 100 % certificate while external tasks remain', 
   assert.equal(result.external_progress?.remaining_count, 1);
 });
 
-test('dependency-only queue does not falsely finish or bypass a blocked prerequisite', async () => {
+test('an external block does not freeze a software child, a software parent still does', async () => {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
   const blockedRoadmap = [
     { id: 'BLOCK', status: 'BLOCKED_EXTERNAL', priority: 'P0', depends_on: [] },
@@ -203,11 +203,25 @@ test('dependency-only queue does not falsely finish or bypass a blocked prerequi
     result_json: { dependency_wait: { previous_status: 'QUEUED', prerequisites: ['BLOCK'] } } });
   const supervisor = new AutonomySupervisor({ repository, roadmap: blockedRoadmap });
   const result = await supervisor.ensureNextJob();
-  assert.equal(result.complete, false);
-  assert.equal(result.job, null);
-  assert.equal(result.external_progress?.status, 'ROADMAP_PREREQUISITES_PENDING');
-  assert.equal(result.external_progress?.job_id, old.id);
-  assert.equal((await repository.get(old.id)).status, 'WAITING_DEPENDENCY');
+  assert.equal(result.job.id, old.id);
+  assert.equal(result.job.status, 'QUEUED');
+  assert.notEqual(result.complete, true);
+  assert.notEqual(result.external_progress?.status, 'ROADMAP_PREREQUISITES_PENDING');
+
+  const software = new D1DevJobRepository(null, { memoryStore: new Map() });
+  const waiting = await software.create({
+    id: 'wait-software', requested_by: 'mel-autonomy',
+    goal: 'still blocked', optional_context: { roadmap_id: 'CHILD' },
+  });
+  await software.update(waiting.id, { status: 'WAITING_DEPENDENCY',
+    result_json: { dependency_wait: { previous_status: 'QUEUED', prerequisites: ['PARENT'] } } });
+  const held = await new AutonomySupervisor({ repository: software, roadmap: [
+    { id: 'PARENT', status: 'PLANNED', priority: 'P0', depends_on: [] },
+    { id: 'CHILD', status: 'PLANNED', priority: 'P0', depends_on: ['PARENT'] },
+  ] }).ensureNextJob();
+  assert.equal(held.external_progress?.status, undefined);
+  assert.equal(held.job.optional_context.roadmap_id, 'PARENT');
+  assert.equal((await software.get(waiting.id)).status, 'WAITING_DEPENDENCY');
 });
 
 test('only actually verified and exhausted roadmap can report complete', async () => {
