@@ -17,6 +17,34 @@ export function createCompleteEvidenceLedger(items = flattenRoadmap(), sources =
     const hasRuntimeMapping = Boolean(source && ((source.capabilities?.length || 0) + (source.computerActions?.length || 0)) > 0);
     const runtime = runtimeAvailable ? runtimeTruth.items?.[item.id] : null;
     if (runtimeAvailable && !runtime) throw new Error('ROADMAP_RUNTIME_ITEM_MISSING: '+item.id);
+    if (runtime?.truth === 'VERIFIED_LIVE') {
+      const proofs = runtime.proofs;
+      if (!Array.isArray(proofs) || proofs.length === 0 ||
+          !proofs.every(p => p && ['capability','computer','max-delivery'].includes(p.kind) &&
+            typeof p.id === 'string' && p.id.trim() && Number(p.ok) > 0) ||
+          !Number.isFinite(Date.parse(runtime.last_proof_at))) {
+        throw new Error('ROADMAP_VERIFIED_WITHOUT_VALID_RECEIPT: '+item.id);
+      }
+      const delivered = proofs.length === 1 && proofs[0].kind === 'max-delivery';
+      if (delivered) {
+        if (hasRuntimeMapping) throw new Error('ROADMAP_RECEIPT_SOURCE_MISMATCH: '+item.id);
+        const p = proofs[0];
+        if (!/^full-candidate-ci#[0-9]+$/.test(p.id) ||
+            !/^[a-f0-9]{40}$/i.test(String(p.candidate_sha || '')) ||
+            !String(p.job_id || '').trim()) {
+          throw new Error('ROADMAP_DELIVERY_RECEIPT_INVALID: '+item.id);
+        }
+      } else {
+        const expected = [...(source?.capabilities || []).map(id => 'capability:'+id),
+          ...(source?.computerActions || []).map(id => 'computer:'+id)];
+        const observed = proofs.map(p => p.kind+':'+p.id);
+        if (!expected.length || observed.length !== expected.length ||
+            new Set(observed).size !== observed.length ||
+            expected.some(pair => !observed.includes(pair))) {
+          throw new Error('ROADMAP_RECEIPT_SOURCE_MISMATCH: '+item.id);
+        }
+      }
+    }
     return {
       id: item.id,
       title: item.title,
