@@ -163,7 +163,13 @@ test('MAX repart seul après un retour arrière, jamais après un arrêt propri�
     paused: true, max_remembered: true, source: 'release-launch-bootstrap', reason: 'NEW_RELEASE_AWAITING_OWNER_LAUNCH',
   }), true, 'une release terminée relance MAX si le propriétaire l’avait choisi');
   assert.equal(c.shouldRestoreOwnerMax({
+    paused: true, max_remembered: true, source: null, reason: null,
+  }), true, 'un choix MAX conservé sans libellé de pause repart quand même');
+  assert.equal(c.shouldRestoreOwnerMax({
     paused: true, max_remembered: true, source: 'release-predeploy-binder', reason: 'predeploy-release-safety',
   }), false, 'la pause courte de déploiement n’est pas une reprise');
   assert.equal(c.shouldRestoreOwnerMax(ownerStop), false);
+  assert.equal(c.shouldRestoreOwnerMax({
+    paused: true, max_remembered: true, source: 'owner-ui', reason: 'owner-emergency-stop',
+  }), false, 'le coupe-circuit propriétaire gagne même si le choix MAX est encore noté');
 });
