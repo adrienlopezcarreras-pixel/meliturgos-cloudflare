@@ -13,6 +13,24 @@ export const ROADMAP_TRUTH_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 // Élément de roadmap → preuves runtime. Un élément sans entrée ici n'a pas de
 // preuve automatique : il est affiché « DÉCLARÉ » et ne compte pas comme vérifié.
 export const ROADMAP_PROOF_SOURCES = Object.freeze({
+  'GEN2-02': { capabilities: ['identity.portability.verify'] },
+  'GEN2-61': { capabilities: ['roadmap.final-report.verify'] },
+  'GEN2-51': { capabilities: ['api.versioning.verify'] },
+  'GEN2-52': { capabilities: ['prompt.strategy.versioning.verify'] },
+  'GEN2-11': { capabilities: ['knowledge.graph.verify'] },
+  'GEN2-10': { capabilities: ['memory.contradiction.provenance.verify'] },
+  'GEN2-50': { capabilities: ['mcp.compatibility.verify'] },
+  'MEL-SEC-01': { capabilities: ['security.prompt-injection-firewall.verify'] },
+  'MEL-EVAL-01': { capabilities: ['evaluation.benchmark-contract.verify'] },
+  'GEN2-43': { capabilities: ['evaluation.model-watch.verify'] },
+  'GEN2-03': { capabilities: ['models.registry.verify'] },
+  'GEN2-04': { capabilities: ['models.router-fallback.verify'] },
+  'MEL-CONTEXT-02': { capabilities: ['context.long-decisions.verify'] },
+  'MEL-CONTEXT-04': { capabilities: ['context.interpreter.verify'] },
+  'MEL-MEM-02': { capabilities: ['memory.exchange-sync.verify'] },
+  'MEL-COUNCIL-04': { capabilities: ['models.task-learning.verify'] },
+  'GEN2-32': { capabilities: ['connectors.sdk-catalog.verify'] },
+  'MEL-COUNCIL-03': { capabilities: ['council.teacher-escalation.verify'] },
   'GEN2-06': { capabilities: ['conversation.list', 'conversation.get'] },
   'GEN2-08': { capabilities: ['conversation.messages.list'] },
   'MEL-CONTEXT-03': { capabilities: ['openloop.resume', 'openloop.due'] },
@@ -43,6 +61,56 @@ export const ROADMAP_PROOF_SOURCES = Object.freeze({
   'GEN2-35': { capabilities: ['files.list'] },
   'GEN2-36': { capabilities: ['cloudflare.workers.read', 'cloudflare.deployments.read', 'github.actions.workflow.dispatch.status'] },
   'GEN2-37': { capabilities: ['web.research'] },
+
+  // 01/11: 85 items marked DONE_VERIFIED had NO proof source at all, so they
+  // could only ever read « Déclaré, sans preuve » and MEL would never rely on
+  // them. Each line below names the capability whose real execution proves
+  // that item. Items with no runtime capability that proves them (UI look,
+  // mobile/desktop builds, physical devices) are deliberately absent: an
+  // invented mapping would be a false proof, which is worse than none.
+  'GEN2-01': { capabilities: ['system.integrity'] },
+  'MEL-MEM-01': { capabilities: ['memory.consolidate'] },
+  'MEL-MEM-04': { capabilities: ['chatgpt.archive.preview'] },
+  'MEL-MEM-05': { capabilities: ['chatgpt.history.search'] },
+  'MEL-MEM-06': { capabilities: ['chatgpt.archive.import', 'memory.retrieve'] },
+  'MEL-MEM-07': { capabilities: ['memory.retrieve', 'rag.search'] },
+  'MEL-MEM-08': { capabilities: ['memory.learn'] },
+  'MEL-MEM-09': { capabilities: ['chatgpt.history.search'] },
+  'MEL-MEM-10': { capabilities: ['memory.export.verify', 'resilience.recovery.drill.latest'] },
+  'GEN2-15': { capabilities: ['evolution.plugin.propose'] },
+  'GEN2-16': { capabilities: ['skill.module.candidate.register'] },
+  'MEL-AUG-02': { capabilities: ['augmentio.fanout'] },
+  'MEL-COUNCIL-01': { capabilities: ['council.state-of-play'] },
+  'MEL-COUNCIL-05': { capabilities: ['conversation.quality.recent'] },
+  'GEN2-17': { capabilities: ['autonomy.status', 'autonomy.activity'] },
+  'MEL-EVOL-03': { capabilities: ['mentor.propose', 'mentor.recent'] },
+  'GEN2-18': { capabilities: ['self.audit.run'] },
+  'GEN2-39': { capabilities: ['event.schedule'] },
+  'GEN2-41': { capabilities: ['event.publish'] },
+  'MEL-WORK-03': { capabilities: ['capability.audit'] },
+  'MEL-CONN-03': { capabilities: ['mail.messages.search'] },
+  'GEN2-24': { capabilities: ['files.read', 'files.write'] },
+  'MEL-VOICE-02': { capabilities: ['media.audio.transcribe'] },
+  'MEL-DREAMINA-01': { capabilities: ['media.image.generate', 'media.video.generate'] },
+  'GEN2-07': { capabilities: ['device.sync'] },
+  'GEN2-29': { capabilities: ['device.register', 'device.sync'] },
+  'GEN2-45': { capabilities: ['capability.audit'] },
+  'GEN2-46': { capabilities: ['system.bindings'] },
+  'MEL-SEC-02': { capabilities: ['capability.audit.status'] },
+  'MEL-SEC-03': { capabilities: ['github.actions.runs.read'] },
+  'MEL-SEC-04': { capabilities: ['autonomy.pause'] },
+  'GEN2-47': { capabilities: ['memory.export'] },
+  'GEN2-49': { capabilities: ['portability.escape.plan'] },
+  'MEL-RES-01': { capabilities: ['self.state'] },
+  'MEL-RES-02': { capabilities: ['resilience.recovery.drill.latest'] },
+  'MEL-RES-05': { capabilities: ['memory.export.verify'] },
+  'MEL-SOV-02': { capabilities: ['resilience.cold-standby.prepare.latest'] },
+  'MEL-EVAL-03': { capabilities: ['conversation.quality.recent'] },
+  'GEN2-53': { capabilities: ['cloudflare.deployments.read', 'skill.rollback'] },
+  'GEN2-63': { capabilities: ['autonomy.tick'] },
+  'MEL-UI-05': { capabilities: ['self.state'] },
+  'MEL-REL-01': { capabilities: ['cloudflare.deployments.read'] },
+  'MEL-REL-02': { capabilities: ['github.actions.runs.read'] },
   'GEN2-21': { capabilities: ['media.image.analyze', 'media.image.generate'] },
   'GEN2-22': { capabilities: ['media.audio.transcribe', 'media.audio.synthesize'] },
   'GEN2-23': { capabilities: ['media.video.analyze'] },
@@ -86,30 +154,28 @@ async function capabilityEvidence(db, since) {
 
 async function computerEvidence(db, since) {
   try {
+    // All successful steps count, not just the first step or the first 500
+    // commands. A failed command only proves failure of the first action:
+    // subsequent planned steps may not have been executed.
     const rows = (await db.prepare(
-      `SELECT json_extract(plan_json,'$.steps[0].action') AS action,
-              SUM(status='SUCCEEDED') AS ok, SUM(status='FAILED') AS ko,
-              MAX(CASE WHEN status='SUCCEEDED' THEN finished_at END) AS last_ok,
-              MAX(CASE WHEN status='FAILED' THEN finished_at END) AS last_ko,
-              MAX(CASE WHEN status='FAILED' THEN error_code END) AS error
-         FROM computer_commands WHERE created_at > ? GROUP BY action`
+      `SELECT json_extract(step.value,'$.action') AS action,
+              SUM(c.status='SUCCEEDED') AS ok,
+              SUM(c.status='FAILED' AND CAST(step.key AS INTEGER)=0) AS ko,
+              MAX(CASE WHEN c.status='SUCCEEDED' THEN c.finished_at END) AS last_ok,
+              MAX(CASE WHEN c.status='FAILED' AND CAST(step.key AS INTEGER)=0 THEN c.finished_at END) AS last_ko,
+              MAX(CASE WHEN c.status='FAILED' AND CAST(step.key AS INTEGER)=0 THEN c.error_code END) AS error
+         FROM computer_commands AS c
+         JOIN json_each(c.plan_json,'$.steps') AS step
+         WHERE c.created_at > ?
+           AND (c.status='SUCCEEDED' OR (c.status='FAILED' AND CAST(step.key AS INTEGER)=0))
+           AND json_extract(step.value,'$.action') IS NOT NULL
+         GROUP BY action`
     ).bind(since).all())?.results || [];
-    // Multi-step commands (cursor.move + pointer.click) record their first step; count every step action too.
-    const steps = (await db.prepare(
-      `SELECT plan_json, status, finished_at FROM computer_commands WHERE created_at > ? AND status='SUCCEEDED' AND json_array_length(json_extract(plan_json,'$.steps')) > 1 LIMIT 500`
-    ).bind(since).all())?.results || [];
-    const map = new Map(rows.map(r => [String(r.action), { ok: Number(r.ok || 0), ko: Number(r.ko || 0), last_ok: r.last_ok ? Number(r.last_ok) : null, last_ko: r.last_ko ? Number(r.last_ko) : null, error: r.error || null }]));
-    for (const row of steps) {
-      let plan = null;
-      try { plan = JSON.parse(row.plan_json); } catch {}
-      for (const step of Array.isArray(plan?.steps) ? plan.steps.slice(1) : []) {
-        const entry = map.get(String(step?.action)) || { ok: 0, ko: 0, last_ok: null, last_ko: null, error: null };
-        entry.ok += 1;
-        entry.last_ok = Math.max(entry.last_ok || 0, Number(row.finished_at || 0)) || entry.last_ok;
-        map.set(String(step?.action), entry);
-      }
-    }
-    return map;
+    return new Map(rows.map(r => [String(r.action), {
+      ok: Number(r.ok || 0), ko: Number(r.ko || 0),
+      last_ok: r.last_ok ? Number(r.last_ok) : null,
+      last_ko: r.last_ko ? Number(r.last_ko) : null, error: r.error || null
+    }]));
   } catch {
     return new Map();
   }
@@ -119,13 +185,13 @@ async function computerEvidence(db, since) {
 // acceptance gate (Council, exact-SHA full CI, code receipt) is proven by that
 // receipt. 30/10: FOUNDER-01 COMPLETED with a verified receipt still showed
 // « Déclaré, sans preuve » because only runtime capabilities were read.
-async function deliveredRoadmapEvidence(db) {
+async function deliveredRoadmapEvidence(db, since) {
   try {
     const rows = (await db.prepare(
       `SELECT id, status, requested_by, files_json, optional_context, result_json, updated_at FROM dev_jobs
-        WHERE status='COMPLETED' AND requested_by='mel-autonomy' AND result_json LIKE '%roadmap_code_acceptance%'
+        WHERE status='COMPLETED' AND requested_by='mel-autonomy' AND updated_at >= ? AND result_json LIKE '%roadmap_code_acceptance%'
         ORDER BY updated_at DESC LIMIT 200`
-    ).all())?.results || [];
+    ).bind(since).all())?.results || [];
     const parse = value => { if (value && typeof value === 'object') return value; try { return JSON.parse(value || 'null'); } catch { return null; } };
     const delivered = new Map();
     for (const row of rows) {
@@ -151,7 +217,9 @@ export function classifyRoadmapItem(itemId, evidence) {
     ...(source.capabilities || []).map(id => ({ kind: 'capability', id, ...(evidence.capabilities.get(id) || { ok: 0, ko: 0, last_ok: null, last_ko: null, error: null }) })),
     ...(source.computerActions || []).map(id => ({ kind: 'computer', id, ...(evidence.computer.get(id) || { ok: 0, ko: 0, last_ok: null, last_ko: null, error: null }) })),
   ];
-  const proven = proofs.filter(p => p.ok > 0);
+  // A more recent failed execution overrides an older success; historic success
+  // alone cannot certify the capability as currently operational.
+  const proven = proofs.filter(p => p.ok > 0 && !(p.ko > 0 && Number(p.last_ko || 0) >= Number(p.last_ok || 0)));
   const executed = proofs.filter(p => p.ok > 0 || p.ko > 0);
   let truth = ROADMAP_TRUTH.UNPROVEN;
   if (proofs.length && proven.length === proofs.length) truth = ROADMAP_TRUTH.VERIFIED_LIVE;
@@ -164,7 +232,7 @@ export function classifyRoadmapItem(itemId, evidence) {
 export async function computeRoadmapTruth(db, phases, { now = Date.now() } = {}) {
   if (!db || typeof db.prepare !== 'function') return { available: false, reason: 'ROADMAP_TRUTH_DB_UNAVAILABLE' };
   const since = now - ROADMAP_TRUTH_WINDOW_MS;
-  const evidence = { capabilities: await capabilityEvidence(db, since), computer: await computerEvidence(db, since), delivered: await deliveredRoadmapEvidence(db) };
+  const evidence = { capabilities: await capabilityEvidence(db, since), computer: await computerEvidence(db, since), delivered: await deliveredRoadmapEvidence(db, since) };
   const items = {};
   const counts = Object.fromEntries(Object.values(ROADMAP_TRUTH).map(k => [k, 0]));
   let total = 0;

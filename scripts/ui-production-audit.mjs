@@ -48,9 +48,12 @@ export function inventoryControls(html) {
   const escape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const reference = id => new RegExp(`(#${escape(id)}\\b|getElementById\\(['"]${escape(id)}['"]\\))`);
   const controls = [];
+  const seenControlIds = new Set();
   for (const match of source.matchAll(/<button\b([^>]*)>/g)) {
     const id = match[1].match(/\bid="([^"]+)"/)?.[1];
     if (!id) continue;
+    const duplicate_id = seenControlIds.has(id);
+    seenControlIds.add(id);
     let via = null, at = script.search(reference(id));
     if (at >= 0) via = 'script';
     else if (/\btype="submit"/.test(match[1])) {
@@ -58,7 +61,7 @@ export function inventoryControls(html) {
       if (form && (at = script.search(reference(form))) >= 0) via = 'form';
     }
     const handler = at >= 0 ? script.slice(at, at + 700) : '';
-    controls.push({ id, handled: via !== null, via,
+    controls.push({ id, duplicate_id, handled: via !== null, via,
       api: [...new Set([...handler.matchAll(/['"](\/api\/[A-Za-z0-9/_.-]+)/g)].map(m => m[1]))].slice(0, 6),
       mutating: /method:\s*['"](?:POST|PUT|PATCH|DELETE)['"]/i.test(handler) });
   }
@@ -70,7 +73,7 @@ export function inventoryControls(html) {
 // PASS otherwise. No unauthorized mutation is ever performed.
 export function controlReceipt(controls = [], { jsErrors = [] } = {}) {
   const rows = controls.map(control => ({ id: control.id, api: control.api,
-    status: !control.handled || jsErrors.length ? 'FAIL' : control.mutating ? 'BLOCKED' : 'PASS' }));
+    status: !control.handled || control.duplicate_id || jsErrors.length ? 'FAIL' : control.mutating ? 'BLOCKED' : 'PASS' }));
   const count = status => rows.filter(row => row.status === status).length;
   return { schema: 'mel.ui-control-receipt/v1', controls: rows, pass: count('PASS'), fail: count('FAIL'), blocked: count('BLOCKED'), mutations_performed: 0 };
 }

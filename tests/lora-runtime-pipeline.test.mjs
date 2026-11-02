@@ -263,3 +263,47 @@ test('native model router prioritizes and applies the active LoRA adapter', asyn
   assert.equal(calls[0].model, plan.runtime_model);
   assert.equal(calls[0].input.lora, artifact.finetune_id);
 });
+
+// MEL-FOUNDER-08: the promotion guard and the before/after receipt.
+test('an incompatible, unbenchmarked or gainless adapter is refused; only an exact receipt allows a promotion proposal', async () => {
+  const { proposeLoraPromotion } = await import('../src/learning/operator-actions.js');
+  const plan = exactPlan();
+  const artifact = exactArtifact(plan);
+  const approval = exactApproval(plan, artifact);
+  const suite = 'suite-' + '9'.repeat(16);
+  const bench = (overall, extra = {}) => ({
+    overall, passed: true, suite_digest: suite,
+    artifact_digest: artifact.digest, training_manifest_digest: plan.training_manifest_digest,
+    dataset_digest: plan.dataset_digest, approval_id: approval.approval_id, ...extra,
+  });
+
+  const ok = proposeLoraPromotion({ plan, artifact, approval, baseline: bench(0.60), candidate: bench(0.70) });
+  assert.equal(ok.promotable, true);
+  assert.equal(ok.activated, false, 'a proposal never activates by itself');
+  assert.equal(ok.receipt.before, 0.60);
+  assert.equal(ok.receipt.after, 0.70);
+  assert.ok(Math.abs(ok.receipt.measured_gain - 0.10) < 1e-9);
+  assert.equal(ok.receipt.artifact_digest, artifact.digest);
+  assert.equal(ok.receipt.finetune_id, artifact.finetune_id);
+  assert.equal(ok.receipt.dataset_digest, plan.dataset_digest);
+  assert.equal(ok.receipt.approval_id, approval.approval_id);
+
+  const incompatible = proposeLoraPromotion({ plan, artifact: { ...artifact, runtime_model: '@cf/not/a-pair' },
+    approval, baseline: bench(0.60), candidate: bench(0.95) });
+  assert.equal(incompatible.promotable, false);
+  assert.equal(incompatible.code, 'LORA_ADAPTER_INCOMPATIBLE', 'a gain on an unusable adapter proves nothing');
+  assert.equal(incompatible.receipt, null);
+
+  const noBenchmark = proposeLoraPromotion({ plan, artifact, approval, baseline: null, candidate: null });
+  assert.equal(noBenchmark.promotable, false);
+  assert.equal(noBenchmark.code, 'LORA_BENCHMARK_REQUIRED');
+
+  const noGain = proposeLoraPromotion({ plan, artifact, approval, baseline: bench(0.70), candidate: bench(0.705) });
+  assert.equal(noGain.promotable, false);
+  assert.equal(noGain.code, 'LORA_MEASURED_GAIN_INSUFFICIENT');
+
+  const noApproval = proposeLoraPromotion({ plan, artifact, approval: { ...approval, approved: false },
+    baseline: bench(0.60), candidate: bench(0.70) });
+  assert.equal(noApproval.promotable, false);
+  assert.equal(noApproval.code, 'LORA_ARTIFACT_APPROVAL_REQUIRED');
+});

@@ -1399,16 +1399,12 @@ export function resolveContinuationInferenceRoute({ voiceReply = false, professo
 // is the fallback of MEL's own trained models, behind the weapons guard.
 export async function runNativeInference(options = {}) {
   const { env, messages, deadlineAt = null, requireLora = false } = options;
-  if (!requireLora || !veniceConfigured(env)) return runNativeInferenceCore(options);
-  // Owner decision 01/11: until MEL's own model is proven 100% uncensored
-  // (MEL_UNCENSORED_OWN_MODEL_PROVEN=true), UNCENSORED goes straight to the
-  // external model instead of spending neurons on a refusal first.
-  if (String(env?.MEL_UNCENSORED_OWN_MODEL_PROVEN || '').toLowerCase() !== 'true') return runVeniceInference({ env, messages, deadlineAt });
-  try {
-    const own = await runNativeInferenceCore(options);
-    // A refusal from our model is not an UNCENSORED answer: Venice takes over.
-    if (String(own?.text || '').trim() && !isCensorshipRefusal(own.text)) return own;
-  } catch { /* our models failed: Venice below */ }
+  if (!requireLora) return runNativeInferenceCore(options);
+  // The user-facing UNCENSORED switch explicitly selects Venice, not a locally
+  // promoted adapter or a default model. Never silently fall back.
+  if (!veniceConfigured(env)) {
+    throw Object.assign(new Error('VENICE_KEY_MISSING'), { code: 'VENICE_KEY_MISSING' });
+  }
   return runVeniceInference({ env, messages, deadlineAt });
 }
 
@@ -2597,7 +2593,24 @@ export async function handleNativeChat(request, env, options = {}) {
       deadlineAt: chatDeadlineAt,
     });
   } catch (error) {
-    if (requireLora) return Response.json({ ok:false, error:'LORA_INFERENCE_UNAVAILABLE', code:'LORA_INFERENCE_UNAVAILABLE', text:'Mode UNCENSORED : aucun modèle validé disponible. Aucun modèle ordinaire n’a été utilisé.', active_lora:null }, { status:503 });
+    if (requireLora) {
+      // Expose the actual routing failure instead of hiding Venice HTTP/auth errors.
+      // Do not expose credentials, response bodies or the request messages.
+      const rawCode = String(error?.code || error?.message || 'LORA_INFERENCE_UNAVAILABLE');
+      const code = /^VENICE_HTTP_(400|401|402|403|404|408|409|422|429|500|502|503|504)$/.test(rawCode)
+        || ['VENICE_KEY_MISSING', 'VENICE_EMPTY_RESPONSE', 'LORA_INFERENCE_UNAVAILABLE', 'CHAT_DEADLINE_EXCEEDED', 'TimeoutError'].includes(rawCode)
+        ? rawCode : 'LORA_INFERENCE_UNAVAILABLE';
+      const message = !veniceConfigured(env)
+        ? 'Mode UNCENSORED : aucune clé OpenRouter utilisable dans le Worker (OPENROUTER_API_KEY).'
+        : code === 'VENICE_HTTP_401' || code === 'VENICE_HTTP_403'
+          ? 'Mode UNCENSORED : OpenRouter refuse la clé ou son autorisation.'
+          : code === 'VENICE_HTTP_402'
+            ? 'Mode UNCENSORED : crédit OpenRouter insuffisant.'
+            : code === 'VENICE_HTTP_429'
+              ? 'Mode UNCENSORED : limite de requêtes OpenRouter atteinte.'
+              : 'Mode UNCENSORED : Venice est inaccessible. Vérifier le code de diagnostic.';
+      return Response.json({ ok:false, error:'LORA_INFERENCE_UNAVAILABLE', code, text:message, provider:'openrouter', attempted_model:'cognitivecomputations/dolphin-mistral-24b-venice-edition', active_lora:null }, { status:503 });
+    }
     if (voiceReply) {
       try {
         const fallbackModel = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
@@ -2780,7 +2793,7 @@ export async function handleNativeChat(request, env, options = {}) {
   if (!requireLora && isCensorshipRefusal(ai?.text)) {
     try {
       requireChatLora(activeAdapter);
-      const switched = await runNativeInference({
+      const switched = await runNativeInferenceCore({
         env, messages, text, parallel: false, maxCandidates: 1,
         inferenceSettings: effectiveInferenceSettings, activeAdapter,
         requireLora: true, runtime, taskOverride: 'REASONING', maxCalls: 1, deadlineAt: chatDeadlineAt,
