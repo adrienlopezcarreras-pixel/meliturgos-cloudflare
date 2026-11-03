@@ -73,7 +73,7 @@ export async function handleCouncilBatchedReview(env,body,{
       diff:body.diff,decision:verifiedDecision,reviews:vote.reviews||[],
       attempts:Number(prior?.attempts||0)+1,reviewed_at:now};
     await persist(env.DB,key,record,now);
-    return {status:200,result:{ok:true,decision:vote.decision==='APPROVED'
+    return {status:200,result:{ok:true,decision:verifiedDecision==='APPROVED'
       ?'PENDING_ALL_BATCH_REVIEWS':'COUNCIL_BATCH_NOT_APPROVED',
       batch_decision:verifiedDecision,head,root_sha256:root,batch_index:i}};
   }

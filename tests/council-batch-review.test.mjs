@@ -130,6 +130,7 @@ test('models with duplicate identities or empty reasons cannot prove a batch quo
       {model:'same-model',verdict:'APPROVE',summary:'two'},
     ]}));
     assert.equal(wrong.result.batch_decision,'COUNCIL_BATCH_QUORUM_UNPROVEN');
+    assert.equal(wrong.result.decision,'COUNCIL_BATCH_NOT_APPROVED');
     assert.equal((await call(DB,finish)).result.code,'COUNCIL_BATCH_REVIEWS_INCOMPLETE');
   }finally{DB.close();}
 });
