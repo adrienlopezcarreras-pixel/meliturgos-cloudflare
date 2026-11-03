@@ -59,12 +59,15 @@ export function selectSourceArchiveRoots(trackedRoots = []) {
 export function sensitiveSourceArchivePaths(paths = []) {
   if (!Array.isArray(paths)) return Object.freeze(['INVALID_PATH_LIST']);
   const denyName = /^(?:\.env(?:\.[^/]*)?|\.npmrc|\.pypirc|id_rsa|id_ed25519|[^/]*\.(?:pem|key|p12|pfx|kdbx|sqlite|sqlite3|db|bak|dump|backup|zip|7z|tar|gz|age|gpg))$/i;
-  const denySegment = /^(?:secrets?|credentials?|private[_-]?keys?|backups?|exports?|imports?)$/i;
+  const denySegment = /^(?:secrets?|credentials?|private[_-]?keys?)$/i;
+  const dataSegment = /^(?:backups?|exports?|imports?|data)$/i;
+  const sourceExt = /\.(?:js|mjs|cjs|ts|tsx|jsx|md)$/i;
   const found = paths.filter(path => {
     if (typeof path !== 'string' || !path || path.startsWith('/') || path.includes('\\')) return true;
     const segments = path.split('/');
     if (segments.some(x => x === '.' || x === '..' || !x)) return true;
-    return denyName.test(segments.at(-1)) || segments.some(x => denySegment.test(x));
+    return denyName.test(segments.at(-1)) || segments.some(x => denySegment.test(x))
+      || (segments.some(x => dataSegment.test(x)) && !sourceExt.test(segments.at(-1)));
   });
   return Object.freeze(found);
 }
