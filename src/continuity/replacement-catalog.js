@@ -21,33 +21,98 @@ export function replacementReadiness(part, evidence = {}) {
 }
 
 /**
- * A boolean alone is not a live proof. This gate requires individually dated
- * observations from an explicitly identified candidate. No fallback is armed
- * by the gate, even when all mandatory probes have passed.
+ * Diagnostic-only checklist. Raw observations and caller-supplied "trusted"
+ * IDs cannot independently establish the authenticity of any live proof.
  */
-export function verifiedReplacementReadiness(part, candidate, observations = [], { now = Date.now(), maxAgeMs = 15 * 60_000, trustedEvidenceIds = [] } = {}) {
-  const name = String(part || '').toLowerCase();
+export function verifiedReplacementReadiness(part, candidate, observations = [], { now = Date.now(), maxAgeMs = 15 * 60_000 } = {}) {
+  const name = String(part || '').toLowerCase(), id = String(candidate || '');
   const entry = REPLACEMENT_CATALOG[name];
-  const id = String(candidate || '');
-  if (!entry || !entry.candidates.includes(id)) {
-    return Object.freeze({ part: name, candidate: id, ready: false, activation_allowed: false, reason: 'CANDIDATE_NOT_IN_CATALOG' });
+  if (!entry || !entry.candidates.includes(id)) return Object.freeze({
+    part: name, candidate: id, ready: false, activation_allowed: false,
+    reason: 'CANDIDATE_NOT_IN_CATALOG',
+  });
+  const checks = Object.freeze(Object.fromEntries(entry.probes.map(probe => [probe,
+    (Array.isArray(observations) ? observations : []).some(row =>
+      row?.part === name && row?.candidate === id && row?.probe === probe && row?.passed === true
+      && Number.isFinite(Date.parse(String(row?.observed_at || '')))
+      && Date.parse(row.observed_at) <= now
+      && Date.parse(row.observed_at) >= now - maxAgeMs),
+  ])));
+  return Object.freeze({
+    part: name, candidate: id, ready: false, activation_allowed: false,
+    reason: 'SIGNED_ATTESTATIONS_REQUIRED', checks,
+  });
+}
+
+// This canonical text is signed by the independent probe producer with an
+// out-of-repository secret. The same format is used to verify each observation.
+export function replacementAttestationPayload(row) {
+  return [
+    'mel.replacement-probe/v1', String(row?.part || ''),
+    String(row?.candidate || ''), String(row?.probe || ''),
+    row?.passed === true ? 'PASS' : 'FAIL',
+    String(row?.observer || ''), String(row?.evidence_id || ''),
+    String(row?.observed_at || ''), String(row?.source_sha || '').toLowerCase(),
+  ].join('\n');
+}
+
+function rejectAttestation(part, candidate, reason, probes = []) {
+  return Object.freeze({
+    part, candidate, ready: false, activation_allowed: false,
+    automatic_activation: false, reason,
+    checks: Object.freeze(Object.fromEntries(probes.map(probe => [probe, false]))),
+    authenticated_count: 0,
+  });
+}
+
+/**
+ * Production proof gate. Even a complete set of authenticated, recent probes
+ * authorizes only a review, NEVER a migration or deployment. The signing key
+ * and permitted observer must be configured out of band.
+ */
+export async function attestedReplacementReadiness(part, candidate, observations = [], {
+  secret, expectedSourceSha, trustedObserver, now = Date.now(),
+  maxAgeMs = 15 * 60_000, cryptoImpl = globalThis.crypto,
+} = {}) {
+  const name = String(part || '').toLowerCase(), id = String(candidate || '');
+  const entry = REPLACEMENT_CATALOG[name];
+  if (!entry || !entry.candidates.includes(id))
+    return rejectAttestation(name, id, 'CANDIDATE_NOT_IN_CATALOG');
+  if (typeof secret !== 'string' || secret.length < 32 || !cryptoImpl?.subtle
+      || !/^[a-f0-9]{40}$/i.test(String(expectedSourceSha || ''))
+      || typeof trustedObserver !== 'string' || !trustedObserver.trim())
+    return rejectAttestation(name, id, 'TRUSTED_ATTESTATION_CONFIG_REQUIRED', entry.probes);
+
+  const key = await cryptoImpl.subtle.importKey(
+    'raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify'],
+  );
+  const valid = [], evidenceIds = new Set();
+  for (const row of (Array.isArray(observations) ? observations.slice(0, 100) : [])) {
+    if (row?.part !== name || row?.candidate !== id || !entry.probes.includes(row?.probe)
+        || row?.passed !== true || row?.observer !== trustedObserver
+        || String(row?.source_sha || '').toLowerCase() !== String(expectedSourceSha).toLowerCase()
+        || typeof row?.evidence_id !== 'string' || !row.evidence_id.trim()
+        || evidenceIds.has(row.evidence_id)
+        || !/^[0-9a-f]{64}$/i.test(String(row?.signature || ''))) continue;
+    const t = Date.parse(String(row?.observed_at || ''));
+    if (!Number.isFinite(t) || t > now || t < now - maxAgeMs) continue;
+    const signature = Uint8Array.from(
+      row.signature.match(/.{2}/g), pair => parseInt(pair, 16),
+    );
+    const signed = new TextEncoder().encode(replacementAttestationPayload(row));
+    if (await cryptoImpl.subtle.verify('HMAC', key, signature, signed)) {
+      evidenceIds.add(row.evidence_id);
+      valid.push(row);
+    }
   }
-  // The caller must first validate authentic independent artifacts, then
-  // pass only their immutable evidence IDs. No mission or report can self-attest.
-  const trusted = new Set(Array.isArray(trustedEvidenceIds) ? trustedEvidenceIds : []);
-  const checks = {};
-  for (const probe of entry.probes) {
-    checks[probe] = (Array.isArray(observations) ? observations : []).some(row => {
-      if (row?.candidate !== id || row?.part !== name || row?.probe !== probe || row?.passed !== true) return false;
-      if (typeof row?.evidence_id !== 'string' || !row.evidence_id.trim()) return false;
-      if (!trusted.has(row.evidence_id)) return false;
-      if (typeof row?.observer !== 'string' || !row.observer.trim()) return false;
-      const time = Date.parse(String(row?.observed_at || ''));
-      return Number.isFinite(time) && time <= now && time >= now - maxAgeMs;
-    });
-  }
+  const checks = Object.freeze(Object.fromEntries(entry.probes.map(probe =>
+    [probe, valid.some(row => row.probe === probe)])));
   const ready = entry.probes.every(probe => checks[probe]);
-  return Object.freeze({ part: name, candidate: id, ready, activation_allowed: false,
-    reason: ready ? 'ATTESTED_PROBES_PASS_MANUAL_APPROVAL_REQUIRED' : 'MISSING_OR_UNTRUSTED_PROOFS',
-    checks: Object.freeze(checks) });
+  return Object.freeze({
+    part: name, candidate: id, ready, activation_allowed: false,
+    automatic_activation: false, authenticated_count: valid.length,
+    source_sha: String(expectedSourceSha).toLowerCase(),
+    reason: ready ? 'SIGNED_PROBES_PASS_OWNER_APPROVAL_REQUIRED' : 'MISSING_OR_UNTRUSTED_SIGNED_PROOFS',
+    checks,
+  });
 }
