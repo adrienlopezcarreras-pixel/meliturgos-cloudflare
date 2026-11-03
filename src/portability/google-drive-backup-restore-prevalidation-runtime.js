@@ -6,6 +6,7 @@ import { validateSovereigntyCandidates } from './sovereignty-candidate-validator
 import { createD1OAuthVaults } from '../connectors/d1-oauth-vault.js';
 import { pipedreamAccessToken, pipedreamAccountStatus, resolveConnectionOAuthEnv } from '../api/connection-settings-api.js';
 import { createGoogleOAuthRuntime } from '../connectors/google-oauth-runtime.js';
+import { SHARD_MAP_DRIVE_NAME, shardMapText } from '../continuity/embedded-shard-map.js';
 
 export const GOOGLE_DRIVE_BACKUP_RESTORE_CANDIDATE_ID = 'google-drive-backup-restore-v1';
 
@@ -434,6 +435,10 @@ async function provePipedreamDriveBackupRestoreAlternative({
   const afterDelete=await pipedreamDriveProxyRead({pd,fileId:rollbackProbe.id,fetchImpl,allowNotFound:true});
   if(afterDelete!==null)fail('SOV_BACKUP_PIPEDREAM_ROLLBACK_NOT_CONFIRMED',409);
 
+  const shardMap=await pipedreamDriveProxyUpload({
+    pd,name:SHARD_MAP_DRIVE_NAME,content:shardMapText(),folderId:driveFolder(env),mimeType:'application/json',fetchImpl,
+  });
+
   return Object.freeze({
     ok:true,
     status:'GOOGLE_DRIVE_BACKUP_RESTORE_PREVALIDATED',
@@ -454,8 +459,10 @@ async function provePipedreamDriveBackupRestoreAlternative({
     activation_performed:false,
     production_mutation:false,
     source_sha,
+    shard_map_name:SHARD_MAP_DRIVE_NAME,
+    shard_map_drive_file_id:shardMap.id,
     verified_at:new Date(now).toISOString(),
-    evidence_ref:`google-drive:pipedream-proxy-file:${fileId};sha256:${readback_sha256};snapshot:${backup.snapshot_id}`,
+    evidence_ref:`google-drive:pipedream-proxy-file:${fileId};sha256:${readback_sha256};snapshot:${backup.snapshot_id};map:${shardMap.id}`,
     secret_values_exposed:false,
   });
 }
@@ -752,6 +759,10 @@ export async function proveGoogleDriveBackupRestoreAlternative({
   const afterDelete=await driveRead({token,fileId:rollbackProbe.id,fetchImpl,allowNotFound:true});
   if(afterDelete!==null)fail('SOV_BACKUP_DRIVE_ROLLBACK_DELETE_NOT_VERIFIED',409);
 
+  const shardMap=await driveUpload({
+    token,name:SHARD_MAP_DRIVE_NAME,content:shardMapText(),folderId,fetchImpl,
+  });
+
   return Object.freeze({
     ok:true,
     status:'GOOGLE_DRIVE_BACKUP_RESTORE_PREVALIDATED',
@@ -772,8 +783,10 @@ export async function proveGoogleDriveBackupRestoreAlternative({
     activation_performed:false,
     production_mutation:false,
     source_sha,
+    shard_map_name:SHARD_MAP_DRIVE_NAME,
+    shard_map_drive_file_id:shardMap.id,
     verified_at:new Date(now).toISOString(),
-    evidence_ref:`google-drive:file:${uploaded.id};sha256:${readback_sha256};snapshot:${backup.snapshot_id}`,
+    evidence_ref:`google-drive:file:${uploaded.id};sha256:${readback_sha256};snapshot:${backup.snapshot_id};map:${shardMap.id}`,
     secret_values_exposed:false,
   });
 }
@@ -925,6 +938,9 @@ async function runPipedreamBackupRestoreStage(env,{
     if(Number(backup.byte_length||0)>0&&sourceBytes.byteLength!==Number(backup.byte_length)){
       fail('SOV_BACKUP_SOURCE_LENGTH_MISMATCH',409);
     }
+    const mapFile=native
+      ? await driveUpload({token:native.token,name:SHARD_MAP_DRIVE_NAME,content:shardMapText(),folderId:driveFolder(env),fetchImpl})
+      : await pipedreamDriveProxyUpload({pd,name:SHARD_MAP_DRIVE_NAME,content:shardMapText(),folderId:driveFolder(env),mimeType:'application/json',fetchImpl});
     const ciphertext_sha256=await sha256Hex(sourceBytes);
     Object.assign(state,{
       snapshot_id:backup.snapshot_id,
@@ -934,6 +950,8 @@ async function runPipedreamBackupRestoreStage(env,{
       source_restore_code:clean(backup.restore_code,160)||'RESTORE_CANDIDATE_VERIFIED',
       drive_file_id:created.id,
       drive_name:created.name||name,
+      shard_map_name:SHARD_MAP_DRIVE_NAME,
+      shard_map_drive_file_id:mapFile.id,
       ciphertext_sha256,
       prepared:true,
       readback_verified:false,
