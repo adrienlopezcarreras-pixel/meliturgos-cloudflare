@@ -29,12 +29,13 @@ test('every countermeasure is bound to an action', async () => {
     openPrivateCopy: async () => { calls.push('kit'); return { ok: true }; },
     restoreBackupBytes: async () => { calls.push('backup'); return { ok: true }; },
   });
+  const recordedOnly = new Set(['KEEP_PREVIOUS_SHA','DO_NOT_START_SECOND_RELEASE','KEEP_SOURCE','ROLLBACK_TO_SOURCE','DO_NOT_MERGE','OPEN_PRIVATE_KIT_NOT_PUBLIC_SHARD']);
   for (const event of allLifeEvents()) {
     if (event.countermeasure === 'KEEP_PAUSE') continue;
     const result = await applyLifeCountermeasure(event.id, actions);
     const noRecovery = event.id === 'MAX_STALLED';
     assert.equal(result.applied, !noRecovery, event.id);
-    assert.equal(result.activation_performed, !noRecovery, event.id);
+    assert.equal(result.activation_performed, !noRecovery && !recordedOnly.has(event.countermeasure), event.id);
     if (noRecovery) assert.equal(result.reason, 'NO_RECOVERABLE_JOB');
   }
   assert.ok(calls.includes('version-1'));
