@@ -795,6 +795,7 @@ async function applyObservedCountermeasures(env, repository, control, watchdog, 
     previousVersionId: job?.result_json?.previous_version_id || null,
     rollbackWorker: env?.MEL_ROLLBACK_WORKER,
     openPrivateCopy: env?.MEL_OPEN_PRIVATE_KIT,
+    rebuildFromPrivateKit: env?.MEL_REBUILD_FROM_PRIVATE_KIT,
     restoreBackupBytes: env?.MEL_RESTORE_BACKUP,
   });
   // Legacy job-supplied parts_up values are untrusted and intentionally ignored.
