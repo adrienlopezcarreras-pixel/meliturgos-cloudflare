@@ -633,7 +633,7 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
 
 // Reuse the active heartbeat and the existing repair state machine. This does
 // not run behind the launch gate, complete a job or make any release decision.
-export async function reconcileFailedCandidateRuns({ repository, env = {}, fetchImpl = fetch } = {}) {
+export async function reconcileFailedCandidateRuns({ repository, env = {}, fetchImpl = fetch, now = Date.now() } = {}) {
   const { repository: repo, branch } = repoAndBranch(env);
   const repaired = [];
   const deferred = [];
@@ -655,7 +655,22 @@ export async function reconcileFailedCandidateRuns({ repository, env = {}, fetch
       if (!Array.isArray(page?.workflow_runs)) throw Object.assign(new Error('COMPLETION_GITHUB_RESPONSE_INVALID'), { code: 'COMPLETION_GITHUB_RESPONSE_INVALID' });
       const run = page.workflow_runs.filter(run => run.name === 'full-candidate-ci' && run.head_sha === sha
         && run.head_branch === branch).sort((a, b) => Number(b.id) - Number(a.id))[0];
-      if (!run || !Number.isSafeInteger(Number(run.id)) || Number(run.id) <= 0 || run.status !== 'completed' || !['failure', 'timed_out'].includes(run.conclusion)) continue;
+      if (!run) {
+        const head = await fetchJson(fetchImpl, `https://api.github.com/repos/${encodePath(repo)}/commits/${encodeURIComponent(branch)}`, env);
+        const updatedAt = Number(job.updated_at) || Date.parse(job.updated_at || '') || 0;
+        if (head?.sha && head.sha !== sha && updatedAt > 0 && Number(now) - updatedAt > 30 * 60 * 1000) {
+          const result = { ...job.result_json, passive_state_recovery: {
+            recovered_at: new Date(now).toISOString(), previous_status: 'READY_FOR_REVIEW', reason: 'CANDIDATE_MOVED_BEFORE_CI',
+          } };
+          delete result.implementation_proposal;
+          delete result.bridge_package;
+          delete result.bridge_preparation;
+          const updated = await repository.update(job.id, { status: 'TEACHER_APPROVED', result_json: result }, { expected: job });
+          if (updated.status === 'TEACHER_APPROVED') repaired.push({ job_id: job.id, code: 'CANDIDATE_MOVED_BEFORE_CI' });
+        }
+        continue;
+      }
+      if (!Number.isSafeInteger(Number(run.id)) || Number(run.id) <= 0 || run.status !== 'completed' || !['failure', 'timed_out'].includes(run.conclusion)) continue;
       const head = await fetchJson(fetchImpl, `https://api.github.com/repos/${encodePath(repo)}/commits/${encodeURIComponent(branch)}`, env);
       if (head.sha !== sha) {
         // Preserve unrelated work, but never carry a failure onto changed
