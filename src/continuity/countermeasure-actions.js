@@ -1,11 +1,14 @@
 import { recoverPassiveRuntimeStates } from '../evolution/passive-state-recovery.js';
 
-async function markJob(repository, status, code) {
+async function markJob(repository, status, code, expectedJobId = null) {
   if (typeof repository?.listActiveAutonomyJobs !== 'function' || typeof repository?.update !== 'function') {
     return { ok: false, code: 'REPOSITORY_REQUIRED' };
   }
   const jobs = await repository.listActiveAutonomyJobs();
-  const job = Array.isArray(jobs) ? jobs.find(row => row?.id) : null;
+  const active = Array.isArray(jobs) ? jobs.filter(row => row?.id) : [];
+  // Never apply evidence for one tick to an unrelated active mission.
+  if (!expectedJobId && active.length > 1) return { ok: false, code: 'AMBIGUOUS_ACTIVE_JOBS' };
+  const job = expectedJobId ? active.find(row => row.id === expectedJobId) : active[0];
   if (!job) return { ok: false, idle: true, code: 'NO_ACTIVE_JOB', requested: code };
   const previous = job.result_json || {};
   const entry = { code, at: new Date().toISOString() };
@@ -45,6 +48,7 @@ export function bindCountermeasureActions({
   setMax,
   keepMax,
   repository = null,
+  jobId = null,
   supervisor = null,
   rollbackWorker,
   previousVersionId = null,
@@ -57,7 +61,7 @@ export function bindCountermeasureActions({
     if (typeof rollbackWorker !== 'function') return { ok: false, code: 'ROLLBACK_NOT_CONFIGURED' };
     const result = await rollbackWorker(previousVersionId);
     if (result?.ok === true) {
-      await markJob(repository, null, 'ROLLBACK_WORKER');
+      await markJob(repository, null, 'ROLLBACK_WORKER', jobId);
       return { ok: true };
     }
     return { ok: false, code: result?.code || 'ROLLBACK_FAILED' };
@@ -83,10 +87,10 @@ export function bindCountermeasureActions({
         ? { ok: true }
         : { ok: false, code: result?.code || 'MAX_RUNNING_NOT_PROVEN' };
     },
-    keepPrevious: () => markJob(repository, null, 'KEEP_PREVIOUS_SHA'),
-    refuseSecondRelease: () => markJob(repository, null, 'DO_NOT_START_SECOND_RELEASE'),
-    keepSource: () => markJob(repository, null, 'KEEP_SOURCE'),
-    refuseMerge: () => markJob(repository, null, 'DO_NOT_MERGE'),
+    keepPrevious: () => markJob(repository, null, 'KEEP_PREVIOUS_SHA', jobId),
+    refuseSecondRelease: () => markJob(repository, null, 'DO_NOT_START_SECOND_RELEASE', jobId),
+    keepSource: () => markJob(repository, null, 'KEEP_SOURCE', jobId),
+    refuseMerge: () => markJob(repository, null, 'DO_NOT_MERGE', jobId),
     requeue: () => requeue(repository),
     requeueReview: () => requeue(repository),
     ensureNextJob: async () => {
@@ -97,10 +101,10 @@ export function bindCountermeasureActions({
       return { ok: false, code: String(result?.external_progress?.status || (result?.complete === true ? 'ROADMAP_COMPLETE' : 'NO_NEW_JOB_CREATED')) };
 
     },
-    reject: () => markJob(repository, 'FAILED', 'REJECT_CANDIDATE'),
-    rebuildHead: () => markJob(repository, 'QUEUED', 'REBUILD_ON_CURRENT_HEAD'),
+    reject: () => markJob(repository, 'FAILED', 'REJECT_CANDIDATE', jobId),
+    rebuildHead: () => markJob(repository, 'QUEUED', 'REBUILD_ON_CURRENT_HEAD', jobId),
     rollback,
-    rollbackToSource: () => markJob(repository, null, 'ROLLBACK_TO_SOURCE'),
+    rollbackToSource: () => markJob(repository, null, 'ROLLBACK_TO_SOURCE', jobId),
     rebuild: async () => {
       // Opening an encrypted kit is NOT a rebuild. Require a separate,
       // explicit full-reconstruction executor with an integrity result.
@@ -118,6 +122,6 @@ export function bindCountermeasureActions({
         : { ok: false, code: result?.code || 'BACKUP_RESTORE_NOT_VERIFIED' };
     },
     openKit,
-    note: (code) => markJob(repository, null, String(code || 'CONTINGENCY_NOTED')),
+    note: (code) => markJob(repository, null, String(code || 'CONTINGENCY_NOTED'), jobId),
   };
 }
