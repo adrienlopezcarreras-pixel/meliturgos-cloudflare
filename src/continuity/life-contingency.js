@@ -110,7 +110,11 @@ export function lifeFactsFromSignals(signals = {}) {
   return Object.freeze(facts);
 }
 
-export function trialReplacement({ part, research = {} } = {}) {
+export function trialReplacement(input = {}) {
+  // A malformed persisted candidate must not abort an outage repair cycle.
+  const row = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const part = row.part;
+  const research = row.research && typeof row.research === 'object' && !Array.isArray(row.research) ? row.research : {};
   const judgement = judgeCandidate({ research });
   const ready = judgement.status === 'BETTER_PROVEN';
   return Object.freeze({
