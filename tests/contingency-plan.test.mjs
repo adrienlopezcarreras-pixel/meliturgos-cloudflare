@@ -64,10 +64,13 @@ test('a document does not prove a candidate better, a failed live test neither',
   assert.equal(better.activation_allowed, false);
 });
 
-test('the live watch names the real case: Cloudflare up, PC absent', () => {
+test('offline optional Companion is not an outage; a diagnosed PC failure is', () => {
   const live = currentContingency({ cloudflareUp: true, companionOnline: false, githubUp: true });
-  assert.equal(live.kind, 'SINGLE');
-  assert.deepEqual(live.down, ['pc']);
+  assert.equal(live.kind, 'NONE');
+  assert.deepEqual(live.down, []);
+  const diagnosed = currentContingency({ cloudflareUp: true, pcUp: false, githubUp: true });
+  assert.equal(diagnosed.kind, 'SINGLE');
+  assert.deepEqual(diagnosed.down, ['pc']);
   assert.equal(live.max, 'MAX_ON_CLOUDFLARE');
   assert.match(live.consequence, /reste sur Cloudflare/);
   const both = currentContingency({ cloudflareUp: false, companionOnline: false, githubUp: true });
