@@ -1,12 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { missingCapabilityShouldBeLearned, runAgentToolLoop, parseAgentAction, responseIsBareToolCall, stripLeakedToolCalls, executeLeakedReads, AGENT_MAX_STEPS } from '../src/api/agent-tools.js';
+import { missingCapabilityShouldBeLearned, runAgentToolLoop, parseAgentAction, responseIsBareToolCall, stripLeakedToolCalls, executeLeakedReads, AGENT_MAX_STEPS, wantsAgentTools } from '../src/api/agent-tools.js';
 
 const bus = (calls) => ({
   list: () => ['capability.audit', 'evolution.enqueue', 'autonomy.status'].map(id => ({ id, description: id, input_schema: { type: 'object' } })),
   async execute(id, input) { calls.push([id, input]); return { ok: true, id }; },
 });
 const ai = (replies) => ({ AI: { async run() { return { response: replies.shift() ?? '{"final":true}' }; } } });
+
+test('a runtime verification leaves the no-tools stream', () => {
+  assert.equal(wantsAgentTools('fais ta vérification runtime'), true);
+  assert.equal(wantsAgentTools('exécute self.audit'), true);
+  assert.equal(wantsAgentTools('bonjour'), false);
+});
 
 test('the model calls its own tools and stops on final', async () => {
   const calls = [];
