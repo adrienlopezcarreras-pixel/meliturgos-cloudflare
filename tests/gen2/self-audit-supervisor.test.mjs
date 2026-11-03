@@ -442,6 +442,7 @@ test('monthly survival audit sets an offline companion proof aside without calli
   assert.equal(result.report.policy.companion_required, false);
   assert.equal(result.report.policy.companion_role, 'bonus');
   assert.equal(result.report.policy.companion_proofs_while_absent, 'set_aside');
+  assert.equal(result.report.policy.companion_tasks_when_online, 'active');
 });
 
 test('monthly drill creates verified backup without destructive restore policy', async () => {
