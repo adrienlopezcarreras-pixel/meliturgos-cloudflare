@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
-import { verifyContingencyProbeReports } from '../src/continuity/contingency-probe-auth.js';
+import { verifyContingencyProbeReports, signContingencyProbeReport } from '../src/continuity/contingency-probe-auth.js';
 const secret = 'test-only-secret-not-for-production-0123456789';
 const now = Date.parse('2026-11-03T20:00:00Z');
 async function signed(part, up, observed_at = '2026-11-03T19:59:00Z') {
@@ -30,4 +30,21 @@ test('correct signed and fresh reports are accepted, without a secret all report
   assert.deepEqual(missing.observed,{});
   const stale=await verifyContingencyProbeReports([await signed('github',false,'2026-11-02T00:00:00Z')],{secret,now,cryptoImpl:webcrypto});
   assert.deepEqual(stale.observed,{});
+});
+
+test('independent watcher produces a signed, verifiable health artifact but never authorizes failover', async () => {
+  const report = await signContingencyProbeReport({
+    part: 'cloudflare', up: false, observer:'github-actions-external-monitor',
+    evidence_id:'github-run-test-1', observed_at:'2026-11-03T19:59:00Z',
+  }, { secret, cryptoImpl:webcrypto });
+  assert.match(report.signature, /^[0-9a-f]{64}$/);
+  const result = await verifyContingencyProbeReports([report], {secret, now, cryptoImpl:webcrypto});
+  assert.equal(result.verified_count, 1);
+  assert.equal(result.observed.cloudflareUp, false);
+  const tampered = await verifyContingencyProbeReports([{...report, up:true}], {secret, now, cryptoImpl:webcrypto});
+  assert.equal(tampered.verified_count, 0);
+  await assert.rejects(
+    () => signContingencyProbeReport(report, {secret:'short',cryptoImpl:webcrypto}),
+    error => error?.code === 'PROBE_SIGNING_CONFIG_INVALID',
+  );
 });

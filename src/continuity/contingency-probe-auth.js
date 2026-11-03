@@ -35,3 +35,26 @@ export async function verifyContingencyProbeReports(reports = [], { secret, now 
   const result = observedContingencyFromProbes(verified, { now, maxAgeMs });
   return Object.freeze({ ...result, authenticated: true, verified_count: verified.length, reason: verified.length ? 'VERIFIED_REPORTS' : 'NO_VERIFIED_REPORTS' });
 }
+
+/** Sign external measurements in the *independent* monitor, using a secret
+ * stored only in the monitor and receiving Worker's secret stores. */
+export async function signContingencyProbeReport(report, { secret, cryptoImpl = globalThis.crypto } = {}) {
+  if (typeof secret !== 'string' || secret.length < 32 || !cryptoImpl?.subtle
+      || !['cloudflare','pc','github','model','gmail','onedrive','shards'].includes(report?.part)
+      || (report?.up !== true && report?.up !== false)
+      || typeof report?.observer !== 'string' || !report.observer.trim()
+      || typeof report?.evidence_id !== 'string' || !report.evidence_id.trim()
+      || !Number.isFinite(Date.parse(String(report?.observed_at || '')))) {
+    throw Object.assign(new Error('PROBE_SIGNING_CONFIG_INVALID'), { code: 'PROBE_SIGNING_CONFIG_INVALID' });
+  }
+  const key = await cryptoImpl.subtle.importKey(
+    'raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+  );
+  const signature = hex(new Uint8Array(await cryptoImpl.subtle.sign(
+    'HMAC', key, new TextEncoder().encode(message(report)),
+  )));
+  return Object.freeze({
+    part: report.part, up: report.up, observer: report.observer,
+    evidence_id: report.evidence_id, observed_at: report.observed_at, signature,
+  });
+}
