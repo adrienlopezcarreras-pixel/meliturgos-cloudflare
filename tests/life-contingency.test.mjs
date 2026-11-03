@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { actionsRelayDecision, allLifeEvents, applyCoreMigration, applyLifeCountermeasure, respondToLifeEvent } from '../src/continuity/life-contingency.js';
+import { actionsRelayDecision, allLifeEvents, applyCoreMigration, applyDueLifeCountermeasures, applyLifeCountermeasure, dueLifeEvents, respondToLifeEvent } from '../src/continuity/life-contingency.js';
 
 test('every survival, evolution, upgrade and migration failure has a tested countermeasure', () => {
   const events = allLifeEvents();
@@ -28,6 +28,18 @@ test('GitHub Actions is due only when Cloudflare is down and the PC is absent', 
   assert.equal(due.status, 'ACTIONS_RELAY_DUE');
   assert.equal(due.live_test, 'REQUIRED');
   assert.equal(due.activation_performed, false);
+});
+
+test('every life event is selected by its own fact and none by an empty tick', () => {
+  assert.deepEqual(dueLifeEvents({}), []);
+  const all = allLifeEvents().map(row => row.id);
+  const facts = {
+    updateCiFailed: true, deployFailed: true, smokeFailed: true, versionSplit: true, releaseAlreadyRunning: true,
+    migrationExportFailed: true, migrationImportFailed: true, migrationSmokeFailed: true, migrationNotBetter: true, migrationSourceDied: true,
+    jobStuck: true, badPatch: true, ciRed: true, idle: true, candidateMoved: true,
+    ownerAbsent: true, pausedByMistake: true, pausedBySafety: true, stalled: true, memoryCorrupt: true, keyMissing: true,
+  };
+  assert.deepEqual(new Set(dueLifeEvents(facts)), new Set(all));
 });
 
 test('she applies the countermeasure herself, and does not claim one she cannot run', async () => {

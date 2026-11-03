@@ -28,6 +28,60 @@ function fail(code) {
   throw error;
 }
 
+export async function applyDueLifeCountermeasures(facts = {}, actions = {}) {
+  const applied = [];
+  for (const id of dueLifeEvents(facts)) {
+    try {
+      applied.push(await applyLifeCountermeasure(id, actions));
+    } catch (error) {
+      applied.push(Object.freeze({
+        id,
+        applied: false,
+        activation_performed: false,
+        reason: String(error?.code || error?.message || 'EXECUTOR_FAILED'),
+      }));
+    }
+  }
+  return Object.freeze(applied);
+}
+
+const FACT_EVENTS = Object.freeze([
+  ['updateCiFailed', 'UPDATE_CI_FAILED'],
+  ['deployFailed', 'UPDATE_DEPLOY_FAILED'],
+  ['smokeFailed', 'UPDATE_SMOKE_FAILED'],
+  ['versionSplit', 'UPDATE_PARTIAL'],
+  ['releaseAlreadyRunning', 'UPDATE_STUCK'],
+  ['migrationExportFailed', 'MIGRATION_EXPORT_FAILED'],
+  ['migrationImportFailed', 'MIGRATION_IMPORT_FAILED'],
+  ['migrationSmokeFailed', 'MIGRATION_SMOKE_FAILED'],
+  ['migrationNotBetter', 'MIGRATION_NOT_BETTER'],
+  ['migrationSourceDied', 'MIGRATION_SOURCE_DIED'],
+  ['jobStuck', 'EVOLUTION_JOB_STUCK'],
+  ['badPatch', 'EVOLUTION_BAD_PATCH'],
+  ['ciRed', 'EVOLUTION_CI_RED'],
+  ['idle', 'EVOLUTION_IDLE'],
+  ['candidateMoved', 'CANDIDATE_MOVED'],
+  ['ownerAbsent', 'OWNER_ABSENT'],
+  ['pausedByMistake', 'MAX_PAUSED_BY_MISTAKE'],
+  ['pausedBySafety', 'MAX_PAUSED_BY_SAFETY'],
+  ['stalled', 'MAX_STALLED'],
+  ['memoryCorrupt', 'MEMORY_CORRUPT'],
+  ['keyMissing', 'KEY_MISSING'],
+]);
+
+export function dueLifeEvents(facts = {}) {
+  const known = new Set(EVENTS.map(row => row[0]));
+  const due = [];
+  for (const [fact, id] of FACT_EVENTS) {
+    if (facts[fact] === true) due.push(id);
+  }
+  for (const id of Array.isArray(facts.detected) ? facts.detected : []) {
+    const name = String(id || '').trim().toUpperCase();
+    if (known.has(name) && !due.includes(name)) due.push(name);
+  }
+  return Object.freeze(due);
+}
+
 export function respondToLifeEvent(id) {
   const found = EVENTS.find(row => row[0] === String(id || '').trim().toUpperCase());
   if (!found) fail('LIFE_EVENT_UNKNOWN');

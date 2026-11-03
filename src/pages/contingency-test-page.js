@@ -43,46 +43,56 @@ export function renderContingencyTestPage() {
   h2{font-size:1rem;margin:0 0 8px}
   code{color:#9fd0ff}
   footer{margin-top:28px;padding-top:14px;border-top:1px solid #314056;color:#b7c3d6;font-size:.92rem}
+  a.back{display:inline-block;margin:0 0 16px;padding:8px 12px;border-radius:8px;background:#243044;color:#e7ecf5;text-decoration:none}
 </style>
 </head>
 <body>
 <main>
-  <h1>Interrupteurs de test</h1>
-  <p class="warn">Cette page ne débranche rien. Cloudflare, GitHub et le reste restent en service. Elle montre seulement la contre-mesure, et la migration automatique d'une brique centrale si un remplaçant est déjà prouvé.</p>
-  <h2>Débrancher une brique</h2>
+  <a class="back" href="/professor">Retour au mode complet</a>
+  <h1>Que fait MAX si quelque chose tombe</h1>
+  <p class="warn">Cette page ne débranche rien. Elle montre la décision. Le cycle de MAX l'exécute seulement quand le fait est vrai.</p>
+  <h2>Coche une brique tombée</h2>
   <div class="grid" id="parts"></div>
-  <label style="margin-top:12px"><input id="ready" type="checkbox"> Le remplaçant de la brique centrale est déjà prouvé</label>
-  <h2 style="margin-top:22px">Échec de mise à jour, migration, évolution ou survie</h2>
+  <label style="margin-top:12px"><input id="ready" type="checkbox"> Un remplaçant de Cloudflare, GitHub ou du modèle est déjà prouvé</label>
+  <h2 style="margin-top:22px">Choisis un échec</h2>
   <select id="life"></select>
   <article>
-    <h2>Contre-mesure</h2>
+    <h2>Si ces briques tombent</h2>
     <p id="outage"></p>
-    <h2>Migration automatique</h2>
+    <h2>Si une brique centrale doit changer</h2>
     <p id="migration"></p>
-    <h2>Événement</h2>
+    <h2>Si cet échec arrive</h2>
     <p id="event"></p>
   </article>
   <footer>Notice : cette page est un test. Elle ne coupe pas Cloudflare, GitHub, le modèle, ni aucune autre brique. Rien n'est migré depuis ici.</footer>
 </main>
-</main>
 <script id="model" type="application/json">${data}</script>
 <script>
 const model = JSON.parse(document.getElementById('model').textContent);
+const NAMES = {
+  cloudflare: 'Cloudflare, le site',
+  pc: 'Le PC',
+  github: 'GitHub, le code',
+  model: 'Le modèle',
+  gmail: 'Gmail, la copie',
+  onedrive: 'OneDrive, la copie',
+  shards: 'Les shards publics',
+};
 const parts = document.getElementById('parts');
 for (const part of model.parts) {
   const label = document.createElement('label');
-  label.innerHTML = '<input type="checkbox" data-part="'+part+'"> '+part;
+  label.innerHTML = '<input type="checkbox" data-part="'+part+'"> '+(NAMES[part] || part);
   parts.appendChild(label);
 }
 const life = document.getElementById('life');
 const none = document.createElement('option');
 none.value = '';
-none.textContent = 'Aucun';
+none.textContent = 'Aucun échec choisi';
 life.appendChild(none);
 for (const row of model.life) {
   const option = document.createElement('option');
   option.value = row.id;
-  option.textContent = row.domain+' · '+row.id;
+  option.textContent = row.implication;
   life.appendChild(option);
 }
 function selected() {

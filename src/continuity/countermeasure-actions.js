@@ -38,7 +38,11 @@ export function bindCountermeasureActions({
     if (!previousVersionId) return { ok: false, code: 'PREVIOUS_VERSION_REQUIRED' };
     if (typeof rollbackWorker !== 'function') return { ok: false, code: 'ROLLBACK_NOT_CONFIGURED' };
     const result = await rollbackWorker(previousVersionId);
-    return result?.ok === true ? { ok: true } : { ok: false, code: result?.code || 'ROLLBACK_FAILED' };
+    if (result?.ok === true) {
+      await markJob(repository, null, 'ROLLBACK_WORKER');
+      return { ok: true };
+    }
+    return { ok: false, code: result?.code || 'ROLLBACK_FAILED' };
   };
   const openKit = async () => {
     if (typeof openPrivateCopy !== 'function') return { ok: false, code: 'PRIVATE_KIT_REQUIRED' };

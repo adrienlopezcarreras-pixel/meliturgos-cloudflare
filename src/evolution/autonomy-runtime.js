@@ -18,7 +18,7 @@ import { readActivityListEpoch } from './autonomy-activity.js';
 import { backgroundNeuronBudgetExhausted, readNeuronBonusTotal } from '../augmentio/neuron-budget.js';
 import { bindLocalPcWorkersAi, localPcModelReady } from '../models/local-pc-model.js';
 import { readSurvivalState, shouldResumeForSurvival } from '../legacy/survival-mode.js';
-import { applyLifeCountermeasure } from '../continuity/life-contingency.js';
+import { applyLifeCountermeasure, applyDueLifeCountermeasures } from '../continuity/life-contingency.js';
 import { bindCountermeasureActions } from '../continuity/countermeasure-actions.js';
 import { singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
 
@@ -734,6 +734,51 @@ async function autonomyProgressSnapshot(repository, roadmap = null, epochMs = 0)
   }
 }
 
+function countermeasureFacts({ control, watchdog, tick, job }) {
+  const result = job?.result_json || {};
+  const stamped = result.countermeasure?.code;
+  const progress = tick?.progress || {};
+  const status = String(progress.job_status || job?.status || '').toUpperCase();
+  const stalled = watchdog?.tripped === true;
+  const rollbackDone = stamped === 'ROLLBACK_WORKER';
+  return {
+    stalled: stalled && stamped !== 'REQUEUE_STALE_REVIEW',
+    jobStuck: stalled && Boolean(progress.job_id) && ['QUEUED', 'CLAIMED', 'TEACHER_APPROVED', 'WAITING_TEACHER', 'COUNCIL_COMPLETE'].includes(status) && stamped !== 'REQUEUE_ONE_JOB',
+    idle: control?.max_autonomy === true && control?.paused !== true && progress.active_jobs === 0 && progress.work_remaining === false,
+    ciRed: Boolean(result.candidate_ci_failure?.failed_candidate_sha || result.candidate_ci_failure?.run_id) && stamped !== 'DO_NOT_MERGE',
+    candidateMoved: result.candidate_moved === true && stamped !== 'REBUILD_ON_CURRENT_HEAD',
+    badPatch: result.bad_patch === true && stamped !== 'REJECT_CANDIDATE',
+    updateCiFailed: result.update_ci_failed === true && stamped !== 'KEEP_PREVIOUS_SHA',
+    deployFailed: result.deploy_failed === true && !rollbackDone,
+    smokeFailed: result.smoke_failed === true && !rollbackDone,
+    versionSplit: result.version_split === true && !rollbackDone,
+    releaseAlreadyRunning: result.release_in_progress === true && stamped !== 'DO_NOT_START_SECOND_RELEASE',
+    migrationExportFailed: result.migration_export_failed === true && stamped !== 'KEEP_SOURCE',
+    migrationImportFailed: result.migration_import_failed === true && stamped !== 'KEEP_SOURCE',
+    migrationSmokeFailed: result.migration_smoke_failed === true && stamped !== 'ROLLBACK_TO_SOURCE',
+    migrationNotBetter: result.migration_not_better === true && stamped !== 'ROLLBACK_TO_SOURCE',
+    migrationSourceDied: result.migration_source_died === true && stamped !== 'REBUILD_FROM_PRIVATE_KIT',
+    memoryCorrupt: result.memory_corrupt === true && stamped !== 'RESTORE_LAST_GOOD_BACKUP',
+    keyMissing: result.key_missing === true && stamped !== 'OPEN_PRIVATE_KIT_NOT_PUBLIC_SHARD',
+    detected: result.detected_life_events,
+  };
+}
+
+async function applyObservedCountermeasures(env, repository, control, watchdog, tick) {
+  if (!repository) return [];
+  const jobId = tick?.progress?.job_id;
+  const job = jobId && typeof repository.get === 'function' ? await repository.get(jobId).catch(() => null) : null;
+  const actions = bindCountermeasureActions({
+    repository,
+    supervisor: new AutonomySupervisor({ repository }),
+    previousVersionId: job?.result_json?.previous_version_id || null,
+    rollbackWorker: env?.MEL_ROLLBACK_WORKER,
+    openPrivateCopy: env?.MEL_OPEN_PRIVATE_KIT,
+    restoreBackupBytes: env?.MEL_RESTORE_BACKUP,
+  });
+  return applyDueLifeCountermeasures(countermeasureFacts({ control, watchdog, tick, job }), actions);
+}
+
 function augmentTickProgress(tick = {}) {
   const progress = tick?.progress && typeof tick.progress === 'object' ? { ...tick.progress } : {};
   const events = new Set(Array.isArray(progress.events) ? progress.events : []);
@@ -798,6 +843,9 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   }
 
   if (control.paused) {
+    if (control.reason === 'predeploy-release-safety') {
+      await applyLifeCountermeasure('MAX_PAUSED_BY_SAFETY', {}).catch(() => null);
+    }
     const watchdog = await resetAutonomyProgressWatchdog(env?.DB || null, { status: 'PAUSED' }).catch(() => null);
     return {
       status: 'PAUSED',
@@ -1006,19 +1054,21 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     const watchdog = await recordAutonomyProgressWatchdog(env?.DB || null, tick, {
       maxAutonomy: control.max_autonomy === true,
     }).catch(() => null);
+    const countermeasures = await applyObservedCountermeasures(env, repository, control, watchdog, tick).catch(() => []);
     if (watchdog?.tripped === true) {
       return {
         ...tick,
         ok: false,
         status: 'MAX_PROGRESS_STALLED',
         watchdog,
+        countermeasures,
         progress: {
           ...(tick.progress || {}),
           block_reason: watchdog.last_block_reason || tick?.progress?.block_reason || 'MAX_PROGRESS_STALLED',
         },
       };
     }
-    return { ...tick, watchdog };
+    return { ...tick, watchdog, countermeasures };
   } finally {
     stopRenewal();
     await releaseAutonomyRuntimeLease({

@@ -8,7 +8,8 @@ test('the test page switches every part and does not disconnect production', () 
   const html = renderContingencyTestPage();
   const model = contingencyTestModel();
   assert.equal(model.disconnects_production, false);
-  assert.match(html, /ne débranche rien/);
+  assert.match(html, /href="\/professor"/);
+  assert.match(html, /Retour au mode complet/);
   assert.match(html, /<footer>Notice : cette page est un test/);
   for (const part of ['cloudflare', 'pc', 'github', 'model', 'gmail', 'onedrive', 'shards']) {
     assert.match(html, new RegExp(part));
