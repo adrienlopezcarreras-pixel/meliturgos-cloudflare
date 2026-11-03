@@ -162,6 +162,13 @@ const EXECUTOR_KEYS = Object.freeze({
   OPEN_PRIVATE_KIT_NOT_PUBLIC_SHARD: 'openKit',
 });
 
+// These responses only record or preserve a decision. They do not activate
+// infrastructure or prove that the desired operational state was reached.
+const NON_ACTIVATING_COUNTERMEASURES = new Set([
+  'KEEP_PREVIOUS_SHA', 'DO_NOT_START_SECOND_RELEASE', 'KEEP_SOURCE',
+  'ROLLBACK_TO_SOURCE', 'DO_NOT_MERGE', 'OPEN_PRIVATE_KIT_NOT_PUBLIC_SHARD',
+]);
+
 export async function applyLifeCountermeasure(id, actions = {}) {
   const plan = respondToLifeEvent(id);
   if (plan.countermeasure === 'KEEP_PAUSE') {
@@ -175,7 +182,7 @@ export async function applyLifeCountermeasure(id, actions = {}) {
   if (result?.ok !== true) {
     return Object.freeze({ ...plan, applied: false, activation_performed: false, reason: String(result?.code || 'EXECUTOR_FAILED') });
   }
-  return Object.freeze({ ...plan, applied: true, activation_performed: true });
+  return Object.freeze({ ...plan, applied: true, activation_performed: !NON_ACTIVATING_COUNTERMEASURES.has(plan.countermeasure) });
 }
 
 export function actionsRelayDecision({ workerUp = true, companionOnline = false } = {}) {
