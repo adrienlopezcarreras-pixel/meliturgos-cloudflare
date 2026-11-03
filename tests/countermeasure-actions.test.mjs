@@ -32,8 +32,10 @@ test('every countermeasure is bound to an action', async () => {
   for (const event of allLifeEvents()) {
     if (event.countermeasure === 'KEEP_PAUSE') continue;
     const result = await applyLifeCountermeasure(event.id, actions);
-    assert.equal(result.applied, true, event.id);
-    assert.equal(result.activation_performed, true, event.id);
+    const noRecovery = event.id === 'MAX_STALLED';
+    assert.equal(result.applied, !noRecovery, event.id);
+    assert.equal(result.activation_performed, !noRecovery, event.id);
+    if (noRecovery) assert.equal(result.reason, 'NO_RECOVERABLE_JOB');
   }
   assert.ok(calls.includes('version-1'));
   assert.ok(calls.includes('kit'));
@@ -80,4 +82,17 @@ test('recording a contingency note preserves the existing mission error', async 
   const result = await bindCountermeasureActions({ repository: store }).note('DO_NOT_DEPLOY');
   assert.equal(result.ok, true);
   assert.equal(store.jobs[0].error, 'MISSION_TEST_EVIDENCE_REQUIRED');
+});
+
+test('requeue only succeeds after a real mission status transition', async () => {
+  const store = repository();
+  const actions = bindCountermeasureActions({ repository: store });
+  const first = await actions.requeue();
+  assert.equal(first.ok, true);
+  assert.equal(first.recovered, 1);
+  assert.equal(store.jobs[0].status, 'QUEUED');
+  const again = await actions.requeue();
+  assert.equal(again.ok, false);
+  assert.equal(again.code, 'NO_RECOVERABLE_JOB');
+  assert.equal(again.recovered, 0);
 });
