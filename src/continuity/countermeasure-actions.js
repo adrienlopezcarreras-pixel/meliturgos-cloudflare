@@ -61,7 +61,8 @@ export function bindCountermeasureActions({
     if (typeof rollbackWorker !== 'function') return { ok: false, code: 'ROLLBACK_NOT_CONFIGURED' };
     const result = await rollbackWorker(previousVersionId);
     if (result?.ok === true) {
-      await markJob(repository, null, 'ROLLBACK_WORKER', jobId);
+      const audit = await markJob(repository, null, 'ROLLBACK_WORKER', jobId);
+      if (audit.ok !== true) return { ok: false, code: audit.code || 'ROLLBACK_AUDIT_NOT_PERSISTED', rollback_performed: true };
       return { ok: true };
     }
     return { ok: false, code: result?.code || 'ROLLBACK_FAILED' };
