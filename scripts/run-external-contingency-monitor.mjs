@@ -3,7 +3,7 @@ import { monitorExternalHealth } from '../src/continuity/external-health-monitor
 
 const report = await monitorExternalHealth({
   url: process.env.MEL_CONTINGENCY_HEALTH_URL,
-  expectedText: process.env.MEL_CONTINGENCY_HEALTH_MARKER || '',
+  expectedText: 'mel.contingency-heartbeat/v1',
 });
 mkdirSync('artifacts/contingency', { recursive: true });
 writeFileSync('artifacts/contingency/external-health.json', JSON.stringify(report, null, 2) + '\n');
