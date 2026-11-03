@@ -16,6 +16,11 @@ test('the test page switches every part and does not disconnect production', () 
   }
   for (const row of model.life) assert.match(html, new RegExp(row.id));
   assert.equal(model.scenarios.length, 127);
+  assert.match(html, /id="candidates"/);
+  assert.match(html, /candidats, ni activés ni validés/);
+  for (const part of ['cloudflare','pc','github','model','gmail','onedrive','shards']) {
+    assert.ok(model.replacement_catalog[part].candidates.length > 0, part);
+  }
   assert.equal(readFileSync(new URL('../src/router.js', import.meta.url), 'utf8').includes('"/test/contingence"'), true);
 });
 
