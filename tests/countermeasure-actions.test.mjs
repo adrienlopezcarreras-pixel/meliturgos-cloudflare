@@ -166,3 +166,20 @@ test('backup restoration requires proof of both completed restore and integrity'
   assert.equal(result.activation_performed, false);
   assert.equal(result.reason, 'BACKUP_RESTORE_NOT_VERIFIED');
 });
+
+test('contingency audit is scoped to the observed mission even with multiple active rows', async () => {
+  const store = repository();
+  store.jobs.push({ id: 'job-2', status: 'QUEUED', result_json: {}, updated_at: 2 });
+  const scoped = bindCountermeasureActions({ repository: store, jobId: 'job-2' });
+  const recorded = await scoped.note('DO_NOT_DEPLOY');
+  assert.equal(recorded.ok, true);
+  assert.equal(store.jobs[0].result_json.countermeasure, undefined);
+  assert.equal(store.jobs[1].result_json.countermeasure.code, 'DO_NOT_DEPLOY');
+
+  const wrong = await bindCountermeasureActions({ repository: store, jobId: 'job-missing' }).note('DO_NOT_MERGE');
+  assert.equal(wrong.ok, false);
+  assert.equal(store.jobs.every(job => job.result_json.countermeasure?.code !== 'DO_NOT_MERGE'), true);
+  const ambiguous = await bindCountermeasureActions({ repository: store }).note('DO_NOT_MERGE');
+  assert.equal(ambiguous.ok, false);
+  assert.equal(ambiguous.code, 'AMBIGUOUS_ACTIVE_JOBS');
+});
