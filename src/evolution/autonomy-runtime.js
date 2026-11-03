@@ -22,7 +22,7 @@ import { applyLifeCountermeasure, lifeFactsFromSignals } from '../continuity/lif
 import { runContingencyCycle } from '../continuity/contingency-cycle.js';
 import { verifyContingencyProbeReports } from '../continuity/contingency-probe-auth.js';
 import { activeWorkerContingencyObserved } from '../continuity/contingency-observations.js';
-import { bindCountermeasureActions } from '../continuity/countermeasure-actions.js';
+import { bindCountermeasureActions, maxControlProof } from '../continuity/countermeasure-actions.js';
 import { singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
 
 export * from './autonomy-runtime-core.js';
@@ -856,8 +856,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
           reason: 'MAX_RESTORED_AFTER_ROLLBACK',
           memoryState: options.autonomyControlState || null,
         });
-        return { ok: control?.max_autonomy === true && control?.paused !== true,
-          max_active: control?.max_autonomy === true, active: control?.max_autonomy === true };
+        return maxControlProof(control);
       },
     });
     const applied = await applyLifeCountermeasure('MAX_PAUSED_BY_MISTAKE', actions);
@@ -874,8 +873,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
           reason: 'owner-silent-one-year',
           memoryState: options.autonomyControlState || null,
         });
-        return { ok: control?.max_autonomy === true && control?.paused !== true,
-          max_active: control?.max_autonomy === true, active: control?.max_autonomy === true };
+        return maxControlProof(control);
       },
     });
     const applied = await applyLifeCountermeasure('OWNER_ABSENT', actions);
