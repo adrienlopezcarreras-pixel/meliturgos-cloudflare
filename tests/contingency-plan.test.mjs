@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildReconstructionKit,
+  publicShardKit,
   currentContingency,
   judgeCandidate,
   maxStandby,
@@ -133,4 +134,22 @@ test('stale Companion readiness cannot make an unknown PC a proven standby', () 
     localGit: true, localDb: true, localModel: true,
   });
   assert.equal(positive.max, 'STANDBY_READY');
+});
+
+test('public shard copy uses an allowlist and rejects private fields in discovery map', () => {
+  const kit=buildReconstructionKit({
+    sourceSha: sha, encryptedBackup: 'ENCRYPTED', keyId: 'key-id', keyB64:'NEVER_PUBLISH_THIS', index,
+  });
+  kit.private_recovery_token='TOP_LEVEL_TOKEN';
+  kit.backup.extra_password='ADDITIONAL_PASSWORD';
+  const copy=publicShardKit(kit);
+  const json=JSON.stringify(copy);
+  assert.equal(json.includes('NEVER_PUBLISH_THIS'),false);
+  assert.equal(json.includes('TOP_LEVEL_TOKEN'),false);
+  assert.equal(json.includes('ADDITIONAL_PASSWORD'),false);
+  assert.deepEqual(Object.keys(copy.backup).sort(),['encrypted_text','key_id']);
+  assert.throws(() => buildReconstructionKit({
+    sourceSha: sha, encryptedBackup: 'ENCRYPTED', keyId:'kid', keyB64:'secret',
+    index:{format:'MEL-ShardVault-DiscoveryIndex',seed_leads:[{access_token:'SHOULD_NOT_LEAK'}]},
+  }), error => error.code === 'RECONSTRUCTION_INDEX_PRIVATE_FIELD');
 });
