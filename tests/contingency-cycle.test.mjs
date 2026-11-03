@@ -163,3 +163,21 @@ test('untrusted pre-proven flags cannot certify a replacement', async () => {
   assert.equal(cycle.ran.find(row => row.code === 'USE_OTHER_PROVEN_MODEL').reason, 'NO_PROVEN_REPLACEMENT');
   assert.equal(cycle.activation_performed, false);
 });
+
+test('corrupt candidate observations do not suppress independent life repair', async () => {
+  const calls = [];
+  const cycle = await runContingencyCycle({
+    observed: { cloudflareUp: true, modelUp: false },
+    life: { stalled: true },
+    replacements: [null, 12, { part: 'model', research: null }, { part: 'model', research: { kind: 'DOCUMENTARY', sources: [] } }],
+    actions: {
+      note: async () => ({ ok: true }),
+      requeueReview: async () => { calls.push('requeue'); return { ok: true }; },
+    },
+  });
+  assert.equal(cycle.replacements.length, 4);
+  assert.equal(cycle.replacements.every(row => row.activation_allowed === false), true);
+  assert.equal(cycle.ran.find(row => row.code === 'USE_OTHER_PROVEN_MODEL').reason, 'NO_PROVEN_REPLACEMENT');
+  assert.equal(cycle.life.find(row => row.id === 'MAX_STALLED').applied, true);
+  assert.deepEqual(calls, ['requeue']);
+});
