@@ -74,7 +74,8 @@ test('offline optional Companion is not an outage; a diagnosed PC failure is', (
   assert.equal(live.max, 'MAX_ON_CLOUDFLARE');
   assert.match(live.consequence, /MAX reste ou elle est/);
   const both = currentContingency({ cloudflareUp: false, companionOnline: false, githubUp: true });
-  assert.equal(both.max, 'ACTIONS_RELAY_READY');
+  assert.equal(both.max, 'ACTIONS_RELAY_UNVERIFIED');
+  assert.ok(both.verification_required.includes('GITHUB_RELAY_LIVE_TEST'));
   assert.match(both.consequence, /GitHub Actions prend le relais/);
   assert.match(both.implication, /GitHub reste lisible/);
 });
@@ -95,4 +96,41 @@ test('losing both private copies leaves the memory key unavailable', () => {
   const response = respondToScenario({ down: ['gmail', 'onedrive', 'cloudflare', 'pc', 'github'] });
   assert.equal(response.rebirth, 'MEMORY_KEY_UNAVAILABLE');
   assert.match(response.consequence, /ne contiennent pas la cle/);
+});
+
+test('a missing GitHub status never proves an independent executable relay', () => {
+  const unknown = currentContingency({ cloudflareUp: false });
+  assert.equal(unknown.max, 'ACTIONS_RELAY_UNVERIFIED');
+  assert.equal(unknown.activation_performed, false);
+  const reachable = currentContingency({ cloudflareUp: false, githubUp: true });
+  assert.equal(reachable.max, 'ACTIONS_RELAY_UNVERIFIED');
+  const drilled = currentContingency({ cloudflareUp: false, githubUp: true, githubRelayReady: true });
+  assert.equal(drilled.max, 'ACTIONS_RELAY_READY');
+  assert.equal(drilled.activation_performed, false);
+});
+
+test('unverified backup provider reachability cannot certify full reconstruction', () => {
+  const down = { cloudflareUp: false, githubUp: false, pcUp: false };
+  const unverified = currentContingency(down);
+  assert.equal(unverified.max, 'NO_RUNNER');
+  assert.equal(unverified.rebirth, 'PRIVATE_KIT_UNVERIFIED');
+  assert.equal(unverified.countermeasure.includes('STOP_AND_REBUILD_FROM_PRIVATE_KIT'), false);
+  assert.ok(unverified.verification_required.includes('PRIVATE_KIT_RESTORE_DRILL'));
+  const proved = currentContingency({ ...down, gmailUp: true, gmailKitVerified: true });
+  assert.equal(proved.rebirth, 'FROM_PRIVATE_KIT');
+  assert.equal(proved.verified_private_kits.includes('gmail'), true);
+  assert.equal(proved.activation_performed, false);
+});
+
+test('stale Companion readiness cannot make an unknown PC a proven standby', () => {
+  const unknown = currentContingency({
+    cloudflareUp: false, githubUp: true, companionOnline: true,
+    localGit: true, localDb: true, localModel: true,
+  });
+  assert.notEqual(unknown.max, 'STANDBY_READY');
+  const positive = currentContingency({
+    cloudflareUp: false, githubUp: true, pcUp: true, companionOnline: true,
+    localGit: true, localDb: true, localModel: true,
+  });
+  assert.equal(positive.max, 'STANDBY_READY');
 });
