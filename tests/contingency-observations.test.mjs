@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { observedContingencyFromProbes, CONTINGENCY_PARTS } from '../src/continuity/contingency-observations.js';
+import { observedContingencyFromProbes, CONTINGENCY_PARTS, activeWorkerContingencyObserved } from '../src/continuity/contingency-observations.js';
 import { currentContingency } from '../src/continuity/contingency-plan.js';
 const now=Date.parse('2026-11-03T20:00:00Z');
 const row=(part,up,observed_at='2026-11-03T19:59:00Z')=>({part,up,observed_at,observer:'probe-service',evidence_id:'example-'+part});
@@ -22,4 +22,14 @@ test('equal-time contradictions fail closed as unknown and newer results superse
   assert.equal(conflict.details.shards.status,'UNKNOWN');
   const newer=observedContingencyFromProbes([row('shards',false,'2026-11-03T19:58:00Z'),row('shards',true)],{now});
   assert.equal(newer.observed.shardsUp,true);
+});
+
+test('worker liveness wins over a stale or conflicting remote Cloudflare outage report', () => {
+  const observed = activeWorkerContingencyObserved({observed:{cloudflareUp:false, githubUp:false, pcUp:true, modelUp:false}});
+  assert.equal(observed.cloudflareUp,true);
+  assert.equal(observed.githubUp,false);
+  assert.equal(observed.modelUp,false);
+  assert.equal(observed.companionOnline,false);
+  assert.deepEqual(currentContingency(observed).down.sort(),['github','model']);
+  assert.equal(activeWorkerContingencyObserved().cloudflareUp,true);
 });
