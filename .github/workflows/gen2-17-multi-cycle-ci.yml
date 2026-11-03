@@ -35,6 +35,13 @@ on:
     branches:
       - 'work/gen2-17-multi-cycle-proof'
 
+# Cancel obsolete validation runs only for the same pull request.
+# Manual dispatches and the dedicated push proof branch remain non-cancelling.
+# A fresh SHA must still pass every mandatory job before promotion.
+concurrency:
+  group: gen2-17-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 

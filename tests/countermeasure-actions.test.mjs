@@ -216,3 +216,35 @@ test('MAX activation proof rejects paused, disabled and owner-stopped controls',
   });
   assert.equal((configured.restoreMax && typeof configured.restoreMax), 'function');
 });
+
+test('countermeasure requeues a stale exhausted Teacher approval only with deployed SHA evidence', async () => {
+  const oldSha = 'a'.repeat(40);
+  const newSha = 'b'.repeat(40);
+  const store = repository();
+  const job = store.jobs[0];
+  job.status = 'TEACHER_APPROVED';
+  job.plan_json = {};
+  job.result_json = {
+    teacher_bridge: {
+      status: 'ANSWERED',
+      request: { request_id: 'stale-teacher-request', target_sha: oldSha },
+      review: { verdict: 'APPROVE_PLAN', development_allowed: true },
+    },
+    autonomy_deferral: { exhausted: true },
+  };
+  const noSha = await bindCountermeasureActions({ repository: store, jobId: job.id }).requeue();
+  assert.equal(noSha.ok, false);
+  assert.equal(noSha.code, 'NO_RECOVERABLE_JOB');
+  assert.equal(job.status, 'TEACHER_APPROVED');
+
+  const sameSha = await bindCountermeasureActions({ repository: store, jobId: job.id, canonicalSha: oldSha }).requeue();
+  assert.equal(sameSha.ok, false);
+  assert.equal(job.status, 'TEACHER_APPROVED');
+
+  const recovered = await bindCountermeasureActions({ repository: store, jobId: job.id, canonicalSha: newSha }).requeue();
+  assert.equal(recovered.ok, true);
+  assert.equal(recovered.recovered, 1);
+  assert.equal(job.status, 'QUEUED');
+  assert.equal(job.result_json.teacher_bridge, null);
+  assert.equal(job.result_json.last_teacher_stale.current_candidate_sha, newSha);
+});
