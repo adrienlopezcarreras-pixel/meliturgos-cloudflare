@@ -21,14 +21,14 @@ test('every countermeasure is bound to an action', async () => {
   const calls = [];
   const actions = bindCountermeasureActions({
     repository: repository(),
-    setMax: async () => { calls.push('max'); },
-    keepMax: async () => { calls.push('keep'); },
+    setMax: async () => { calls.push('max'); return { ok: true, max_active: true }; },
+    keepMax: async () => { calls.push('keep'); return { ok: true, max_active: true }; },
     supervisor: { ensureNextJob: async () => { calls.push('next'); return { created: true, job: { id: 'new-job' } }; } },
     previousVersionId: 'version-1',
     rollbackWorker: async (version) => { calls.push(version); return { ok: true }; },
     openPrivateCopy: async () => { calls.push('kit'); return { ok: true }; },
     rebuildFromPrivateKit: async () => { calls.push('rebuild'); return { ok: true, restored: true, integrity_verified: true }; },
-    restoreBackupBytes: async () => { calls.push('backup'); return { ok: true }; },
+    restoreBackupBytes: async () => { calls.push('backup'); return { ok: true, restored: true, integrity_verified: true }; },
   });
   const recordedOnly = new Set(['KEEP_PREVIOUS_SHA','DO_NOT_START_SECOND_RELEASE','KEEP_SOURCE','ROLLBACK_TO_SOURCE','DO_NOT_MERGE','OPEN_PRIVATE_KIT_NOT_PUBLIC_SHARD']);
   for (const event of allLifeEvents()) {
@@ -141,4 +141,28 @@ test('a cancelled mission cannot report a new persisted countermeasure note', as
   const result = await bindCountermeasureActions({ repository: store }).note('DO_NOT_DEPLOY');
   assert.equal(result.ok, false);
   assert.equal(result.code, 'COUNTERMEASURE_AUDIT_NOT_PERSISTED');
+});
+
+test('MAX restoration cannot be marked successful without an active-state observation', async () => {
+  const actions = bindCountermeasureActions({
+    repository: repository(),
+    setMax: async () => ({ ok: true, max_active: false }),
+    keepMax: async () => ({ ok: false, code: 'PAUSED_BY_OWNER' }),
+  });
+  const restored = await applyLifeCountermeasure('MAX_PAUSED_BY_MISTAKE', actions);
+  assert.equal(restored.applied, false);
+  assert.equal(restored.reason, 'MAX_REACTIVATION_NOT_PROVEN');
+  const kept = await applyLifeCountermeasure('OWNER_ABSENT', actions);
+  assert.equal(kept.applied, false);
+  assert.equal(kept.reason, 'PAUSED_BY_OWNER');
+});
+test('backup restoration requires proof of both completed restore and integrity', async () => {
+  const actions = bindCountermeasureActions({
+    repository: repository(),
+    restoreBackupBytes: async () => ({ ok: true, restored: true, integrity_verified: false }),
+  });
+  const result = await applyLifeCountermeasure('MEMORY_CORRUPT', actions);
+  assert.equal(result.applied, false);
+  assert.equal(result.activation_performed, false);
+  assert.equal(result.reason, 'BACKUP_RESTORE_NOT_VERIFIED');
 });
