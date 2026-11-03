@@ -222,10 +222,14 @@ export function planCoreMigration({ part, replacementReady = false } = {}) {
   });
 }
 
-export async function applyCoreMigration({ part, replacementReady = false, migrate } = {}) {
+export async function applyCoreMigration({ part, replacementReady = false, ownerApproved = false, migrate } = {}) {
   const plan = planCoreMigration({ part, replacementReady });
   if (plan.status !== 'MIGRATION_PLANNED') {
     return Object.freeze({ ...plan, applied: true, activation_performed: false });
+  }
+  // Readiness only permits a plan; a live switch needs separate owner approval.
+  if (ownerApproved !== true) {
+    return Object.freeze({ ...plan, applied: false, activation_performed: false, reason: 'OWNER_APPROVAL_REQUIRED' });
   }
   if (typeof migrate !== 'function') {
     return Object.freeze({ ...plan, applied: false, activation_performed: false, reason: 'NO_EXECUTOR' });
