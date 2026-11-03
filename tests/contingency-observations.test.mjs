@@ -30,6 +30,6 @@ test('worker liveness wins over a stale or conflicting remote Cloudflare outage 
   assert.equal(observed.githubUp,false);
   assert.equal(observed.modelUp,false);
   assert.equal(observed.companionOnline,false);
-  assert.deepEqual(currentContingency(observed).down.sort(),['github','model']);
+  assert.deepEqual([...currentContingency(observed).down].sort(),['github','model']);
   assert.equal(activeWorkerContingencyObserved().cloudflareUp,true);
 });
