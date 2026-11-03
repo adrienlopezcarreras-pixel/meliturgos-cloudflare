@@ -163,7 +163,7 @@ for (const changed of ['src/unrelated.js', 'src/work/work-dag.js']) {
 }
 
 test('a find in the complete file but outside the actual prompt excerpt is refused', async () => {
-  const source = 'export const visible = 1;\n' + '// kept padding\n'.repeat(400) + 'export const hidden = false;\n';
+  const source = 'export const visible = 1;\n' + '// kept padding\n'.repeat(1200) + 'export const hidden = false;\n';
   await assert.rejects(engineFor({ edits: [{ path, find: 'hidden = false', replace: 'hidden = true' }] })
     .propose({ env: {}, goal: 'Edit only what this provider saw', inspectedFiles: [{ path, content: source }] }),
   error => error.failures.every(row => row.error === 'MENTOR_UNINSPECTED_EDIT'));

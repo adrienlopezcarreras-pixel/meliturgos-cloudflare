@@ -673,7 +673,7 @@ test('mentor prompt contains a bounded inspected excerpt and one patch format', 
   const calls = [];
   const prefix = 'export const target = false;\n';
   const hidden = 'export const SECRET_TAIL_SENTINEL = 12345;\n';
-  const source = prefix + '// inspected filler, preserved by the edit\n'.repeat(350) + hidden;
+  const source = prefix + '// inspected filler, preserved by the edit\n'.repeat(500) + hidden;
   const model = sequenceProvider('patch-author', [{
     summary: 'A small real inspected change',
     edits: [{ path: 'src/example.js', find: 'export const target = false;', replace: 'export const target = true;' }],
@@ -689,7 +689,7 @@ test('mentor prompt contains a bounded inspected excerpt and one patch format', 
   assert.match(prompt, /"edits"/);
   assert.doesNotMatch(prompt, /SECRET_TAIL_SENTINEL/);
   assert.match(prompt, /EXTRAIT PARTIEL/);
-  assert.ok(prompt.length < 12500);
+  assert.ok(prompt.length <= 40_000);
   assert.ok(result.proposal.changes[0].content.includes('export const target = true;'));
   assert.ok(result.proposal.changes[0].content.includes(hidden), 'full inspected file preserved when applying edit');
 });
@@ -932,6 +932,15 @@ test('a SEARCH block that copied our truncation notice still matches the visible
   const engine = new MentorEngine({ providerFactory: async () => [provider('blocks', reply)] });
   const result = await engine.propose({ env: {}, goal: 'Saluer', inspectedFiles: [{ path: 'src/example.js', content: source }] });
   assert.equal(result.proposal.changes[0].content, 'export function greet() {\n  return "salut";\n}\n');
+});
+
+test('a real line past the old 4500 cut is accepted when the prompt shows it', async () => {
+  const filler = Array.from({ length: 500 }, (_, i) => `export const pad${i} = 1;`).join('\n');
+  const source = filler + '\nexport const councilQuorum = false;\n' + Array.from({ length: 400 }, (_, i) => `export const tail${i} = 1;`).join('\n');
+  const reply = ['SUMMARY Active le quorum', 'TESTS test:smoke', 'EDIT src/teachers/augmentio-council.js', '<<<<<<< SEARCH', 'export const councilQuorum = false;', '=======', 'export const councilQuorum = true;', '>>>>>>> REPLACE'].join('\n');
+  const engine = new MentorEngine({ providerFactory: async () => [provider('blocks', reply)] });
+  const result = await engine.propose({ env: {}, goal: 'Activer councilQuorum', inspectedFiles: [{ path: 'src/teachers/augmentio-council.js', content: source }] });
+  assert.match(result.proposal.changes[0].content, /councilQuorum = true;/);
 });
 
 test('a long file is shown around the code the goal is about, so an edit there is accepted', async () => {
