@@ -88,6 +88,39 @@ export function respondToScenario({ down, standby = {} } = {}) {
   });
 }
 
+export function currentContingency(observed = {}) {
+  const flags = {
+    cloudflare: observed.cloudflareUp,
+    pc: observed.companionOnline,
+    github: observed.githubUp,
+    model: observed.modelUp,
+    gmail: observed.gmailUp,
+    onedrive: observed.onedriveUp,
+    shards: observed.shardsUp,
+  };
+  const down = Object.entries(flags).filter(([, up]) => up === false).map(([name]) => name);
+  if (!down.length) {
+    return Object.freeze({
+      schema: 'mel.contingency-response/v1',
+      kind: 'NONE',
+      down: Object.freeze([]),
+      implication: 'Aucune panne observee.',
+      consequence: 'MAX reste ou elle est. Aucune bascule.',
+      max: 'MAX_ON_CLOUDFLARE',
+      activation_performed: false,
+    });
+  }
+  return respondToScenario({
+    down,
+    standby: {
+      companionOnline: observed.companionOnline === true,
+      localGit: observed.localGit === true,
+      localDb: observed.localDb === true,
+      localModel: observed.localModel === true,
+    },
+  });
+}
+
 export function judgeCandidate({ research = {} } = {}) {
   const kind = String(research.kind || '').trim().toUpperCase();
   if (!['DOCUMENTARY', 'DOCUMENTAIRE', 'SOFTWARE', 'LOGICIELLE', 'PHYSICAL', 'PHYSIQUE'].includes(kind)) {

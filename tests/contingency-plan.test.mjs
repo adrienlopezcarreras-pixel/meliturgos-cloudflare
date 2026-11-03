@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildReconstructionKit,
+  currentContingency,
   judgeCandidate,
   maxStandby,
   placeReconstructionCopies,
@@ -60,6 +61,17 @@ test('a document does not prove a candidate better, a failed live test neither',
   const better = judgeCandidate({ research: { kind: 'PHYSICAL', available: true, reliable: true, smoke: true, measured_better: true } });
   assert.equal(better.status, 'BETTER_PROVEN');
   assert.equal(better.activation_allowed, false);
+});
+
+test('the live watch names the real case: Cloudflare up, PC absent', () => {
+  const live = currentContingency({ cloudflareUp: true, companionOnline: false, githubUp: true });
+  assert.equal(live.kind, 'SINGLE');
+  assert.deepEqual(live.down, ['pc']);
+  assert.equal(live.max, 'MAX_ON_CLOUDFLARE');
+  assert.match(live.consequence, /reste sur Cloudflare/);
+  const both = currentContingency({ cloudflareUp: false, companionOnline: false, githubUp: true });
+  assert.match(both.consequence, /Aucun moteur ne reste/);
+  assert.match(both.implication, /GitHub reste lisible/);
 });
 
 test('losing both private copies leaves the memory key unavailable', () => {
