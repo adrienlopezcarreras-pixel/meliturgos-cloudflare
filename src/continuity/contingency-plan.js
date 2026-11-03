@@ -206,10 +206,25 @@ export function judgeCandidate({ research = {} } = {}) {
   return Object.freeze({ better, status: better ? 'BETTER_PROVEN' : 'NOT_BETTER', activation_allowed: false });
 }
 
+// The discovery index is explicitly public. Reject secret-shaped fields in
+// any nested entry before it can be copied to public shards.
+function indexContainsPrivateFields(value, seen = new WeakSet(), depth = 0) {
+  if (!value || typeof value !== 'object') return false;
+  if (depth > 20 || seen.has(value)) return true;
+  seen.add(value);
+  for (const [key, child] of Object.entries(value)) {
+    if (/(?:key_b64|api[_-]?key|private[_-]?key|secret|password|credential|access[_-]?token|refresh[_-]?token|authorization)/i.test(key)) return true;
+    if (indexContainsPrivateFields(child, seen, depth + 1)) return true;
+  }
+  seen.delete(value);
+  return false;
+}
+
 export function buildReconstructionKit({ sourceSha, encryptedBackup, keyId, keyB64, index, createdAt = new Date().toISOString() } = {}) {
   const sha = String(sourceSha || '').trim().toLowerCase();
   if (!/^[a-f0-9]{40}$/.test(sha)) fail('RECONSTRUCTION_SOURCE_SHA_INVALID');
   if (index?.format !== 'MEL-ShardVault-DiscoveryIndex') fail('RECONSTRUCTION_MAP_INVALID');
+  if (indexContainsPrivateFields(index)) fail('RECONSTRUCTION_INDEX_PRIVATE_FIELD');
   const backup = String(encryptedBackup || '');
   const id = String(keyId || '').trim();
   const key = String(keyB64 || '').trim();
@@ -227,9 +242,18 @@ export function buildReconstructionKit({ sourceSha, encryptedBackup, keyId, keyB
 
 export function publicShardKit(kit) {
   if (kit?.schema !== 'mel.reconstruction-kit/v1') fail('RECONSTRUCTION_KIT_INVALID');
-  const backup = { ...(kit.backup || {}) };
-  delete backup.key_b64;
-  return { ...kit, sufficient_alone: false, private_key_included: false, backup, notice: 'Copie publique: carte et sauvegarde, sans la cle.' };
+  if (indexContainsPrivateFields(kit.index)) fail('RECONSTRUCTION_INDEX_PRIVATE_FIELD');
+  // Explicit allowlist, not {...kit}: future private kit fields may be added.
+  return {
+    schema: kit.schema,
+    created_at: kit.created_at,
+    source_sha: kit.source_sha,
+    sufficient_alone: false,
+    private_key_included: false,
+    index: kit.index,
+    backup: { encrypted_text: kit.backup?.encrypted_text, key_id: kit.backup?.key_id },
+    notice: 'Copie publique: carte et sauvegarde, sans la cle.',
+  };
 }
 
 export function placeReconstructionCopies(kit) {
