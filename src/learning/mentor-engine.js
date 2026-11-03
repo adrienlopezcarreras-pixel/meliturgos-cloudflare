@@ -16,6 +16,10 @@ const MAX_TOTAL_SOURCE_CHARS = 150_000;
 const DEFAULT_PROMPT_CHARS = 40_000;
 const COMPANION_PROMPT_CHARS = 11_500;
 const MEMORY_PROMPT_CHARS = 3_000;
+// A cloud model can read far more than 4 500 characters. Cutting every file
+// there made SEARCH miss real lines and every proposal died as
+// MENTOR_UNINSPECTED_EDIT (FOUNDER-04). The prompt budget still caps the total.
+const EXCERPT_CHARS = 16_000;
 const MAX_CHANGES = 10;
 const LONG_FILE_CHARS = 4000;
 const MAX_CHANGE_CHARS = 200_000;
@@ -448,7 +452,7 @@ function scoreProposal(proposal) {
 function sourceBlock(files) {
   return (Array.isArray(files) ? files : []).slice(0, 6).map(file => {
     const source = String(file.content || '');
-    const visible = String(file.excerpt ?? source).slice(0, 4500);
+    const visible = String(file.excerpt ?? source).slice(0, EXCERPT_CHARS);
     return [
       '===== FILE ' + file.path + ' =====',
       visible,
@@ -499,8 +503,8 @@ function promptWithinLimit(build, files, limit, visibleScope = [], goal = '') {
   const frame = build([]).length;
   let budget = Math.max(0, Math.min(MAX_TOTAL_SOURCE_CHARS, limit - frame - 120 * files.length));
   const excerpts = files.map((file, index) => {
-    // sourceBlock shows at most 4500 characters per file.
-    const share = Math.min(MAX_FILE_CHARS, 4500, Math.floor(budget / (files.length - index)));
+    // sourceBlock shows at most EXCERPT_CHARS of each file, never past this budget.
+    const share = Math.min(MAX_FILE_CHARS, EXCERPT_CHARS, Math.floor(budget / (files.length - index)));
     const visible = focusedWindow(file.content, share, terms);
     budget -= visible.length;
     const excerpt = visible.length < file.content.length
@@ -510,7 +514,15 @@ function promptWithinLimit(build, files, limit, visibleScope = [], goal = '') {
   });
   const input = bounded(build(excerpts), limit);
   for (const file of excerpts.slice(0, 6)) {
-    if (input.includes(sourceBlock([file]))) visibleScope.push({ path: file.path, content: String(file.excerpt ?? file.content).slice(0, 4500) });
+    const header = '===== FILE ' + file.path + ' =====\n';
+    const at = input.indexOf(header);
+    if (at < 0) continue;
+    const body = input.slice(at + header.length);
+    const end = body.indexOf('\n===== END ' + file.path + ' =====');
+    const content = (end >= 0 ? body.slice(0, end) : body)
+      .replace(/\n\[EXTRAIT PARTIEL[\s\S]*$/, '')
+      .replace(/\n\[EXTRAIT TRONQUÉ:[\s\S]*$/, '');
+    if (content.trim()) visibleScope.push({ path: file.path, content });
   }
   return input;
 }
