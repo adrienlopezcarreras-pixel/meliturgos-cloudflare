@@ -263,7 +263,8 @@ test('MEL-SOV-01 can prove encrypted backup/restore through the existing Pipedre
   assert.equal(proof.rollback_verified,true);
   assert.equal(proof.ciphertext_sha256,proof.readback_sha256);
   assert.match(proof.evidence_ref,/pipedream-proxy-file/);
-  assert.deepEqual(proxy.calls.map(row=>row.method),['POST','GET','POST','DELETE','GET']);
+  assert.equal(proof.shard_map_name,'MEL-SHARD-MAP.json');
+  assert.deepEqual(proxy.calls.map(row=>row.method),['POST','GET','POST','DELETE','GET','POST']);
   assert.ok(proxy.calls[0].target.includes('/upload/drive/v3/files?uploadType=media'));
   assert.ok(proxy.calls[1].target.includes('/drive/v3/files/pd-drive-backup-1?alt=media'));
   assert.doesNotMatch(JSON.stringify(proxy.calls),/server-token/);
@@ -411,6 +412,9 @@ test('MEL-SOV-01 staged prepare persists source ciphertext hash so readback does
   const fetchImpl=async(url,init={})=>{
     const method=init.method||'GET';
     const value=String(url);
+    if(method==='POST'&&value.includes('uploadType=multipart')&&String(init.body||'').includes('MEL-SHARD-MAP.json')){
+      return Response.json({id:'drive-shard-map-1',name:'MEL-SHARD-MAP.json',createdTime:'2026-10-03T18:00:00.000Z'});
+    }
     if(method==='POST'&&value.includes('/drive/v3/files?fields=')){
       return Response.json({id:'drive-staged-1',name:'staged.enc.json',createdTime:'2026-10-03T18:00:00.000Z'});
     }
