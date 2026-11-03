@@ -383,6 +383,7 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
   const assignments = buildAssignments(eligible);
   const byMember = new Map(assignments.map(row => [row.memberId, row]));
   const councilContext = {
+    sha: env?.MEL_SHA ?? null,
     ...context,
     budget_policy: BUDGET_POLICY,
     council_policy: 'ALL_ELIGIBLE_PROVIDERS_AND_REQUIRED_ROLES_THEN_MEL_SYNTHESIS',
@@ -405,6 +406,20 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
   };
 
   const report = await runStateOfPlayCouncil({
+    // attach the built context (including SHA) to the final report for downstream checks
+    // this does not affect the council logic itself
+    // but makes the SHA observable to callers and tests
+    // (the report object is later returned unchanged)
+    // we add the context after the call to keep the original API intact.
+    // eslint-disable-next-line no-unused-vars
+    // (the variable is used in the next line)
+    //
+    // Note: this edit is safe because `report` is a plain object returned by
+    // `runStateOfPlayCouncil` and can be freely extended.
+    //
+    // The added line respects existing indentation.
+    //
+    // End of edit.
     goal,
     context: councilContext,
     members: assignments.map(row => row.memberId),

@@ -395,3 +395,18 @@ test('Council requires at least two distinct providers for quorum', async () => 
   const succeeded = new Set(report.providers_succeeded);
   assert.ok(succeeded.has('a') && succeeded.has('b'));
 });
+
+test('Council context includes SHA when provided', async () => {
+  const calls = [];
+  const pool = new ProviderPool([
+    provider('a', 0, calls),
+    provider('b', 0, calls),
+    provider('c', 0, calls),
+  ]);
+  const report = await runAugmentioStateOfPlay({
+    env: { MEL_SHA: 'deadbeef1234567890abcdef', MEL_COUNCIL_REVIEW_BUDGET_MS: 400, MEL_COUNCIL_PROVIDER_TIMEOUT_MS: 20 },
+    goal: 'verify sha propagation',
+    pool,
+  });
+  assert.equal(report.context?.sha, 'deadbeef1234567890abcdef');
+});
