@@ -9,6 +9,7 @@ test('the test page switches every part and does not disconnect production', () 
   const model = contingencyTestModel();
   assert.equal(model.disconnects_production, false);
   assert.match(html, /ne débranche rien/);
+  assert.match(html, /<footer>Notice : cette page est un test/);
   for (const part of ['cloudflare', 'pc', 'github', 'model', 'gmail', 'onedrive', 'shards']) {
     assert.match(html, new RegExp(part));
   }

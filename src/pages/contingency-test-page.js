@@ -42,6 +42,7 @@ export function renderContingencyTestPage() {
   article{margin-top:18px;background:#182033;border-radius:12px;padding:14px 16px}
   h2{font-size:1rem;margin:0 0 8px}
   code{color:#9fd0ff}
+  footer{margin-top:28px;padding-top:14px;border-top:1px solid #314056;color:#b7c3d6;font-size:.92rem}
 </style>
 </head>
 <body>
@@ -61,6 +62,8 @@ export function renderContingencyTestPage() {
     <h2>Événement</h2>
     <p id="event"></p>
   </article>
+  <footer>Notice : cette page est un test. Elle ne coupe pas Cloudflare, GitHub, le modèle, ni aucune autre brique. Rien n'est migré depuis ici.</footer>
+</main>
 </main>
 <script id="model" type="application/json">${data}</script>
 <script>
