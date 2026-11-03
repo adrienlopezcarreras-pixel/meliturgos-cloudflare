@@ -145,3 +145,21 @@ test('proven PC standby is selectable only with Cloudflare down and a live PC', 
   }, actions: { note: async () => ({ok:true}) } });
   assert.equal(cycle.ran.find(row => row.code === 'MOVE_MAX_TO_PC').applied, false);
 });
+
+test('untrusted pre-proven flags cannot certify a replacement', async () => {
+  const forged = {
+    part: 'model', replacement_ready: true,
+    judgement: { status: 'BETTER_PROVEN', better: true },
+    activation_allowed: true,
+    research: { kind: 'DOCUMENTARY', sources: [{ url: 'https://example.com/model' }] },
+  };
+  const cycle = await runContingencyCycle({
+    observed: { cloudflareUp: true, modelUp: false },
+    replacements: [forged],
+    actions: { note: async () => ({ ok: true }) },
+  });
+  assert.equal(cycle.replacements[0].replacement_ready, false);
+  assert.equal(cycle.replacements[0].activation_allowed, false);
+  assert.equal(cycle.ran.find(row => row.code === 'USE_OTHER_PROVEN_MODEL').reason, 'NO_PROVEN_REPLACEMENT');
+  assert.equal(cycle.activation_performed, false);
+});
