@@ -1,3 +1,4 @@
+import { companionTaskIntervalOpen } from '../evolution/companion-proof-policy.js';
 import { createCompanionSovereigntyExecutor } from './companion-sovereignty-executor.js';
 import { createCompanionSchedulerAdapter } from './companion-scheduler-adapter.js';
 import { createCompanionObservabilityAdapter } from './companion-observability-adapter.js';
@@ -106,7 +107,9 @@ export async function runCompanionLocalServicesPrevalidationRuntime(env,{
 
   const prior=await loadState(env.DB);
   const last=Number(prior.last_run_at||0);
-  if(!force&&last>0&&now-last<intervalMs){
+  // Parked only while the companion is absent. The next call retries at once
+  // when it comes back online; a completed run still waits out the interval.
+  if(!force&&!companionTaskIntervalOpen(prior, now, intervalMs)&&last>0&&now-last<intervalMs){
     return{ok:true,skipped:true,reason:'INTERVAL_NOT_DUE',next_due_at:last+intervalMs};
   }
 

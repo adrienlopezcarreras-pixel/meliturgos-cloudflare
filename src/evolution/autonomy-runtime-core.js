@@ -52,6 +52,15 @@ export function autonomyTickAdvanced(events) {
   return (Array.isArray(events) ? events : []).some(event => USEFUL_AUTONOMY_EVENTS.has(event));
 }
 
+// MEL-FOUNDER-02: a tick states its outcome explicitly. A tick that only
+// resumed the same persisted step (no useful event) is NO_PROGRESS, never a
+// success; WAITING_EXTERNAL keeps a provider/Teacher/CI wait out of stalls.
+export function autonomyTickOutcome({ advanced = false, waitingExternal = false, workRemaining = true } = {}) {
+  if (advanced) return 'ADVANCED';
+  if (!workRemaining) return 'IDLE_COMPLETE';
+  return waitingExternal ? 'WAITING_EXTERNAL' : 'NO_PROGRESS';
+}
+
 const INSPECTION_FILES = [
   'AUTONOMY_STATE.json',
   'TEACHER_BRIDGE.md',
@@ -112,6 +121,19 @@ export function unansweredExhaustedRepair(job) {
   if (result.repair_cycle?.gate === MENTOR_PROPOSAL_GATE) return null;
   if (!/Unresolved import|SyntaxError/.test(text)) return null;
   return { ...decision, action: 'REPAIR', unseen: true, gate: MENTOR_PROPOSAL_GATE };
+}
+
+// A mentor rejection that has used its retries leaves the mission silent
+// (FOUNDER-03: no model call, no retry). One relaunch clears that wait.
+// A second exhaustion stays parked.
+export function mentorRejectionRelaunch(job) {
+  if (String(job?.status || '').toUpperCase() !== 'TEACHER_APPROVED') return null;
+  const result = job?.result_json && typeof job.result_json === 'object' ? job.result_json : null;
+  if (!result) return null;
+  if (String(result.bridge_preparation_diagnostic?.code || '').split(':')[0] !== 'MENTOR_NO_VALID_CODE_PROPOSAL') return null;
+  if (result.autonomy_deferral?.exhausted !== true) return null;
+  if (Number(result.mentor_relaunch_count || 0) >= 1) return null;
+  return { action: 'RELAUNCH' };
 }
 
 const STALE_TEACHER_APPROVAL_CODES = new Set([
@@ -733,8 +755,18 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     if (by !== 'mel-autonomy' && !by.startsWith('owner-chat')) continue;
     if (by === 'mel-autonomy' && holder && candidate.id !== holder.id) continue;
     const decision = unansweredExhaustedRepair(candidate);
-    if (!decision) continue;
+    const relaunch = mentorRejectionRelaunch(candidate);
+    if (!decision && !relaunch) continue;
     const result = candidate.result_json && typeof candidate.result_json === 'object' ? { ...candidate.result_json } : {};
+    if (relaunch && !decision) {
+      delete result.autonomy_deferral;
+      delete result.bridge_preparation_attempt;
+      result.mentor_relaunch_count = 1;
+      result.mentor_relaunched_at = new Date().toISOString();
+      await jobRepository.update(candidate.id, { status: 'TEACHER_APPROVED', error: null, result_json: result });
+      reopenedUnansweredRepair = true;
+      break;
+    }
     delete result.implementation_proposal;
     delete result.bridge_package;
     delete result.bridge_preparation;
@@ -1127,6 +1159,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     advanced,
     progress: {
       advanced,
+      outcome: autonomyTickOutcome({ advanced, waitingExternal, workRemaining }),
       events: progressEvents,
       work_remaining: workRemaining,
       waiting_external: waitingExternal,

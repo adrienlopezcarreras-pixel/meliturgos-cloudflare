@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { repairBudgetDecision, unansweredExhaustedRepair, MAX_OWNER_MAX_REPAIR_ATTEMPTS } from '../src/evolution/autonomy-runtime-core.js';
+import { repairBudgetDecision, unansweredExhaustedRepair, mentorRejectionRelaunch, MAX_OWNER_MAX_REPAIR_ATTEMPTS } from '../src/evolution/autonomy-runtime-core.js';
 
 const googleapis = [{ name: 'syntax-and-imports', passed: false, error: 'Unresolved import in src/evolution/google-tools.js: googleapis' }];
 
@@ -38,6 +38,22 @@ test('an exhausted job reopens only when its failure text was never presented', 
   assert.equal(unansweredExhaustedRepair(job)?.gate, 'import-and-long-edit-v1');
   job.result_json.repair_cycle.gate = 'import-and-long-edit-v1';
   assert.equal(unansweredExhaustedRepair(job), null);
+});
+
+test('an exhausted mentor rejection is relaunched once and then stays parked', () => {
+  const job = {
+    status: 'TEACHER_APPROVED',
+    result_json: {
+      bridge_preparation_diagnostic: { code: 'MENTOR_NO_VALID_CODE_PROPOSAL' },
+      autonomy_deferral: { exhausted: true, code: 'MENTOR_NO_VALID_CODE_PROPOSAL' },
+    },
+  };
+  assert.equal(mentorRejectionRelaunch(job)?.action, 'RELAUNCH');
+  job.result_json.mentor_relaunch_count = 1;
+  assert.equal(mentorRejectionRelaunch(job), null);
+  job.result_json.mentor_relaunch_count = 0;
+  job.result_json.autonomy_deferral.exhausted = false;
+  assert.equal(mentorRejectionRelaunch(job), null);
 });
 
 test('a waiting teacher review is restored instead of being selected as runnable', async () => {

@@ -199,3 +199,22 @@ test('a new test must sit directly in tests/ so its ../src imports resolve', asy
     .propose({ env: {}, goal: 'Nested test', inspectedFiles: [{ path, content: source }] }),
   error => error.failures.every(row => row.error === 'MENTOR_INVALID_CHANGE' && /directement dans tests/.test(row.detail)));
 });
+
+test('a review whose candidate moved before any CI resumes the approved step', async () => {
+  const repository = new D1DevJobRepository(null);
+  const job = await publishedJob(repository);
+  const moved = 'c'.repeat(40);
+  const fetchImpl = async url => Response.json(String(url).includes('/commits/')
+    ? { sha: moved }
+    : { workflow_runs: [] });
+  const result = await reconcileFailedCandidateRuns({
+    repository, env, fetchImpl, now: Number(job.updated_at) + 31 * 60 * 1000,
+  });
+  assert.deepEqual(result.repaired, [{ job_id: job.id, code: 'CANDIDATE_MOVED_BEFORE_CI' }]);
+  const stored = await repository.get(job.id);
+  assert.equal(stored.status, 'TEACHER_APPROVED');
+  assert.equal(stored.result_json.teacher_bridge.review.verdict, 'APPROVE_PLAN');
+  assert.equal(stored.result_json.bridge_preparation, undefined);
+  assert.equal(stored.result_json.concurrentEvidence, 'must survive');
+});
+

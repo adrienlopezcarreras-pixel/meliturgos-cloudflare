@@ -34,7 +34,7 @@ export function wantsAgentTools(text) {
   if (isToolProtocolExampleRequest(text)) return false;
   if (isReadOnlyAdviceRequest(text)) return false;
   if (/aucune action|sans (?:aucune )?action|ne (?:fais|lance|touche)/i.test(String(text || ''))) return false;
-  return /\b(?:lance\w*|ex[ée]cute\w*|teste\w*|test|audit\w*|v[ée]rifie\w*|corrige\w*|r[ée]pare\w*|d[ée]veloppe\w*|cr[ée]e\w*|connecte\w*|appelle\w*|d[ée]marre\w*|active\w*|council|stress|d1|base de donn[ée]es|companion|github|outil\w*|autonom\w*|max)\b/i.test(String(text || ''));
+  return /\b(?:lance\w*|ex[ée]cute\w*|teste\w*|test|audit\w*|v[ée]rifi\w*|corrige\w*|r[ée]pare\w*|d[ée]veloppe\w*|cr[ée]e\w*|connecte\w*|appelle\w*|d[ée]marre\w*|active\w*|council|stress|d1|base de donn[ée]es|companion|github|outil\w*|autonom\w*|max|self\.audit|runtime)\b/i.test(String(text || ''));
 }
 
 export function agentToolCatalog(bus) {

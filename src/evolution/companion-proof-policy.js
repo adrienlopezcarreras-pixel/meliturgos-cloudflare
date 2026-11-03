@@ -1,0 +1,45 @@
+// Companion proofs are optional. While the PC companion is absent they are
+// set aside: not a failure, not a passed local proof, and never a reason to
+// stop the cloud path. The companion remains a bonus when it is online.
+
+export const COMPANION_ABSENT_REASONS = Object.freeze([
+  'COMPANION_OFFLINE',
+  'DEVICE_OFFLINE',
+  'COMPANION_OFFLINE_OR_NOT_AUTHORIZED',
+]);
+
+export function companionProofAbsent(value) {
+  if (value?.skipped !== true) return false;
+  return COMPANION_ABSENT_REASONS.includes(String(value?.reason || value?.code || ''));
+}
+
+/** Keep the absence visible, but do not count it as a failed or passed proof. */
+export function setAsideCompanionProof(value) {
+  if (!companionProofAbsent(value)) return value;
+  return {
+    ...value,
+    ok: true,
+    skipped: true,
+    passed: false,
+    required: false,
+    proof: 'SET_ASIDE',
+    status: 'COMPANION_PROOF_SET_ASIDE',
+  };
+}
+
+const COMPANION_WAITING = new Set(['WAITING_FOR_COMPANION', 'DEVICE_OFFLINE']);
+
+/** A task parked because the companion was absent is due again immediately.
+ *  Once it has actually run, the normal interval applies. */
+export function companionTaskIntervalOpen(prior, now = Date.now(), intervalMs = 0) {
+  if (COMPANION_WAITING.has(String(prior?.status || ''))) return true;
+  const last = Number(prior?.last_run_at || 0);
+  const wait = Number(intervalMs) || 0;
+  return !(last > 0 && now - last < wait);
+}
+
+export function companionTaskDisposition(online) {
+  return online === true
+    ? { state: 'active', blocks_cloud: false }
+    : { state: 'set_aside', blocks_cloud: false };
+}
