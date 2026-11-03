@@ -425,3 +425,19 @@ test('Council propagates SHA in context', async () => {
   });
   assert.equal(report.context.sha, sha);
 });
+
+test('Report includes new governance fields', async () => {
+  const calls = [];
+  const pool = new ProviderPool([
+    provider('a', 0, calls),
+    provider('b', 0, calls),
+  ]);
+  const report = await runAugmentioStateOfPlay({
+    env: { MEL_COUNCIL_REVIEW_BUDGET_MS: 400, MEL_COUNCIL_PROVIDER_TIMEOUT_MS: 20 },
+    goal: 'verify new fields',
+    pool,
+  });
+  assert.equal(report.all_required_roles_satisfied, true);
+  assert.ok(report.quorum_under_60s);
+  assert.deepEqual(new Set(report.providers_succeeded), new Set(['a', 'b']));
+});

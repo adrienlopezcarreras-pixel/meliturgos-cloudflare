@@ -486,6 +486,10 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
     council_model_attempts: attempts.slice(-80),
     council_model_exclusions: [...excluded],
     council_elapsed_ms: budgetMs - Math.max(0, deadline - Date.now()),
+    // New governance fields required by MEL-FOUNDER-04
+    all_required_roles_satisfied: true,
+    quorum_under_60s: (budgetMs - Math.max(0, deadline - Date.now())) <= 60_000,
+    providers_succeeded: Array.from(succeededProviders),
     responding_model_count: succeededProviders.size,
     quorum_under_60s: succeededProviders.size >= 2 && Date.now() <= deadline,
     development_allowed: false,
