@@ -414,7 +414,7 @@ test('a previous runtime stress failure keeps the supervisor degraded until disp
   assert.ok(result.report.unresolved_failure_count >= 1);
 });
 
-test('monthly survival audit flags an offline companion instead of inventing a passed alternative drill', async () => {
+test('monthly survival audit sets an offline companion proof aside without calling it passed', async () => {
   const store = new MemoryStateStore();
   const result = await runMelSelfAuditSupervisor({}, {
     bus: fakeBus(),
@@ -427,9 +427,22 @@ test('monthly survival audit flags an offline companion instead of inventing a p
       runCompanionInfrastructurePrevalidationRuntime: async () => ({ ok:true, skipped:true, reason:'COMPANION_OFFLINE' }),
     }),
   });
-  assert.equal(result.status, 'SELF_AUDIT_DEGRADED');
-  assert.equal(result.report.tasks['source-control-alternative-drill'].ok, false);
-  assert.equal(result.report.tasks['infrastructure-alternative-drill'].ok, false);
+  for (const name of ['source-control-alternative-drill', 'infrastructure-alternative-drill']) {
+    const task = result.report.tasks[name];
+    assert.equal(task.ok, true);
+    assert.equal(task.skipped, true);
+    assert.equal(task.status, 'COMPANION_PROOF_SET_ASIDE');
+    assert.equal(task.proof, 'SET_ASIDE');
+    assert.equal(task.passed, false);
+    assert.equal(task.required, false);
+  }
+  const failed = Object.entries(result.report.tasks).filter(([, row]) => row.ok !== true).map(([name]) => name);
+  assert.equal(failed.includes('source-control-alternative-drill'), false);
+  assert.equal(failed.includes('infrastructure-alternative-drill'), false);
+  assert.equal(result.report.policy.companion_required, false);
+  assert.equal(result.report.policy.companion_role, 'bonus');
+  assert.equal(result.report.policy.companion_proofs_while_absent, 'set_aside');
+  assert.equal(result.report.policy.companion_tasks_when_online, 'active');
 });
 
 test('monthly drill creates verified backup without destructive restore policy', async () => {

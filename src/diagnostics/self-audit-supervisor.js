@@ -12,6 +12,7 @@ import { runDependencyLongevityWatchRuntime } from '../evaluation/dependency-lon
 import { runSovereigntyReplacementWatchRuntime } from '../evaluation/sovereignty-watch-runtime.js';
 import { runConfiguredAiCandidateValidationRuntime } from '../portability/configured-ai-candidate-validation-runtime.js';
 import { runCompanionSourceControlPrevalidationRuntime } from '../portability/companion-source-control-prevalidation-runtime.js';
+import { setAsideCompanionProof } from '../evolution/companion-proof-policy.js';
 import { runCompanionInfrastructurePrevalidationRuntime } from '../portability/companion-infrastructure-prevalidation-runtime.js';
 import { D1AlternativeRegistryStore } from '../portability/d1-alternative-registry-store.js';
 import { liveTechnicalSovereigntyReport } from '../portability/technical-sovereignty-live.js';
@@ -360,6 +361,7 @@ function compactTaskResult(value) {
     blocked: Number.isFinite(Number(value.blocked)) ? Number(value.blocked) : undefined,
     candidate_count: Number.isFinite(Number(value.candidate_count)) ? Number(value.candidate_count) : undefined,
     source_sha: clean(value.source_sha || '', 80) || undefined,
+    ...(value.proof === 'SET_ASIDE' ? { proof: 'SET_ASIDE', passed: false, required: false } : {}),
   };
 }
 
@@ -692,11 +694,11 @@ export async function runMelSelfAuditSupervisor(env = {}, {
     }));
     results.push(await capture('source-control-alternative-drill', async () => {
       const value = await (deps.runCompanionSourceControlPrevalidationRuntime || runCompanionSourceControlPrevalidationRuntime)(env, { force: true, now: current });
-      return { ...value, ok: value?.reason !== 'COMPANION_OFFLINE' && value?.ok !== false };
+      return setAsideCompanionProof(value);
     }));
     results.push(await capture('infrastructure-alternative-drill', async () => {
       const value = await (deps.runCompanionInfrastructurePrevalidationRuntime || runCompanionInfrastructurePrevalidationRuntime)(env, { force: true, now: current });
-      return { ...value, ok: value?.reason !== 'COMPANION_OFFLINE' && value?.ok !== false };
+      return setAsideCompanionProof(value);
     }));
   }
 
@@ -842,6 +844,10 @@ export async function runMelSelfAuditSupervisor(env = {}, {
       council_before_repair: true,
       zero_added_cost: true,
       owner_shutdown_always_wins: true,
+      companion_required: false,
+      companion_role: 'bonus',
+      companion_proofs_while_absent: 'set_aside',
+      companion_tasks_when_online: 'active',
     },
   };
 
