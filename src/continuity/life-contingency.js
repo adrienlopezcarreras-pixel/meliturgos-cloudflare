@@ -75,7 +75,8 @@ export function dueLifeEvents(facts = {}) {
   const known = new Set(EVENTS.map(row => row[0]));
   const due = [];
   for (const [fact, id] of FACT_EVENTS) {
-    if (facts[fact] === true) due.push(id);
+    const snake = fact.replace(/[A-Z]/g, character => '_' + character.toLowerCase());
+    if ((facts[fact] === true || facts[snake] === true) && !due.includes(id)) due.push(id);
   }
   for (const id of Array.isArray(facts.detected) ? facts.detected : []) {
     const name = String(id || '').trim().toUpperCase();
@@ -163,7 +164,7 @@ const EXECUTOR_KEYS = Object.freeze({
 export async function applyLifeCountermeasure(id, actions = {}) {
   const plan = respondToLifeEvent(id);
   if (plan.countermeasure === 'KEEP_PAUSE') {
-    return Object.freeze({ ...plan, applied: true, activation_performed: true });
+    return Object.freeze({ ...plan, applied: true, activation_performed: false });
   }
   const fn = actions[EXECUTOR_KEYS[plan.countermeasure]];
   if (typeof fn !== 'function') {
@@ -215,7 +216,7 @@ export function planCoreMigration({ part, replacementReady = false } = {}) {
     status: 'MIGRATION_PLANNED',
     countermeasure: 'MIGRATE_TO_PROVEN_REPLACEMENT',
     steps: Object.freeze(['EXPORT', 'IMPORT_ON_TARGET', 'SMOKE', 'ACTIVATE', 'ROLLBACK_IF_SMOKE_FAILS']),
-    automatic: true,
+    automatic: false,
     activation_performed: false,
   });
 }
@@ -223,7 +224,7 @@ export function planCoreMigration({ part, replacementReady = false } = {}) {
 export async function applyCoreMigration({ part, replacementReady = false, migrate } = {}) {
   const plan = planCoreMigration({ part, replacementReady });
   if (plan.status !== 'MIGRATION_PLANNED') {
-    return Object.freeze({ ...plan, applied: true, activation_performed: true });
+    return Object.freeze({ ...plan, applied: true, activation_performed: false });
   }
   if (typeof migrate !== 'function') {
     return Object.freeze({ ...plan, applied: false, activation_performed: false, reason: 'NO_EXECUTOR' });
