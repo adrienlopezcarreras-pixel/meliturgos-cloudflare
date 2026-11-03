@@ -33,7 +33,7 @@ if(gate.ok!==true){
   // A source rescue must not package those into a second distributable artifact.
   const roots = execFileSync('git',['ls-tree','--name-only','HEAD'],{
     encoding:'utf8',timeout:10000,maxBuffer:1024*1024,
-  }).split('\\n').map(value => value.trim()).filter(Boolean);
+  }).split('\n').map(value => value.trim()).filter(Boolean);
   const sourcePaths = selectSourceArchiveRoots(roots);
   if (!sourcePaths.includes('src') || !sourcePaths.includes('package.json')) {
     throw Error('SOURCE_ARCHIVE_REQUIRED_CODE_ROOTS_MISSING');

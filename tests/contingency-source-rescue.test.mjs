@@ -114,3 +114,11 @@ test('source rescue CLI makes a real Git archive in an isolated fixture and reje
       e=>e?.code==='ENOENT');
   } finally { await rm(root,{recursive:true,force:true}); }
 });
+
+test('source archive root listing splits actual Git newline output, not literal backslash-n',async()=>{
+  const {readFileSync}=await import('node:fs');
+  const runner=readFileSync(new URL('../scripts/contingency-source-rescue.mjs',import.meta.url),'utf8');
+  const expected=".split('" + String.fromCharCode(92) + "n')";
+  assert.ok(runner.includes(expected),'Git root listing must split newline characters');
+  assert.ok(!runner.includes(".split('" + String.fromCharCode(92,92) + "n')"));
+});
