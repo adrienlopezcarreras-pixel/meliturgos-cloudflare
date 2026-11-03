@@ -16,3 +16,31 @@ export function replacementReadiness(part, evidence = {}) {
   const ready = entry.probes.every(probe => checks[probe]);
   return Object.freeze({ part: name, status: ready ? 'PROBES_PASSED_NOT_ACTIVATED' : 'UNVERIFIED', ready, automatic_activation: false, checks, candidates: entry.candidates });
 }
+
+/**
+ * A boolean alone is not a live proof. This gate requires individually dated
+ * observations from an explicitly identified candidate. No fallback is armed
+ * by the gate, even when all mandatory probes have passed.
+ */
+export function verifiedReplacementReadiness(part, candidate, observations = [], { now = Date.now(), maxAgeMs = 15 * 60_000 } = {}) {
+  const name = String(part || '').toLowerCase();
+  const entry = REPLACEMENT_CATALOG[name];
+  const id = String(candidate || '');
+  if (!entry || !entry.candidates.includes(id)) {
+    return Object.freeze({ part: name, candidate: id, ready: false, activation_allowed: false, reason: 'CANDIDATE_NOT_IN_CATALOG' });
+  }
+  const checks = {};
+  for (const probe of entry.probes) {
+    checks[probe] = (Array.isArray(observations) ? observations : []).some(row => {
+      if (row?.candidate !== id || row?.part !== name || row?.probe !== probe || row?.passed !== true) return false;
+      if (typeof row?.evidence_id !== 'string' || !row.evidence_id.trim()) return false;
+      if (typeof row?.observer !== 'string' || !row.observer.trim()) return false;
+      const time = Date.parse(String(row?.observed_at || ''));
+      return Number.isFinite(time) && time <= now && time >= now - maxAgeMs;
+    });
+  }
+  const ready = entry.probes.every(probe => checks[probe]);
+  return Object.freeze({ part: name, candidate: id, ready, activation_allowed: false,
+    reason: ready ? 'RECENT_OBSERVATIONS_PASS_MANUAL_APPROVAL_REQUIRED' : 'MISSING_OR_STALE_PROOFS',
+    checks: Object.freeze(checks) });
+}
