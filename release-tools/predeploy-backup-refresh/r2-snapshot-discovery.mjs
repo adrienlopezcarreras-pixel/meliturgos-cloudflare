@@ -3,6 +3,9 @@
 // restoration proof: the isolated restore runner must decrypt and verify bytes.
 export const ENCRYPTED_SNAPSHOT_KEY = /^backups\/system\/[A-Za-z0-9._-]+\.enc\.json$/;
 const MAX_LIST_BYTES = 2 * 1024 * 1024;
+// Same default freshness window as the release-backup gate; a historical
+// manual restore may still supply an exact object key explicitly.
+export const DEFAULT_AUTO_RESTORE_MAX_AGE_MS = 26 * 60 * 60 * 1000;
 const fail = code => { throw Object.assign(new Error(code), {code}); };
 
 async function boundedListJson(response) {
@@ -31,11 +34,14 @@ async function boundedListJson(response) {
 export async function discoverLatestEncryptedSnapshotKey({
   accountId, apiToken, bucket = 'meliturgos-private-media',
   fetchImpl = fetch, maxPages = 50,
+  now = Date.now(), maxAgeMs = DEFAULT_AUTO_RESTORE_MAX_AGE_MS,
 } = {}) {
   if (!/^[a-f0-9]{32}$/i.test(String(accountId || ''))
       || !String(apiToken || '').trim()
       || !/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(String(bucket))
-      || !Number.isInteger(maxPages) || maxPages < 1 || maxPages > 100)
+      || !Number.isInteger(maxPages) || maxPages < 1 || maxPages > 100
+      || !Number.isFinite(now) || !Number.isSafeInteger(maxAgeMs)
+      || maxAgeMs <= 0 || maxAgeMs > 7 * 24 * 60 * 60 * 1000)
     fail('ISOLATED_R2_LIST_CONFIG_INVALID');
   const endpoint = new URL('https://api.cloudflare.com/client/v4/accounts/'
     + accountId + '/r2/buckets/' + bucket + '/objects');
@@ -61,7 +67,8 @@ export async function discoverLatestEncryptedSnapshotKey({
       const modified = Date.parse(String(row?.last_modified || ''));
       if (typeof key !== 'string' || !ENCRYPTED_SNAPSHOT_KEY.test(key)
           || !Number.isInteger(row?.size) || row.size <= 0
-          || row.size > 512 * 1024 * 1024 || !Number.isFinite(modified)) continue;
+          || row.size > 512 * 1024 * 1024 || !Number.isFinite(modified)
+          || modified > now + 5 * 60_000) continue;
       if (!best || modified > best.modified
           || (modified === best.modified && key > best.key))
         best = {key, modified};
@@ -69,6 +76,8 @@ export async function discoverLatestEncryptedSnapshotKey({
     const info = data.result_info;
     if (info.is_truncated !== true) {
       if (!best) fail('ISOLATED_R2_SNAPSHOT_NOT_FOUND');
+      if (best.modified < now - maxAgeMs || best.modified > now)
+        fail('ISOLATED_R2_SNAPSHOT_STALE');
       return best.key;
     }
     const next = String(info.cursor || '');
