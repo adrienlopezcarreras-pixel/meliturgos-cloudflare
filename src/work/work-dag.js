@@ -320,3 +320,23 @@ export class WorkDagRunner {
     return this.run(dag);
   }
 }
+
+// MEL-FOUNDER-05: a Work mission is complete only with a persisted request,
+// an execution event for every node, at least one artifact and an intact
+// integrity hash. A merely enqueued DAG never completes the mission.
+export async function workMissionReceipt(dag) {
+  const reasons = [];
+  const audit = Array.isArray(dag?.audit) ? dag.audit : [];
+  const nodes = Array.isArray(dag?.nodes) ? dag.nodes : [];
+  if (!audit.some(row => row?.event === 'WORK_DAG_CREATED')) reasons.push('WORK_REQUEST_NOT_PERSISTED');
+  if (!nodes.length || nodes.every(node => node.status === WORK_NODE_STATUS.PENDING)) reasons.push('WORK_ENQUEUED_ONLY');
+  const executed = new Set(audit.filter(row => row?.event === 'WORK_NODE_COMPLETED' || row?.event === 'WORK_TEACHER_REVIEW_APPLIED').map(row => row.node_id));
+  if (dag?.status !== WORK_DAG_STATUS.COMPLETED || nodes.some(node => node.status !== WORK_NODE_STATUS.COMPLETED)) reasons.push('WORK_NOT_COMPLETED');
+  else if (nodes.some(node => node.kind !== 'TEACHER' && !executed.has(node.id))) reasons.push('WORK_EXECUTION_NOT_RECORDED');
+  if (!(Array.isArray(dag?.artifacts) && dag.artifacts.length)) reasons.push('WORK_ARTIFACT_REQUIRED');
+  let intact = false;
+  try { intact = Boolean(dag) && await verifyWorkDag(dag) === true; } catch { intact = false; }
+  if (!intact) reasons.push('WORK_INTEGRITY_INVALID');
+  return { schema: 'mel.work-mission-receipt/v1', status: reasons.length ? 'NOT_COMPLETED' : 'COMPLETED',
+    job_id: dag?.job_id || null, work_dag_id: dag?.id || null, artifacts: (dag?.artifacts || []).length, reasons };
+}
