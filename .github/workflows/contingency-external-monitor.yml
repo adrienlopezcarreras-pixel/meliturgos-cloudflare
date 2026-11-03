@@ -18,8 +18,7 @@ on:
       - 'release-tools/predeploy-backup-refresh/**'
       - 'src/continuity/external-health-monitor.js'
       - 'scripts/run-external-contingency-monitor.mjs'
-      - 'tests/external-health-monitor.test.mjs
-          tests/shardvault-reconstruction-stress.test.mjs'
+      - 'tests/external-health-monitor.test.mjs'
       - '.github/workflows/contingency-external-monitor.yml'
 permissions:
   contents: read
@@ -43,6 +42,7 @@ jobs:
           tests/life-contingency.test.mjs tests/countermeasure-actions.test.mjs
           tests/replacement-catalog.test.mjs tests/public-contingency-heartbeat.test.mjs
           tests/external-health-monitor.test.mjs
+          tests/shardvault-reconstruction-stress.test.mjs
   monitor-cloudflare:
     # Use the canonical Worker origin from wrangler.jsonc by default.
     # The override variable can redirect to a future independently verified origin.
