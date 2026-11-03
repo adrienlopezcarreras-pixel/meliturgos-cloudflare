@@ -29,7 +29,9 @@ async function requeue(repository) {
     return { ok: false, code: 'REPOSITORY_REQUIRED' };
   }
   const recovered = await recoverPassiveRuntimeStates(repository, { activeOnly: true });
-  return { ok: recovered?.failed?.length ? false : true, code: recovered?.failed?.[0]?.code };
+  const changed = Array.isArray(recovered?.recovered) ? recovered.recovered.length : 0;
+  const failure = recovered?.failed?.[0]?.code;
+  return { ok: !failure && changed > 0, code: failure || (changed ? 'MISSION_REQUEUED' : 'NO_RECOVERABLE_JOB'), recovered: changed };
 }
 
 export function bindCountermeasureActions({
