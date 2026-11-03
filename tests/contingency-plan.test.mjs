@@ -12,10 +12,11 @@ const index = { format: 'MEL-ShardVault-DiscoveryIndex', seed_leads: [] };
 const sha = 'a'.repeat(40);
 
 test('one failure, a chain, and a total outage each state their consequence', () => {
-  const single = respondToScenario({ down: ['cloudflare'], standby: { companionOnline: false } });
+  const single = respondToScenario({ down: ['cloudflare'] });
   assert.equal(single.kind, 'SINGLE');
   assert.match(single.implication, /site et le tick cloud/);
-  assert.match(single.consequence, /secours local n est pas pret/);
+  assert.match(single.consequence, /Aucun moteur ne reste/);
+  assert.match(single.consequence, /GitHub ne la fait pas tourner/);
   assert.equal(single.activation_performed, false);
 
   const chain = respondToScenario({

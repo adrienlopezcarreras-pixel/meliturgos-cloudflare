@@ -71,9 +71,9 @@ export function respondToScenario({ down, standby = {} } = {}) {
   let consequence;
   if (cloudflareUp) consequence = 'MAX reste sur Cloudflare. Aucune bascule.';
   else if (standbyState.status === 'STANDBY_READY') consequence = 'MAX continue sur le PC. On ne deploie plus vers Cloudflare.';
-  else if (runnersDown.length === 2) consequence = privateKitLeft.length
-    ? 'MAX s arrete. Une machine pourra la relancer depuis ' + privateKitLeft.join(' ou ') + '.'
-    : 'MAX s arrete. Sans Gmail ni OneDrive, la memoire ne s ouvre pas. Les shards publics ne contiennent pas la cle.';
+  else if (runnersDown.length === 2 || standbyState.missing?.includes('pc')) consequence = privateKitLeft.length
+    ? 'Aucun moteur ne reste. GitHub ne la fait pas tourner. Une autre machine pourra la relancer depuis ' + privateKitLeft.join(' ou ') + '.'
+    : 'Aucun moteur ne reste. Sans Gmail ni OneDrive, la memoire ne s ouvre pas. Les shards publics ne contiennent pas la cle.';
   else consequence = 'Cloudflare est tombe et le secours local n est pas pret (' + standbyState.missing.join(', ') + '). MAX attend.';
   return Object.freeze({
     schema: 'mel.contingency-response/v1',
