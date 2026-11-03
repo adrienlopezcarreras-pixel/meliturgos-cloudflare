@@ -53,6 +53,7 @@ const FACT_EVENTS = Object.freeze([
   ['smokeFailed', 'UPDATE_SMOKE_FAILED'],
   ['versionSplit', 'UPDATE_PARTIAL'],
   ['releaseAlreadyRunning', 'UPDATE_STUCK'],
+  ['release_in_progress', 'UPDATE_STUCK'],
   ['migrationExportFailed', 'MIGRATION_EXPORT_FAILED'],
   ['migrationImportFailed', 'MIGRATION_IMPORT_FAILED'],
   ['migrationSmokeFailed', 'MIGRATION_SMOKE_FAILED'],
