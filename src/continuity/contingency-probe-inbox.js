@@ -4,6 +4,10 @@ import { CONTINGENCY_PARTS } from './contingency-observations.js';
 
 const PREFIX = 'mel:contingency-probe:';
 const MAX_BODY = 4096;
+// External GitHub monitors run every 15 minutes. A safely persisted report
+// remains usable for one interval plus 5 minutes of scheduling jitter.
+// The POST ingress separately keeps its strict 3-minute freshness gate.
+export const CONTINGENCY_PERSISTED_PROBE_MAX_AGE_MS = 20 * 60_000;
 const NO_STORE = { 'cache-control': 'no-store' };
 
 function reply(body, status) {

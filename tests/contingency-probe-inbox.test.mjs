@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import worker from '../src/index.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import { signContingencyProbeReport, verifyContingencyProbeReports } from '../src/continuity/contingency-probe-auth.js';
-import { acceptContingencyProbe, readContingencyProbeInbox } from '../src/continuity/contingency-probe-inbox.js';
+import { acceptContingencyProbe, readContingencyProbeInbox, CONTINGENCY_PERSISTED_PROBE_MAX_AGE_MS } from '../src/continuity/contingency-probe-inbox.js';
 import { classifyHttpAuthSurface } from '../src/security/http-auth-policy.js';
 
 const secret = 'test-only-signed-external-monitor-0123456789-abcdefghijklmnopqrstuvwxyz';
@@ -121,4 +121,33 @@ test('probe ingress enforces 4 KiB during streaming without relying on Content-L
     assert.equal((await streamed.json()).code,'PROBE_BODY_TOO_LARGE');
     assert.deepEqual(await readContingencyProbeInbox(database),[]);
   } finally {database.close();}
+});
+
+test('persisted signed proof spans the 15-minute monitor cadence, not a skipped-interval outage',async()=>{
+  assert.equal(CONTINGENCY_PERSISTED_PROBE_MAX_AGE_MS,20*60_000);
+  const lastScheduledReport=await signed(false,now-16*60_000,'github');
+  // A delayed POST cannot inject old evidence into D1.
+  const database=db();
+  try{
+    assert.equal((await ingest(database,lastScheduledReport)).status,401);
+  }finally{database.close();}
+  // But previously accepted, HMAC-verified D1 observations remain usable until
+  // the next scheduled monitor run, with no automatic failover permission.
+  const withinWindow=await verifyContingencyProbeReports([lastScheduledReport],{
+    secret,now,maxAgeMs:CONTINGENCY_PERSISTED_PROBE_MAX_AGE_MS,cryptoImpl:webcrypto,
+  });
+  assert.equal(withinWindow.verified_count,1);
+  assert.equal(withinWindow.observed.githubUp,false);
+  const oldDefault=await verifyContingencyProbeReports([lastScheduledReport],{
+    secret,now,cryptoImpl:webcrypto,
+  });
+  assert.equal(oldDefault.verified_count,0);
+  const tooOld=await signed(false,now-21*60_000,'github');
+  const expired=await verifyContingencyProbeReports([tooOld],{
+    secret,now,maxAgeMs:CONTINGENCY_PERSISTED_PROBE_MAX_AGE_MS,cryptoImpl:webcrypto,
+  });
+  assert.equal(expired.verified_count,0);
+  assert.equal(expired.details.github.status,'UNKNOWN');
+  const runtime=readFileSync(new URL('../src/evolution/autonomy-runtime.js',import.meta.url),'utf8');
+  assert.match(runtime,/maxAgeMs: CONTINGENCY_PERSISTED_PROBE_MAX_AGE_MS/);
 });

@@ -21,7 +21,7 @@ import { readSurvivalState, shouldResumeForSurvival } from '../legacy/survival-m
 import { applyLifeCountermeasure, lifeFactsFromSignals } from '../continuity/life-contingency.js';
 import { runContingencyCycle } from '../continuity/contingency-cycle.js';
 import { verifyContingencyProbeReports } from '../continuity/contingency-probe-auth.js';
-import { readContingencyProbeInbox } from '../continuity/contingency-probe-inbox.js';
+import { readContingencyProbeInbox, CONTINGENCY_PERSISTED_PROBE_MAX_AGE_MS } from '../continuity/contingency-probe-inbox.js';
 import { activeWorkerContingencyObserved } from '../continuity/contingency-observations.js';
 import { bindCountermeasureActions, maxControlProof } from '../continuity/countermeasure-actions.js';
 import { singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
@@ -812,6 +812,7 @@ async function applyObservedCountermeasures(env, repository, control, watchdog, 
   const probes = await verifyContingencyProbeReports([...externalReports, ...jobReports], {
     secret: env?.MEL_CONTINGENCY_PROBE_HMAC_KEY,
     now: Date.now(),
+    maxAgeMs: CONTINGENCY_PERSISTED_PROBE_MAX_AGE_MS,
   });
   return runContingencyCycle({
     observed: activeWorkerContingencyObserved(probes),
