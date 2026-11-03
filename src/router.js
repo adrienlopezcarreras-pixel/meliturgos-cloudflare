@@ -30,6 +30,7 @@ import { devRuntime } from "./dev/runtime-api.js";
 import { githubActionRelayApi } from "./api/github-action-relay-api.js";
 import { cloudflareApiRelay } from "./api/cloudflare-api-relay.js";
 import { handleShardVaultStatus } from "./pages/shardvault-status.js";
+import { renderContingencyTestPage } from "./pages/contingency-test-page.js";
 import { getLegacyInteractionMigrationStatus, backfillLegacyInteractions } from "./persistence/gen1-interactions-migration.js";
 import { getChatGPTMemoryBackfillStatus, backfillChatGPTArchiveToMemory } from "./persistence/chatgpt-memory-backfill.js";
 import { resolveApiVersionRequest, decorateApiVersionResponse, unsupportedApiVersionResponse, apiMethodNotAllowedResponse, apiVersionMetadataResponse } from "./api/api-versioning.js";
@@ -452,6 +453,17 @@ async function routeResolvedRequest(request, env, ctx) {
 
     if (request.method === "GET" && url.pathname === "/veille") {
       return handleWatchInterface({ env, request, params: {} }).catch(e => html(`Error loading watch mode: ${e.message}`, 500));
+    }
+
+    if (request.method === "GET" && url.pathname === "/test/contingence") {
+      return new Response(renderContingencyTestPage(), {
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "no-store",
+          "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'",
+          "x-content-type-options": "nosniff",
+        },
+      });
     }
 
     if (request.method === "GET" && (url.pathname === "/professor-v1" || url.pathname === "/professor-legacy")) {

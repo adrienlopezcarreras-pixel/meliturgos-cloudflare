@@ -2,6 +2,8 @@ import { migrate } from '../persistence/migrations.js';
 import { createGen2Runtime } from '../core/orchestrator/gen2-runtime.js';
 import { getSovereigntyWatchCatalog, SOVEREIGNTY_WATCH_INTERVAL_MS } from './sovereignty-watch-catalog.js';
 import { SovereigntyCandidateStore } from '../portability/sovereignty-candidate-store.js';
+import { contingencyPrinciples, judgeCandidate } from '../continuity/contingency-plan.js';
+import { allLifeEvents } from '../continuity/life-contingency.js';
 
 const STATE_ID='sovereignty-replacement-watch';
 const CURRENT_PROVIDER_DOMAINS=Object.freeze({
@@ -60,6 +62,7 @@ function normalizeResearch(target,research={}){
       status:'UNVERIFIED',
       prevalidated:false,
       activation_allowed:false,
+      comparison:judgeCandidate({ research:{ kind:'DOCUMENTARY', sources:[{ url:source.url, title:source.title }] } }),
     });
   }
 
@@ -128,6 +131,8 @@ export async function runSovereigntyReplacementWatchRuntime(env,{
     unknown_count:results.filter(row=>row.status==='UNKNOWN').length,
     candidate_hint_count:results.reduce((sum,row)=>sum+(row.candidate_hints?.length||0),0),
     activation_allowed:false,
+    contingency:contingencyPrinciples(),
+    life_contingency:allLifeEvents(),
     results,
   };
   await saveState(env.DB,{last_run_at:now,report});

@@ -11,6 +11,7 @@ import { proveCompanionBackupRestoreAlternative } from './companion-backup-resto
 import { SovereigntyCandidateStore, scopeSovereigntyCandidateStore } from './sovereignty-candidate-store.js';
 import { D1AlternativeRegistryStore } from './d1-alternative-registry-store.js';
 import { validateSovereigntyCandidates } from './sovereignty-candidate-validator.js';
+import { currentContingency } from '../continuity/contingency-plan.js';
 
 const STATE_ID='companion-infrastructure-prevalidation';
 const DEFAULT_INTERVAL_MS=60*60*1000;
@@ -152,6 +153,7 @@ export async function runCompanionInfrastructurePrevalidationRuntime(env,{
       skipped:true,
       reason:'COMPANION_OFFLINE',
       candidate_count:selectedCandidates.length,
+      contingency:currentContingency({ cloudflareUp:true, companionOnline:false }),
     };
   }
 
@@ -285,7 +287,10 @@ export async function runCompanionInfrastructurePrevalidationRuntime(env,{
     blocked:result.blocked,
   };
   await saveState(env.DB,state);
-  return{ok:true,skipped:false,...state,results:result.results};
+  return{ok:true,skipped:false,...state,results:result.results,contingency:currentContingency({
+    cloudflareUp:true,
+    companionOnline:true,
+  })};
 }
 
 export const COMPANION_INFRASTRUCTURE_PREVALIDATION_STATE_ID=STATE_ID;

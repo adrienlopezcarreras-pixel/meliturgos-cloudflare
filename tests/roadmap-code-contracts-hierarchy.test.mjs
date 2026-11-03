@@ -19,7 +19,7 @@ const closed = row => ['DONE_VERIFIED','VERIFIED','ACCEPTED'].includes(row.statu
 
 test('all 43 open objectives have real, bounded code and test targets; proven history remains separate', async () => {
   assert.deepEqual(validateRoadmap(), {ok:true,issues:[]});
-  assert.equal(canonical.length,176);assert.equal(canonical.filter(closed).length,133);
+  assert.equal(canonical.length,177);assert.equal(canonical.filter(closed).length,133);
   for (const row of canonical.filter(row => !closed(row))) {
     assert.equal(row.mode,'IMPLEMENT',row.id);assert.equal(row.required_proof,'DIFF_TESTS_EXACT_SHA_CI');
     assert.equal(row.max_attempts,3);assert.ok(row.acceptance.length);assert.ok(row.code_paths.length);assert.ok(row.test_paths.length);
@@ -32,7 +32,7 @@ test('all 43 open objectives have real, bounded code and test targets; proven hi
 test('the whole canonical graph schedules prerequisites before every dependent, without simulated completed jobs',()=>{
   const verified=canonical.filter(closed).map(row=>row.id), order=[];
   assert.deepEqual(validateRoadmapDependencies(canonical),[]);
-  while(order.length<43){
+  while(order.length<44){
     const next=selectNextAutonomyItem({roadmap:canonical,verifiedIds:verified,completedIds:verified});
     assert.ok(next,'an acyclic code deliverable must remain schedulable');
     assert.deepEqual(unmetSoftwarePrerequisites(next, canonical, verified), [], next.id + ' ran before a software parent');

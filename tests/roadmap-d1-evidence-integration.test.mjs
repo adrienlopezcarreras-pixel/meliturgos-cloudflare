@@ -16,9 +16,9 @@ test('176-item ledger reflects D1 runtime evidence, not 133 historical declarati
  await insert('augmentio.fanout','FAILED',now-3600000);
  const truth=await computeRoadmapTruth(db,MASTER_ROADMAP,{now});
  assert.equal(truth.available,true);
- assert.equal(truth.total,176);
+ assert.equal(truth.total,177);
  const ledger=createCompleteEvidenceLedger(flattenRoadmap(),undefined,truth);
- assert.equal(ledger.items.length,176);
+ assert.equal(ledger.items.length,177);
  assert.equal(ledger.summary.production_not_evaluated,0);
  assert.equal(ledger.items.find(x=>x.id==='MEL-CODE-01').production_verification,'VERIFIED_LIVE');
  assert.equal(ledger.items.find(x=>x.id==='MEL-CODE-01').production_receipt.proofs[0].id,'code.read');
@@ -26,13 +26,13 @@ test('176-item ledger reflects D1 runtime evidence, not 133 historical declarati
  assert.equal(ledger.items.find(x=>x.id==='MEL-AUG-01').production_verification,'BROKEN');
  assert.equal(ledger.items.find(x=>x.id==='MEL-AUG-01').production_receipt,null);
  assert.equal(ledger.summary.verified_live,truth.counts.VERIFIED_LIVE);
- assert.ok(ledger.summary.verified_live<176);
+ assert.ok(ledger.summary.verified_live<177);
 });
 test('unavailable D1 never reports a verified roadmap objective',async()=>{
  const truth=await computeRoadmapTruth(null,MASTER_ROADMAP);
  assert.equal(truth.available,false);
  const ledger=createCompleteEvidenceLedger(flattenRoadmap(),undefined,truth);
- assert.equal(ledger.summary.total,176);
+ assert.equal(ledger.summary.total,177);
  assert.equal(ledger.summary.verified_live,0);
- assert.equal(ledger.summary.production_not_evaluated,176);
+ assert.equal(ledger.summary.production_not_evaluated,177);
 });
