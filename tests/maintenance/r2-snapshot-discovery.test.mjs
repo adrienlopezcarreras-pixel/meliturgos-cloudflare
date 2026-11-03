@@ -99,3 +99,14 @@ test('unbounded response body and invalid credentials never yield a candidate',a
       e=>e.code==='ISOLATED_R2_LIST_CONFIG_INVALID');
   }
 });
+
+test('manual main-branch restore stays read-only and runs targeted checks without full-suite delay', async()=>{
+  const {readFile}=await import('node:fs/promises');
+  const workflow=await readFile(new URL('../../.github/workflows/mel-res-05-encrypted-backup-ci.yml',import.meta.url),'utf8');
+  assert.match(workflow,/if: github\.event_name != 'workflow_dispatch'\n\s+run: npm test/);
+  assert.match(workflow,/isolated-snapshot-restore:\n\s+if: github\.event_name == 'workflow_dispatch' && github\.ref == 'refs\/heads\/main'/);
+  assert.match(workflow,/needs: encrypted-backup/);
+  assert.match(workflow,/run: node scripts\/runtime-security-gate\.mjs/);
+  assert.match(workflow,/run: node release-tools\/predeploy-backup-refresh\/isolated-restore-runner\.mjs/);
+  assert.doesNotMatch(workflow,/run:\s*(?:wrangler deploy|npm run deploy|git push)/);
+});
