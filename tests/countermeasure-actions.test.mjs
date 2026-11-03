@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { allLifeEvents, applyLifeCountermeasure } from '../src/continuity/life-contingency.js';
-import { bindCountermeasureActions } from '../src/continuity/countermeasure-actions.js';
+import { bindCountermeasureActions, maxControlProof } from '../src/continuity/countermeasure-actions.js';
 
 function repository() {
   const jobs = [{ id: 'job-1', status: 'READY_FOR_REVIEW', result_json: {}, updated_at: 1 }];
@@ -198,4 +198,21 @@ test('successful external rollback is not certified if its mission audit cannot 
   assert.equal(result.ok, false);
   assert.equal(result.rollback_performed, true);
   assert.equal(result.code, 'NO_ACTIVE_JOB');
+});
+
+test('MAX activation proof rejects paused, disabled and owner-stopped controls', () => {
+  assert.deepEqual(maxControlProof({max_autonomy:true,paused:false}), {ok:true,max_active:true,active:true});
+  for (const control of [null, {}, {max_autonomy:false,paused:false},
+    {max_autonomy:true,paused:true,source:'owner-ui',reason:'owner-stop'}]) {
+    const proof = maxControlProof(control);
+    assert.equal(proof.ok,false);
+    assert.equal(proof.max_active,false);
+    assert.equal(proof.code,'MAX_CONTROL_NOT_ACTIVE');
+  }
+  const configured = bindCountermeasureActions({
+    repository: repository(),
+    setMax: async () => maxControlProof({max_autonomy:true,paused:false}),
+    keepMax: async () => maxControlProof({max_autonomy:true,paused:true}),
+  });
+  assert.equal((configured.restoreMax && typeof configured.restoreMax), 'function');
 });
