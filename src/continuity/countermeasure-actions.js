@@ -70,14 +70,18 @@ export function bindCountermeasureActions({
   return {
     restoreMax: async () => {
       if (typeof setMax !== 'function') return { ok: false, code: 'CONTROL_REQUIRED' };
-      await setMax();
-      return { ok: true };
+      const result = await setMax();
+      return result?.ok === true && (result?.max_active === true || result?.active === true)
+        ? { ok: true }
+        : { ok: false, code: result?.code || 'MAX_REACTIVATION_NOT_PROVEN' };
     },
     keepMax: async () => {
       const fn = keepMax || setMax;
       if (typeof fn !== 'function') return { ok: false, code: 'CONTROL_REQUIRED' };
-      await fn();
-      return { ok: true };
+      const result = await fn();
+      return result?.ok === true && (result?.max_active === true || result?.active === true)
+        ? { ok: true }
+        : { ok: false, code: result?.code || 'MAX_RUNNING_NOT_PROVEN' };
     },
     keepPrevious: () => markJob(repository, null, 'KEEP_PREVIOUS_SHA'),
     refuseSecondRelease: () => markJob(repository, null, 'DO_NOT_START_SECOND_RELEASE'),
@@ -109,7 +113,9 @@ export function bindCountermeasureActions({
     restoreBackup: async () => {
       if (typeof restoreBackupBytes !== 'function') return { ok: false, code: 'BACKUP_REQUIRED' };
       const result = await restoreBackupBytes();
-      return result?.ok === true ? { ok: true } : { ok: false, code: result?.code || 'BACKUP_RESTORE_FAILED' };
+      return result?.ok === true && result?.restored === true && result?.integrity_verified === true
+        ? { ok: true, code: 'BACKUP_RESTORE_VERIFIED' }
+        : { ok: false, code: result?.code || 'BACKUP_RESTORE_NOT_VERIFIED' };
     },
     openKit,
     note: (code) => markJob(repository, null, String(code || 'CONTINGENCY_NOTED')),
