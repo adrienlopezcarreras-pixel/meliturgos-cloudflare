@@ -47,7 +47,7 @@ test('life countermeasures still run inside the same cycle', async () => {
 test('unexecuted failovers never count as applied or activated', async () => {
   const cases = [
     { observed: { cloudflareUp: false, githubUp: true, companionOnline: false }, code: 'RUN_CODE_ON_GITHUB_ACTIONS' },
-    { observed: { cloudflareUp: false, githubUp: true, companionOnline: true, localGit: true, localDb: true, localModel: true }, code: 'MOVE_MAX_TO_PC' },
+    { observed: { cloudflareUp: false, githubUp: true, pcUp: true, companionOnline: true, localGit: true, localDb: true, localModel: true }, code: 'MOVE_MAX_TO_PC' },
     { observed: { cloudflareUp: true, modelUp: false }, code: 'USE_OTHER_PROVEN_MODEL' },
   ];
   for (const row of cases) {
@@ -180,4 +180,19 @@ test('corrupt candidate observations do not suppress independent life repair', a
   assert.equal(cycle.ran.find(row => row.code === 'USE_OTHER_PROVEN_MODEL').reason, 'NO_PROVEN_REPLACEMENT');
   assert.equal(cycle.life.find(row => row.id === 'MAX_STALLED').applied, true);
   assert.deepEqual(calls, ['requeue']);
+});
+
+test('all private backup providers unknown means disaster rebuild cannot start', async () => {
+  let rebuilt = false;
+  const cycle = await runContingencyCycle({
+    observed: { cloudflareUp: false, githubUp: false, pcUp: false },
+    actions: {
+      rebuild: async () => { rebuilt = true; return { ok: true }; },
+      note: async () => ({ ok: true }),
+    },
+  });
+  assert.equal(cycle.scenario.rebirth, 'PRIVATE_KIT_UNVERIFIED');
+  assert.equal(cycle.ran.some(row => row.code === 'STOP_AND_REBUILD_FROM_PRIVATE_KIT'), false);
+  assert.equal(rebuilt, false);
+  assert.equal(cycle.activation_performed, false);
 });
