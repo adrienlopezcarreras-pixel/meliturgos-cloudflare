@@ -350,18 +350,7 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
   // Only MEL's top models deliberate (two distinct ones), never the weak free
   // models that cost neurons and add no signal. When the top models cool down,
   // the Council waits for them instead of falling back to weak ones.
-  // Select top models but ensure distinct model IDs for quorum
-  const rawAuthorized = preferTopModels(
-    providerPool.list({ capability }).filter(provider => governor.allows(provider)),
-    env,
-    { min: 2 },
-  );
-  const seenModels = new Set();
-  const authorized = rawAuthorized.filter(p => {
-    if (seenModels.has(p.modelId)) return false;
-    seenModels.add(p.modelId);
-    return true;
-  });
+  const authorized = preferTopModels(providerPool.list({ capability }).filter(provider => governor.allows(provider)), env, { min: 2 });
   const eligible = authorized.filter(provider => !excluded.has(provider.id));
   if (authorized.length >= minResponses && eligible.length < minResponses) {
     // This is a cooldown, not a fresh inference failure: no provider was
@@ -412,20 +401,8 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
       role: role.id,
       role_label: role.label,
       supplemental,
-    })),
-    // Propagate exact SHA when provided for downstream verification
-    ...(env?.MEL_SHA ? { sha: env.MEL_SHA } : {}),
+    }))
   };
-
-  // Verify that all required council roles have at least one assignment
-  const missingRoles = REQUIRED_COUNCIL_ROLE_IDS.filter(rid => !assignments.some(a => a.role.id === rid));
-  if (missingRoles.length) {
-    throw Object.assign(new Error('COUNCIL_MISSING_REQUIRED_ROLES'), {
-      code: 'COUNCIL_MISSING_REQUIRED_ROLES',
-      status: 503,
-      missing_roles: missingRoles,
-    });
-  }
 
   const report = await runStateOfPlayCouncil({
     goal,
@@ -486,10 +463,6 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
     council_model_attempts: attempts.slice(-80),
     council_model_exclusions: [...excluded],
     council_elapsed_ms: budgetMs - Math.max(0, deadline - Date.now()),
-    // New governance fields required by MEL-FOUNDER-04
-    all_required_roles_satisfied: true,
-    quorum_under_60s: (budgetMs - Math.max(0, deadline - Date.now())) <= 60_000,
-    providers_succeeded: Array.from(succeededProviders),
     responding_model_count: succeededProviders.size,
     quorum_under_60s: succeededProviders.size >= 2 && Date.now() <= deadline,
     development_allowed: false,
