@@ -126,7 +126,8 @@ export function allScenarios() {
 export function currentContingency(observed = {}) {
   const flags = {
     cloudflare: observed.cloudflareUp,
-    pc: observed.companionOnline,
+    // A disconnected optional Companion is not evidence that the PC failed.
+    pc: observed.pcUp === false ? false : (observed.pcUp === true ? true : undefined),
     github: observed.githubUp,
     model: observed.modelUp,
     gmail: observed.gmailUp,
