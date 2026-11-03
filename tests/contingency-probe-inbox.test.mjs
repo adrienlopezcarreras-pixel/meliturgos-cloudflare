@@ -1,0 +1,97 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { webcrypto } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import worker from '../src/index.js';
+import { sqliteD1 } from './helpers/sqlite-d1.mjs';
+import { signContingencyProbeReport, verifyContingencyProbeReports } from '../src/continuity/contingency-probe-auth.js';
+import { acceptContingencyProbe, readContingencyProbeInbox } from '../src/continuity/contingency-probe-inbox.js';
+import { classifyHttpAuthSurface } from '../src/security/http-auth-policy.js';
+
+const secret = 'test-only-signed-external-monitor-0123456789-abcdefghijklmnopqrstuvwxyz';
+const now = Date.parse('2026-11-03T21:00:00Z');
+const url = 'https://mel.example.net/api/internal/contingency-probe';
+async function signed(up, time, part = 'cloudflare') {
+  return signContingencyProbeReport({
+    part, up, observer:'github-actions-external-monitor',
+    evidence_id:'github-run-synthetic-' + time, observed_at:new Date(time).toISOString(),
+  }, {secret,cryptoImpl:webcrypto});
+}
+function request(report, method='POST') {
+  return new Request(url,{method,headers:{'content-type':'application/json'},body:method==='POST'?JSON.stringify(report):undefined});
+}
+function db() { return sqliteD1({maintenanceFence:true}); }
+async function ingest(database, report, key = secret) {
+  return acceptContingencyProbe(request(report),{DB:database,MEL_CONTINGENCY_PROBE_HMAC_KEY:key},
+    {now,cryptoImpl:webcrypto});
+}
+
+test('ingestion is specifically delegated to HMAC validation, never public anonymous write',async()=>{
+  assert.equal(classifyHttpAuthSurface(new Request(url,{method:'POST'})).kind,'DELEGATED_STRONG_AUTH');
+  assert.equal(classifyHttpAuthSurface(new Request('https://mel.example.net/api/internal/other',{method:'POST'})).kind,'OWNER_AUTH');
+  const database=db();
+  try {
+    const fresh=await signed(false,now-1000);
+    assert.equal((await ingest(database,fresh,'no')).status,503);
+    assert.equal((await acceptContingencyProbe(request(fresh),{MEL_CONTINGENCY_PROBE_HMAC_KEY:secret},{now,cryptoImpl:webcrypto})).status,503);
+    const forged=await ingest(database,{...fresh,up:true});
+    assert.equal(forged.status,401);
+    assert.deepEqual(await readContingencyProbeInbox(database),[]);
+    const invalid=await acceptContingencyProbe(new Request(url,{method:'POST',body:'{invalid'}),{DB:database,MEL_CONTINGENCY_PROBE_HMAC_KEY:secret},{now,cryptoImpl:webcrypto});
+    assert.equal(invalid.status,400);
+  }finally {database.close();}
+});
+
+test('fresh HMAC report is committed to D1 once and remains only authenticated, scoped evidence',async()=>{
+  const database=db();
+  try {
+    const first=await signed(false,now-5000,'github');
+    const saved=await ingest(database,first);
+    assert.equal(saved.status,202);
+    assert.equal((await saved.json()).failover_performed,false);
+    const rows=await readContingencyProbeInbox(database);
+    assert.equal(rows.length,1);
+    assert.equal(rows[0].evidence_id,first.evidence_id);
+    const verified=await verifyContingencyProbeReports(rows,{secret,now,cryptoImpl:webcrypto});
+    assert.equal(verified.verified_count,1);
+    assert.equal(verified.observed.githubUp,false);
+    assert.equal((await ingest(database,first)).status,409,'replay does not refresh last_seen');
+    const stale=await signed(false,now-181000,'github');
+    assert.equal((await ingest(database,stale)).status,401,'stale cannot be accepted');
+    const older=await signed(true,now-6000,'github');
+    assert.equal((await ingest(database,older)).status,409,'older signed UP cannot hide newer DOWN');
+    const newest=await signed(true,now-1000,'github');
+    assert.equal((await ingest(database,newest)).status,202);
+    const latest=await readContingencyProbeInbox(database);
+    assert.equal(latest.length,1);
+    assert.equal(latest[0].up,true);
+    assert.equal(latest[0].observed_at,newest.observed_at);
+  }finally {database.close();}
+});
+
+test('actual Worker refuses anonymous/tampered signed reports, accepts only a valid HMAC',async()=>{
+  const database=db();
+  try {
+    const valid=await signed(true,now-2000);
+    const env={DB:database,MEL_CONTINGENCY_PROBE_HMAC_KEY:secret};
+    const fake=await worker.fetch(request({...valid,signature:'0'.repeat(64)}),env);
+    assert.equal(fake.status,401);
+    const verified=await worker.fetch(request(valid),env);
+    // Current time differs from this fixed fixture; a historical signed sample
+    // must be stale in the actual Worker, never accepted as live.
+    assert.equal(verified.status,401);
+  }finally {database.close();}
+});
+
+test('GitHub monitor delivers the signed envelope without claiming automatic failover',()=>{
+  const runner=readFileSync(new URL('../scripts/run-external-contingency-monitor.mjs',import.meta.url),'utf8');
+  const workflow=readFileSync(new URL('../.github/workflows/contingency-external-monitor.yml',import.meta.url),'utf8');
+  const runtime=readFileSync(new URL('../src/evolution/autonomy-runtime.js',import.meta.url),'utf8');
+  assert.match(runner,/\/api\/internal\/contingency-probe/);
+  assert.match(runner,/method: 'POST', redirect: 'manual'/);
+  assert.match(runner,/JSON\.stringify\(signed\)/);
+  assert.match(workflow,/artifacts\/contingency\/probe-delivery\.json/);
+  assert.match(runtime,/readContingencyProbeInbox\(env\?\.DB\)/);
+  assert.match(runtime,/verifyContingencyProbeReports\(\[\.\.\.externalReports, \.\.\.jobReports\]/);
+  assert.match(runner,/Failover performed: \*\*No\*\*/);
+});

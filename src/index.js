@@ -43,6 +43,7 @@ import { maybeHandleWaveshareTerminalApi } from "./devices/waveshare-terminal-ap
 import { maybeHandleComputerApi, windowsCompanionRecentlyOpen } from "./devices/computer-companion-api.js";
 import { maybeHandleAndroidCompanionApi } from "./devices/android-companion-api.js";
 import { enforceHttpAuthPolicy } from "./security/http-auth-policy.js";
+import { acceptContingencyProbe } from './continuity/contingency-probe-inbox.js';
 import { runShardVaultCycle, searchAutonomousShardVaultRepositories } from "./continuity/shardvault-runtime.js";
 import { resolveApiVersionRequest, decorateApiVersionResponse, unsupportedApiVersionResponse, apiMethodNotAllowedResponse } from "./api/api-versioning.js";
 
@@ -483,6 +484,7 @@ async function fetchResolvedRequest(request, env, ctx) {
       const path = url.pathname;
       const authPolicyResponse = enforceHttpAuthPolicy(request, env);
       if (authPolicyResponse) return authPolicyResponse;
+      if (path === '/api/internal/contingency-probe') return acceptContingencyProbe(request, env);
       // Read-only external reachability marker. Does not touch D1, secrets or MAX.
       // This is not an application, database or disaster-recovery certification.
       if (path === '/api/public/contingency/heartbeat' && request.method === 'GET') {

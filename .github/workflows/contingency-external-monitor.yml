@@ -73,5 +73,6 @@ jobs:
           path: |
             artifacts/contingency/external-health.json
             artifacts/contingency/signed-health.json
+            artifacts/contingency/probe-delivery.json
           if-no-files-found: warn
           retention-days: 14
