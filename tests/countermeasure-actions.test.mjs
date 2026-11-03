@@ -52,3 +52,16 @@ test('a rollback without a previous version does not pretend to deploy', async (
   assert.equal(result.reason, 'PREVIOUS_VERSION_REQUIRED');
   assert.equal(called, false);
 });
+
+test('successive contingency decisions retain a bounded audit history', async () => {
+  const store = repository();
+  const actions = bindCountermeasureActions({ repository: store });
+  assert.equal((await actions.note('DO_NOT_DEPLOY')).ok, true);
+  assert.equal((await actions.note('PUBLIC_MAP_ONLY')).ok, true);
+  assert.deepEqual(
+    store.jobs[0].result_json.countermeasure_history.map(row => row.code),
+    ['DO_NOT_DEPLOY', 'PUBLIC_MAP_ONLY'],
+  );
+  assert.equal(store.jobs[0].result_json.countermeasure.code, 'PUBLIC_MAP_ONLY');
+  assert.equal(store.jobs[0].status, 'READY_FOR_REVIEW');
+});
