@@ -50,9 +50,17 @@ test('missing signals do not invent a failure, and a replacement counts only aft
   assert.equal(failed.replacement_ready, false);
   assert.equal(failed.plan.status, 'MIGRATION_BLOCKED');
   const proven = trialReplacement({ part: 'model', research: { kind: 'SOFTWARE', available: true, reliable: true, smoke: true, measured_better: true } });
-  assert.equal(proven.replacement_ready, true);
+  assert.equal(proven.benchmark_reported_better, true);
+  assert.equal(proven.replacement_ready, false);
+  assert.equal(proven.evidence_status, 'INDEPENDENT_PROOF_REQUIRED');
   assert.equal(proven.activation_allowed, false);
-  assert.equal(proven.plan.status, 'MIGRATION_PLANNED');
+  assert.equal(proven.plan.status, 'MIGRATION_BLOCKED');
+  const verified = trialReplacement({
+    part: 'model', research: { kind: 'SOFTWARE', available: true, reliable: true, smoke: true, measured_better: true },
+  }, { independentlyVerified: true });
+  assert.equal(verified.replacement_ready, true);
+  assert.equal(verified.plan.status, 'MIGRATION_PLANNED');
+  assert.equal(verified.activation_allowed, false);
 });
 
 test('every life event is selected by its own fact and none by an empty tick', () => {
