@@ -48,6 +48,7 @@ test('GEN2-46 keeps only explicit read-only public and delegated strong-auth exc
   assert.equal(classifyHttpAuthSurface(req('/api/computer/v1/pair', { method: 'POST' })).kind, 'DELEGATED_STRONG_AUTH');
   assert.equal(classifyHttpAuthSurface(req('/api/internal/release-launch-bootstrap', { method: 'POST' })).kind, 'DELEGATED_STRONG_AUTH');
   assert.equal(classifyHttpAuthSurface(req('/api/internal/sov-backup-download')).kind, 'DELEGATED_STRONG_AUTH');
+  assert.equal(classifyHttpAuthSurface(req('/api/internal/contingency-probe', { method: 'POST' })).kind, 'DELEGATED_STRONG_AUTH');
   assert.equal(classifyHttpAuthSurface(req('/api/dev-bridge/heartbeat')).kind, 'DEV_BRIDGE_TOKEN');
   assert.equal(classifyHttpAuthSurface(req('/professor')).kind, 'NON_API');
 
@@ -56,6 +57,7 @@ test('GEN2-46 keeps only explicit read-only public and delegated strong-auth exc
     '/api/internal/release-launch-bootstrap',
     '/api/internal/sov-backup-download',
     '/api/internal/council-review',
+    '/api/internal/contingency-probe',
   ]);
 });
 
@@ -101,6 +103,13 @@ test('GEN2-46 delegated protocols still enforce their purpose-specific credentia
   const download = await app.fetch(req('/api/internal/sov-backup-download'), ownerEnv, {});
   assert.equal(download.status, 403);
   assert.equal((await download.json()).code, 'SOV_BACKUP_DOWNLOAD_TOKEN_INVALID');
+
+  // Delegated does not mean anonymous: unsigned requests cannot persist data.
+  const probe = await app.fetch(req('/api/internal/contingency-probe', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+  }), ownerEnv, {});
+  assert.equal(probe.status, 503);
+  assert.equal((await probe.json()).code, 'PROBE_INBOX_NOT_CONFIGURED');
 
   const bridge = enforceHttpAuthPolicy(req('/api/dev-bridge/heartbeat'), ownerEnv);
   assert.ok(bridge instanceof Response);
