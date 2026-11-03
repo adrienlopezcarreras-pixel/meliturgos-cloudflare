@@ -46,7 +46,7 @@ jobs:
       - name: Full regression suite
         # A manual read-only drill runs targeted restore tests, syntax and the
         # security gate. PR validation retains the complete regression suite.
-        if: github.event_name != 'workflow_dispatch' || inputs.snapshot_key == ''
+        if: github.event_name != 'workflow_dispatch'
         run: npm test
       - name: Runtime dependency security gate
         run: node scripts/runtime-security-gate.mjs

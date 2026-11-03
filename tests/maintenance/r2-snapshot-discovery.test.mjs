@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { discoverLatestEncryptedSnapshotKey } from '../../release-tools/predeploy-backup-refresh/r2-snapshot-discovery.mjs';
 
 const accountId = 'a'.repeat(32), apiToken = 'test-only-token';
-const options = {accountId, apiToken};
+const options = {accountId, apiToken, now:Date.parse('2026-11-03T22:00:00Z')};
 const entry = (name, when, size = 128) => ({
   key: 'backups/system/' + name + '.enc.json', last_modified: when, size,
 });
@@ -39,7 +39,7 @@ test('selects the newest encrypted snapshot across paginated read-only R2 listin
 
 test('ignores nonencrypted data, improper paths, huge objects and invalid dates', async () => {
   const rows=[
-    entry('valid','2026-10-30T10:00:00Z'),
+    entry('valid','2026-11-03T10:00:00Z'),
     {key:'secrets/master.key',size:100,last_modified:'2026-11-03T10:00:00Z'},
     {key:'backups/system/../../private.enc.json',size:100,last_modified:'2026-11-03T10:00:00Z'},
     {key:'backups/system/incomplete.enc.json',size:0,last_modified:'2026-11-03T10:00:00Z'},
@@ -49,6 +49,22 @@ test('ignores nonencrypted data, improper paths, huge objects and invalid dates'
   const key=await discoverLatestEncryptedSnapshotKey({...options,fetchImpl:async()=>page(rows)});
   assert.equal(key,'backups/system/valid.enc.json');
 });
+test('automatic recovery never silently selects a stale or future-dated snapshot',async()=>{
+  const recent = entry('recent','2026-11-03T20:30:00Z');
+  assert.equal(await discoverLatestEncryptedSnapshotKey({...options,fetchImpl:async()=>page([
+    entry('stale','2026-10-30T10:00:00Z'), recent,
+  ])}), recent.key);
+  for (const rows of [
+    [entry('old','2026-10-30T10:00:00Z')],
+    [entry('future','2026-11-04T08:00:00Z'),entry('old','2026-10-30T10:00:00Z')],
+  ]) await assert.rejects(discoverLatestEncryptedSnapshotKey({
+    ...options,fetchImpl:async()=>page(rows),
+  }), error=>error.code==='ISOLATED_R2_SNAPSHOT_STALE');
+  await assert.rejects(discoverLatestEncryptedSnapshotKey({
+    ...options,maxAgeMs:0,fetchImpl:async()=>{throw Error('should never fetch');},
+  }), error=>error.code==='ISOLATED_R2_LIST_CONFIG_INVALID');
+});
+
 test('missing, denied and garbled R2 listings fail closed with safe codes',async()=>{
   for(const [response,code] of [
     [page([]),'ISOLATED_R2_SNAPSHOT_NOT_FOUND'],
@@ -82,4 +98,15 @@ test('unbounded response body and invalid credentials never yield a candidate',a
     await assert.rejects(discoverLatestEncryptedSnapshotKey({...options,...cfg,fetchImpl:async()=>{throw Error('not reached')}}),
       e=>e.code==='ISOLATED_R2_LIST_CONFIG_INVALID');
   }
+});
+
+test('manual main-branch restore stays read-only and runs targeted checks without full-suite delay', async()=>{
+  const {readFile}=await import('node:fs/promises');
+  const workflow=await readFile(new URL('../../.github/workflows/mel-res-05-encrypted-backup-ci.yml',import.meta.url),'utf8');
+  assert.match(workflow,/if: github\.event_name != 'workflow_dispatch'\n\s+run: npm test/);
+  assert.match(workflow,/isolated-snapshot-restore:\n\s+if: github\.event_name == 'workflow_dispatch' && github\.ref == 'refs\/heads\/main'/);
+  assert.match(workflow,/needs: encrypted-backup/);
+  assert.match(workflow,/run: node scripts\/runtime-security-gate\.mjs/);
+  assert.match(workflow,/run: node release-tools\/predeploy-backup-refresh\/isolated-restore-runner\.mjs/);
+  assert.doesNotMatch(workflow,/run:\s*(?:wrangler deploy|npm run deploy|git push)/);
 });
