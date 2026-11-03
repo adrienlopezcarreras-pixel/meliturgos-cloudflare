@@ -1,3 +1,4 @@
+import { companionTaskIntervalOpen } from '../evolution/companion-proof-policy.js';
 import { SovereigntyCandidateStore } from './sovereignty-candidate-store.js';
 import { D1AlternativeRegistryStore } from './d1-alternative-registry-store.js';
 import { eligibleAlternatives } from './prevalidated-alternative-registry.js';
@@ -96,7 +97,9 @@ export async function runCompanionGitSovereigntyRuntime(env,{
 
   const prior=await loadState(env.DB);
   const last=Number(prior.last_run_at||0);
-  if(!force&&last>0&&now-last<intervalMs){
+  // Parked only while the companion is absent. The next call retries at once
+  // when it comes back online; a completed run still waits out the interval.
+  if(!force&&!companionTaskIntervalOpen(prior, now, intervalMs)&&last>0&&now-last<intervalMs){
     return{ok:true,skipped:true,reason:'INTERVAL_NOT_DUE',next_due_at:last+intervalMs};
   }
 
