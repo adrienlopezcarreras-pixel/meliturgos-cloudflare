@@ -110,16 +110,21 @@ export function lifeFactsFromSignals(signals = {}) {
   return Object.freeze(facts);
 }
 
-export function trialReplacement(input = {}) {
+export function trialReplacement(input = {}, { independentlyVerified = false } = {}) {
   // A malformed persisted candidate must not abort an outage repair cycle.
   const row = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
   const part = row.part;
   const research = row.research && typeof row.research === 'object' && !Array.isArray(row.research) ? row.research : {};
   const judgement = judgeCandidate({ research });
-  const ready = judgement.status === 'BETTER_PROVEN';
+  // Mission-supplied benchmarks are claims, not independent evidence.
+  // Only trusted runtime verification may promote one into a ready candidate.
+  const reportedBetter = judgement.status === 'BETTER_PROVEN';
+  const ready = reportedBetter && independentlyVerified === true;
   return Object.freeze({
     part: String(part || '').trim().toLowerCase(),
     judgement,
+    benchmark_reported_better: reportedBetter,
+    evidence_status: ready ? 'INDEPENDENTLY_VERIFIED' : 'INDEPENDENT_PROOF_REQUIRED',
     replacement_ready: ready,
     activation_allowed: false,
     plan: CORE_BRICKS[String(part || '').trim().toLowerCase()]
