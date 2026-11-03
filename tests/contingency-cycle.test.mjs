@@ -59,3 +59,19 @@ test('unexecuted failovers never count as applied or activated', async () => {
     assert.equal(result.activation_performed, false, row.code);
   }
 });
+
+test('failed recording is isolated and subsequent life repair still runs', async () => {
+  const repaired = [];
+  const cycle = await runContingencyCycle({
+    observed: { cloudflareUp: true, githubUp: false, modelUp: false },
+    life: { stalled: true },
+    actions: {
+      note: async () => { const error = new Error('storage failure'); error.code = 'D1_WRITE_FAILED'; throw error; },
+      requeueReview: async () => { repaired.push('requeue'); return { ok: true }; },
+    },
+  });
+  assert.equal(cycle.ran.find(row => row.code === 'DO_NOT_DEPLOY')?.reason, 'D1_WRITE_FAILED');
+  assert.equal(cycle.ran.find(row => row.code === 'DO_NOT_DEPLOY')?.applied, false);
+  assert.equal(cycle.life.find(row => row.id === 'MAX_STALLED')?.applied, true);
+  assert.deepEqual(repaired, ['requeue']);
+});
