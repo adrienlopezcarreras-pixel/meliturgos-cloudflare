@@ -287,6 +287,10 @@ jobs:
           NODE
           git diff --check
 
+      - name: Keep other prepared packages applicable
+        shell: bash
+        run: node scripts/rebase-prepared-packages.mjs
+
       - name: Run exact bounded requested tests
         id: tests
         if: steps.claim.outputs.claimed == 'true' && steps.reconcile.outputs.already_satisfied != 'true'
@@ -402,6 +406,13 @@ jobs:
           }
           NODE
           mapfile -d '' -t STAGE_PATHS < "$RUNNER_TEMP/mel-stage-paths.bin"
+          if [ -f prepared-rebase-paths.txt ]; then
+            while IFS= read -r extra; do
+              case "$extra" in
+                prepared/MEL-*.json) STAGE_PATHS+=("$extra") ;;
+              esac
+            done < prepared-rebase-paths.txt
+          fi
           test "${#STAGE_PATHS[@]}" -gt 0
           git --literal-pathspecs add -- "${STAGE_PATHS[@]}"
           set +e
