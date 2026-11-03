@@ -6,7 +6,7 @@ async function markJob(repository, status, code) {
   }
   const jobs = await repository.listActiveAutonomyJobs();
   const job = Array.isArray(jobs) ? jobs.find(row => row?.id) : null;
-  if (!job) return { ok: true, idle: true, code };
+  if (!job) return { ok: false, idle: true, code: 'NO_ACTIVE_JOB', requested: code };
   const previous = job.result_json || {};
   const entry = { code, at: new Date().toISOString() };
   const history = Array.isArray(previous.countermeasure_history) ? previous.countermeasure_history : [];
@@ -19,7 +19,7 @@ async function markJob(repository, status, code) {
   await repository.update(job.id, {
     status: status || job.status,
     result_json: result,
-    error: status === 'FAILED' ? code : null,
+    error: status === 'FAILED' ? code : (job.error ?? null),
   }, { expected: job });
   return { ok: true, code };
 }
