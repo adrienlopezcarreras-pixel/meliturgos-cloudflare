@@ -42,7 +42,11 @@ export async function runContingencyCycle({ observed = {}, life = {}, actions = 
         continue;
       }
       if (kind === 'stay' || kind === 'note') {
-        ran.push({ code, ...(await note(actions, code)) });
+        try {
+          ran.push({ code, ...(await note(actions, code)) });
+        } catch (error) {
+          ran.push({ code, applied: false, activation_performed: false, reason: String(error?.code || 'NOTE_FAILED') });
+        }
         continue;
       }
       if (kind === 'model') {
@@ -65,8 +69,12 @@ export async function runContingencyCycle({ observed = {}, life = {}, actions = 
           ran.push({ code, applied: false, activation_performed: false, reason: 'PRIVATE_KIT_REQUIRED' });
           continue;
         }
-        const result = await actions.rebuild();
-        ran.push({ code, applied: result?.ok === true, activation_performed: result?.ok === true, reason: result?.code || null });
+        try {
+          const result = await actions.rebuild();
+          ran.push({ code, applied: result?.ok === true, activation_performed: result?.ok === true, reason: result?.code || null });
+        } catch (error) {
+          ran.push({ code, applied: false, activation_performed: false, reason: String(error?.code || 'REBUILD_FAILED') });
+        }
       }
     }
   }
