@@ -58,3 +58,36 @@ export function actionsRelayDecision({ workerUp = true, companionOnline = false 
     activation_performed: false,
   });
 }
+
+export const CORE_BRICKS = Object.freeze({
+  cloudflare: Object.freeze({ layer: 'runtime', label: 'Runtime Cloudflare' }),
+  github: Object.freeze({ layer: 'source_control', label: 'Code GitHub' }),
+  model: Object.freeze({ layer: 'ai', label: 'Modele' }),
+});
+
+export function planCoreMigration({ part, replacementReady = false } = {}) {
+  const brick = CORE_BRICKS[String(part || '').trim().toLowerCase()];
+  if (!brick) fail('CORE_BRICK_UNKNOWN');
+  if (replacementReady !== true) {
+    return Object.freeze({
+      part: String(part).trim().toLowerCase(),
+      layer: brick.layer,
+      status: 'MIGRATION_BLOCKED',
+      countermeasure: 'KEEP_SOURCE',
+      steps: Object.freeze([]),
+      automatic: false,
+      activation_performed: false,
+    });
+  }
+  return Object.freeze({
+    part: String(part).trim().toLowerCase(),
+    layer: brick.layer,
+    label: brick.label,
+    status: 'MIGRATION_PLANNED',
+    countermeasure: 'MIGRATE_TO_PROVEN_REPLACEMENT',
+    steps: Object.freeze(['EXPORT', 'IMPORT_ON_TARGET', 'SMOKE', 'ACTIVATE', 'ROLLBACK_IF_SMOKE_FAILS']),
+    automatic: true,
+    activation_performed: false,
+  });
+}
+
