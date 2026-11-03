@@ -476,6 +476,20 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
   const repository = options.repository || new D1DevJobRepository(env.DB);
   const epochMs = options.epochMs ?? await readActivityListEpoch(env?.DB, { strict: true });
   const currentRepository = currentAutonomyRepository(repository, epochMs);
+  let passiveRecovery = null;
+  try {
+    passiveRecovery = await recoverPassiveRuntimeStates(repository, {
+      canonicalSha: deployedCandidateSha(env),
+      limit: 200,
+    });
+  } catch (error) {
+    passiveRecovery = {
+      attempted: 0,
+      recovered: [],
+      failed: [{ job_id: null, code: error?.code || error?.message || 'PASSIVE_RECOVERY_FAILED' }],
+      canonical_sha: deployedCandidateSha(env) || null,
+    };
+  }
   let preEnsure = {
     created: false,
     job_id: null,
@@ -496,7 +510,6 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
   }
 
   const queueHygiene = null;
-  const passiveRecovery = null;
 
   const benchmarkRuntime = resolveRuntimeBenchmarkEvaluator(env, options);
   const coreOptions = {
