@@ -97,3 +97,12 @@ test('she applies the countermeasure herself, and does not claim one she cannot 
   assert.deepEqual(calls, ['restore', 'migrate']);
 });
 
+
+test('emitted outage signals trigger life actions without pretending to activate', async () => {
+  const facts = lifeFactsFromSignals({ release: { ci: 'failure', conclusion: 'failure' }, smoke: { ok: false }, memory: { corrupt: true }, patch: { breaks_repo: true } });
+  const due = dueLifeEvents(facts);
+  for (const id of ['UPDATE_CI_FAILED', 'UPDATE_DEPLOY_FAILED', 'UPDATE_SMOKE_FAILED', 'MEMORY_CORRUPT', 'EVOLUTION_BAD_PATCH']) assert.ok(due.includes(id), id);
+  assert.equal((await applyLifeCountermeasure('MAX_PAUSED_BY_SAFETY')).activation_performed, false);
+  assert.equal((await applyCoreMigration({ part: 'github', replacementReady: false })).activation_performed, false);
+  assert.equal(trialReplacement({ part: 'model', research: { kind: 'SOFTWARE', available: true, reliable: true, smoke: true, measured_better: true } }).plan.automatic, false);
+});
