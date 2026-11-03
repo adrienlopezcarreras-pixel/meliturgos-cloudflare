@@ -48,3 +48,24 @@ test('CI proof rejects a run that did not finish successfully',async()=>{
   assert.equal(result.ok,false);
   assert.equal(result.status,'CI_PROVIDER_PROOF_RUN_NOT_SUCCESSFUL');
 });
+
+// MEL-FOUNDER-06: the Companion CI adapter is exercised without a Windows host.
+test('the companion executor double announces itself and drives the adapter without hardware', async () => {
+  const { createCompanionCiProviderAdapter, createCompanionExecutorDouble } = await import('../../src/portability/companion-ci-provider-adapter.js');
+  const double = createCompanionExecutorDouble();
+  assert.equal(double.kind, 'EXPLICIT_DOUBLE');
+  assert.equal(double.hardware, false, 'nothing may read it as a real companion');
+
+  const adapter = createCompanionCiProviderAdapter({ execute: double });
+  const health = await adapter.health();
+  assert.equal(health.ok, true);
+  assert.equal(health.node_version, 'v20.0.0');
+  assert.equal(double.calls[0].action, 'health');
+  assert.equal(double.calls[0].repository, 'meliturgos-cloudflare');
+
+  const down = createCompanionExecutorDouble({ healthy: false });
+  const unavailable = await createCompanionCiProviderAdapter({ execute: down }).health();
+  assert.equal(unavailable.ok, false);
+  assert.equal(unavailable.status, 'UNAVAILABLE');
+  assert.equal(unavailable.code, 'COMPANION_UNAVAILABLE');
+});

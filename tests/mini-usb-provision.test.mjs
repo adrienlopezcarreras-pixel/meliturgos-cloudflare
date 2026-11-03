@@ -49,3 +49,28 @@ test('firmware announces the Bluetooth passkey on USB for a MINI without a usabl
   const main = await readFile(new URL('../firmware/waveshare-terminal/main/main.cpp', import.meta.url), 'utf8');
   assert.match(main, /mel_terminal_start_usb_passkey_relay\(\);/);
 });
+
+// MEL-FOUNDER-06: the software bench covers pairing, permissions, shutdown and
+// disconnection with explicit doubles; the physical recipe stays separate.
+test('the software bench covers the four protocol steps with an explicit double and never claims a hardware proof', async () => {
+  const m = await import('../src/devices/mini-usb-provision.js');
+  assert.deepEqual(m.MINI_PROTOCOL_STEPS, ['pair', 'permissions', 'shutdown', 'disconnect']);
+
+  const double = m.createMiniProtocolDouble();
+  const ok = await m.runMiniProtocolBench(double);
+  assert.equal(ok.passed, true);
+  assert.deepEqual(double.calls, ['pair', 'permissions', 'shutdown', 'disconnect']);
+  assert.equal(ok.proves, 'PROTOCOL_ONLY');
+  assert.equal(ok.hardware_validated, false, 'a bench never validates hardware');
+  assert.equal(ok.physical_recipe.validated, false, 'the physical recipe stays separate and unvalidated');
+  assert.equal(ok.physical_recipe.reason, 'PHYSICAL_DEVICE_PROOF_REQUIRED');
+
+  const broken = await m.runMiniProtocolBench(m.createMiniProtocolDouble({ fails: ['shutdown'] }));
+  assert.equal(broken.passed, false);
+  assert.equal(broken.steps.find(s => s.step === 'shutdown').code, 'MINI_SHUTDOWN_FAILED');
+  assert.equal(broken.steps.find(s => s.step === 'disconnect').ok, true, 'a failed step never stops the bench');
+
+  // Anything that is not an announced double is refused: no silent fake device.
+  await assert.rejects(m.runMiniProtocolBench({ run: async () => ({ ok: true }) }), e => e.code === 'MINI_BENCH_EXPLICIT_DOUBLE_REQUIRED');
+  await assert.rejects(m.runMiniProtocolBench({ kind: 'EXPLICIT_DOUBLE', hardware: true, run: async () => ({ ok: true }) }), e => e.code === 'MINI_BENCH_EXPLICIT_DOUBLE_REQUIRED');
+});
