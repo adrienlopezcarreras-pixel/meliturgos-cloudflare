@@ -91,6 +91,9 @@ test('GitHub monitor delivers the signed envelope without claiming automatic fai
   assert.match(runner,/JSON\.stringify\(signed\)/);
   assert.match(workflow,/artifacts\/contingency\/probe-delivery\.json/);
   assert.match(runtime,/readContingencyProbeInbox\(env\?\.DB\)/);
+  assert.match(runtime,/replacementAttestations: Array\.isArray\(job\?\.result_json\?\.replacement_probes\)/);
+  assert.match(runtime,/MEL_REPLACEMENT_PROBE_HMAC_KEY/);
+  assert.match(runtime,/expectedSourceSha: deployedCandidateSha\(env\)/);
   assert.match(runtime,/verifyContingencyProbeReports\(\[\.\.\.externalReports, \.\.\.jobReports\]/);
   assert.match(runner,/Failover performed: \*\*No\*\*/);
 });

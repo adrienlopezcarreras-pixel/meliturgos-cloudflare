@@ -817,6 +817,14 @@ async function applyObservedCountermeasures(env, repository, control, watchdog, 
     life: countermeasureFacts({ control, watchdog, tick, job }),
     actions,
     replacements: Array.isArray(job?.result_json?.replacement_trials) ? job.result_json.replacement_trials : [],
+    // Keep independent signed replacement verification while adding the D1 health inbox.
+    replacementAttestations: Array.isArray(job?.result_json?.replacement_probes) ? job.result_json.replacement_probes : [],
+    replacementAttestationConfig: {
+      secret: env?.MEL_REPLACEMENT_PROBE_HMAC_KEY,
+      trustedObserver: env?.MEL_REPLACEMENT_PROBE_OBSERVER,
+      expectedSourceSha: deployedCandidateSha(env),
+      now: Date.now(),
+    },
   });
 }
 
