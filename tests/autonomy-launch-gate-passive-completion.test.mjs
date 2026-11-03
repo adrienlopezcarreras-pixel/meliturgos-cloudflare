@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { runAutonomyRuntimeTick } from '../src/evolution/autonomy-runtime.js';
-import { setAutonomyControl } from '../src/evolution/autonomy-control.js';
+import { getAutonomyControl, setAutonomyControl } from '../src/evolution/autonomy-control.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 
 
@@ -87,6 +87,37 @@ test('stale launch SHA blocks new autonomy work but still ingests already verifi
     assert.equal(result.launch_gate.deployed_sha, deployedSha);
     assert.equal(result.passive_completions.ok, true);
     assert.equal(result.passive_completions.completed[0].job_id, 'verified-job');
+  } finally {
+    DB.close();
+  }
+});
+
+test('MAX on with no launch SHA binds the deployed commit and does not stay blocked', async () => {
+  const DB = sqliteD1();
+  const deployedSha = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+  try {
+    await setAutonomyControl(DB, {
+      paused: false,
+      max_autonomy: true,
+      source: 'owner-ui',
+      reason: 'owner-max-autonomy',
+    });
+    const result = await runAutonomyRuntimeTick({
+      DB,
+      MEL_DEPLOYED_GIT_SHA: deployedSha,
+      MEL_GITHUB_BRANCH: 'candidate/mel-clean-autonomy',
+      MEL_TEACHER_BRANCH: 'candidate/mel-clean-autonomy',
+    }, {
+      repository: {},
+      prepareLaunch: async () => ({
+        ok: true,
+        readiness: { launch_ready: true, candidate_sha: deployedSha, evaluated_at: '2026-11-03T08:00:00.000Z' },
+      }),
+      runtimeLeaseOwner: 'held',
+      runtimeLeaseStore: new Map([['runtime-lease:autonomy-heartbeat', { owner: 'held', expires_at: Date.now() + 60_000 }]]),
+    });
+    assert.notEqual(result.status, 'LAUNCH_GATE_REQUIRED');
+    assert.equal((await getAutonomyControl(DB)).launch_approved_sha, deployedSha);
   } finally {
     DB.close();
   }

@@ -821,7 +821,29 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   if (local?.ok) bindLocalPcWorkersAi(env, options.runLocalPcModel);
 
   const epochMs = await readActivityListEpoch(env?.DB, { strict: true });
-  const launchApproval = launchApprovalValid(env, control, options);
+  let launchApproval = launchApprovalValid(env, control, options);
+  // A missing approval is not a stale one. MAX was already the owner's choice
+  // and nobody stopped it: bind the commit that is actually deployed, then work.
+  // A different stored SHA stays fail-closed. An owner stop is never rewritten.
+  if (!launchApproval.ok && launchApproval.code === 'LAUNCH_GATE_REQUIRED' && !launchApproval.approved_sha
+      && control?.max_autonomy === true && control?.paused !== true && env?.DB) {
+    const prepare = options.prepareLaunch || (await import('./launch-readiness.js')).prepareAutonomyLaunch;
+    const prepared = await prepare(env, { repository }).catch(() => null);
+    const candidate = String(prepared?.readiness?.candidate_sha || '').trim().toLowerCase();
+    if (prepared?.ok === true && prepared?.readiness?.launch_ready === true && candidate === launchApproval.deployed_sha) {
+      control = await setOwnerMaxAutonomy(env.DB, {
+        enabled: true,
+        paused: false,
+        source: 'autonomous-launch-bind',
+        reason: 'deployed-sha-self-approval',
+        launch_approved_sha: candidate,
+        launch_approved_at: prepared.readiness.evaluated_at || new Date().toISOString(),
+        launch_gate_digest: prepared.readiness.gate_digest,
+        memoryState: options.autonomyControlState || null,
+      });
+      launchApproval = launchApprovalValid(env, control, options);
+    }
+  }
   if (!launchApproval.ok) {
     let passiveCompletions;
     if (typeof options.waitUntil === 'function') {
