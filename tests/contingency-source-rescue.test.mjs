@@ -75,8 +75,13 @@ test('source rescue CLI makes a real Git archive in an isolated fixture and reje
   const output=join(root,'artifacts','contingency');
   try {
     commands(['init','-q']);
-    await writeFile(join(root,'README.md'),'MEL test-only tracked code\n'.repeat(100));
-    commands(['add','README.md']);
+    await mkdir(join(root,'src'),{recursive:true});
+    await mkdir(join(root,'imports'),{recursive:true});
+    await writeFile(join(root,'README.md'),'MEL fixture README excluded from code-only rescue\n');
+    await writeFile(join(root,'src','index.js'),'export const rescue = true;\n');
+    await writeFile(join(root,'package.json'),JSON.stringify({name:'mel-source-rescue-test',version:'1.0.0',type:'module'}));
+    await writeFile(join(root,'imports','private-data.txt'),'SENSITIVE_IMPORT_MUST_NOT_BE_IN_ARTIFACT');
+    commands(['add','.']);
     commands(['-c','user.name=MEL Test','-c','user.email=test@example.invalid',
       'commit','-qm','isolated fixture']);
     const sha=commands(['rev-parse','HEAD']).trim();
@@ -99,6 +104,12 @@ test('source rescue CLI makes a real Git archive in an isolated fixture and reje
     assert.equal(receipt.source_sha,sha);
     assert.equal(receipt.archive_sha256,createHash('sha256').update(archive).digest('hex'));
     assert.equal(receipt.status,'SOURCE_ARCHIVED_ONLY');
+    assert.deepEqual(receipt.archived_roots,['package.json','src']);
+    const pathsInArchive=execFileSync('tar',['-tzf',join(output,'mel-source-only.tar.gz')],{encoding:'utf8'});
+    assert.match(pathsInArchive,/src\/index\.js/);
+    assert.match(pathsInArchive,/package\.json/);
+    assert.doesNotMatch(pathsInArchive,/imports\//);
+    assert.doesNotMatch(pathsInArchive,/README\.md/);
     assert.equal(receipt.max_running,false);
     assert.equal(receipt.d1_restored,false);
     assert.equal(receipt.r2_restored,false);
