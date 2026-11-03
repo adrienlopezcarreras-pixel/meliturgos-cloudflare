@@ -21,9 +21,33 @@ export async function acceptContingencyProbe(request, env = {}, { now = Date.now
   }
   let report;
   try {
-    const raw = await request.text();
-    if (raw.length > MAX_BODY) return reply({ ok: false, code: 'PROBE_BODY_TOO_LARGE' }, 413);
-    report = JSON.parse(raw);
+    // Enforce the byte bound while consuming the stream. A missing/incorrect
+    // Content-Length must never make the Worker buffer an unbounded request.
+    if (!request.body?.getReader) return reply({ ok: false, code: 'PROBE_BODY_INVALID' }, 400);
+    const reader = request.body.getReader();
+    let size = 0;
+    const chunks = [];
+    let tooLarge = false;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > MAX_BODY) {
+          tooLarge = true;
+          await reader.cancel().catch(() => {});
+          break;
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    if (tooLarge) return reply({ ok: false, code: 'PROBE_BODY_TOO_LARGE' }, 413);
+    const buffer = new Uint8Array(size);
+    let at = 0;
+    for (const chunk of chunks) { buffer.set(chunk, at); at += chunk.byteLength; }
+    report = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer));
   } catch {
     return reply({ ok: false, code: 'PROBE_BODY_INVALID' }, 400);
   }

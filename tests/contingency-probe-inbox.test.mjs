@@ -97,3 +97,28 @@ test('GitHub monitor delivers the signed envelope without claiming automatic fai
   assert.match(runtime,/verifyContingencyProbeReports\(\[\.\.\.externalReports, \.\.\.jobReports\]/);
   assert.match(runner,/Failover performed: \*\*No\*\*/);
 });
+
+test('probe ingress enforces 4 KiB during streaming without relying on Content-Length or character count', async () => {
+  const database=db();
+  try {
+    const env={DB:database,MEL_CONTINGENCY_PROBE_HMAC_KEY:secret};
+    const utf8 = new Request(url,{method:'POST',body:'é'.repeat(3000)});
+    assert.equal(utf8.headers.get('content-length'),null);
+    const response=await acceptContingencyProbe(utf8,env,{now,cryptoImpl:webcrypto});
+    assert.equal(response.status,413);
+    assert.equal((await response.json()).code,'PROBE_BODY_TOO_LARGE');
+
+    const chunks = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array(2500));
+        controller.enqueue(new Uint8Array(2500));
+        controller.close();
+      },
+    });
+    const streaming = new Request(url,{method:'POST',body:chunks,duplex:'half'});
+    const streamed = await acceptContingencyProbe(streaming,env,{now,cryptoImpl:webcrypto});
+    assert.equal(streamed.status,413);
+    assert.equal((await streamed.json()).code,'PROBE_BODY_TOO_LARGE');
+    assert.deepEqual(await readContingencyProbeInbox(database),[]);
+  } finally {database.close();}
+});
