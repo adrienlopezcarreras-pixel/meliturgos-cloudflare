@@ -797,10 +797,9 @@ async function applyObservedCountermeasures(env, repository, control, watchdog, 
     openPrivateCopy: env?.MEL_OPEN_PRIVATE_KIT,
     restoreBackupBytes: env?.MEL_RESTORE_BACKUP,
   });
-  const parts = job?.result_json?.parts_up || {};
-  const down = (name) => parts[name] === false ? false : (parts[name] === true ? true : undefined);
-  // Explicit fresh probe reports supersede legacy per-job flags. Reports are
-  // only observations; ingress must authenticate their producer separately.
+  // Legacy job-supplied parts_up values are untrusted and intentionally ignored.
+  // The currently running Worker is known alive locally; external outages
+  // require a fresh authenticated observation before they can be diagnosed.
   const probes = await verifyContingencyProbeReports(job?.result_json?.contingency_probes, {
     secret: env?.MEL_CONTINGENCY_PROBE_HMAC_KEY,
     now: Date.now(),
@@ -808,16 +807,9 @@ async function applyObservedCountermeasures(env, repository, control, watchdog, 
   return runContingencyCycle({
     observed: {
       cloudflareUp: true,
-      companionOnline: down('pc'),
-      githubUp: down('github'),
-      modelUp: down('model'),
-      gmailUp: down('gmail'),
-      onedriveUp: down('onedrive'),
-      shardsUp: down('shards'),
-      localGit: job?.result_json?.standby?.localGit === true,
-      localDb: job?.result_json?.standby?.localDb === true,
-      localModel: job?.result_json?.standby?.localModel === true,
       ...probes.observed,
+      // The optional local PC is never promoted merely by a job's claim.
+      companionOnline: false,
     },
     life: countermeasureFacts({ control, watchdog, tick, job }),
     actions,
