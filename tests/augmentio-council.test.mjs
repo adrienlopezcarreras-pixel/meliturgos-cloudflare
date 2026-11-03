@@ -410,3 +410,18 @@ test('Council context includes SHA when provided', async () => {
   });
   assert.equal(report.context?.sha, 'deadbeef1234567890abcdef');
 });
+
+test('Council propagates SHA in context', async () => {
+  const calls = [];
+  const pool = new ProviderPool([
+    provider('a', 0, calls),
+    provider('b', 0, calls),
+  ]);
+  const sha = 'deadbeef1234567890abcdef';
+  const report = await runAugmentioStateOfPlay({
+    env: { MEL_SHA: sha, MEL_COUNCIL_REVIEW_BUDGET_MS: 400, MEL_COUNCIL_PROVIDER_TIMEOUT_MS: 20 },
+    goal: 'verify sha propagation',
+    pool,
+  });
+  assert.equal(report.context.sha, sha);
+});
