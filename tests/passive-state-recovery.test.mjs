@@ -52,6 +52,25 @@ test('valid READY_FOR_REVIEW with approved Teacher and dev package stays untouch
   assert.equal((await repository.get(job.id)).status, 'READY_FOR_REVIEW');
 });
 
+test('a review with no dispatchable package yields the slot after six hours', async () => {
+  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+  const job = await repository.create({ id: 'founder-02-stuck', requested_by: 'mel-autonomy', goal: 'stuck review' });
+  await repository.update(job.id, {
+    status: 'READY_FOR_REVIEW',
+    result_json: {
+      teacher_bridge: { status: 'ANSWERED', review: { verdict: 'APPROVE_PLAN', development_allowed: true } },
+      dev_bridge: { status: 'READY_FOR_REVIEW', needs_repair: false },
+    },
+  });
+  const stored = await repository.get(job.id);
+  const fresh = await recoverPassiveRuntimeStates(repository, { canonicalSha: NEW_SHA, now: stored.updated_at + 60_000 });
+  assert.equal(fresh.recovered.length, 0);
+  const stale = await recoverPassiveRuntimeStates(repository, { canonicalSha: NEW_SHA, now: stored.updated_at + 7 * 60 * 60 * 1000 });
+  assert.equal(stale.recovered.length, 1);
+  assert.equal(stale.recovered[0].reason, 'REVIEW_NOT_DISPATCHABLE');
+  assert.equal((await repository.get(job.id)).status, 'QUEUED');
+});
+
 test('exhausted approved Mentor work wakes only on a new deployed SHA and preserves a concurrent claim', async () => {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
   const job=await repository.create({id:'mentor-exhausted',requested_by:'mel-autonomy',goal:'persistent A'});
