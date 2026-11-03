@@ -55,7 +55,7 @@ export function renderContingencyTestPage() {
   <p class="warn">Cette page ne débranche rien. Elle montre la décision. Le cycle de MAX l'exécute seulement quand le fait est vrai.</p>
   <h2>Coche une brique tombée</h2>
   <div class="grid" id="parts"></div>
-  <label style="margin-top:12px"><input id="ready" type="checkbox"> Un remplaçant de Cloudflare, GitHub ou du modèle est déjà prouvé</label>
+  <label style="margin-top:12px"><input id="ready" type="checkbox"> Simuler un candidat déclaré prêt (simulation uniquement, sans preuve réelle)</label>
   <h2 style="margin-top:22px">Choisis un échec</h2>
   <select id="life"></select>
   <article>
@@ -63,6 +63,8 @@ export function renderContingencyTestPage() {
     <p id="outage"></p>
     <h2>Si une brique centrale doit changer</h2>
     <p id="migration"></p>
+    <h2>Remplaçants identifiés (non certifiés)</h2>
+    <p id="candidates"></p>
     <h2>Si cet échec arrive</h2>
     <p id="event"></p>
   </article>
@@ -106,6 +108,14 @@ function render() {
   document.getElementById('outage').textContent = scenario
     ? scenario.consequence+' Contre-mesure : '+scenario.countermeasure.join(', ')+'.'
     : 'Aucune brique débranchée. MAX reste où elle est.';
+  const fallbackParts = down.length ? down : [];
+  document.getElementById('candidates').textContent = fallbackParts.length
+    ? fallbackParts.map(part => {
+        const entry = model.replacement_catalog[part];
+        const names = Array.isArray(entry?.candidates) ? entry.candidates : [];
+        return (NAMES[part] || part)+' : '+names.join(', ')+' (candidats, ni activés ni validés)';
+      }).join(' | ')
+    : 'Aucune panne simulée : aucun remplaçant requis.';
   const ready = document.getElementById('ready').checked;
   const cores = down.filter(part => model.migrations[part]);
   document.getElementById('migration').textContent = cores.length
