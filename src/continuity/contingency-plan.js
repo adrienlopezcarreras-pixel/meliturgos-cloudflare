@@ -29,7 +29,7 @@ export function contingencyPrinciples() {
       'Une panne n arrete que la brique tombee.',
       'Une panne en chaine se traite dans l ordre, sans inventer un hote.',
       'Tout en panne, Gmail ou OneDrive suffit. Les shards publics n ont pas la cle.',
-      'MAX reste sur Cloudflare tant qu il repond. S il tombe, MAX continue sur le PC seulement si le secours local est pret.',
+      'MAX reste sur Cloudflare tant qu il repond. S il tombe, le PC prend le relais s il est pret. Sinon GitHub Actions prend le code. Si GitHub tombe aussi, plus aucun moteur.',
       'Une candidate n est meilleure qu apres un essai logiciel ou physique.',
       'Le moindre probleme autorise un plan de renaissance, pas une bascule sans cible prouvee.',
     ]),
@@ -55,7 +55,6 @@ export function respondToScenario({ down, standby = {} } = {}) {
   const names = normalizeDown(down);
   const fallen = new Set(names);
   const kind = names.length === 1 ? 'SINGLE' : (fallen.has('cloudflare') && fallen.has('github') && fallen.has('pc')) ? 'TOTAL' : 'CHAIN';
-  const runnersDown = ['cloudflare', 'pc'].filter(part => fallen.has(part));
   const privateKitLeft = ['gmail', 'onedrive'].filter(part => !fallen.has(part));
   const cloudflareUp = !fallen.has('cloudflare');
   const standbyState = maxStandby({ ...standby, cloudflareUp });
@@ -69,23 +68,59 @@ export function respondToScenario({ down, standby = {} } = {}) {
     fallen.has('shards') ? 'La carte publique est inaccessible.' : 'Les shards publics gardent la carte, pas la cle.',
   ].filter(Boolean).join(' ');
   let consequence;
-  if (cloudflareUp) consequence = 'MAX reste sur Cloudflare. Aucune bascule.';
-  else if (standbyState.status === 'STANDBY_READY') consequence = 'MAX continue sur le PC. On ne deploie plus vers Cloudflare.';
-  else if (runnersDown.length === 2 || standbyState.missing?.includes('pc')) consequence = privateKitLeft.length
-    ? 'Aucun moteur ne reste. GitHub ne la fait pas tourner. Une autre machine pourra la relancer depuis ' + privateKitLeft.join(' ou ') + '.'
-    : 'Aucun moteur ne reste. Sans Gmail ni OneDrive, la memoire ne s ouvre pas. Les shards publics ne contiennent pas la cle.';
-  else consequence = 'Cloudflare est tombe et le secours local n est pas pret (' + standbyState.missing.join(', ') + '). MAX attend.';
+  let max = standbyState.status;
+  const countermeasure = [];
+  if (cloudflareUp) {
+    countermeasure.push('KEEP_MAX_ON_CLOUDFLARE');
+    if (fallen.has('pc')) countermeasure.push('DO_NOT_EXPECT_LOCAL_STANDBY');
+    if (fallen.has('github')) countermeasure.push('DO_NOT_DEPLOY');
+    if (fallen.has('model')) countermeasure.push('USE_OTHER_PROVEN_MODEL');
+    if (fallen.has('gmail') || fallen.has('onedrive')) countermeasure.push('KEEP_REMAINING_PRIVATE_KIT');
+    if (fallen.has('shards')) countermeasure.push('DO_NOT_USE_PUBLIC_SHARDS_AS_KEY');
+    consequence = 'MAX reste sur Cloudflare. Aucune bascule.';
+    max = 'MAX_ON_CLOUDFLARE';
+  } else if (standbyState.status === 'STANDBY_READY') {
+    countermeasure.push('MOVE_MAX_TO_PC', 'DO_NOT_DEPLOY');
+    consequence = 'MAX continue sur le PC. On ne deploie plus vers Cloudflare.';
+    max = 'STANDBY_READY';
+  } else if (!fallen.has('github')) {
+    countermeasure.push('RUN_CODE_ON_GITHUB_ACTIONS', 'SITE_AND_MEMORY_STAY_DOWN');
+    consequence = 'Le PC n est pas la. GitHub Actions prend le relais du code. Le site et la memoire Cloudflare restent arretes.';
+    max = 'ACTIONS_RELAY_READY';
+  } else if (privateKitLeft.length) {
+    countermeasure.push('STOP_AND_REBUILD_FROM_PRIVATE_KIT');
+    consequence = 'Aucun moteur ne reste. Une autre machine pourra la relancer depuis ' + privateKitLeft.join(' ou ') + '.';
+    max = 'NO_RUNNER';
+  } else {
+    countermeasure.push('STOP_MEMORY_KEY_UNAVAILABLE');
+    if (!fallen.has('shards')) countermeasure.push('PUBLIC_MAP_ONLY');
+    consequence = 'Aucun moteur ne reste. Sans Gmail ni OneDrive, la memoire ne s ouvre pas. Les shards publics ne contiennent pas la cle.';
+    max = 'NO_RUNNER';
+  }
+  if (!cloudflareUp && fallen.has('model')) countermeasure.push('USE_OTHER_PROVEN_MODEL');
+  if (!cloudflareUp && privateKitLeft.length && (fallen.has('gmail') || fallen.has('onedrive'))) countermeasure.push('KEEP_REMAINING_PRIVATE_KIT');
   return Object.freeze({
     schema: 'mel.contingency-response/v1',
     kind,
     down: Object.freeze(names),
     implication,
     consequence,
-    max: standbyState.status,
+    countermeasure: Object.freeze(countermeasure),
+    max,
     private_kits_left: Object.freeze(privateKitLeft),
     rebirth: privateKitLeft.length ? 'FROM_PRIVATE_KIT' : 'MEMORY_KEY_UNAVAILABLE',
     activation_performed: false,
   });
+}
+
+export function allScenarios() {
+  const parts = Object.keys(PARTS);
+  const scenarios = [];
+  for (let mask = 1; mask < (1 << parts.length); mask += 1) {
+    const down = parts.filter((_, index) => mask & (1 << index));
+    scenarios.push(respondToScenario({ down }));
+  }
+  return Object.freeze(scenarios);
 }
 
 export function currentContingency(observed = {}) {
