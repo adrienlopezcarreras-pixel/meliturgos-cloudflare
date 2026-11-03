@@ -115,6 +115,7 @@ test('canonical roadmap forbids bare DONE and requires exact production proof fo
     'MEL-FOUNDER-06',
     'MEL-FOUNDER-07',
     'MEL-FOUNDER-08',
+    'MEL-LIFE-01',
     'MEL-MANIFEST-01',
     'MEL-MANIFEST-02',
     'MEL-MANIFEST-03',
