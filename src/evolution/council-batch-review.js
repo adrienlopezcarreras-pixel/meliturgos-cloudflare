@@ -56,16 +56,26 @@ export async function handleCouncilBatchedReview(env,body,{
     if(prior?.decision==='APPROVED')return {status:200,result:{
       ok:true,decision:'PENDING_ALL_BATCH_REVIEWS',batch_decision:'APPROVED',
       cached:true,batch_index:i,head,root_sha256:root}};
+    // A refusal belongs to this exact head and full diff. Do not keep
+    // shopping models for a different verdict on the same rejected code.
+    if(prior?.decision==='REJECTED')return {status:409,result:{
+      ok:false,decision:'COUNCIL_BATCH_NOT_APPROVED',batch_decision:'REJECTED',
+      batch_index:i,head,root_sha256:root}};
     const vote=await review(env,{diff:body.diff,goal:'Independent Council review of complete file batch '
       +i+'/'+count+' for '+head+'; each batch and the final integration need separate real approvals.',
       attempts:Math.max(0,Number(prior?.attempts||0))});
+    const approvingModels=new Set((vote.reviews||[])
+      .filter(row=>row.verdict==='APPROVE'&&String(row.summary||'').trim())
+      .map(row=>String(row.model||'').trim()).filter(Boolean));
+    const verifiedDecision=vote.decision==='APPROVED'&&approvingModels.size<2
+      ?'COUNCIL_BATCH_QUORUM_UNPROVEN':vote.decision;
     const record={head,base,root,count,total,files,index:i,sha256:sha,
-      diff:body.diff,decision:vote.decision,reviews:vote.reviews||[],
+      diff:body.diff,decision:verifiedDecision,reviews:vote.reviews||[],
       attempts:Number(prior?.attempts||0)+1,reviewed_at:now};
     await persist(env.DB,key,record,now);
     return {status:200,result:{ok:true,decision:vote.decision==='APPROVED'
       ?'PENDING_ALL_BATCH_REVIEWS':'COUNCIL_BATCH_NOT_APPROVED',
-      batch_decision:vote.decision,head,root_sha256:root,batch_index:i}};
+      batch_decision:verifiedDecision,head,root_sha256:root,batch_index:i}};
   }
   // Final review reconstructs the entire source diff, not just caller-provided
   // hashes or a summary. Every exact segment must be independently approved.
@@ -75,7 +85,9 @@ export async function handleCouncilBatchedReview(env,body,{
     if(!row||row.head!==head||row.base!==base||row.root!==root
       ||row.count!==count||row.total!==total||row.files!==files||row.index!==i
       ||row.decision!=='APPROVED'||!Array.isArray(row.reviews)
-      ||row.reviews.filter(x=>x.verdict==='APPROVE').length<2)
+      ||new Set(row.reviews.filter(x=>x.verdict==='APPROVE'
+        &&String(x.summary||'').trim()).map(x=>String(x.model||'').trim())
+        .filter(Boolean)).size<2)
       return reject('COUNCIL_BATCH_REVIEWS_INCOMPLETE',409);
     if(await digest(row.diff,cryptoImpl)!==row.sha256)
       return reject('COUNCIL_BATCH_STORED_DIFF_TAMPERED',409);
@@ -93,6 +105,7 @@ export async function handleCouncilBatchedReview(env,body,{
       ||previous.batch_count!==count))return reject('COUNCIL_FINAL_REVIEW_CONFLICT',409);
   if(previous?.decision==='APPROVED')return {status:200,result:{
     ok:true,cached:true,decision:'APPROVED',head,root_sha256:root,batch_count:count}};
+  if(previous?.decision==='REJECTED')return reject('COUNCIL_FINAL_REJECTED',409);
   const reviewSummary=records.map(row=>
     'LOT '+row.index+'/'+count+' SHA256='+row.sha256+'; fichiers='+
     rebuilt.batches[row.index-1].paths.join(', ')+

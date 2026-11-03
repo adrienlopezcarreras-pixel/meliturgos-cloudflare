@@ -107,3 +107,34 @@ test('Council endpoint keeps GitHub OIDC before batched review; workflow demands
   assert.match(script,/complete_review!==true/);
   assert.doesNotMatch(script,/COUNCIL_REVIEW_OVERRIDE/);
 });
+
+test('Council batch rejections cannot be re-reviewed into an approval on the same SHA',async()=>{
+  const DB=sqliteD1({maintenanceFence:true});
+  try{
+    const target=batch(plan.batches[0]);
+    assert.equal((await call(DB,target,async()=>({
+      decision:'REJECTED',reviews:[{model:'security-reviewer',verdict:'REJECT',
+        blocking:['unsafe fallback'],summary:'refused'}],
+    }))).result.batch_decision,'REJECTED');
+    const again=await call(DB,target,async()=>{throw Error('NO RE-REVIEW ALLOWED');});
+    assert.equal(again.status,409);
+    assert.equal(again.result.batch_decision,'REJECTED');
+  }finally{DB.close();}
+});
+test('models with duplicate identities or empty reasons cannot prove a batch quorum',async()=>{
+  const DB=sqliteD1({maintenanceFence:true});
+  try{
+    const first=batch(plan.batches[0]);
+    const wrong=await call(DB,first,async()=>({decision:'APPROVED',reviews:[
+      {model:'same-model',verdict:'APPROVE',summary:'one'},
+      {model:'same-model',verdict:'APPROVE',summary:'two'},
+    ]}));
+    assert.equal(wrong.result.batch_decision,'COUNCIL_BATCH_QUORUM_UNPROVEN');
+    assert.equal((await call(DB,finish)).result.code,'COUNCIL_BATCH_REVIEWS_INCOMPLETE');
+  }finally{DB.close();}
+});
+test('larger Council batches extend workflow budget without weakening authorization',()=>{
+  const workflow=readFileSync(new URL('../.github/workflows/mel-candidate-promotion.yml',import.meta.url),'utf8');
+  assert.match(workflow,/timeout-minutes: 45/);
+  assert.match(workflow,/allowed.*Council|COUNCIL_BATCH_REVIEW_NOT_APPROVED/);
+});
