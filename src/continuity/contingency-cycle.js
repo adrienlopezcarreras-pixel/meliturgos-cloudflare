@@ -25,7 +25,7 @@ export function contingencyHandlers() {
 
 async function note(actions, code) {
   if (typeof actions?.note !== 'function') {
-    return { applied: true, activation_performed: false, code, reason: 'RECORDED_ONLY' };
+    return { applied: false, activation_performed: false, code, reason: 'NOTE_EXECUTOR_REQUIRED' };
   }
   const result = await actions.note(code);
   return { applied: result?.ok === true, activation_performed: false, code, reason: result?.code || null };
