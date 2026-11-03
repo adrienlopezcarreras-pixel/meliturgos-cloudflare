@@ -13,6 +13,7 @@ on:
       - 'tests/life-contingency.test.mjs'
       - 'tests/countermeasure-actions.test.mjs'
       - 'tests/passive-state-recovery.test.mjs'
+      - 'tests/gen2/sovereign-regeneration-*.test.mjs'
       - 'tests/replacement-catalog.test.mjs'
       - 'tests/replacement-attestation.test.mjs'
       - 'tests/public-contingency-heartbeat.test.mjs'
@@ -47,6 +48,7 @@ jobs:
           tests/external-health-monitor.test.mjs
           tests/shardvault-reconstruction-stress.test.mjs
           tests/passive-state-recovery.test.mjs
+          tests/gen2/sovereign-regeneration-*.test.mjs
   monitor-cloudflare:
     # Use the canonical Worker origin from wrangler.jsonc by default.
     # The override variable can redirect to a future independently verified origin.
