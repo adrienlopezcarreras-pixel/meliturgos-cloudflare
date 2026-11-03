@@ -27,6 +27,7 @@ test('every countermeasure is bound to an action', async () => {
     previousVersionId: 'version-1',
     rollbackWorker: async (version) => { calls.push(version); return { ok: true }; },
     openPrivateCopy: async () => { calls.push('kit'); return { ok: true }; },
+    rebuildFromPrivateKit: async () => { calls.push('rebuild'); return { ok: true, restored: true, integrity_verified: true }; },
     restoreBackupBytes: async () => { calls.push('backup'); return { ok: true }; },
   });
   const recordedOnly = new Set(['KEEP_PREVIOUS_SHA','DO_NOT_START_SECOND_RELEASE','KEEP_SOURCE','ROLLBACK_TO_SOURCE','DO_NOT_MERGE','OPEN_PRIVATE_KIT_NOT_PUBLIC_SHARD']);
@@ -96,4 +97,26 @@ test('requeue only succeeds after a real mission status transition', async () =>
   assert.equal(again.ok, false);
   assert.equal(again.code, 'NO_RECOVERABLE_JOB');
   assert.equal(again.recovered, 0);
+});
+
+test('opening a private kit does not count as a full disaster recovery', async () => {
+  let opened = false;
+  const actions = bindCountermeasureActions({
+    repository: repository(),
+    openPrivateCopy: async () => { opened = true; return { ok: true }; },
+  });
+  const result = await applyLifeCountermeasure('MIGRATION_SOURCE_DIED', actions);
+  assert.equal(result.applied, false);
+  assert.equal(result.activation_performed, false);
+  assert.equal(result.reason, 'FULL_REBUILD_EXECUTOR_REQUIRED');
+  assert.equal(opened, false);
+});
+test('even a claimed full rebuild without an integrity proof fails closed', async () => {
+  const actions = bindCountermeasureActions({
+    repository: repository(),
+    rebuildFromPrivateKit: async () => ({ ok: true, restored: true }),
+  });
+  const result = await applyLifeCountermeasure('MIGRATION_SOURCE_DIED', actions);
+  assert.equal(result.applied, false);
+  assert.equal(result.reason, 'FULL_REBUILD_NOT_VERIFIED');
 });
