@@ -158,10 +158,10 @@ test('tracked nested source secrets and archived database dumps block publicatio
     'src/worker.js','tests/example.test.mjs','migrations/0019_development.sql',
     'src/backup/system-backup-runtime.js','src/backup/owner-export.json',
     'src/.env.production','src/secrets/token.json','tests/fixtures/backup.sqlite',
-    'src/backup/owner-export.json',
     'scripts/id_ed25519','src/private_keys/key.txt','src/credentials/owner.json',
     'src/db.snapshot.db','src/bundle.tar.gz',
   ]),[
+    'src/backup/owner-export.json',
     'src/.env.production','src/secrets/token.json','tests/fixtures/backup.sqlite',
     'scripts/id_ed25519','src/private_keys/key.txt','src/credentials/owner.json',
     'src/db.snapshot.db','src/bundle.tar.gz',
