@@ -18,6 +18,7 @@ import { readActivityListEpoch } from './autonomy-activity.js';
 import { backgroundNeuronBudgetExhausted, readNeuronBonusTotal } from '../augmentio/neuron-budget.js';
 import { bindLocalPcWorkersAi, localPcModelReady } from '../models/local-pc-model.js';
 import { readSurvivalState, shouldResumeForSurvival } from '../legacy/survival-mode.js';
+import { applyLifeCountermeasure } from '../continuity/life-contingency.js';
 import { singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
 
 export * from './autonomy-runtime-core.js';
@@ -763,22 +764,34 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   // rollback_count so a flaky release probe cannot loop for ever, and an
   // owner stop is never touched.
   if (shouldRestoreOwnerMax(control) && env?.DB) {
-    control = await setOwnerMaxAutonomy(env.DB, {
-      enabled: true,
-      paused: false,
-      source: 'rollback-auto-resume',
-      reason: 'MAX_RESTORED_AFTER_ROLLBACK',
-      memoryState: options.autonomyControlState || null,
+    const applied = await applyLifeCountermeasure('MAX_PAUSED_BY_MISTAKE', {
+      restoreMax: async () => {
+        control = await setOwnerMaxAutonomy(env.DB, {
+          enabled: true,
+          paused: false,
+          source: 'rollback-auto-resume',
+          reason: 'MAX_RESTORED_AFTER_ROLLBACK',
+          memoryState: options.autonomyControlState || null,
+        });
+        return { ok: true };
+      },
     });
+    if (applied.applied !== true) throw Object.assign(new Error(applied.reason || 'MAX_RESTORE_FAILED'), { code: applied.reason || 'MAX_RESTORE_FAILED' });
   }
   if (shouldResumeForSurvival(control, survival) && env?.DB) {
-    control = await setOwnerMaxAutonomy(env.DB, {
-      enabled: true,
-      paused: false,
-      source: 'survival-mode',
-      reason: 'owner-silent-one-year',
-      memoryState: options.autonomyControlState || null,
+    const applied = await applyLifeCountermeasure('OWNER_ABSENT', {
+      keepMax: async () => {
+        control = await setOwnerMaxAutonomy(env.DB, {
+          enabled: true,
+          paused: false,
+          source: 'survival-mode',
+          reason: 'owner-silent-one-year',
+          memoryState: options.autonomyControlState || null,
+        });
+        return { ok: true };
+      },
     });
+    if (applied.applied !== true) throw Object.assign(new Error(applied.reason || 'SURVIVAL_RESUME_FAILED'), { code: applied.reason || 'SURVIVAL_RESUME_FAILED' });
   }
 
   if (control.paused) {

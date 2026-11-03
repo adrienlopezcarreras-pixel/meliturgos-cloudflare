@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { actionsRelayDecision, allLifeEvents, respondToLifeEvent } from '../src/continuity/life-contingency.js';
+import { actionsRelayDecision, allLifeEvents, applyCoreMigration, applyLifeCountermeasure, respondToLifeEvent } from '../src/continuity/life-contingency.js';
 
 test('every survival, evolution, upgrade and migration failure has a tested countermeasure', () => {
   const events = allLifeEvents();
@@ -29,3 +29,34 @@ test('GitHub Actions is due only when Cloudflare is down and the PC is absent', 
   assert.equal(due.live_test, 'REQUIRED');
   assert.equal(due.activation_performed, false);
 });
+
+test('she applies the countermeasure herself, and does not claim one she cannot run', async () => {
+  const calls = [];
+  const restored = await applyLifeCountermeasure('MAX_PAUSED_BY_MISTAKE', {
+    restoreMax: async () => { calls.push('restore'); return { ok: true }; },
+  });
+  assert.equal(restored.applied, true);
+  assert.equal(restored.activation_performed, true);
+  assert.deepEqual(calls, ['restore']);
+  const safety = await applyLifeCountermeasure('MAX_PAUSED_BY_SAFETY', {
+    restoreMax: async () => { calls.push('should-not'); return { ok: true }; },
+  });
+  assert.equal(safety.applied, true);
+  assert.deepEqual(calls, ['restore']);
+  const missing = await applyLifeCountermeasure('UPDATE_SMOKE_FAILED', {});
+  assert.equal(missing.applied, false);
+  assert.equal(missing.reason, 'NO_EXECUTOR');
+  assert.equal(missing.activation_performed, false);
+  const migrated = await applyCoreMigration({
+    part: 'cloudflare',
+    replacementReady: true,
+    migrate: async () => { calls.push('migrate'); return { ok: true }; },
+  });
+  assert.equal(migrated.applied, true);
+  assert.deepEqual(calls, ['restore', 'migrate']);
+  const unready = await applyCoreMigration({ part: 'github', replacementReady: false, migrate: async () => { calls.push('no'); return { ok: true }; } });
+  assert.equal(unready.applied, true);
+  assert.equal(unready.countermeasure, 'KEEP_SOURCE');
+  assert.deepEqual(calls, ['restore', 'migrate']);
+});
+

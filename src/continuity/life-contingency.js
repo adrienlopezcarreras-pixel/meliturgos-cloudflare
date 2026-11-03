@@ -47,6 +47,41 @@ export function allLifeEvents() {
   return Object.freeze(EVENTS.map(row => respondToLifeEvent(row[0])));
 }
 
+const EXECUTOR_KEYS = Object.freeze({
+  KEEP_PREVIOUS_SHA: 'keepPrevious',
+  ROLLBACK_WORKER: 'rollback',
+  DO_NOT_START_SECOND_RELEASE: 'refuseSecondRelease',
+  KEEP_SOURCE: 'keepSource',
+  ROLLBACK_TO_SOURCE: 'rollbackToSource',
+  REBUILD_FROM_PRIVATE_KIT: 'rebuild',
+  REQUEUE_ONE_JOB: 'requeue',
+  REJECT_CANDIDATE: 'reject',
+  DO_NOT_MERGE: 'refuseMerge',
+  ENSURE_NEXT_JOB: 'ensureNextJob',
+  REBUILD_ON_CURRENT_HEAD: 'rebuildHead',
+  KEEP_MAX_RUNNING: 'keepMax',
+  RESTORE_MAX: 'restoreMax',
+  REQUEUE_STALE_REVIEW: 'requeueReview',
+  RESTORE_LAST_GOOD_BACKUP: 'restoreBackup',
+  OPEN_PRIVATE_KIT_NOT_PUBLIC_SHARD: 'openKit',
+});
+
+export async function applyLifeCountermeasure(id, actions = {}) {
+  const plan = respondToLifeEvent(id);
+  if (plan.countermeasure === 'KEEP_PAUSE') {
+    return Object.freeze({ ...plan, applied: true, activation_performed: true });
+  }
+  const fn = actions[EXECUTOR_KEYS[plan.countermeasure]];
+  if (typeof fn !== 'function') {
+    return Object.freeze({ ...plan, applied: false, activation_performed: false, reason: 'NO_EXECUTOR' });
+  }
+  const result = await fn(plan);
+  if (result?.ok !== true) {
+    return Object.freeze({ ...plan, applied: false, activation_performed: false, reason: String(result?.code || 'EXECUTOR_FAILED') });
+  }
+  return Object.freeze({ ...plan, applied: true, activation_performed: true });
+}
+
 export function actionsRelayDecision({ workerUp = true, companionOnline = false } = {}) {
   if (workerUp === true) return Object.freeze({ run: false, status: 'STANDBY_NOT_NEEDED', activation_performed: false });
   if (companionOnline === true) return Object.freeze({ run: false, status: 'PC_HAS_PRIORITY', activation_performed: false });
@@ -89,5 +124,20 @@ export function planCoreMigration({ part, replacementReady = false } = {}) {
     automatic: true,
     activation_performed: false,
   });
+}
+
+export async function applyCoreMigration({ part, replacementReady = false, migrate } = {}) {
+  const plan = planCoreMigration({ part, replacementReady });
+  if (plan.status !== 'MIGRATION_PLANNED') {
+    return Object.freeze({ ...plan, applied: true, activation_performed: true });
+  }
+  if (typeof migrate !== 'function') {
+    return Object.freeze({ ...plan, applied: false, activation_performed: false, reason: 'NO_EXECUTOR' });
+  }
+  const result = await migrate(plan);
+  if (result?.ok !== true) {
+    return Object.freeze({ ...plan, applied: false, activation_performed: false, reason: String(result?.code || 'EXECUTOR_FAILED') });
+  }
+  return Object.freeze({ ...plan, applied: true, activation_performed: true });
 }
 
