@@ -1,3 +1,5 @@
+import { judgeCandidate } from './contingency-plan.js';
+
 const EVENTS = Object.freeze([
   ['UPDATE_CI_FAILED', 'upgrade', 'La mise a jour n a pas passe ses tests.', 'KEEP_PREVIOUS_SHA'],
   ['UPDATE_DEPLOY_FAILED', 'upgrade', 'Le deploiement n a pas termine.', 'ROLLBACK_WORKER'],
@@ -80,6 +82,44 @@ export function dueLifeEvents(facts = {}) {
     if (known.has(name) && !due.includes(name)) due.push(name);
   }
   return Object.freeze(due);
+}
+
+export function lifeFactsFromSignals(signals = {}) {
+  const facts = {};
+  const release = signals.release || {};
+  const smoke = signals.smoke || {};
+  const memory = signals.memory || {};
+  const migration = signals.migration || {};
+  const patch = signals.patch || {};
+  if (release.ci === 'failure') facts.update_ci_failed = true;
+  if (release.conclusion === 'failure') facts.deploy_failed = true;
+  if (release.in_progress === true) facts.release_in_progress = true;
+  if (smoke.ok === false) facts.smoke_failed = true;
+  if (smoke.version_mismatch === true) facts.version_split = true;
+  if (memory.corrupt === true) facts.memory_corrupt = true;
+  if (memory.key_present === false) facts.key_missing = true;
+  if (migration.export_ok === false) facts.migration_export_failed = true;
+  if (migration.import_ok === false) facts.migration_import_failed = true;
+  if (migration.smoke_ok === false) facts.migration_smoke_failed = true;
+  if (migration.smoke_ok === true && migration.better === false) facts.migration_not_better = true;
+  if (migration.source_up === false) facts.migration_source_died = true;
+  if (patch.moved === true) facts.candidate_moved = true;
+  if (patch.breaks_repo === true) facts.bad_patch = true;
+  return Object.freeze(facts);
+}
+
+export function trialReplacement({ part, research = {} } = {}) {
+  const judgement = judgeCandidate({ research });
+  const ready = judgement.status === 'BETTER_PROVEN';
+  return Object.freeze({
+    part: String(part || '').trim().toLowerCase(),
+    judgement,
+    replacement_ready: ready,
+    activation_allowed: false,
+    plan: CORE_BRICKS[String(part || '').trim().toLowerCase()]
+      ? planCoreMigration({ part, replacementReady: ready })
+      : null,
+  });
 }
 
 export function respondToLifeEvent(id) {

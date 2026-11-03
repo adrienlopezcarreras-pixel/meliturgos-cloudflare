@@ -18,7 +18,7 @@ import { readActivityListEpoch } from './autonomy-activity.js';
 import { backgroundNeuronBudgetExhausted, readNeuronBonusTotal } from '../augmentio/neuron-budget.js';
 import { bindLocalPcWorkersAi, localPcModelReady } from '../models/local-pc-model.js';
 import { readSurvivalState, shouldResumeForSurvival } from '../legacy/survival-mode.js';
-import { applyLifeCountermeasure, applyDueLifeCountermeasures } from '../continuity/life-contingency.js';
+import { applyLifeCountermeasure, applyDueLifeCountermeasures, lifeFactsFromSignals } from '../continuity/life-contingency.js';
 import { bindCountermeasureActions } from '../continuity/countermeasure-actions.js';
 import { singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
 
@@ -734,8 +734,27 @@ async function autonomyProgressSnapshot(repository, roadmap = null, epochMs = 0)
   }
 }
 
-function countermeasureFacts({ control, watchdog, tick, job }) {
+function signalsFromJob(job) {
   const result = job?.result_json || {};
+  const tests = Array.isArray(result.dev_bridge?.tests) ? result.dev_bridge.tests : [];
+  const signals = { ...(result.life_signals || {}) };
+  if (tests.some(row => row?.error === 'RELEASE_CODE_SMOKE_FAILED' || row?.name === 'release-smoke' && row?.passed === false)) {
+    signals.smoke = { ...(signals.smoke || {}), ok: false };
+  }
+  if (tests.some(row => row?.error === 'FULL_RELEASE_CI_FAILED')) {
+    signals.release = { ...(signals.release || {}), ci: 'failure' };
+  }
+  if (result.reconstruction && result.reconstruction.key_present === false) {
+    signals.memory = { ...(signals.memory || {}), key_present: false };
+  }
+  if (result.reconstruction?.corrupt === true) {
+    signals.memory = { ...(signals.memory || {}), corrupt: true };
+  }
+  return signals;
+}
+
+function countermeasureFacts({ control, watchdog, tick, job }) {
+  const result = { ...(job?.result_json || {}), ...lifeFactsFromSignals(signalsFromJob(job)) };
   const stamped = result.countermeasure?.code;
   const progress = tick?.progress || {};
   const status = String(progress.job_status || job?.status || '').toUpperCase();
