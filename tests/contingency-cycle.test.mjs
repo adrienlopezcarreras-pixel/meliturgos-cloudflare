@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { allScenarios, currentContingency, buildReconstructionKit, placeReconstructionCopies } from '../src/continuity/contingency-plan.js';
 import { allLifeEvents } from '../src/continuity/life-contingency.js';
 import { contingencyHandlers, runContingencyCycle } from '../src/continuity/contingency-cycle.js';
+import { REPLACEMENT_CATALOG, replacementAttestationPayload } from '../src/continuity/replacement-catalog.js';
+import { webcrypto } from 'node:crypto';
 
 test('every outage countermeasure has a handler and a quiet tick changes nothing', async () => {
   const codes = new Set(allScenarios().flatMap(row => row.countermeasure));
@@ -195,4 +197,34 @@ test('all private backup providers unknown means disaster rebuild cannot start',
   assert.equal(cycle.ran.some(row => row.code === 'STOP_AND_REBUILD_FROM_PRIVATE_KIT'), false);
   assert.equal(rebuilt, false);
   assert.equal(cycle.activation_performed, false);
+});
+
+test('signed independent model evidence is visible but never triggers model switch', async () => {
+  const secret = 'test-independent-signature-secret-0123456789';
+  const sourceSha = 'c'.repeat(40), now = Date.parse('2026-11-03T20:00:00Z');
+  const candidate = REPLACEMENT_CATALOG.model.candidates[0];
+  const key = await webcrypto.subtle.importKey('raw',new TextEncoder().encode(secret),
+    {name:'HMAC',hash:'SHA-256'},false,['sign']);
+  const reports = await Promise.all(REPLACEMENT_CATALOG.model.probes.map(async (probe,i) => {
+    const row = {part:'model',candidate,probe,passed:true,observer:'external-attestor',
+      evidence_id:'independent-'+i, observed_at:'2026-11-03T19:59:00Z',source_sha:sourceSha};
+    const bytes = new Uint8Array(await webcrypto.subtle.sign('HMAC',key,
+      new TextEncoder().encode(replacementAttestationPayload(row))));
+    return {...row,signature:[...bytes].map(v=>v.toString(16).padStart(2,'0')).join('')};
+  }));
+  const base = { observed:{cloudflareUp:true,modelUp:false},actions:{note:async()=>({ok:true})},
+    replacementAttestations:reports,
+    replacementAttestationConfig:{secret,expectedSourceSha:sourceSha,
+      trustedObserver:'external-attestor',now,cryptoImpl:webcrypto}};
+  const verified = await runContingencyCycle(base);
+  assert.equal(verified.replacement_certifications[0].ready,true);
+  assert.equal(verified.ran.find(x=>x.code==='USE_OTHER_PROVEN_MODEL').reason,'PROVEN_MODEL_NOT_SWITCHED');
+  assert.equal(verified.activation_performed,false);
+  const unsigned = await runContingencyCycle({...base,replacementAttestationConfig:{...base.replacementAttestationConfig,secret:'wrong-key-but-long-enough-0123456789'}});
+  assert.equal(unsigned.replacement_certifications[0].ready,false);
+  assert.equal(unsigned.ran.find(x=>x.code==='USE_OTHER_PROVEN_MODEL').reason,'NO_PROVEN_REPLACEMENT');
+  const olderSha = await runContingencyCycle({...base,replacementAttestationConfig:{...base.replacementAttestationConfig,expectedSourceSha:'d'.repeat(40)}});
+  assert.equal(olderSha.replacement_certifications[0].ready,false);
+  const forged = await runContingencyCycle({...base,replacementAttestations:reports.map(row=>({...row,passed:true,observer:'untrusted'}))});
+  assert.equal(forged.replacement_certifications[0].ready,false);
 });
