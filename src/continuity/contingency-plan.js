@@ -147,15 +147,45 @@ export function currentContingency(observed = {}) {
       activation_performed: false,
     });
   }
-  return respondToScenario({
+  const plan = respondToScenario({
     down,
     standby: {
-      companionOnline: observed.pcUp !== false && observed.companionOnline === true,
+      // A local standby needs a positive, current PC observation, not merely
+      // an absent failure report or a stale Companion heartbeat.
+      companionOnline: observed.pcUp === true && observed.companionOnline === true,
       localGit: observed.localGit === true,
       localDb: observed.localDb === true,
       localModel: observed.localModel === true,
     },
   });
+  if (plan.max === 'ACTIONS_RELAY_READY' && observed.githubRelayReady !== true) {
+    // GitHub being reachable does not prove the Actions relay is configured,
+    // authorised and has passed an independent code execution drill.
+    return Object.freeze({
+      ...plan,
+      max: 'ACTIONS_RELAY_UNVERIFIED',
+      consequence: 'Le relais GitHub Actions n est pas certifie. Aucun moteur de remplacement ne peut etre declare actif.',
+      verification_required: Object.freeze(['GITHUB_RELAY_LIVE_TEST']),
+      activation_performed: false,
+    });
+  }
+  if (plan.max === 'NO_RUNNER' && plan.rebirth === 'FROM_PRIVATE_KIT') {
+    // Provider reachability is not evidence of a restorable private backup.
+    const verified = plan.private_kits_left.filter(part =>
+      observed[part + 'Up'] === true && observed[part + 'KitVerified'] === true);
+    if (!verified.length) {
+      return Object.freeze({
+        ...plan,
+        rebirth: 'PRIVATE_KIT_UNVERIFIED',
+        countermeasure: Object.freeze(['DO_NOT_DEPLOY', 'DO_NOT_USE_PUBLIC_SHARDS_AS_KEY']),
+        consequence: 'Aucun moteur ne reste et aucune restauration du kit prive n est prouvee. Reconstruction bloquee.',
+        verification_required: Object.freeze(['PRIVATE_KIT_RESTORE_DRILL']),
+        activation_performed: false,
+      });
+    }
+    return Object.freeze({ ...plan, verified_private_kits: Object.freeze(verified) });
+  }
+  return plan;
 }
 
 export function judgeCandidate({ research = {} } = {}) {
