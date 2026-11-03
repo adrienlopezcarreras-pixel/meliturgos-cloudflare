@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { allScenarios } from '../src/continuity/contingency-plan.js';
+import { allScenarios, currentContingency, buildReconstructionKit, placeReconstructionCopies } from '../src/continuity/contingency-plan.js';
 import { allLifeEvents } from '../src/continuity/life-contingency.js';
 import { contingencyHandlers, runContingencyCycle } from '../src/continuity/contingency-cycle.js';
 
@@ -74,4 +74,51 @@ test('failed recording is isolated and subsequent life repair still runs', async
   assert.equal(cycle.ran.find(row => row.code === 'DO_NOT_DEPLOY')?.applied, false);
   assert.equal(cycle.life.find(row => row.id === 'MAX_STALLED')?.applied, true);
   assert.deepEqual(repaired, ['requeue']);
+});
+
+test('exhaustive 127 outage combinations have executable mappings or explicit blocked decisions', async () => {
+  const scenarios = allScenarios();
+  assert.equal(scenarios.length, 127);
+  const mapping = { cloudflare: 'cloudflareUp', pc: 'pcUp', github: 'githubUp', model: 'modelUp', gmail: 'gmailUp', onedrive: 'onedriveUp', shards: 'shardsUp' };
+  const seen = new Set();
+  for (const scenario of scenarios) {
+    const observed = Object.fromEntries(Object.values(mapping).map(key => [key, true]));
+    for (const part of scenario.down) observed[mapping[part]] = false;
+    observed.companionOnline = observed.pcUp === true;
+    observed.localGit = false;
+    observed.localDb = false;
+    observed.localModel = false;
+    const cycle = await runContingencyCycle({ observed, actions: { note: async () => ({ ok: true }) } });
+    assert.deepEqual(new Set(cycle.scenario.down), new Set(scenario.down));
+    assert.equal(cycle.scenario.kind, scenario.kind);
+    for (const action of cycle.ran) {
+      assert.equal(typeof contingencyHandlers()[action.code], 'string', action.code);
+      assert.notEqual(action.reason, 'NO_HANDLER', action.code);
+      assert.equal(action.activation_performed, false, action.code);
+    }
+    assert.equal(cycle.activation_performed, false);
+    seen.add([...scenario.down].sort().join(','));
+  }
+  assert.equal(seen.size, 127);
+});
+
+test('offline optional Companion does not create an outage without a failed probe', async () => {
+  assert.equal(currentContingency({ cloudflareUp: true, companionOnline: false }).kind, 'NONE');
+  assert.deepEqual(currentContingency({ cloudflareUp: true, pcUp: false }).down, ['pc']);
+});
+
+test('public shards have no private backup key and private reconstruction copies retain one', () => {
+  const kit = buildReconstructionKit({
+    sourceSha: 'a'.repeat(40),
+    encryptedBackup: 'ENCRYPTED_FIXTURE',
+    keyId: 'test-key',
+    keyB64: 'TEST_ONLY_SECRET',
+    index: { format: 'MEL-ShardVault-DiscoveryIndex', shards: [] },
+  });
+  const copies = placeReconstructionCopies(kit);
+  assert.equal(copies.gmail.sufficient_alone, true);
+  assert.equal(copies.onedrive.sufficient_alone, true);
+  assert.equal(copies.shards.sufficient_alone, false);
+  assert.equal(JSON.stringify(copies.shards).includes('TEST_ONLY_SECRET'), false);
+  assert.equal(copies.shards.body.backup.key_b64, undefined);
 });
