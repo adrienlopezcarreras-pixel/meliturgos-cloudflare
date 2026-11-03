@@ -31,3 +31,15 @@ export function observedContingencyFromProbes(reports = [], { now = Date.now(), 
   }
   return Object.freeze({ observed:Object.freeze(state), details:Object.freeze(details), authenticated:false });
 }
+
+/** A Worker running this tick is local evidence it is alive. Remote monitors
+ * may still report a partial outage, but cannot initiate its own dead-worker
+ * handoff from inside a live process. Independent recovery runs off-Worker. */
+export function activeWorkerContingencyObserved(probeResult = {}) {
+  return Object.freeze({
+    ...(probeResult && typeof probeResult === 'object' && probeResult.observed && typeof probeResult.observed === 'object'
+      ? probeResult.observed : {}),
+    cloudflareUp: true,
+    companionOnline: false,
+  });
+}
