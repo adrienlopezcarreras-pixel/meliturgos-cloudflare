@@ -405,11 +405,24 @@ export async function handleCouncilReviewRequest(request, env, { now = Date.now(
   // different, partially read oversized diff.
   if (new TextEncoder().encode(body.diff).byteLength > MAX_DIFF)
     return Response.json({ ok: false, code: 'COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT' }, { status: 413 });
+  // Same Git commit can produce different diffs if the base advances. A
+  // SHA-only cache is insufficient: bind each approval to the EXACT BASE and
+  // full UTF-8 diff, or reject reuse (including legacy uncoupled records).
+  const base = String(body.base || '').toLowerCase();
+  const hash = await globalThis.crypto.subtle.digest('SHA-256',new TextEncoder().encode(body.diff));
+  const diffSha256 = Array.from(new Uint8Array(hash),n=>n.toString(16).padStart(2,'0')).join('');
   const key = 'council-review:' + head;
   const cached = await env.DB.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?').bind(key).first().catch(() => null);
   let attempts = 0;
   if (cached?.metadata_json) {
-    try { const prior = JSON.parse(cached.metadata_json); if (!RETRYABLE.has(prior.decision)) return Response.json({ ok: true, cached: true, ...prior }); attempts = priorAttempts(prior); } catch {}
+    try {
+      const prior = JSON.parse(cached.metadata_json);
+      if (prior.mode === 'COMPLETE_INDEPENDENT_MULTI_BATCH_REVIEW'
+          || prior.base !== base || prior.diff_sha256 !== diffSha256)
+        return Response.json({ok:false,code:'COUNCIL_CACHED_DIFF_MISMATCH'},{status:409});
+      if (!RETRYABLE.has(prior.decision)) return Response.json({ok:true,cached:true,...prior});
+      attempts = priorAttempts(prior);
+    } catch {}
   }
   const jobs = [...String(body.log || '').matchAll(/apply approved bridge package ([A-Za-z0-9_.:-]+)/g)].map(m => m[1]).slice(0, 10);
   let goal = '';
@@ -418,7 +431,7 @@ export async function handleCouncilReviewRequest(request, env, { now = Date.now(
     if (row?.goal) goal += (goal ? '\n' : '') + id + ' : ' + row.goal;
   }
   const result = await review(env, { diff: body.diff, goal, attempts });
-  const record = { decision: result.decision, head, base: String(body.base || '').slice(0, 40), jobs, reviews: result.reviews, reviewed_at: now, attempts: attempts + 1 };
+  const record = { decision: result.decision, head, base, diff_sha256: diffSha256, jobs, reviews: result.reviews, reviewed_at: now, attempts: attempts + 1 };
   await env.DB.prepare(`INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?)
     ON CONFLICT(bridge_id) DO UPDATE SET last_seen=excluded.last_seen,status=excluded.status,metadata_json=excluded.metadata_json`)
     .bind(key, now, result.decision, JSON.stringify(record)).run().catch(() => {});

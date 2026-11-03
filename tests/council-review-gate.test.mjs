@@ -227,3 +227,15 @@ test('oversized Council requests fail closed before SHA cache or truncated AI ap
   assert.deepEqual(result.reviews,[]);
   assert.equal(called.length,0);
 });
+
+test('a Council approval cache must be bound to exact base and diff bytes, not only SHA', async()=>{
+  const {readFileSync}=await import('node:fs');
+  const council=readFileSync(new URL('../src/evolution/council-review.js',import.meta.url),'utf8');
+  const handler=council.slice(council.indexOf('export async function handleCouncilReviewRequest'));
+  assert.match(handler,/prior\.base !== base \|\| prior\.diff_sha256 !== diffSha256/);
+  assert.match(handler,/COUNCIL_CACHED_DIFF_MISMATCH/);
+  assert.ok(handler.indexOf('COUNCIL_CACHED_DIFF_MISMATCH') <
+    handler.indexOf('if (!RETRYABLE.has(prior.decision))'));
+  assert.match(handler,/diff_sha256: diffSha256/);
+  assert.match(handler,/prior\.mode === 'COMPLETE_INDEPENDENT_MULTI_BATCH_REVIEW'/);
+});
