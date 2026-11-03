@@ -87,6 +87,23 @@ async function requeueOrphanReview(repository, job, now = Date.now()) {
 
   const observedAt = new Date().toISOString();
   const result = cloneObject(job.result_json);
+  if (undispatchable) {
+    delete result.implementation_proposal;
+    delete result.bridge_package;
+    delete result.bridge_preparation;
+    result.passive_state_recovery = {
+      recovered_at: observedAt,
+      previous_status: 'READY_FOR_REVIEW',
+      reason: 'REVIEW_NOT_DISPATCHABLE',
+    };
+    const updated = await repository.update(job.id, {
+      status: 'TEACHER_APPROVED',
+      result_json: result,
+      error: null,
+    }, { expected: job });
+    if (upper(updated?.status) !== 'TEACHER_APPROVED') return null;
+    return { job_id: updated.id, from: 'READY_FOR_REVIEW', to: 'TEACHER_APPROVED', reason: 'REVIEW_NOT_DISPATCHABLE' };
+  }
   archiveBridge(result, teacher, {
     status: teacher?.status || 'MISSING',
     orphaned_at: observedAt,

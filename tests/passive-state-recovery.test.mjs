@@ -68,7 +68,10 @@ test('a review with no dispatchable package yields the slot after six hours', as
   const stale = await recoverPassiveRuntimeStates(repository, { canonicalSha: NEW_SHA, now: stored.updated_at + 7 * 60 * 60 * 1000 });
   assert.equal(stale.recovered.length, 1);
   assert.equal(stale.recovered[0].reason, 'REVIEW_NOT_DISPATCHABLE');
-  assert.equal((await repository.get(job.id)).status, 'QUEUED');
+  const resumed = await repository.get(job.id);
+  assert.equal(resumed.status, 'TEACHER_APPROVED');
+  assert.equal(resumed.result_json.teacher_bridge.review.verdict, 'APPROVE_PLAN');
+  assert.equal(resumed.result_json.implementation_proposal, undefined);
 });
 
 test('exhausted approved Mentor work wakes only on a new deployed SHA and preserves a concurrent claim', async () => {
