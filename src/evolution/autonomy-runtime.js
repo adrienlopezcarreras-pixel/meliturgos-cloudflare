@@ -18,7 +18,8 @@ import { readActivityListEpoch } from './autonomy-activity.js';
 import { backgroundNeuronBudgetExhausted, readNeuronBonusTotal } from '../augmentio/neuron-budget.js';
 import { bindLocalPcWorkersAi, localPcModelReady } from '../models/local-pc-model.js';
 import { readSurvivalState, shouldResumeForSurvival } from '../legacy/survival-mode.js';
-import { applyLifeCountermeasure, applyDueLifeCountermeasures, lifeFactsFromSignals } from '../continuity/life-contingency.js';
+import { applyLifeCountermeasure, lifeFactsFromSignals } from '../continuity/life-contingency.js';
+import { runContingencyCycle } from '../continuity/contingency-cycle.js';
 import { bindCountermeasureActions } from '../continuity/countermeasure-actions.js';
 import { singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
 
@@ -795,7 +796,25 @@ async function applyObservedCountermeasures(env, repository, control, watchdog, 
     openPrivateCopy: env?.MEL_OPEN_PRIVATE_KIT,
     restoreBackupBytes: env?.MEL_RESTORE_BACKUP,
   });
-  return applyDueLifeCountermeasures(countermeasureFacts({ control, watchdog, tick, job }), actions);
+  const parts = job?.result_json?.parts_up || {};
+  const down = (name) => parts[name] === false ? false : (parts[name] === true ? true : undefined);
+  return runContingencyCycle({
+    observed: {
+      cloudflareUp: true,
+      companionOnline: down('pc'),
+      githubUp: down('github'),
+      modelUp: down('model'),
+      gmailUp: down('gmail'),
+      onedriveUp: down('onedrive'),
+      shardsUp: down('shards'),
+      localGit: job?.result_json?.standby?.localGit === true,
+      localDb: job?.result_json?.standby?.localDb === true,
+      localModel: job?.result_json?.standby?.localModel === true,
+    },
+    life: countermeasureFacts({ control, watchdog, tick, job }),
+    actions,
+    replacements: Array.isArray(job?.result_json?.replacement_trials) ? job.result_json.replacement_trials : [],
+  });
 }
 
 function augmentTickProgress(tick = {}) {

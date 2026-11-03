@@ -83,5 +83,6 @@ export function bindCountermeasureActions({
       return result?.ok === true ? { ok: true } : { ok: false, code: result?.code || 'BACKUP_RESTORE_FAILED' };
     },
     openKit,
+    note: (code) => markJob(repository, null, String(code || 'CONTINGENCY_NOTED')),
   };
 }
