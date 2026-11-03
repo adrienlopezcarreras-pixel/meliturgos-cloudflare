@@ -183,3 +183,19 @@ test('contingency audit is scoped to the observed mission even with multiple act
   assert.equal(ambiguous.ok, false);
   assert.equal(ambiguous.code, 'AMBIGUOUS_ACTIVE_JOBS');
 });
+
+test('successful external rollback is not certified if its mission audit cannot persist', async () => {
+  let rolledBack = false;
+  const store = repository();
+  store.jobs.length = 0;
+  const actions = bindCountermeasureActions({
+    repository: store,
+    previousVersionId: 'v-before',
+    rollbackWorker: async () => { rolledBack = true; return { ok: true }; },
+  });
+  const result = await actions.rollback();
+  assert.equal(rolledBack, true);
+  assert.equal(result.ok, false);
+  assert.equal(result.rollback_performed, true);
+  assert.equal(result.code, 'NO_ACTIVE_JOB');
+});
