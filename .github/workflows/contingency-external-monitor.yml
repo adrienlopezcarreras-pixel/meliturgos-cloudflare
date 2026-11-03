@@ -18,6 +18,7 @@ on:
       - 'tests/replacement-attestation.test.mjs'
       - 'tests/public-contingency-heartbeat.test.mjs'
       - 'tests/shardvault-reconstruction-stress.test.mjs'
+      - 'tests/maintenance/r2-snapshot-discovery.test.mjs'
       - 'release-tools/predeploy-backup-refresh/**'
       - 'src/backup/**'
       - 'tests/predeploy-d1-restore-proof.test.mjs'
@@ -54,6 +55,7 @@ jobs:
           tests/passive-state-recovery.test.mjs
           tests/predeploy-d1-restore-proof.test.mjs
           tests/maintenance/system-restore-proof.test.mjs
+          tests/maintenance/r2-snapshot-discovery.test.mjs
           tests/gen2/sovereign-regeneration-*.test.mjs
   monitor-cloudflare:
     # Use the canonical Worker origin from wrangler.jsonc by default.
