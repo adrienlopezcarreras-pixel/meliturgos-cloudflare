@@ -128,7 +128,9 @@ jobs:
           git diff "$MAIN" "$CAND" -- . ':(exclude)bridge-apply-result.json' > council.diff
           DIFF_BYTES="$(wc -c < council.diff | tr -d '[:space:]')"
           if [ "$DIFF_BYTES" -gt 48000 ]; then
-            echo "::warning title=MEL Council::COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT bytes=$DIFF_BYTES — do not approve an incomplete review."
+            # A manifest is an auditable queue of complete files, NEVER a vote.
+            node scripts/prepare-council-review-batches.mjs council.diff council-review-manifest.json
+            echo "::warning title=MEL Council::COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT bytes=$DIFF_BYTES — review plan recorded; no promotion until EVERY batch and the entire SHA are independently approved."
             exit 0
           fi
           git log --format=%s "$MAIN..$CAND" > council.log
@@ -168,3 +170,12 @@ jobs:
           git -c http.https://github.com/.extraheader= push "https://x-access-token:${MEL_WORKFLOW_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$CAND:refs/heads/main"
           echo "::notice title=MEL promoted::main $MAIN -> $CAND ($AHEAD commit(s), full-candidate-ci green). Production release follows within the hour."
           dispatch_release
+
+      - name: Preserve content-free Council batch preflight without granting approval
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: council-pending-batch-review
+          path: council-review-manifest.json
+          if-no-files-found: ignore
+          retention-days: 14

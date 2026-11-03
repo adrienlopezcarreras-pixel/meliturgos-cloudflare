@@ -206,7 +206,13 @@ export function sensitiveDiff(diff) {
 }
 
 export async function runCouncilReview(env, { diff, goal = '', models = null, timeoutMs = 120_000, now = Date.now(), attempts = 0, system = SYSTEM, companion = createMentorCompanionFallback } = {}) {
-  const user = 'Objectif annoncé : ' + String(goal || '(non fourni)').slice(0, 1500) + '\n\nDIFF :\n' + String(diff || '').slice(0, MAX_DIFF);
+  const completeDiff = String(diff || '');
+  // Never allow a model to approve a SHA after reading only a truncated
+  // prefix. The promotion workflow must use a separate full-batch review
+  // protocol for larger diffs; a manifest alone is never approval.
+  if (new TextEncoder().encode(completeDiff).byteLength > MAX_DIFF)
+    return { decision: 'COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT', reviews: [] };
+  const user = 'Objectif annoncé : ' + String(goal || '(non fourni)').slice(0, 1500) + '\n\nDIFF :\n' + completeDiff;
   const health = await readModelHealth(env);
   const catalog = Array.isArray(models) && models.length ? models : orderCouncilModels(freeCouncilCatalog(env), health, now);
   const reviews = [];
@@ -387,7 +393,13 @@ export async function handleCouncilReviewRequest(request, env, { now = Date.now(
   if (!oidc.ok) return Response.json({ ok: false, code: oidc.code }, { status: oidc.status || 401 });
   const body = await request.json().catch(() => ({}));
   const head = String(body.head || '');
-  if (!/^[a-f0-9]{40}$/.test(head) || !String(body.diff || '').trim()) return Response.json({ ok: false, code: 'COUNCIL_REVIEW_INPUT_INVALID' }, { status: 400 });
+  if (!/^[a-f0-9]{40}$/.test(head) || typeof body.diff !== 'string' || !body.diff.trim())
+    return Response.json({ ok: false, code: 'COUNCIL_REVIEW_INPUT_INVALID' }, { status: 400 });
+  // Verify byte-size before the SHA-keyed cache lookup as well as before AI
+  // calls. Existing approval for another input must never validate a
+  // different, partially read oversized diff.
+  if (new TextEncoder().encode(body.diff).byteLength > MAX_DIFF)
+    return Response.json({ ok: false, code: 'COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT' }, { status: 413 });
   const key = 'council-review:' + head;
   const cached = await env.DB.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?').bind(key).first().catch(() => null);
   let attempts = 0;

@@ -79,7 +79,7 @@ test('online models first; after 10 short reviews the PC alone, then the owner',
   const pc = async () => ({ async invoke({ input }) { asked.push(input); return { text: '{"verdict":"APPROVE","summary":"relu sur le PC, correct et testé"}' }; } });
   assert.equal((await runCouncilReview(down, { diff: '+x', attempts: 0, companion: pc })).decision, 'INSUFFICIENT_REVIEWERS');
   assert.equal(asked.length, 0, 'the PC is not asked before 10 attempts');
-  const last = await runCouncilReview(down, { diff: '+x'.repeat(30_000), attempts: PC_AFTER_ATTEMPTS - 1, companion: pc });
+  const last = await runCouncilReview(down, { diff: '+x'.repeat(6_500), attempts: PC_AFTER_ATTEMPTS - 1, companion: pc });
   assert.equal(last.decision, 'OWNER_APPROVAL_REQUIRED');
   assert.ok(asked[0].length <= 12_000, 'the Companion refuses messages above 12 000 chars');
   assert.equal((await runCouncilReview(down, { diff: '+x', attempts: 20, companion: async () => null })).decision, 'COUNCIL_UNAVAILABLE');
@@ -213,4 +213,17 @@ test('a Council rejection reverts only the culprit jobs files, never innocent wo
   assert.deepEqual(culpritRevertPaths(new Set(['job-ui']), packages), ['src/pages/a.js', 'tests/a.test.mjs']);
   assert.deepEqual(culpritRevertPaths(new Set(), packages), [], 'unknown culprits: the workflow reverts everything');
   assert.deepEqual(culpritRevertPaths(new Set(['job-x']), { 'job-x': [{ path: '../escape.js' }, { path: '/etc/passwd' }] }), []);
+});
+
+test('oversized Council requests fail closed before SHA cache or truncated AI approval', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../src/evolution/council-review.js',import.meta.url),'utf8');
+  const handler = source.slice(source.indexOf('export async function handleCouncilReviewRequest'));
+  assert.ok(handler.indexOf('COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT') < handler.indexOf("const key = 'council-review:' + head"));
+  const called=[];
+  const env={ AI: { async run(model){ called.push(model); return { response:'{"verdict":"APPROVE","summary":"ok"}' }; } } };
+  const result=await runCouncilReview(env,{diff:'diff --git a/x b/x\n'+'+'.repeat(48_100)});
+  assert.equal(result.decision,'COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT');
+  assert.deepEqual(result.reviews,[]);
+  assert.equal(called.length,0);
 });
