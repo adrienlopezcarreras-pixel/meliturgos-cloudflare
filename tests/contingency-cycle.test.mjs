@@ -122,3 +122,26 @@ test('public shards have no private backup key and private reconstruction copies
   assert.equal(JSON.stringify(copies.shards).includes('TEST_ONLY_SECRET'), false);
   assert.equal(copies.shards.body.backup.key_b64, undefined);
 });
+
+test('a failed PC probe overrides contradictory online standby claims', async () => {
+  const scenario = currentContingency({
+    cloudflareUp: false, githubUp: true, pcUp: false,
+    companionOnline: true, localGit: true, localDb: true, localModel: true,
+  });
+  assert.ok(scenario.down.includes('pc'));
+  assert.notEqual(scenario.max, 'STANDBY_READY');
+  assert.equal(scenario.countermeasure.includes('MOVE_MAX_TO_PC'), false);
+  assert.equal(scenario.countermeasure.includes('RUN_CODE_ON_GITHUB_ACTIONS'), true);
+});
+test('proven PC standby is selectable only with Cloudflare down and a live PC', async () => {
+  const scenario = currentContingency({
+    cloudflareUp: false, githubUp: true, pcUp: true,
+    companionOnline: true, localGit: true, localDb: true, localModel: true,
+  });
+  assert.equal(scenario.max, 'STANDBY_READY');
+  const cycle = await runContingencyCycle({ observed: {
+    cloudflareUp: false, githubUp: true, pcUp: true,
+    companionOnline: true, localGit: true, localDb: true, localModel: true,
+  }, actions: { note: async () => ({ok:true}) } });
+  assert.equal(cycle.ran.find(row => row.code === 'MOVE_MAX_TO_PC').applied, false);
+});
