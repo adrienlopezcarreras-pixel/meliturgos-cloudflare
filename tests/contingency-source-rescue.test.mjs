@@ -130,10 +130,10 @@ test('source rescue CLI makes a real Git archive in an isolated fixture and reje
     await assert.rejects(readFile(join(output,'mel-source-only.tar.gz')), e=>e?.code==='ENOENT');
     commands(['reset','--hard','HEAD~1']);
     env.GITHUB_SHA=commands(['rev-parse','HEAD']).trim();
-    // Reset to original fixture before forged-signature negative drill.
-
-    await rm(join(output,'source-receipt.json'));
-    await rm(join(output,'mel-source-only.tar.gz'));
+    // The runner already removed these artifacts on the failed attempt.
+    // Repeating cleanup is intentionally idempotent before the forged-proof drill.
+    await rm(join(output,'source-receipt.json'),{force:true});
+    await rm(join(output,'mel-source-only.tar.gz'),{force:true});
     await writeFile(join(output,'signed-health.json'),JSON.stringify({...proof,up:true}));
     const forged=run();
     assert.equal(forged.status,2,forged.stderr.slice(0,250));
