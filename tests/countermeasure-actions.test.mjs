@@ -65,3 +65,19 @@ test('successive contingency decisions retain a bounded audit history', async ()
   assert.equal(store.jobs[0].result_json.countermeasure.code, 'PUBLIC_MAP_ONLY');
   assert.equal(store.jobs[0].status, 'READY_FOR_REVIEW');
 });
+
+test('a note without an active job is not falsely counted as applied', async () => {
+  const store = repository();
+  store.jobs.length = 0;
+  const result = await bindCountermeasureActions({ repository: store }).note('DO_NOT_DEPLOY');
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'NO_ACTIVE_JOB');
+});
+
+test('recording a contingency note preserves the existing mission error', async () => {
+  const store = repository();
+  store.jobs[0].error = 'MISSION_TEST_EVIDENCE_REQUIRED';
+  const result = await bindCountermeasureActions({ repository: store }).note('DO_NOT_DEPLOY');
+  assert.equal(result.ok, true);
+  assert.equal(store.jobs[0].error, 'MISSION_TEST_EVIDENCE_REQUIRED');
+});
