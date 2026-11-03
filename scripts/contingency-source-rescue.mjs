@@ -1,10 +1,13 @@
-import { readFile,writeFile,mkdir,stat } from 'node:fs/promises';
+import { readFile,writeFile,mkdir,stat,rm } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { admitGitHubSourceRescue, selectSourceArchiveRoots, sensitiveSourceArchivePaths } from '../src/continuity/github-source-rescue.js';
 
 const DIR='artifacts/contingency';
+// Never leave a previous successful archive/receipt at a failed invocation.
+await rm(DIR+'/source-receipt.json',{force:true});
+await rm(DIR+'/mel-source-only.tar.gz',{force:true});
 let gate;
 try {
   const [report,signed]=await Promise.all([

@@ -121,8 +121,8 @@ test('source rescue CLI makes a real Git archive in an isolated fixture and reje
     commands(['-c','user.name=MEL Test','-c','user.email=test@example.invalid',
       'commit','-qm','inject nested private material']);
     env.GITHUB_SHA=commands(['rev-parse','HEAD']).trim();
-    await rm(join(output,'source-receipt.json'));
-    await rm(join(output,'mel-source-only.tar.gz'));
+    await rm(join(output,'source-receipt.json'),{force:true});
+    await rm(join(output,'mel-source-only.tar.gz'),{force:true});
     const blocked=run();
     assert.equal(blocked.status,1);
     assert.match(blocked.stderr,/SOURCE_ARCHIVE_SENSITIVE_PATHS_BLOCKED/);
