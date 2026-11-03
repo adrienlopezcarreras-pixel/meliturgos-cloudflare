@@ -72,7 +72,7 @@ test('offline optional Companion is not an outage; a diagnosed PC failure is', (
   assert.equal(diagnosed.kind, 'SINGLE');
   assert.deepEqual(diagnosed.down, ['pc']);
   assert.equal(live.max, 'MAX_ON_CLOUDFLARE');
-  assert.match(live.consequence, /reste sur Cloudflare/);
+  assert.match(live.consequence, /MAX reste ou elle est/);
   const both = currentContingency({ cloudflareUp: false, companionOnline: false, githubUp: true });
   assert.equal(both.max, 'ACTIONS_RELAY_READY');
   assert.match(both.consequence, /GitHub Actions prend le relais/);
