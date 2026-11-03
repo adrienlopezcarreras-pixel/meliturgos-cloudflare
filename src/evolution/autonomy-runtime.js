@@ -856,6 +856,8 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
           reason: 'MAX_RESTORED_AFTER_ROLLBACK',
           memoryState: options.autonomyControlState || null,
         });
+        return { ok: control?.max_autonomy === true && control?.paused !== true,
+          max_active: control?.max_autonomy === true, active: control?.max_autonomy === true };
       },
     });
     const applied = await applyLifeCountermeasure('MAX_PAUSED_BY_MISTAKE', actions);
@@ -872,6 +874,8 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
           reason: 'owner-silent-one-year',
           memoryState: options.autonomyControlState || null,
         });
+        return { ok: control?.max_autonomy === true && control?.paused !== true,
+          max_active: control?.max_autonomy === true, active: control?.max_autonomy === true };
       },
     });
     const applied = await applyLifeCountermeasure('OWNER_ABSENT', actions);
