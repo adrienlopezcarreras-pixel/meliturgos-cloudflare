@@ -70,6 +70,16 @@ test('cancellation after deployment cannot authorize the new SHA; subsequent rel
  assert.equal((await restore(db)).status,200);
 }));
 
+test('MAX already running without a SHA is authorized on the deployed commit', () => usingDb(async db => {
+  await setAutonomyControl(db, { paused: false, max_autonomy: true, source: 'owner-ui', reason: 'owner-max-autonomy', launch_approved_sha: null });
+  let ticks = 0;
+  const response = await restore(db, { tick: async () => { ticks += 1; return { ok: true }; } });
+  assert.equal(response.status, 200);
+  assert.equal(ticks, 1);
+  assert.equal((await response.json()).restore_skipped, undefined);
+  assert.equal((await getAutonomyControl(db)).launch_approved_sha, SHA);
+}));
+
 test('stale SHA authorization or stale green readiness cannot restore MAX',()=>usingDb(async db=>{
  await owner(db);await pause(db);
  let ticks=0;const r=await restore(db,{sha:OLD,tick:async()=>{ticks++;}});

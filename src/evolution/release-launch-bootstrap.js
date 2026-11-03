@@ -832,7 +832,20 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     const changedOwnerIntent = !Number.isSafeInteger(releaseOwnerVersion)
       || releaseOwnerVersion <= 0
       || ownerControlVersion(beforeRestore) !== releaseOwnerVersion;
-    if (releaseRestore && !isReleaseAutonomyPause(beforeRestore) && (safetyStop || changedSinceVerification || changedOwnerIntent)) {
+    const approvedNow = String(beforeRestore?.launch_approved_sha || '').toLowerCase();
+    const deployedNow = String(exactDeployedSha(env) || '').toLowerCase();
+    // MAX already on, with no SHA, is the hole that forced a manual off/on.
+    // A safety stop still wins. An already matching SHA must not tick again.
+    const runningWithoutSha = beforeRestore?.paused !== true
+      && beforeRestore?.max_autonomy === true
+      && !/^[0-9a-f]{40}$/.test(approvedNow);
+    const alreadyAuthorized = beforeRestore?.paused !== true
+      && beforeRestore?.max_autonomy === true
+      && approvedNow === deployedNow
+      && /^[0-9a-f]{40}$/.test(approvedNow);
+    if (releaseRestore && !isReleaseAutonomyPause(beforeRestore)
+        && !(runningWithoutSha && !safetyStop)
+        && (alreadyAuthorized || safetyStop || changedSinceVerification || changedOwnerIntent)) {
       return Response.json({ ok: true, status: 'RELEASE_OWNER_CONTROL_PRESERVED', restore_skipped: true,
         paused: beforeRestore.paused, max_autonomy: beforeRestore.max_autonomy,
         autonomy_started: false }, { headers: { 'cache-control': 'no-store' } });
