@@ -791,6 +791,7 @@ async function applyObservedCountermeasures(env, repository, control, watchdog, 
   const job = jobId && typeof repository.get === 'function' ? await repository.get(jobId).catch(() => null) : null;
   const actions = bindCountermeasureActions({
     repository,
+    jobId: job?.id || null,
     supervisor: new AutonomySupervisor({ repository }),
     previousVersionId: job?.result_json?.previous_version_id || null,
     rollbackWorker: env?.MEL_ROLLBACK_WORKER,
