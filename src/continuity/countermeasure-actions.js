@@ -7,7 +7,15 @@ async function markJob(repository, status, code) {
   const jobs = await repository.listActiveAutonomyJobs();
   const job = Array.isArray(jobs) ? jobs.find(row => row?.id) : null;
   if (!job) return { ok: true, idle: true, code };
-  const result = { ...(job.result_json || {}), countermeasure: { code, at: new Date().toISOString() } };
+  const previous = job.result_json || {};
+  const entry = { code, at: new Date().toISOString() };
+  const history = Array.isArray(previous.countermeasure_history) ? previous.countermeasure_history : [];
+  // Keep each decision for audit instead of overwriting the last one.
+  const result = {
+    ...previous,
+    countermeasure: entry,
+    countermeasure_history: [...history, entry].slice(-100),
+  };
   await repository.update(job.id, {
     status: status || job.status,
     result_json: result,
