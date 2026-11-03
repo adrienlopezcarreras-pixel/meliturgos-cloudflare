@@ -321,8 +321,15 @@ async function recordCoreRuntimeFailure(repository, error, { maxAttempts = 3, ep
 }
 
 async function runCoreResilient(env, coreOptions, repository) {
+  let passiveRecovery = null;
   try {
-    return await runCoreAutonomyRuntimeTick(env, coreOptions);
+    passiveRecovery = await recoverPassiveRuntimeStates(repository, {
+      canonicalSha: deployedCandidateSha(env),
+      limit: 200,
+      activeOnly: true,
+    });
+    const core = await runCoreAutonomyRuntimeTick(env, coreOptions);
+    return core && typeof core === 'object' ? { ...core, passive_recovery: passiveRecovery } : core;
   } catch (error) {
     // Configuration/safety errors must never be converted into a retryable job.
     // Retrying those would hide a bad branch configuration and weaken the
@@ -476,20 +483,6 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
   const repository = options.repository || new D1DevJobRepository(env.DB);
   const epochMs = options.epochMs ?? await readActivityListEpoch(env?.DB, { strict: true });
   const currentRepository = currentAutonomyRepository(repository, epochMs);
-  let passiveRecovery = null;
-  try {
-    passiveRecovery = await recoverPassiveRuntimeStates(repository, {
-      canonicalSha: deployedCandidateSha(env),
-      limit: 200,
-    });
-  } catch (error) {
-    passiveRecovery = {
-      attempted: 0,
-      recovered: [],
-      failed: [{ job_id: null, code: error?.code || error?.message || 'PASSIVE_RECOVERY_FAILED' }],
-      canonical_sha: deployedCandidateSha(env) || null,
-    };
-  }
   let preEnsure = {
     created: false,
     job_id: null,
@@ -521,6 +514,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     maxAutonomy: control.max_autonomy === true,
   };
   const first = preservePreEnsureCreation(await runCoreResilient(env, coreOptions, repository), preEnsure);
+  const passiveRecovery = first?.passive_recovery || null;
 
   let internalTeacherMirror = null;
   try {
