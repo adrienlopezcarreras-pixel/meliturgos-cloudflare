@@ -20,6 +20,7 @@ import { bindLocalPcWorkersAi, localPcModelReady } from '../models/local-pc-mode
 import { readSurvivalState, shouldResumeForSurvival } from '../legacy/survival-mode.js';
 import { applyLifeCountermeasure, lifeFactsFromSignals } from '../continuity/life-contingency.js';
 import { runContingencyCycle } from '../continuity/contingency-cycle.js';
+import { observedContingencyFromProbes } from '../continuity/contingency-observations.js';
 import { bindCountermeasureActions } from '../continuity/countermeasure-actions.js';
 import { singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
 
@@ -798,6 +799,9 @@ async function applyObservedCountermeasures(env, repository, control, watchdog, 
   });
   const parts = job?.result_json?.parts_up || {};
   const down = (name) => parts[name] === false ? false : (parts[name] === true ? true : undefined);
+  // Explicit fresh probe reports supersede legacy per-job flags. Reports are
+  // only observations; ingress must authenticate their producer separately.
+  const probes = observedContingencyFromProbes(job?.result_json?.contingency_probes, { now: Date.now() });
   return runContingencyCycle({
     observed: {
       cloudflareUp: true,
@@ -810,6 +814,7 @@ async function applyObservedCountermeasures(env, repository, control, watchdog, 
       localGit: job?.result_json?.standby?.localGit === true,
       localDb: job?.result_json?.standby?.localDb === true,
       localModel: job?.result_json?.standby?.localModel === true,
+      ...probes.observed,
     },
     life: countermeasureFacts({ control, watchdog, tick, job }),
     actions,
