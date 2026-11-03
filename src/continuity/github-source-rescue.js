@@ -52,3 +52,19 @@ export function selectSourceArchiveRoots(trackedRoots = []) {
     .filter(name => typeof name === 'string' && SOURCE_ARCHIVE_ROOTS.has(name))
     .sort();
 }
+
+
+/** Never publish a tracked secret, key or database dump merely because its
+ * parent root is source-allowlisted. Reject the whole artifact, fail closed. */
+export function sensitiveSourceArchivePaths(paths = []) {
+  if (!Array.isArray(paths)) return Object.freeze(['INVALID_PATH_LIST']);
+  const denyName = /^(?:\.env(?:\.[^/]*)?|\.npmrc|\.pypirc|id_rsa|id_ed25519|[^/]*\.(?:pem|key|p12|pfx|kdbx|sqlite|sqlite3|db|bak|dump|backup|zip|7z|tar|gz|age|gpg))$/i;
+  const denySegment = /^(?:secrets?|credentials?|private[_-]?keys?|backups?|exports?|imports?)$/i;
+  const found = paths.filter(path => {
+    if (typeof path !== 'string' || !path || path.startsWith('/') || path.includes('\\')) return true;
+    const segments = path.split('/');
+    if (segments.some(x => x === '.' || x === '..' || !x)) return true;
+    return denyName.test(segments.at(-1)) || segments.some(x => denySegment.test(x));
+  });
+  return Object.freeze(found);
+}

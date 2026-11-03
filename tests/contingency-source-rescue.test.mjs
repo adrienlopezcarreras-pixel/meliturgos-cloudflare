@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
 import { signContingencyProbeReport } from '../src/continuity/contingency-probe-auth.js';
-import { admitGitHubSourceRescue } from '../src/continuity/github-source-rescue.js';
+import { admitGitHubSourceRescue, sensitiveSourceArchivePaths } from '../src/continuity/github-source-rescue.js';
 const now=Date.parse('2026-11-03T21:00:00Z');
 const secret='fixture-signed-incident-secret-not-production-012345';
 const host='meliturgos.adrien-lopezcarreras.workers.dev';
@@ -114,6 +114,24 @@ test('source rescue CLI makes a real Git archive in an isolated fixture and reje
     assert.equal(receipt.d1_restored,false);
     assert.equal(receipt.r2_restored,false);
     assert.equal(receipt.failover_performed,false);
+    // Real fail-closed drill: even tracked secrets beneath src/ are not archived.
+    await mkdir(join(root,'src','secrets'),{recursive:true});
+    await writeFile(join(root,'src','secrets','owner.key'),'PRIVATE_DO_NOT_ARCHIVE');
+    commands(['add','src/secrets/owner.key']);
+    commands(['-c','user.name=MEL Test','-c','user.email=test@example.invalid',
+      'commit','-qm','inject nested private material']);
+    env.GITHUB_SHA=commands(['rev-parse','HEAD']).trim();
+    await rm(join(output,'source-receipt.json'));
+    await rm(join(output,'mel-source-only.tar.gz'));
+    const blocked=run();
+    assert.equal(blocked.status,1);
+    assert.match(blocked.stderr,/SOURCE_ARCHIVE_SENSITIVE_PATHS_BLOCKED/);
+    await assert.rejects(readFile(join(output,'source-receipt.json')), e=>e?.code==='ENOENT');
+    await assert.rejects(readFile(join(output,'mel-source-only.tar.gz')), e=>e?.code==='ENOENT');
+    commands(['reset','--hard','HEAD~1']);
+    env.GITHUB_SHA=commands(['rev-parse','HEAD']).trim();
+    // Reset to original fixture before forged-signature negative drill.
+
     await rm(join(output,'source-receipt.json'));
     await rm(join(output,'mel-source-only.tar.gz'));
     await writeFile(join(output,'signed-health.json'),JSON.stringify({...proof,up:true}));
@@ -132,4 +150,18 @@ test('source archive root listing splits actual Git newline output, not literal 
   const expected=".split('" + String.fromCharCode(92) + "n')";
   assert.ok(runner.includes(expected),'Git root listing must split newline characters');
   assert.ok(!runner.includes(".split('" + String.fromCharCode(92,92) + "n')"));
+});
+
+
+test('tracked nested source secrets and archived database dumps block publication',async()=>{
+  assert.deepEqual(sensitiveSourceArchivePaths([
+    'src/worker.js','tests/example.test.mjs','migrations/0019_development.sql',
+    'src/.env.production','src/secrets/token.json','tests/fixtures/backup.sqlite',
+    'scripts/id_ed25519','src/private_keys/key.txt','src/credentials/owner.json',
+    'src/db.snapshot.db','src/bundle.tar.gz',
+  ]),[
+    'src/.env.production','src/secrets/token.json','tests/fixtures/backup.sqlite',
+    'scripts/id_ed25519','src/private_keys/key.txt','src/credentials/owner.json',
+    'src/db.snapshot.db','src/bundle.tar.gz',
+  ]);
 });

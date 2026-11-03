@@ -2,7 +2,7 @@ import { readFile,writeFile,mkdir,stat } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { admitGitHubSourceRescue, selectSourceArchiveRoots } from '../src/continuity/github-source-rescue.js';
+import { admitGitHubSourceRescue, selectSourceArchiveRoots, sensitiveSourceArchivePaths } from '../src/continuity/github-source-rescue.js';
 
 const DIR='artifacts/contingency';
 let gate;
@@ -38,6 +38,11 @@ if(gate.ok!==true){
   if (!sourcePaths.includes('src') || !sourcePaths.includes('package.json')) {
     throw Error('SOURCE_ARCHIVE_REQUIRED_CODE_ROOTS_MISSING');
   }
+  const sourceFiles = execFileSync('git',['ls-tree','-r','-z','--name-only','HEAD','--',...sourcePaths],{
+    encoding:'utf8',timeout:10000,maxBuffer:8*1024*1024,
+  }).split('\0').filter(Boolean);
+  const unsafe = sensitiveSourceArchivePaths(sourceFiles);
+  if (unsafe.length) throw Error('SOURCE_ARCHIVE_SENSITIVE_PATHS_BLOCKED');
   execFileSync('git',['archive','--format=tar.gz','--output='+archive,'HEAD','--',...sourcePaths],{
     timeout:120000,maxBuffer:1024*1024,
   });
