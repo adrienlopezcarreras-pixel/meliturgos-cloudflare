@@ -76,7 +76,7 @@ test('offline optional Companion is not an outage; a diagnosed PC failure is', (
   const both = currentContingency({ cloudflareUp: false, companionOnline: false, githubUp: true });
   assert.equal(both.max, 'ACTIONS_RELAY_UNVERIFIED');
   assert.ok(both.verification_required.includes('GITHUB_RELAY_LIVE_TEST'));
-  assert.match(both.consequence, /GitHub Actions prend le relais/);
+  assert.match(both.consequence, /relais GitHub Actions n est pas certifie/);
   assert.match(both.implication, /GitHub reste lisible/);
 });
 
