@@ -27,7 +27,7 @@ async function runtimeBundle(){
   });
 }
 
-async function regeneration(){
+async function regeneration(recovery = {}){
   return createSovereignRegenerationBundle({
     sourceSha:'a'.repeat(40),
     codeReconstruction:{
@@ -42,6 +42,7 @@ async function regeneration(){
     runtimeBundle:await runtimeBundle(),
     roadmap:{version:1,status:'portable'},
     autonomy:{max_autonomy:true,status:'MAX_AUTONOMY'},
+    recovery,
     generatedAt:'2026-09-28T17:11:00.000Z',
   });
 }
@@ -102,13 +103,17 @@ test('provider-dependent code reconstruction cannot be certified sovereign',asyn
 });
 
 test('legacy MAX emergency policy remains readable but never grants auto-activation',async()=>{
-  const bundle=structuredClone(await regeneration());
-  bundle.recovery.unattended_activation_policy='MAX_100_EMERGENCY_ONLY';
-  // Existing signatures cannot be reused after edits; historical correctly
-  // signed bundles still carry no activation authority, even on emergency.
+  const bundle=await regeneration({unattended_activation_policy:'MAX_100_EMERGENCY_ONLY'});
+  // Even a correctly signed legacy artifact proves document integrity, not
+  // permission to activate another provider without owner authorization.
+  const verified=await verifySovereignRegenerationBundle(bundle);
+  assert.equal(verified.ok,true);
+  assert.equal(verified.unattended_emergency_ready,false);
   const plan=await planSovereignRegeneration({
     bundle,maxAutonomy:true,emergency:true,targetPrevalidated:true,ownerReachable:false,
   });
+  assert.equal(plan.ok,true);
   assert.equal(plan.activation_allowed,false);
-  assert.equal(plan.status,'REGEN_BUNDLE_INVALID');
+  assert.equal(plan.owner_approval_required,true);
+  assert.equal(plan.status,'REGEN_PREPARED');
 });
