@@ -61,3 +61,56 @@ test('source rescue selects only allowlisted software roots and excludes tracked
   assert.match(runner,/\.\.\.sourcePaths\]/);
   assert.doesNotMatch(runner,/--output='\+archive,'HEAD'\]/);
 });
+
+test('source rescue CLI makes a real Git archive in an isolated fixture and rejects altered evidence',async()=>{
+  const {mkdtemp,mkdir,writeFile,readFile,rm,stat}=await import('node:fs/promises');
+  const {tmpdir}=await import('node:os');
+  const {join}=await import('node:path');
+  const {spawnSync,execFileSync}=await import('node:child_process');
+  const {createHash}=await import('node:crypto');
+  const {fileURLToPath}=await import('node:url');
+  const root=await mkdtemp(join(tmpdir(),'mel-source-rescue-proof-'));
+  const commands=(args)=>execFileSync('git',args,{cwd:root,timeout:10000,encoding:'utf8'});
+  const script=fileURLToPath(new URL('../scripts/contingency-source-rescue.mjs',import.meta.url));
+  const output=join(root,'artifacts','contingency');
+  try {
+    commands(['init','-q']);
+    await writeFile(join(root,'README.md'),'MEL test-only tracked code\n'.repeat(100));
+    commands(['add','README.md']);
+    commands(['-c','user.name=MEL Test','-c','user.email=test@example.invalid',
+      'commit','-qm','isolated fixture']);
+    const sha=commands(['rev-parse','HEAD']).trim();
+    await mkdir(output,{recursive:true});
+    const observedAt=new Date().toISOString();
+    const down={...basic,observed_at:observedAt,
+      samples:[{status:'DOWN'},{status:'DOWN'},{status:'DOWN'}]};
+    const proof=await evidence(down);
+    await writeFile(join(output,'external-health.json'),JSON.stringify(down));
+    await writeFile(join(output,'signed-health.json'),JSON.stringify(proof));
+    const env={...process.env,GITHUB_SHA:sha,MEL_CONTINGENCY_PROBE_HMAC_KEY:secret,
+      MEL_CONTINGENCY_HEALTH_URL:'https://'+host+'/api/public/contingency/heartbeat'};
+    const run=()=>spawnSync(process.execPath,[script],{cwd:root,env,timeout:30000,encoding:'utf8'});
+    const good=run();
+    assert.equal(good.status,0,good.stderr.slice(0,250));
+    assert.match(good.stdout,/SOURCE_ARCHIVED_ONLY/);
+    const receipt=JSON.parse(await readFile(join(output,'source-receipt.json'),'utf8'));
+    const archive=await readFile(join(output,'mel-source-only.tar.gz'));
+    assert.ok((await stat(join(output,'mel-source-only.tar.gz'))).size>=128);
+    assert.equal(receipt.source_sha,sha);
+    assert.equal(receipt.archive_sha256,createHash('sha256').update(archive).digest('hex'));
+    assert.equal(receipt.status,'SOURCE_ARCHIVED_ONLY');
+    assert.equal(receipt.max_running,false);
+    assert.equal(receipt.d1_restored,false);
+    assert.equal(receipt.r2_restored,false);
+    assert.equal(receipt.failover_performed,false);
+    await rm(join(output,'source-receipt.json'));
+    await rm(join(output,'mel-source-only.tar.gz'));
+    await writeFile(join(output,'signed-health.json'),JSON.stringify({...proof,up:true}));
+    const forged=run();
+    assert.equal(forged.status,2,forged.stderr.slice(0,250));
+    await assert.rejects(readFile(join(output,'source-receipt.json')),
+      e=>e?.code==='ENOENT');
+    await assert.rejects(readFile(join(output,'mel-source-only.tar.gz')),
+      e=>e?.code==='ENOENT');
+  } finally { await rm(root,{recursive:true,force:true}); }
+});
