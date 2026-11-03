@@ -23,7 +23,7 @@ test('every countermeasure is bound to an action', async () => {
     repository: repository(),
     setMax: async () => { calls.push('max'); },
     keepMax: async () => { calls.push('keep'); },
-    supervisor: { ensureNextJob: async () => { calls.push('next'); } },
+    supervisor: { ensureNextJob: async () => { calls.push('next'); return { created: true, job: { id: 'new-job' } }; } },
     previousVersionId: 'version-1',
     rollbackWorker: async (version) => { calls.push(version); return { ok: true }; },
     openPrivateCopy: async () => { calls.push('kit'); return { ok: true }; },
@@ -119,4 +119,26 @@ test('even a claimed full rebuild without an integrity proof fails closed', asyn
   const result = await applyLifeCountermeasure('MIGRATION_SOURCE_DIED', actions);
   assert.equal(result.applied, false);
   assert.equal(result.reason, 'FULL_REBUILD_NOT_VERIFIED');
+});
+
+test('scheduler invocation without an admitted job is not a successful repair', async () => {
+  const actions = bindCountermeasureActions({
+    repository: repository(),
+    supervisor: { ensureNextJob: async () => ({
+      created: false, job: null, complete: false,
+      external_progress: { status: 'AUTONOMY_SINGLE_FLIGHT_BUSY' },
+    }) },
+  });
+  const result = await applyLifeCountermeasure('EVOLUTION_IDLE', actions);
+  assert.equal(result.applied, false);
+  assert.equal(result.activation_performed, false);
+  assert.equal(result.reason, 'AUTONOMY_SINGLE_FLIGHT_BUSY');
+});
+
+test('a cancelled mission cannot report a new persisted countermeasure note', async () => {
+  const store = repository();
+  store.update = async () => ({ ...store.jobs[0], status: 'CANCELLED' });
+  const result = await bindCountermeasureActions({ repository: store }).note('DO_NOT_DEPLOY');
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'COUNTERMEASURE_AUDIT_NOT_PERSISTED');
 });
