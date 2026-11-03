@@ -57,7 +57,8 @@ export function respondToScenario({ down, standby = {} } = {}) {
   const kind = names.length === 1 ? 'SINGLE' : (fallen.has('cloudflare') && fallen.has('github') && fallen.has('pc')) ? 'TOTAL' : 'CHAIN';
   const privateKitLeft = ['gmail', 'onedrive'].filter(part => !fallen.has(part));
   const cloudflareUp = !fallen.has('cloudflare');
-  const standbyState = maxStandby({ ...standby, cloudflareUp });
+  // An observed PC outage overrides any stale standby-ready assertion.
+  const standbyState = maxStandby({ ...standby, cloudflareUp, ...(fallen.has('pc') ? { companionOnline: false } : {}) });
   const implication = [
     fallen.has('cloudflare') ? 'Le site et le tick cloud s arretent.' : 'Cloudflare peut encore faire tourner MAX.',
     fallen.has('github') ? 'Le depot et la carte hebergee la deviennent illisibles.' : 'GitHub reste lisible.',
@@ -149,7 +150,7 @@ export function currentContingency(observed = {}) {
   return respondToScenario({
     down,
     standby: {
-      companionOnline: observed.companionOnline === true,
+      companionOnline: observed.pcUp !== false && observed.companionOnline === true,
       localGit: observed.localGit === true,
       localDb: observed.localDb === true,
       localModel: observed.localModel === true,
