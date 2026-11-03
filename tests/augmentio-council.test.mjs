@@ -395,3 +395,50 @@ test('Council requires at least two distinct providers for quorum', async () => 
   const succeeded = new Set(report.providers_succeeded);
   assert.ok(succeeded.has('a') && succeeded.has('b'));
 });
+
+test('Council context includes SHA when provided', async () => {
+  const calls = [];
+  const pool = new ProviderPool([
+    provider('a', 0, calls),
+    provider('b', 0, calls),
+    provider('c', 0, calls),
+  ]);
+  const report = await runAugmentioStateOfPlay({
+    env: { MEL_SHA: 'deadbeef1234567890abcdef', MEL_COUNCIL_REVIEW_BUDGET_MS: 400, MEL_COUNCIL_PROVIDER_TIMEOUT_MS: 20 },
+    goal: 'verify sha propagation',
+    pool,
+  });
+  assert.equal(report.context?.sha, 'deadbeef1234567890abcdef');
+});
+
+test('Council propagates SHA in context (additional verification)', async () => {
+  const calls = [];
+  const pool = new ProviderPool([
+    provider('x', 0, calls),
+    provider('y', 0, calls),
+  ]);
+  const sha = 'cafebabef00ddeadbeef1234567890abcdefabcd';
+  const report = await runAugmentioStateOfPlay({
+    env: { MEL_SHA: sha, MEL_COUNCIL_REVIEW_BUDGET_MS: 400, MEL_COUNCIL_PROVIDER_TIMEOUT_MS: 20 },
+    goal: 'ensure sha is attached to council context',
+    pool,
+  });
+  assert.ok(report.context?.sha);
+  assert.equal(report.context.sha, sha);
+});
+
+test('Report includes new governance fields', async () => {
+  const calls = [];
+  const pool = new ProviderPool([
+    provider('a', 0, calls),
+    provider('b', 0, calls),
+  ]);
+  const report = await runAugmentioStateOfPlay({
+    env: { MEL_COUNCIL_REVIEW_BUDGET_MS: 400, MEL_COUNCIL_PROVIDER_TIMEOUT_MS: 20 },
+    goal: 'verify new fields',
+    pool,
+  });
+  assert.equal(report.all_required_roles_satisfied, true);
+  assert.ok(report.quorum_under_60s);
+  assert.deepEqual(new Set(report.providers_succeeded), new Set(['a', 'b']));
+});
