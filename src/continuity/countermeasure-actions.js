@@ -42,6 +42,7 @@ export function bindCountermeasureActions({
   rollbackWorker,
   previousVersionId = null,
   openPrivateCopy,
+  rebuildFromPrivateKit,
   restoreBackupBytes,
 } = {}) {
   const rollback = async () => {
@@ -86,7 +87,15 @@ export function bindCountermeasureActions({
     rebuildHead: () => markJob(repository, 'QUEUED', 'REBUILD_ON_CURRENT_HEAD'),
     rollback,
     rollbackToSource: () => markJob(repository, null, 'ROLLBACK_TO_SOURCE'),
-    rebuild: openKit,
+    rebuild: async () => {
+      // Opening an encrypted kit is NOT a rebuild. Require a separate,
+      // explicit full-reconstruction executor with an integrity result.
+      if (typeof rebuildFromPrivateKit !== 'function') return { ok: false, code: 'FULL_REBUILD_EXECUTOR_REQUIRED' };
+      const result = await rebuildFromPrivateKit();
+      return result?.ok === true && result?.restored === true && result?.integrity_verified === true
+        ? { ok: true, code: 'FULL_REBUILD_VERIFIED' }
+        : { ok: false, code: result?.code || 'FULL_REBUILD_NOT_VERIFIED' };
+    },
     restoreBackup: async () => {
       if (typeof restoreBackupBytes !== 'function') return { ok: false, code: 'BACKUP_REQUIRED' };
       const result = await restoreBackupBytes();
