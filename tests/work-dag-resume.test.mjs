@@ -181,3 +181,35 @@ test('Work DAG binding, graph validity and integrity fail closed', async () => {
   await assert.rejects(() => store.load(), (error) => error?.code === 'WORK_DAG_INTEGRITY_MISMATCH');
   assert.ok(saved.integrity_sha256);
 });
+
+// MEL-FOUNDER-05: simulated authorized providers persist request, execution,
+// artifact and receipt; an enqueue alone never completes the mission.
+test('a simulated Work mission persists request, execution, artifact and receipt; an enqueue alone is not completion', async () => {
+  const { workMissionReceipt } = await import('../src/work/work-dag.js');
+  const { store, job } = await setup(`work-receipt-${crypto.randomUUID()}`);
+  const dag = createWorkDag({ jobId: job.id, goal: 'Simulated provider mission', candidateBranch: 'candidate/mel-clean-autonomy', candidateSha: TEST_CANDIDATE_SHA,
+    nodes: [
+      { id: 'fetch', kind: 'TASK', idempotent: true },
+      { id: 'write', kind: 'TASK', depends_on: ['fetch'], idempotent: true },
+    ] });
+  await store.save(dag);
+  const enqueued = await workMissionReceipt(await store.load());
+  assert.equal(enqueued.status, 'NOT_COMPLETED');
+  assert.ok(enqueued.reasons.includes('WORK_ENQUEUED_ONLY'));
+  const providerCalls = [];
+  const runner = new WorkDagRunner({ store, executors: { TASK: async node => {
+    providerCalls.push(node.id);
+    return { provider: 'simulated-authorized', artifacts: [{ name: `${node.id}.json`, sha256: 'a'.repeat(64) }] };
+  } } });
+  const done = await runner.run(await store.load());
+  assert.equal(done.status, WORK_DAG_STATUS.COMPLETED);
+  assert.deepEqual(providerCalls, ['fetch', 'write']);
+  const persisted = await store.load();
+  const receipt = await workMissionReceipt(persisted);
+  assert.equal(receipt.status, 'COMPLETED', JSON.stringify(receipt.reasons));
+  assert.equal(receipt.artifacts, 2);
+  assert.equal(receipt.job_id, job.id);
+  const tampered = await workMissionReceipt({ ...persisted, artifacts: [] });
+  assert.ok(tampered.reasons.includes('WORK_ARTIFACT_REQUIRED'));
+  assert.ok(tampered.reasons.includes('WORK_INTEGRITY_INVALID'));
+});
