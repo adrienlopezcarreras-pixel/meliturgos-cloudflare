@@ -1,5 +1,6 @@
 import { currentContingency } from './contingency-plan.js';
 import { applyDueLifeCountermeasures, trialReplacement } from './life-contingency.js';
+import { attestedReplacementReadiness, REPLACEMENT_CATALOG } from './replacement-catalog.js';
 
 // Every scenario countermeasure has one handler. A handler may record the
 // decision without switching a brick: a dead worker cannot move itself, and an
@@ -31,9 +32,26 @@ async function note(actions, code) {
   return { applied: result?.ok === true, activation_performed: false, code, reason: result?.code || null };
 }
 
-export async function runContingencyCycle({ observed = {}, life = {}, actions = {}, replacements = [] } = {}) {
+export async function runContingencyCycle({
+  observed = {}, life = {}, actions = {}, replacements = [],
+  replacementAttestations = [], replacementAttestationConfig = {},
+} = {}) {
   const scenario = currentContingency(observed);
   const ran = [];
+  // Mission-supplied measurements are untrusted until the external signer,
+  // deployed SHA, observer and complete probe set all verify.
+  const reports = Array.isArray(replacementAttestations) ? replacementAttestations.slice(0, 100) : [];
+  const candidateIds = new Set();
+  const certifications = [];
+  for (const row of reports) {
+    const part = String(row?.part || ''), candidate = String(row?.candidate || '');
+    if (!REPLACEMENT_CATALOG[part]?.candidates.includes(candidate)) continue;
+    const key = part + ':' + candidate;
+    if (candidateIds.has(key)) continue;
+    candidateIds.add(key);
+    if (candidateIds.size > 16) break;
+    certifications.push(await attestedReplacementReadiness(part, candidate, reports, replacementAttestationConfig));
+  }
   if (scenario.kind !== 'NONE') {
     for (const code of scenario.countermeasure) {
       const kind = HANDLERS[code];
@@ -50,7 +68,7 @@ export async function runContingencyCycle({ observed = {}, life = {}, actions = 
         continue;
       }
       if (kind === 'model') {
-        const proven = (Array.isArray(replacements) ? replacements : []).find(row => row?.part === 'model' && trialReplacement(row).replacement_ready === true);
+        const proven = certifications.find(row => row.part === 'model' && row.ready === true);
         ran.push(proven
           ? { code, applied: false, activation_performed: false, reason: 'PROVEN_MODEL_NOT_SWITCHED' }
           : { code, applied: false, activation_performed: false, reason: 'NO_PROVEN_REPLACEMENT' });
@@ -86,6 +104,7 @@ export async function runContingencyCycle({ observed = {}, life = {}, actions = 
     ran: Object.freeze(ran),
     life: Object.freeze(lifeResults),
     replacements: Object.freeze(trials),
+    replacement_certifications: Object.freeze(certifications),
     activation_performed: ran.some(row => row.activation_performed === true) || lifeResults.some(row => row.activation_performed === true),
   });
 }
