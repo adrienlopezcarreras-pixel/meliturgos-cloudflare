@@ -847,6 +847,7 @@ export async function runMelSelfAuditSupervisor(env = {}, {
       companion_required: false,
       companion_role: 'bonus',
       companion_proofs_while_absent: 'set_aside',
+      companion_tasks_when_online: 'active',
     },
   };
 
