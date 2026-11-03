@@ -97,7 +97,7 @@ test('Council endpoint keeps GitHub OIDC before batched review; workflow demands
   const source=readFileSync(new URL('../src/evolution/council-review.js',import.meta.url),'utf8');
   const handler=source.slice(source.indexOf('export async function handleCouncilReviewRequest'));
   assert.ok(handler.indexOf('authorizeGitHubActionsOidcRequest')<handler.indexOf('handleCouncilBatchedReview'));
-  assert.match(handler,/allowedWorkflows: \['mel-candidate-promotion.yml'\]/);
+  assert.match(handler,/allowedWorkflows: \['mel-candidate-promotion.yml', 'mel-pr-council-review.yml'\]/);
   const workflow=readFileSync(new URL('../.github/workflows/mel-candidate-promotion.yml',import.meta.url),'utf8');
   assert.match(workflow,/run-council-batch-review\.mjs/);
   assert.match(workflow,/COUNCIL_BATCH_REVIEW_NOT_APPROVED/);
@@ -149,4 +149,20 @@ test('long multi-batch review renews its GitHub OIDC identity for every Council 
   assert.match(source,/const freshToken=await currentOidcToken\(\)/);
   assert.match(source,/'x-mel-github-oidc':freshToken/);
   assert.doesNotMatch(source,/'x-mel-github-oidc':token/);
+});
+
+test('read-only PR Council dispatch binds reviewed diff to the exact same-repo PR head and main',()=>{
+  const workflow=readFileSync(new URL('../.github/workflows/mel-pr-council-review.yml',import.meta.url),'utf8');
+  assert.match(workflow,/workflow_dispatch:/);
+  assert.match(workflow,/ref: main/);
+  assert.match(workflow,/test "\$HEAD" = "\$EXPECTED_SHA"/);
+  assert.match(workflow,/test "\$REPO" = "\$GITHUB_REPOSITORY"/);
+  assert.match(workflow,/git merge-base --is-ancestor "\$MAIN" "\$HEAD"/);
+  assert.match(workflow,/run-council-batch-review\.mjs council\.diff council\.log/);
+  assert.match(workflow,/COUNCIL_PR_HEAD_OR_BASE_CHANGED_DURING_REVIEW/);
+  assert.match(workflow,/result\.root_sha256!==manifest\.sha256/);
+  assert.match(workflow,/id-token: write/);
+  assert.match(workflow,/contents: read/);
+  assert.doesNotMatch(workflow,/contents: write|git push|wrangler deploy|npm run deploy|DEPLOY_APPROVED/);
+  assert.match(workflow,/council-pr-review-receipt/);
 });

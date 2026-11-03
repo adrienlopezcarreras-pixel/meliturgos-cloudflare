@@ -388,7 +388,7 @@ export function councilRejectionCulprits(diff, packages = {}) {
 
 export async function handleCouncilReviewRequest(request, env, { now = Date.now(), review = runCouncilReview } = {}) {
   const oidc = await authorizeGitHubActionsOidcRequest(request, env, {
-    allowedWorkflows: ['mel-candidate-promotion.yml'],
+    allowedWorkflows: ['mel-candidate-promotion.yml', 'mel-pr-council-review.yml'],
     allowedEvents: ['schedule', 'workflow_dispatch', 'workflow_run'],
   });
   if (!oidc.ok) return Response.json({ ok: false, code: oidc.code }, { status: oidc.status || 401 });
