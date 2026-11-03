@@ -844,7 +844,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
 
   // All 176 objectives: read D1 execution evidence without fabricating success.
   bus.discover({
-    id: 'roadmap.evidence.read', name: 'Preuves réelles des 176 objectifs',
+    id: 'roadmap.evidence.read', name: 'Preuves réelles des 177 objectifs',
     category: 'diagnostic', version: '1.0.0', provider: 'core',
     description: 'Read-only roadmap certification ledger derived from the runtime D1 audit; unavailable DB never certifies.',
     input_schema: { type:'object', additionalProperties:false },

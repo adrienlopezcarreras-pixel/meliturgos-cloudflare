@@ -18,8 +18,8 @@ test('all canonical roadmap edges reference existing IDs and never form cycles',
   assert.deepEqual(validateRoadmapDependencies(items), []);
   assert.deepEqual(validateRoadmapTechnicalWork(items), []);
   const open = items.filter(row => row.status !== 'DONE_VERIFIED');
-  assert.equal(open.length, 43);
-  assert.equal(open.filter(row => ['IMPLEMENT','FIX'].includes(row.mode)).length, 43);
+  assert.equal(open.length, 44);
+  assert.equal(open.filter(row => ['IMPLEMENT','FIX'].includes(row.mode)).length, 44);
   assert.equal(open.filter(row => row.mode === 'EXTERNAL').length, 0);
   assert.ok(open.every(row => row.required_proof), 'every open roadmap item has an acceptance contract');
   const promoted = items.map(row => row.id === 'MEL-FOUNDER-06'

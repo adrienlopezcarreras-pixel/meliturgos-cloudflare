@@ -1,6 +1,21 @@
 // Every scheduled roadmap objective is a bounded software deliverable, never a declaration.
 export const ROADMAP_CODE_CONTRACT_REVISION = '2026-10-29-code-v1';
 export const ROADMAP_CODE_CONTRACTS = Object.freeze({
+  "MEL-LIFE-01": {
+    "title": "Contre-mesures de survie, d evolution et de mise a jour",
+    "mode": "IMPLEMENT",
+    "required_proof": "DIFF_TESTS_EXACT_SHA_CI",
+    "code_paths": [
+      "src/continuity/life-contingency.js"
+    ],
+    "test_paths": [
+      "tests/life-contingency.test.mjs"
+    ],
+    "acceptance": [
+      "Chaque echec de mise a jour, de migration, d evolution et de survie a une contre-mesure, une pause de securite n est pas annulee, et le relais GitHub Actions n est pas declare deja execute."
+    ],
+    "max_attempts": 3
+  },
   "MEL-AUDIT-02": {
     "title": "Automatiser le rapport hebdomadaire du développement MAX",
     "mode": "IMPLEMENT",
