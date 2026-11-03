@@ -31,11 +31,11 @@ test('replacement readiness requires fresh candidate-specific proof and never au
   }));
   // Unsigned mission observations must fail even when every reported check is true.
   assert.equal(verifiedReplacementReadiness(part, candidate, observations, { now }).ready, false);
-  const attested = { now, trustedEvidenceIds: observations.map(row => row.evidence_id) };
-  assert.equal(verifiedReplacementReadiness(part, candidate, observations, attested).ready, true);
+  const forgedTrustIds = { now, trustedEvidenceIds: observations.map(row => row.evidence_id) };
+  assert.equal(verifiedReplacementReadiness(part, candidate, observations, forgedTrustIds).ready, false);
   assert.equal(verifiedReplacementReadiness(part, candidate, observations, { now }).activation_allowed, false);
-  assert.equal(verifiedReplacementReadiness(part, candidate, observations.slice(1), attested).ready, false);
-  assert.equal(verifiedReplacementReadiness(part, candidate, observations, { ...attested, now: now + 86400000 }).ready, false);
+  assert.equal(verifiedReplacementReadiness(part, candidate, observations.slice(1), forgedTrustIds).ready, false);
+  assert.equal(verifiedReplacementReadiness(part, candidate, observations, { ...forgedTrustIds, now: now + 86400000 }).ready, false);
   assert.equal(verifiedReplacementReadiness(part, 'unknown-host', observations, { now }).ready, false);
   assert.equal(verifiedReplacementReadiness(part, candidate, observations.map(row => ({...row, observer: ''})), { now }).ready, false);
 });
@@ -50,6 +50,6 @@ test('one untrusted artifact cannot certify a replacement even with other verifi
   const verified=observations.slice(0,-1).map(row=>row.evidence_id);
   const result=verifiedReplacementReadiness(part,candidate,observations,{now,trustedEvidenceIds:verified});
   assert.equal(result.ready,false);
-  assert.equal(result.reason,'MISSING_OR_UNTRUSTED_PROOFS');
+  assert.equal(result.reason,'SIGNED_ATTESTATIONS_REQUIRED');
   assert.equal(result.activation_allowed,false);
 });
