@@ -483,6 +483,12 @@ async function fetchResolvedRequest(request, env, ctx) {
       const path = url.pathname;
       const authPolicyResponse = enforceHttpAuthPolicy(request, env);
       if (authPolicyResponse) return authPolicyResponse;
+      // Read-only external reachability marker. Does not touch D1, secrets or MAX.
+      // This is not an application, database or disaster-recovery certification.
+      if (path === '/api/public/contingency/heartbeat' && request.method === 'GET') {
+        return Response.json({ ok: true, service: 'mel', schema: 'mel.contingency-heartbeat/v1' },
+          { headers: { 'cache-control': 'no-store' } });
+      }
       if (path.startsWith('/api/device/v1/')) {
         const terminalResponse = await maybeHandleWaveshareTerminalApi(request, env);
         if (terminalResponse) return terminalResponse;
