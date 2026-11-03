@@ -7,6 +7,7 @@ import { authorizeGitHubActionsOidcRequest } from '../security/github-actions-oi
 import { standardRegistry } from '../models/ModelRegistry.js';
 import { createMentorCompanionFallback } from '../learning/mentor-companion-provider.js';
 import { companionFallbackAuthorized } from './cloud-bridge-dispatch.js';
+import { handleCouncilBatchedReview } from './council-batch-review.js';
 
 const HEALTH_KEY = 'council-model-health';
 const HEALTH_STALE_MS = 20 * 60 * 1000;
@@ -392,6 +393,10 @@ export async function handleCouncilReviewRequest(request, env, { now = Date.now(
   });
   if (!oidc.ok) return Response.json({ ok: false, code: oidc.code }, { status: oidc.status || 401 });
   const body = await request.json().catch(() => ({}));
+  if (body?.mode === 'batch' || body?.mode === 'final') {
+    const batchResponse = await handleCouncilBatchedReview(env, body, { review, now });
+    return Response.json(batchResponse.result, { status: batchResponse.status });
+  }
   const head = String(body.head || '');
   if (!/^[a-f0-9]{40}$/.test(head) || typeof body.diff !== 'string' || !body.diff.trim())
     return Response.json({ ok: false, code: 'COUNCIL_REVIEW_INPUT_INVALID' }, { status: 400 });
