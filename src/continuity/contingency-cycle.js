@@ -50,7 +50,7 @@ export async function runContingencyCycle({ observed = {}, life = {}, actions = 
         continue;
       }
       if (kind === 'model') {
-        const proven = (Array.isArray(replacements) ? replacements : []).find(row => row?.part === 'model' && row?.replacement_ready === true);
+        const proven = (Array.isArray(replacements) ? replacements : []).find(row => row?.part === 'model' && trialReplacement(row).replacement_ready === true);
         ran.push(proven
           ? { code, applied: false, activation_performed: false, reason: 'PROVEN_MODEL_NOT_SWITCHED' }
           : { code, applied: false, activation_performed: false, reason: 'NO_PROVEN_REPLACEMENT' });
@@ -79,7 +79,7 @@ export async function runContingencyCycle({ observed = {}, life = {}, actions = 
     }
   }
   const lifeResults = await applyDueLifeCountermeasures(life, actions);
-  const trials = (Array.isArray(replacements) ? replacements : []).map(row => row?.judgement ? row : trialReplacement(row));
+  const trials = (Array.isArray(replacements) ? replacements : []).map(row => trialReplacement(row));
   return Object.freeze({
     schema: 'mel.contingency-cycle/v1',
     scenario,
