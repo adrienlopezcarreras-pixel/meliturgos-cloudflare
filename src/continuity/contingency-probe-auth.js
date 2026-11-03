@@ -58,3 +58,16 @@ export async function signContingencyProbeReport(report, { secret, cryptoImpl = 
     evidence_id: report.evidence_id, observed_at: report.observed_at, signature,
   });
 }
+
+/**
+ * Per-job evidence is short-lived even when the independent, signed D1
+ * monitor is retained for its 15-minute sampling interval. This is only a
+ * time prefilter: the combined verifier still checks each HMAC and source.
+ */
+export function freshJobContingencyProbeReports(reports, { now = Date.now(), maxAgeMs = 180_000 } = {}) {
+  if (!Array.isArray(reports)) return [];
+  return reports.filter(report => {
+    const observedAt = Date.parse(String(report?.observed_at || ''));
+    return Number.isFinite(observedAt) && observedAt <= now && observedAt >= now - maxAgeMs;
+  });
+}

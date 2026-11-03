@@ -4,7 +4,7 @@ import { webcrypto } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import worker from '../src/index.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
-import { signContingencyProbeReport, verifyContingencyProbeReports } from '../src/continuity/contingency-probe-auth.js';
+import { signContingencyProbeReport, verifyContingencyProbeReports, freshJobContingencyProbeReports } from '../src/continuity/contingency-probe-auth.js';
 import { acceptContingencyProbe, readContingencyProbeInbox, CONTINGENCY_PERSISTED_PROBE_MAX_AGE_MS } from '../src/continuity/contingency-probe-inbox.js';
 import { classifyHttpAuthSurface } from '../src/security/http-auth-policy.js';
 
@@ -150,4 +150,22 @@ test('persisted signed proof spans the 15-minute monitor cadence, not a skipped-
   assert.equal(expired.details.github.status,'UNKNOWN');
   const runtime=readFileSync(new URL('../src/evolution/autonomy-runtime.js',import.meta.url),'utf8');
   assert.match(runtime,/maxAgeMs: CONTINGENCY_PERSISTED_PROBE_MAX_AGE_MS/);
+});
+
+test('the extended D1 monitor freshness never extends trust of old mission-supplied probes',async()=>{
+  const persisted=await signed(false,now-16*60_000,'github');
+  const staleJob=await signed(false,now-16*60_000,'model');
+  const freshJob=await signed(true,now-1000,'model');
+  const filtered=freshJobContingencyProbeReports([staleJob,freshJob],{now});
+  assert.deepEqual(filtered,[freshJob]);
+  assert.deepEqual(freshJobContingencyProbeReports(null,{now}),[]);
+  assert.deepEqual(freshJobContingencyProbeReports([await signed(true,now+1000,'model')],{now}),[]);
+  const verified=await verifyContingencyProbeReports([persisted,...filtered],{
+    secret,now,maxAgeMs:CONTINGENCY_PERSISTED_PROBE_MAX_AGE_MS,cryptoImpl:webcrypto,
+  });
+  assert.equal(verified.verified_count,2);
+  assert.equal(verified.observed.githubUp,false);
+  assert.equal(verified.observed.modelUp,true);
+  const source=readFileSync(new URL('../src/evolution/autonomy-runtime.js',import.meta.url),'utf8');
+  assert.match(source,/freshJobContingencyProbeReports\(job\?\.result_json\?\.contingency_probes, \{ now \}\)/);
 });
