@@ -129,6 +129,7 @@ jobs:
           DIFF_BYTES="$(wc -c < council.diff | tr -d '[:space:]')"
           git log --format=%s "$MAIN..$CAND" > council.log
           if [ "$DIFF_BYTES" -gt 48000 ]; then
+            echo "::notice title=MEL Council::COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT bytes=$DIFF_BYTES — initiating complete-file multi-batch Council; no approval by truncation."
             # Every full-file batch needs independent Council approval, followed
             # by a separate overall integration quorum. Absent proof fails shut.
             node scripts/prepare-council-review-batches.mjs council.diff council-review-manifest.json
