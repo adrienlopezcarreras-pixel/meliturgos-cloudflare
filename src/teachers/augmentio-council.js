@@ -401,7 +401,9 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
       role: role.id,
       role_label: role.label,
       supplemental,
-    }))
+    })),
+    // Propagate the SHA of the current candidate when provided via environment.
+    ...(env?.MEL_SHA ? { sha: String(env.MEL_SHA) } : {})
   };
 
   const report = await runStateOfPlayCouncil({
