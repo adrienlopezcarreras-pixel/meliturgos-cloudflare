@@ -232,17 +232,23 @@ export function manifestObjective(roadmap = flattenRoadmap()) {
     .slice(0, 900);
 }
 
-export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedIds = [], verifiedIds = [], blockedIds = [] } = {}) {
+export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedIds = [], verifiedIds = [], blockedIds = [], activeIds = [] } = {}) {
   const completed = new Set(completedIds);
   const blocked = new Set(blockedIds);
-  return roadmap
+  const active = new Set(activeIds);
+  const rank = (a, b) => score(a) - score(b) || String(a.id).localeCompare(String(b.id));
+  const open = roadmap
     .filter((item) => item && item.id)
     .filter((item) => !isVerifiedRoadmap(item))
     .filter((item) => !BLOCKED_ROADMAP.has(String(item.status || '').trim().toUpperCase()))
     .filter((item) => !unmetSoftwarePrerequisites(item, roadmap, verifiedIds).length)
-    .filter((item) => (!completed.has(item.id) || String(item.status).toUpperCase() === 'REGRESSED')
-      && (!blocked.has(item.id) || preparedBypassesExhaustion(item.id)))
-    .sort((a, b) => score(a) - score(b) || String(a.id).localeCompare(String(b.id)))[0] || null;
+    .filter((item) => !active.has(item.id))
+    .filter((item) => !completed.has(item.id) || String(item.status).toUpperCase() === 'REGRESSED');
+  // A live mission stays excluded. A prepared package is only eligible once
+  // every item that has not spent its attempt budget is already taken.
+  return open.filter((item) => !blocked.has(item.id)).sort(rank)[0]
+    || open.filter((item) => blocked.has(item.id) && preparedBypassesExhaustion(item.id)).sort(rank)[0]
+    || null;
 }
 
 // A capability-watch discovery cites GEN2-42 as its origin, not as the item it
@@ -360,16 +366,16 @@ export class AutonomySupervisor {
       .filter(([, attempts]) => attempts >= MAX_AUTONOMOUS_ROADMAP_ATTEMPTS)
       .map(([roadmapId]) => roadmapId);
     const blockedIds = [...new Set([...explicitlyBlockedIds, ...retryExhaustedIds])];
-    const excludedIds = [...blockedIds, ...activeIds];
     let next = selectNextAutonomyItem({
       roadmap: this.roadmap,
       completedIds,
       verifiedIds: verifiedDependencyIds,
-      blockedIds: excludedIds,
+      blockedIds,
+      activeIds,
     });
     if (!next && this.evolutionLoader && this.roadmap.every(row => verifiedRoadmapIds.has(row.id))) {
       const items = evolutionItems === null ? await readEvolution() : approvedEvolutionRoadmap(evolutionItems);
-      next = selectNextAutonomyItem({ roadmap: items, completedIds, blockedIds: excludedIds });
+      next = selectNextAutonomyItem({ roadmap: items, completedIds, blockedIds, activeIds });
     }
     return { evolution,
       jobs,
