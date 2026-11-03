@@ -26,7 +26,8 @@ test('a core brick migrates only when its replacement is already proved, and not
     assert.equal(blocked.countermeasure, 'KEEP_SOURCE');
     assert.equal(blocked.activation_performed, false);
     const ready = planCoreMigration({ part, replacementReady: true });
-    assert.equal(ready.automatic, true);
+    // A proven candidate can be prepared, but never switched without approval.
+    assert.equal(ready.automatic, false);
     assert.deepEqual(ready.steps, ['EXPORT', 'IMPORT_ON_TARGET', 'SMOKE', 'ACTIVATE', 'ROLLBACK_IF_SMOKE_FAILS']);
     assert.equal(ready.activation_performed, false);
   }
