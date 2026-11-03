@@ -43,3 +43,19 @@ test('life countermeasures still run inside the same cycle', async () => {
   assert.equal(stalled.life[0].applied, true);
   assert.deepEqual(calls, ['requeue']);
 });
+
+test('unexecuted failovers never count as applied or activated', async () => {
+  const cases = [
+    { observed: { cloudflareUp: false, githubUp: true, companionOnline: false }, code: 'RUN_CODE_ON_GITHUB_ACTIONS' },
+    { observed: { cloudflareUp: false, githubUp: true, companionOnline: true, localGit: true, localDb: true, localModel: true }, code: 'MOVE_MAX_TO_PC' },
+    { observed: { cloudflareUp: true, modelUp: false }, code: 'USE_OTHER_PROVEN_MODEL' },
+  ];
+  for (const row of cases) {
+    const result = await runContingencyCycle({ observed: row.observed, actions: { note: async () => ({ ok: true }) } });
+    const action = result.ran.find(action => action.code === row.code);
+    assert.ok(action, row.code);
+    assert.equal(action.applied, false, row.code);
+    assert.equal(action.activation_performed, false, row.code);
+    assert.equal(result.activation_performed, false, row.code);
+  }
+});
