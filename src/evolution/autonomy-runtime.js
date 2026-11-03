@@ -321,8 +321,15 @@ async function recordCoreRuntimeFailure(repository, error, { maxAttempts = 3, ep
 }
 
 async function runCoreResilient(env, coreOptions, repository) {
+  let passiveRecovery = null;
   try {
-    return await runCoreAutonomyRuntimeTick(env, coreOptions);
+    passiveRecovery = await recoverPassiveRuntimeStates(repository, {
+      canonicalSha: deployedCandidateSha(env),
+      limit: 200,
+      activeOnly: true,
+    });
+    const core = await runCoreAutonomyRuntimeTick(env, coreOptions);
+    return core && typeof core === 'object' ? { ...core, passive_recovery: passiveRecovery } : core;
   } catch (error) {
     // Configuration/safety errors must never be converted into a retryable job.
     // Retrying those would hide a bad branch configuration and weaken the
@@ -496,7 +503,6 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
   }
 
   const queueHygiene = null;
-  const passiveRecovery = null;
 
   const benchmarkRuntime = resolveRuntimeBenchmarkEvaluator(env, options);
   const coreOptions = {
@@ -508,6 +514,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     maxAutonomy: control.max_autonomy === true,
   };
   const first = preservePreEnsureCreation(await runCoreResilient(env, coreOptions, repository), preEnsure);
+  const passiveRecovery = first?.passive_recovery || null;
 
   let internalTeacherMirror = null;
   try {

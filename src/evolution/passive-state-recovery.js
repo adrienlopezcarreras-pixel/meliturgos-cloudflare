@@ -121,7 +121,7 @@ async function requeueOrphanReview(repository, job, now = Date.now()) {
   return { job_id: updated.id, from: 'READY_FOR_REVIEW', to: 'QUEUED', reason: result.passive_state_recovery.reason };
 }
 
-export async function recoverPassiveRuntimeStates(repository, { canonicalSha = null, limit = 100, now = Date.now() } = {}) {
+export async function recoverPassiveRuntimeStates(repository, { canonicalSha = null, limit = 100, now = Date.now(), activeOnly = false } = {}) {
   if (!repository || typeof repository.list !== 'function' || typeof repository.update !== 'function') {
     throw Object.assign(new Error('PASSIVE_RECOVERY_REPOSITORY_REQUIRED'), { code: 'PASSIVE_RECOVERY_REPOSITORY_REQUIRED' });
   }
@@ -131,7 +131,7 @@ export async function recoverPassiveRuntimeStates(repository, { canonicalSha = n
   const activeAutonomyJobs = typeof repository.listActiveAutonomyJobs === 'function'
     ? await repository.listActiveAutonomyJobs()
     : [];
-  const recentJobs = await repository.list();
+  const recentJobs = activeOnly ? [] : await repository.list();
   const allJobs = new Map();
   for (const job of [...activeAutonomyJobs, ...recentJobs]) {
     if (job?.id && !allJobs.has(job.id)) allJobs.set(job.id, job);
