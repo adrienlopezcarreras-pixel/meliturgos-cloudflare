@@ -413,6 +413,7 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
     execution_policy: {
       required_path: 'cloud',
       companion: 'bonus',
+      companion_tasks: (executor && executorAge >= 0 && executorAge < 60_000 && String(executor.status || '').toUpperCase() === 'ONLINE') || coder?.ok === true ? 'active' : 'set_aside',
       companion_proofs: coder?.ok === true ? 'available' : 'set_aside',
       blocks_progress: false,
     },
