@@ -87,6 +87,7 @@ test('she applies the countermeasure herself, and does not claim one she cannot 
   const migrated = await applyCoreMigration({
     part: 'cloudflare',
     replacementReady: true,
+    ownerApproved: true,
     migrate: async () => { calls.push('migrate'); return { ok: true }; },
   });
   assert.equal(migrated.applied, true);
@@ -105,4 +106,16 @@ test('emitted outage signals trigger life actions without pretending to activate
   assert.equal((await applyLifeCountermeasure('MAX_PAUSED_BY_SAFETY')).activation_performed, false);
   assert.equal((await applyCoreMigration({ part: 'github', replacementReady: false })).activation_performed, false);
   assert.equal(trialReplacement({ part: 'model', research: { kind: 'SOFTWARE', available: true, reliable: true, smoke: true, measured_better: true } }).plan.automatic, false);
+});
+
+test('a better and fully tested replacement cannot migrate without owner approval', async () => {
+  let called = false;
+  const blocked = await applyCoreMigration({
+    part: 'cloudflare', replacementReady: true,
+    migrate: async () => { called = true; return {ok:true}; },
+  });
+  assert.equal(blocked.applied, false);
+  assert.equal(blocked.reason, 'OWNER_APPROVAL_REQUIRED');
+  assert.equal(blocked.activation_performed, false);
+  assert.equal(called, false);
 });
