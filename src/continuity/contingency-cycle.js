@@ -48,16 +48,16 @@ export async function runContingencyCycle({ observed = {}, life = {}, actions = 
       if (kind === 'model') {
         const proven = (Array.isArray(replacements) ? replacements : []).find(row => row?.part === 'model' && row?.replacement_ready === true);
         ran.push(proven
-          ? { code, applied: true, activation_performed: false, reason: 'PROVEN_MODEL_NOT_SWITCHED' }
-          : { code, applied: true, activation_performed: false, reason: 'NO_PROVEN_REPLACEMENT' });
+          ? { code, applied: false, activation_performed: false, reason: 'PROVEN_MODEL_NOT_SWITCHED' }
+          : { code, applied: false, activation_performed: false, reason: 'NO_PROVEN_REPLACEMENT' });
         continue;
       }
       if (kind === 'handoff') {
-        ran.push({ code, applied: true, activation_performed: false, reason: scenario.max === 'STANDBY_READY' ? 'PC_HANDOFF_RECORDED' : 'STANDBY_NOT_READY' });
+        ran.push({ code, applied: false, activation_performed: false, reason: scenario.max === 'STANDBY_READY' ? 'PC_HANDOFF_NOT_EXECUTED' : 'STANDBY_NOT_READY' });
         continue;
       }
       if (kind === 'relay') {
-        ran.push({ code, applied: true, activation_performed: false, reason: 'ACTIONS_RELAY_RECORDED' });
+        ran.push({ code, applied: false, activation_performed: false, reason: 'ACTIONS_RELAY_NOT_EXECUTED' });
         continue;
       }
       if (kind === 'rebuild') {
