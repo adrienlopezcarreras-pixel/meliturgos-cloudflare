@@ -1,4 +1,5 @@
 import { allScenarios } from '../continuity/contingency-plan.js';
+import { REPLACEMENT_CATALOG } from '../continuity/replacement-catalog.js';
 import { allLifeEvents, CORE_BRICKS, planCoreMigration } from '../continuity/life-contingency.js';
 
 const PARTS = Object.freeze(['cloudflare', 'pc', 'github', 'model', 'gmail', 'onedrive', 'shards']);
@@ -18,6 +19,7 @@ export function contingencyTestModel() {
     scenarios: allScenarios(),
     life: allLifeEvents(),
     migrations,
+    replacement_catalog: REPLACEMENT_CATALOG,
   };
 }
 
