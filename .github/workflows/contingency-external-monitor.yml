@@ -1,0 +1,52 @@
+name: MEL external contingency monitor
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'src/continuity/external-health-monitor.js'
+      - 'scripts/run-external-contingency-monitor.mjs'
+      - 'tests/external-health-monitor.test.mjs'
+      - '.github/workflows/contingency-external-monitor.yml'
+permissions:
+  contents: read
+concurrency:
+  group: mel-contingency-monitor-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  monitor-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Validate external health monitor behavior
+        run: node --test tests/external-health-monitor.test.mjs
+  monitor-cloudflare:
+    # Run externally after merge, with a configured public HTTPS health URL.
+    # A skipped monitor is NOT a certification of healthy infrastructure.
+    if: ${{ github.event_name != 'pull_request' && vars.MEL_CONTINGENCY_HEALTH_URL != '' }}
+    needs: monitor-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      MEL_CONTINGENCY_HEALTH_URL: ${{ vars.MEL_CONTINGENCY_HEALTH_URL }}
+      MEL_CONTINGENCY_HEALTH_MARKER: ${{ vars.MEL_CONTINGENCY_HEALTH_MARKER }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Check live Cloudflare endpoint from outside Cloudflare
+        run: node scripts/run-external-contingency-monitor.mjs
+      - name: Preserve monitoring evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mel-contingency-external-health
+          path: artifacts/contingency/external-health.json
+          if-no-files-found: warn
+          retention-days: 14
