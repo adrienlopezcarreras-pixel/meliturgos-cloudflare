@@ -34,3 +34,21 @@ export async function admitGitHubSourceRescue(report,signed,{
     max_running:false,d1_restored:false,r2_restored:false,
     observed_at:report.observed_at,observer:signed.observer});
 }
+
+/**
+ * Archive only allowlisted software sources, not every tracked object.
+ * Tracked imports, exports, local data, private backup material and generated
+ * secrets must never be copied to a broadly downloadable Actions artifact.
+ */
+const SOURCE_ARCHIVE_ROOTS = new Set([
+  'src', 'scripts', 'tests', 'migrations', 'firmware', 'browser-companion',
+  'android', 'mobile', 'packages', 'release-tools', '.github',
+  'package.json', 'package-lock.json', 'worker.js', 'wrangler.jsonc',
+  'wrangler.toml', 'tsconfig.json', 'jsconfig.json', 'vite.config.js',
+]);
+export function selectSourceArchiveRoots(trackedRoots = []) {
+  if (!Array.isArray(trackedRoots)) return [];
+  return [...new Set(trackedRoots)]
+    .filter(name => typeof name === 'string' && SOURCE_ARCHIVE_ROOTS.has(name))
+    .sort();
+}

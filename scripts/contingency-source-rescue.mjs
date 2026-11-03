@@ -2,7 +2,7 @@ import { readFile,writeFile,mkdir,stat } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { admitGitHubSourceRescue } from '../src/continuity/github-source-rescue.js';
+import { admitGitHubSourceRescue, selectSourceArchiveRoots } from '../src/continuity/github-source-rescue.js';
 
 const DIR='artifacts/contingency';
 let gate;
@@ -29,8 +29,16 @@ if(gate.ok!==true){
   if(actual!==sha)throw Error('GITHUB_SOURCE_SHA_MISMATCH');
   await mkdir(DIR,{recursive:true});
   const archive=DIR+'/mel-source-only.tar.gz';
-  // No DB, model, secret, deploy or automatic failover. Git tracked files only.
-  execFileSync('git',['archive','--format=tar.gz','--output='+archive,'HEAD'],{
+  // The repository also tracks imported documents, exports and diagnostics.
+  // A source rescue must not package those into a second distributable artifact.
+  const roots = execFileSync('git',['ls-tree','--name-only','HEAD'],{
+    encoding:'utf8',timeout:10000,maxBuffer:1024*1024,
+  }).split('\\n').map(value => value.trim()).filter(Boolean);
+  const sourcePaths = selectSourceArchiveRoots(roots);
+  if (!sourcePaths.includes('src') || !sourcePaths.includes('package.json')) {
+    throw Error('SOURCE_ARCHIVE_REQUIRED_CODE_ROOTS_MISSING');
+  }
+  execFileSync('git',['archive','--format=tar.gz','--output='+archive,'HEAD','--',...sourcePaths],{
     timeout:120000,maxBuffer:1024*1024,
   });
   const size=(await stat(archive)).size;
@@ -39,6 +47,7 @@ if(gate.ok!==true){
   for await(const bytes of createReadStream(archive))hash.update(bytes);
   const receipt={schema:'mel.contingency-source-rescue/v1',status:'SOURCE_ARCHIVED_ONLY',
     source_sha:sha,archive_sha256:hash.digest('hex'),archive_bytes:size,
+    archived_roots:sourcePaths,
     outage_observed_at:gate.observed_at,independent_evidence:gate.code,
     deployed_sha_verified:false,max_running:false,d1_restored:false,
     r2_restored:false,failover_performed:false};

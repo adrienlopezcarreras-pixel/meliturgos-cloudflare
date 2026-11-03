@@ -45,3 +45,19 @@ test('tampered, stale, unauthenticated incidents are rejected',async()=>{
   assert.equal((await admitGitHubSourceRescue(stale,await evidence(stale),config)).ok,false);
   assert.equal((await admitGitHubSourceRescue(basic,signed,{...config,expectedHost:'other.example'})).ok,false);
 });
+
+test('source rescue selects only allowlisted software roots and excludes tracked private data',async()=>{
+  const {selectSourceArchiveRoots}=await import('../src/continuity/github-source-rescue.js');
+  assert.deepEqual(selectSourceArchiveRoots([
+    'src','scripts','package.json','migrations','.github','tests',
+    'imports','exports','docs','backups','data','.env','secrets','assets',
+    'src','node_modules','archive','memory','private',
+  ]),['.github','migrations','package.json','scripts','src','tests']);
+  assert.deepEqual(selectSourceArchiveRoots(null),[]);
+  const {readFileSync}=await import('node:fs');
+  const runner=readFileSync(new URL('../scripts/contingency-source-rescue.mjs',import.meta.url),'utf8');
+  assert.match(runner,/selectSourceArchiveRoots\(roots\)/);
+  assert.match(runner,/SOURCE_ARCHIVE_REQUIRED_CODE_ROOTS_MISSING/);
+  assert.match(runner,/\.\.\.sourcePaths\]/);
+  assert.doesNotMatch(runner,/--output='\+archive,'HEAD'\]/);
+});
