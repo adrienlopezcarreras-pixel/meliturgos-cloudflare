@@ -72,14 +72,13 @@ test('fresh HMAC report is committed to D1 once and remains only authenticated, 
 test('actual Worker refuses anonymous/tampered signed reports, accepts only a valid HMAC',async()=>{
   const database=db();
   try {
-    const valid=await signed(true,now-2000);
+    const valid=await signed(true,Date.now()-1000);
     const env={DB:database,MEL_CONTINGENCY_PROBE_HMAC_KEY:secret};
     const fake=await worker.fetch(request({...valid,signature:'0'.repeat(64)}),env);
     assert.equal(fake.status,401);
     const verified=await worker.fetch(request(valid),env);
-    // Current time differs from this fixed fixture; a historical signed sample
-    // must be stale in the actual Worker, never accepted as live.
-    assert.equal(verified.status,401);
+    assert.equal(verified.status,202);
+    assert.equal((await verified.json()).status,'SIGNED_PROBE_PERSISTED');
   }finally {database.close();}
 });
 
