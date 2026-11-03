@@ -139,3 +139,14 @@ test('larger Council batches extend workflow budget without weakening authorizat
   assert.match(workflow,/timeout-minutes: 45/);
   assert.match(workflow,/allowed.*Council|COUNCIL_BATCH_REVIEW_NOT_APPROVED/);
 });
+
+test('long multi-batch review renews its GitHub OIDC identity for every Council request',()=>{
+  const source=readFileSync(new URL('../scripts/run-council-batch-review.mjs',import.meta.url),'utf8');
+  assert.match(source,/async function currentOidcToken\(\)/);
+  assert.match(source,/ACTIONS_ID_TOKEN_REQUEST_URL/);
+  assert.match(source,/ACTIONS_ID_TOKEN_REQUEST_TOKEN/);
+  assert.match(source,/issuerUrl\.searchParams\.set\('audience','meliturgos-worker'\)/);
+  assert.match(source,/const freshToken=await currentOidcToken\(\)/);
+  assert.match(source,/'x-mel-github-oidc':freshToken/);
+  assert.doesNotMatch(source,/'x-mel-github-oidc':token/);
+});

@@ -9,7 +9,7 @@ const base=String(process.env.MEL_COUNCIL_BASE_SHA||'').toLowerCase();
 const token=process.env.MEL_COUNCIL_OIDC_TOKEN||'';
 const url='https://meliturgos.adrien-lopezcarreras.workers.dev/api/internal/council-review';
 if(!source||!logPath||!/^[a-f0-9]{40}$/.test(head)||!/^[a-f0-9]{40}$/.test(base)
-    ||!token||token.length<100)throw Error('COUNCIL_BATCH_RUNNER_NOT_CONFIGURED');
+    ||!process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN||!process.env.ACTIONS_ID_TOKEN_REQUEST_URL)throw Error('COUNCIL_BATCH_RUNNER_NOT_CONFIGURED');
 const raw=readFileSync(source);
 const diff=new TextDecoder('utf-8',{fatal:true}).decode(raw);
 const log=readFileSync(logPath,'utf8').slice(0,15000);
@@ -19,9 +19,30 @@ const hash=value=>createHash('sha256').update(value).digest('hex');
 const root=hash(raw);
 const common={head,base,root_sha256:root,batch_count:planned.batchCount,
   total_bytes:planned.totalBytes,file_count:planned.fileCount};
+async function currentOidcToken(){
+  // GitHub OIDC identity tokens expire in minutes. A multi-batch Council may
+  // take longer than that: fetch a new audience-bound identity for EACH vote.
+  const requestUrl=process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  const requestToken=process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  if(!requestUrl||!requestToken)throw Error('COUNCIL_BATCH_FRESH_OIDC_REQUIRED');
+  const issuerUrl=new URL(requestUrl);
+  if(issuerUrl.protocol!=='https:')throw Error('COUNCIL_BATCH_OIDC_URL_INVALID');
+  issuerUrl.searchParams.set('audience','meliturgos-worker');
+  const response=await fetch(issuerUrl,{
+    method:'GET',redirect:'error',
+    headers:{authorization:'bearer '+requestToken},
+    signal:AbortSignal.timeout(15000),
+  });
+  if(!response.ok)throw Error('COUNCIL_BATCH_OIDC_FETCH_FAILED');
+  const body=await response.json();
+  if(typeof body?.value!=='string'||body.value.length<100)
+    throw Error('COUNCIL_BATCH_OIDC_EMPTY');
+  return body.value;
+}
 async function post(data){
+  const freshToken=await currentOidcToken();
   const response=await fetch(url,{method:'POST',redirect:'manual',
-    headers:{'x-mel-github-oidc':token,'content-type':'application/json'},
+    headers:{'x-mel-github-oidc':freshToken,'content-type':'application/json'},
     body:JSON.stringify(data),signal:AbortSignal.timeout(300000)});
   if(response.status!==200)throw Error('COUNCIL_BATCH_HTTP_'+response.status);
   return response.json();
