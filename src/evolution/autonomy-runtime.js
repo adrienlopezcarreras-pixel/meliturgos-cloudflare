@@ -19,6 +19,7 @@ import { backgroundNeuronBudgetExhausted, readNeuronBonusTotal } from '../augmen
 import { bindLocalPcWorkersAi, localPcModelReady } from '../models/local-pc-model.js';
 import { readSurvivalState, shouldResumeForSurvival } from '../legacy/survival-mode.js';
 import { applyLifeCountermeasure } from '../continuity/life-contingency.js';
+import { bindCountermeasureActions } from '../continuity/countermeasure-actions.js';
 import { singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
 
 export * from './autonomy-runtime-core.js';
@@ -764,8 +765,9 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   // rollback_count so a flaky release probe cannot loop for ever, and an
   // owner stop is never touched.
   if (shouldRestoreOwnerMax(control) && env?.DB) {
-    const applied = await applyLifeCountermeasure('MAX_PAUSED_BY_MISTAKE', {
-      restoreMax: async () => {
+    const actions = bindCountermeasureActions({
+      repository,
+      setMax: async () => {
         control = await setOwnerMaxAutonomy(env.DB, {
           enabled: true,
           paused: false,
@@ -773,13 +775,14 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
           reason: 'MAX_RESTORED_AFTER_ROLLBACK',
           memoryState: options.autonomyControlState || null,
         });
-        return { ok: true };
       },
     });
+    const applied = await applyLifeCountermeasure('MAX_PAUSED_BY_MISTAKE', actions);
     if (applied.applied !== true) throw Object.assign(new Error(applied.reason || 'MAX_RESTORE_FAILED'), { code: applied.reason || 'MAX_RESTORE_FAILED' });
   }
   if (shouldResumeForSurvival(control, survival) && env?.DB) {
-    const applied = await applyLifeCountermeasure('OWNER_ABSENT', {
+    const actions = bindCountermeasureActions({
+      repository,
       keepMax: async () => {
         control = await setOwnerMaxAutonomy(env.DB, {
           enabled: true,
@@ -788,9 +791,9 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
           reason: 'owner-silent-one-year',
           memoryState: options.autonomyControlState || null,
         });
-        return { ok: true };
       },
     });
+    const applied = await applyLifeCountermeasure('OWNER_ABSENT', actions);
     if (applied.applied !== true) throw Object.assign(new Error(applied.reason || 'SURVIVAL_RESUME_FAILED'), { code: applied.reason || 'SURVIVAL_RESUME_FAILED' });
   }
 
