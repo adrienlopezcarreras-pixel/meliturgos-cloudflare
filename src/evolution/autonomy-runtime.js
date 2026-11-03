@@ -793,6 +793,7 @@ async function applyObservedCountermeasures(env, repository, control, watchdog, 
   const actions = bindCountermeasureActions({
     repository,
     jobId: job?.id || null,
+    canonicalSha: deployedCandidateSha(env),
     supervisor: new AutonomySupervisor({ repository }),
     previousVersionId: job?.result_json?.previous_version_id || null,
     rollbackWorker: env?.MEL_ROLLBACK_WORKER,
