@@ -1,5 +1,13 @@
 import { recoverPassiveRuntimeStates } from '../evolution/passive-state-recovery.js';
 
+/** Confirm persisted MAX state after any control mutation. Never infer success
+ * merely because setOwnerMaxAutonomy returned without throwing. */
+export function maxControlProof(control) {
+  const active = control?.max_autonomy === true && control?.paused !== true;
+  return Object.freeze({ ok: active, max_active: active, active,
+    ...(active ? {} : { code: 'MAX_CONTROL_NOT_ACTIVE' }) });
+}
+
 async function markJob(repository, status, code, expectedJobId = null) {
   if (typeof repository?.listActiveAutonomyJobs !== 'function' || typeof repository?.update !== 'function') {
     return { ok: false, code: 'REPOSITORY_REQUIRED' };
