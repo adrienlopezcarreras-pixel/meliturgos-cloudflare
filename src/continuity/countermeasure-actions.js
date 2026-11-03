@@ -34,11 +34,11 @@ async function markJob(repository, status, code, expectedJobId = null) {
   return { ok: true, code };
 }
 
-async function requeue(repository) {
+async function requeue(repository, jobId = null) {
   if (typeof repository?.list !== 'function' || typeof repository?.update !== 'function') {
     return { ok: false, code: 'REPOSITORY_REQUIRED' };
   }
-  const recovered = await recoverPassiveRuntimeStates(repository, { activeOnly: true });
+  const recovered = await recoverPassiveRuntimeStates(repository, { activeOnly: true, onlyJobId: jobId });
   const changed = Array.isArray(recovered?.recovered) ? recovered.recovered.length : 0;
   const failure = recovered?.failed?.[0]?.code;
   return { ok: !failure && changed > 0, code: failure || (changed ? 'MISSION_REQUEUED' : 'NO_RECOVERABLE_JOB'), recovered: changed };
@@ -92,8 +92,8 @@ export function bindCountermeasureActions({
     refuseSecondRelease: () => markJob(repository, null, 'DO_NOT_START_SECOND_RELEASE', jobId),
     keepSource: () => markJob(repository, null, 'KEEP_SOURCE', jobId),
     refuseMerge: () => markJob(repository, null, 'DO_NOT_MERGE', jobId),
-    requeue: () => requeue(repository),
-    requeueReview: () => requeue(repository),
+    requeue: () => requeue(repository, jobId),
+    requeueReview: () => requeue(repository, jobId),
     ensureNextJob: async () => {
       if (typeof supervisor?.ensureNextJob !== 'function') return { ok: false, code: 'SUPERVISOR_REQUIRED' };
       const result = await supervisor.ensureNextJob();
