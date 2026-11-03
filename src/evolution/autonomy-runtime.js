@@ -321,8 +321,15 @@ async function recordCoreRuntimeFailure(repository, error, { maxAttempts = 3, ep
 }
 
 async function runCoreResilient(env, coreOptions, repository) {
+  let passiveRecovery = null;
   try {
-    return await runCoreAutonomyRuntimeTick(env, coreOptions);
+    passiveRecovery = await recoverPassiveRuntimeStates(repository, {
+      canonicalSha: deployedCandidateSha(env),
+      limit: 200,
+      activeOnly: true,
+    });
+    const core = await runCoreAutonomyRuntimeTick(env, coreOptions);
+    return core && typeof core === 'object' ? { ...core, passive_recovery: passiveRecovery } : core;
   } catch (error) {
     // Configuration/safety errors must never be converted into a retryable job.
     // Retrying those would hide a bad branch configuration and weaken the
@@ -496,7 +503,6 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
   }
 
   const queueHygiene = null;
-  const passiveRecovery = null;
 
   const benchmarkRuntime = resolveRuntimeBenchmarkEvaluator(env, options);
   const coreOptions = {
@@ -508,6 +514,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     maxAutonomy: control.max_autonomy === true,
   };
   const first = preservePreEnsureCreation(await runCoreResilient(env, coreOptions, repository), preEnsure);
+  const passiveRecovery = first?.passive_recovery || null;
 
   let internalTeacherMirror = null;
   try {
@@ -821,7 +828,29 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   if (local?.ok) bindLocalPcWorkersAi(env, options.runLocalPcModel);
 
   const epochMs = await readActivityListEpoch(env?.DB, { strict: true });
-  const launchApproval = launchApprovalValid(env, control, options);
+  let launchApproval = launchApprovalValid(env, control, options);
+  // A missing approval is not a stale one. MAX was already the owner's choice
+  // and nobody stopped it: bind the commit that is actually deployed, then work.
+  // A different stored SHA stays fail-closed. An owner stop is never rewritten.
+  if (!launchApproval.ok && launchApproval.code === 'LAUNCH_GATE_REQUIRED' && !launchApproval.approved_sha
+      && control?.max_autonomy === true && control?.paused !== true && env?.DB) {
+    const prepare = options.prepareLaunch || (await import('./launch-readiness.js')).prepareAutonomyLaunch;
+    const prepared = await prepare(env, { repository }).catch(() => null);
+    const candidate = String(prepared?.readiness?.candidate_sha || '').trim().toLowerCase();
+    if (prepared?.ok === true && prepared?.readiness?.launch_ready === true && candidate === launchApproval.deployed_sha) {
+      control = await setOwnerMaxAutonomy(env.DB, {
+        enabled: true,
+        paused: false,
+        source: 'autonomous-launch-bind',
+        reason: 'deployed-sha-self-approval',
+        launch_approved_sha: candidate,
+        launch_approved_at: prepared.readiness.evaluated_at || new Date().toISOString(),
+        launch_gate_digest: prepared.readiness.gate_digest,
+        memoryState: options.autonomyControlState || null,
+      });
+      launchApproval = launchApprovalValid(env, control, options);
+    }
+  }
   if (!launchApproval.ok) {
     let passiveCompletions;
     if (typeof options.waitUntil === 'function') {

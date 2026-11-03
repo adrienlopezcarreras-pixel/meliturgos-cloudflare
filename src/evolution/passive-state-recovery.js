@@ -69,7 +69,7 @@ async function requeueStaleTeacher(repository, job, canonicalSha) {
   return { job_id: updated.id, from: upper(job.status), to: 'QUEUED', reason: 'STALE_CANDIDATE_SHA' };
 }
 
-async function requeueOrphanReview(repository, job) {
+async function requeueOrphanReview(repository, job, now = Date.now()) {
   if (upper(job?.status) !== 'READY_FOR_REVIEW') return null;
   if (job?.result_json?.dev_bridge?.needs_repair === true) return null;
   const teacher = job?.result_json?.teacher_bridge;
@@ -78,28 +78,52 @@ async function requeueOrphanReview(repository, job) {
     && teacher?.review?.verdict === 'APPROVE_PLAN'
     && teacher?.review?.development_allowed === true;
   const hasReviewPackage = devBridge?.status === 'READY_FOR_REVIEW';
-  if (hasAnsweredTeacher && hasReviewPackage) return null;
+  const packageReady = job?.result_json?.bridge_preparation?.status === 'READY'
+    && job?.result_json?.implementation_proposal?.status === 'READY';
+  const ageMs = now - Number(job?.updated_at || 0);
+  const undispatchable = hasAnsweredTeacher && hasReviewPackage && !packageReady
+    && Number(job?.updated_at || 0) > 0 && ageMs > 6 * 60 * 60 * 1000;
+  if (hasAnsweredTeacher && hasReviewPackage && !undispatchable) return null;
 
-  const now = new Date().toISOString();
+  const observedAt = new Date().toISOString();
   const result = cloneObject(job.result_json);
+  if (undispatchable) {
+    delete result.implementation_proposal;
+    delete result.bridge_package;
+    delete result.bridge_preparation;
+    result.passive_state_recovery = {
+      recovered_at: observedAt,
+      previous_status: 'READY_FOR_REVIEW',
+      reason: 'REVIEW_NOT_DISPATCHABLE',
+    };
+    const updated = await repository.update(job.id, {
+      status: 'TEACHER_APPROVED',
+      result_json: result,
+      error: null,
+    }, { expected: job });
+    if (upper(updated?.status) !== 'TEACHER_APPROVED') return null;
+    return { job_id: updated.id, from: 'READY_FOR_REVIEW', to: 'TEACHER_APPROVED', reason: 'REVIEW_NOT_DISPATCHABLE' };
+  }
   archiveBridge(result, teacher, {
     status: teacher?.status || 'MISSING',
-    orphaned_at: now,
+    orphaned_at: observedAt,
     orphaned_reason: 'READY_FOR_REVIEW_WITHOUT_COMPLETE_TEACHER_CHAIN',
   });
   if (!hasAnsweredTeacher) result.teacher_bridge = null;
   delete result.implementation_proposal;
   delete result.bridge_package;
   result.passive_state_recovery = {
-    recovered_at: now,
+    recovered_at: observedAt,
     previous_status: 'READY_FOR_REVIEW',
-    reason: hasAnsweredTeacher ? 'DEV_BRIDGE_REVIEW_PACKAGE_MISSING' : 'TEACHER_APPROVAL_MISSING',
+    reason: !hasAnsweredTeacher ? 'TEACHER_APPROVAL_MISSING'
+      : undispatchable ? 'REVIEW_NOT_DISPATCHABLE'
+      : 'DEV_BRIDGE_REVIEW_PACKAGE_MISSING',
   };
 
   const plan = cloneObject(job.plan_json);
   plan.preflight = null;
   plan.revision = {
-    requested_at: now,
+    requested_at: observedAt,
     previous_request_id: teacher?.request?.request_id || teacher?.review?.request_id || null,
     reason: 'ORPHAN_READY_FOR_REVIEW_RECOVERY',
   };
@@ -114,7 +138,7 @@ async function requeueOrphanReview(repository, job) {
   return { job_id: updated.id, from: 'READY_FOR_REVIEW', to: 'QUEUED', reason: result.passive_state_recovery.reason };
 }
 
-export async function recoverPassiveRuntimeStates(repository, { canonicalSha = null, limit = 100 } = {}) {
+export async function recoverPassiveRuntimeStates(repository, { canonicalSha = null, limit = 100, now = Date.now(), activeOnly = false } = {}) {
   if (!repository || typeof repository.list !== 'function' || typeof repository.update !== 'function') {
     throw Object.assign(new Error('PASSIVE_RECOVERY_REPOSITORY_REQUIRED'), { code: 'PASSIVE_RECOVERY_REPOSITORY_REQUIRED' });
   }
@@ -124,7 +148,7 @@ export async function recoverPassiveRuntimeStates(repository, { canonicalSha = n
   const activeAutonomyJobs = typeof repository.listActiveAutonomyJobs === 'function'
     ? await repository.listActiveAutonomyJobs()
     : [];
-  const recentJobs = await repository.list();
+  const recentJobs = activeOnly ? [] : await repository.list();
   const allJobs = new Map();
   for (const job of [...activeAutonomyJobs, ...recentJobs]) {
     if (job?.id && !allJobs.has(job.id)) allJobs.set(job.id, job);
@@ -138,7 +162,7 @@ export async function recoverPassiveRuntimeStates(repository, { canonicalSha = n
     try {
       const stale = await requeueStaleTeacher(repository, job, String(canonicalSha || '').toLowerCase());
       if (stale) { recovered.push(stale); continue; }
-      const orphan = await requeueOrphanReview(repository, job);
+      const orphan = await requeueOrphanReview(repository, job, now);
       if (orphan) recovered.push(orphan);
     } catch (error) {
       failed.push({ job_id: job?.id || null, code: error?.code || error?.message || 'PASSIVE_RECOVERY_FAILED' });
