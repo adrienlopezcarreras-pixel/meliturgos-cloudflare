@@ -16,11 +16,18 @@ async function markJob(repository, status, code) {
     countermeasure: entry,
     countermeasure_history: [...history, entry].slice(-100),
   };
-  await repository.update(job.id, {
+  const updated = await repository.update(job.id, {
     status: status || job.status,
     result_json: result,
     error: status === 'FAILED' ? code : (job.error ?? null),
   }, { expected: job });
+  // The persistent repository can refuse an update when an owner cancelled
+  // the job concurrently. Returning a valid job is not proof of a new write.
+  if (String(updated?.status || '').toUpperCase() === 'CANCELLED'
+      || updated?.result_json?.countermeasure?.code !== code
+      || updated?.result_json?.countermeasure?.at !== entry.at) {
+    return { ok: false, code: 'COUNTERMEASURE_AUDIT_NOT_PERSISTED' };
+  }
   return { ok: true, code };
 }
 
@@ -80,8 +87,11 @@ export function bindCountermeasureActions({
     requeueReview: () => requeue(repository),
     ensureNextJob: async () => {
       if (typeof supervisor?.ensureNextJob !== 'function') return { ok: false, code: 'SUPERVISOR_REQUIRED' };
-      await supervisor.ensureNextJob();
-      return { ok: true };
+      const result = await supervisor.ensureNextJob();
+      // Scheduler invocation is not the same as actual admission of one job.
+      if (result?.created === true && result?.job?.id) return { ok: true, code: 'NEXT_JOB_CREATED' };
+      return { ok: false, code: String(result?.external_progress?.status || (result?.complete === true ? 'ROADMAP_COMPLETE' : 'NO_NEW_JOB_CREATED')) };
+
     },
     reject: () => markJob(repository, 'FAILED', 'REJECT_CANDIDATE'),
     rebuildHead: () => markJob(repository, 'QUEUED', 'REBUILD_ON_CURRENT_HEAD'),
