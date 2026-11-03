@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createHash, webcrypto } from 'node:crypto';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import { planCouncilDiffBatches } from '../src/evolution/council-diff-batches.js';
