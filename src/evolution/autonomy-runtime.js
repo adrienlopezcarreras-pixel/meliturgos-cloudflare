@@ -21,6 +21,7 @@ import { readSurvivalState, shouldResumeForSurvival } from '../legacy/survival-m
 import { applyLifeCountermeasure, lifeFactsFromSignals } from '../continuity/life-contingency.js';
 import { runContingencyCycle } from '../continuity/contingency-cycle.js';
 import { verifyContingencyProbeReports } from '../continuity/contingency-probe-auth.js';
+import { activeWorkerContingencyObserved } from '../continuity/contingency-observations.js';
 import { bindCountermeasureActions } from '../continuity/countermeasure-actions.js';
 import { singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
 
@@ -807,12 +808,7 @@ async function applyObservedCountermeasures(env, repository, control, watchdog, 
     now: Date.now(),
   });
   return runContingencyCycle({
-    observed: {
-      cloudflareUp: true,
-      ...probes.observed,
-      // The optional local PC is never promoted merely by a job's claim.
-      companionOnline: false,
-    },
+    observed: activeWorkerContingencyObserved(probes),
     life: countermeasureFacts({ control, watchdog, tick, job }),
     actions,
     replacements: Array.isArray(job?.result_json?.replacement_trials) ? job.result_json.replacement_trials : [],
