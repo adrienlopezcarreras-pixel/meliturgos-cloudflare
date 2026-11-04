@@ -8,15 +8,16 @@ test('cloud bridge uses GitHub OIDC instead of installing a Worker secret', asyn
   const source = await readFile(new URL('../../.github/workflows/gen2-42-apply-ready-bridge.yml', import.meta.url), 'utf8');
   assert.match(source, /id-token: write/);
   assert.match(source, /audience=meliturgos-worker/);
-  assert.equal(source.split('x-mel-github-oidc: $("$MEL_OIDC_HELPER")').length - 1, 4);
+  assert.equal(source.split('x-mel-github-oidc: $("$MEL_OIDC_HELPER")').length - 1, 5);
   assert.doesNotMatch(source, /MEL_CLOUD_BRIDGE_TOKEN|cf-worker-secret|secret (put|delete)/);
 });
 
-test('OIDC is only accepted on claim/result and is verified before any work', async () => {
+test('OIDC is only accepted on claim/result/precommit and is verified before any work', async () => {
   const req = (path, headers) => new Request('https://mel.test' + path, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: '{}' });
   const env = { MEL_GITHUB_REPOSITORY: 'o/r', DB: {} };
   // Gate lets an OIDC claim through to the route, but not other bridge paths.
   assert.equal(enforceHttpAuthPolicy(req('/api/dev-bridge/claim', { 'x-mel-github-oidc': 'a.b.c' }), env), null);
+  assert.equal(enforceHttpAuthPolicy(req('/api/dev-bridge/precommit', { 'x-mel-github-oidc': 'a.b.c' }), env), null);
   const other = enforceHttpAuthPolicy(req('/api/dev-bridge/commit', { 'x-mel-github-oidc': 'a.b.c' }), env);
   assert.ok(other && other.status >= 400);
   // The route itself rejects an invalid token.
