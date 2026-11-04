@@ -1,8 +1,5 @@
 name: mel-pr-council-review
 
-# Independent code review ONLY. Never writes source, never deploys or promotes.
-# Available from main after this workflow and the matching Worker handler are
-# safely released through the normal, independently approved release process.
 on:
   workflow_dispatch:
     inputs:
@@ -60,10 +57,6 @@ jobs:
           test "$FETCHED" = "$HEAD"
           git fetch origin main
           MAIN="$(git rev-parse FETCH_HEAD)"
-          # The Council runner itself must first reach main. The candidate
-          # under review may therefore still descend from an earlier main.
-          # Review ONLY its exact changes since the common ancestor, and
-          # reject overlapping main changes instead of reviewing a stale merge.
           BASE="$(git merge-base "$MAIN" "$HEAD")"
           test -n "$BASE"
           if [ "$BASE" != "$MAIN" ]; then
