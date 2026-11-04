@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// Independent exact-SHA Council batch runner; never self-approves.
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {planCouncilDiffBatches} from '../src/evolution/council-diff-batches.js';
@@ -20,8 +19,6 @@ const root=hash(raw);
 const common={head,base,root_sha256:root,batch_count:planned.batchCount,
   total_bytes:planned.totalBytes,file_count:planned.fileCount};
 async function currentOidcToken(){
-  // GitHub OIDC identity tokens expire in minutes. A multi-batch Council may
-  // take longer than that: fetch a new audience-bound identity for EACH vote.
   const requestUrl=process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
   const requestToken=process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
   if(!requestUrl||!requestToken)throw Error('COUNCIL_BATCH_FRESH_OIDC_REQUIRED');
