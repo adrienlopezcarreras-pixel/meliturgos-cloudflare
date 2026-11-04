@@ -88,3 +88,9 @@ jobs:
               AND COALESCE(json_extract(item.value,'$.handoff.closed'),0)<>1
             GROUP BY handoff_status,retryable,has_teacher_request,canonical_status,canonical_teacher_request LIMIT 30;"
           npx wrangler d1 execute DB --remote --config wrangler.jsonc --env="" --command "$HANDOFF_SQL"
+          WINDOW_SQL="SELECT COUNT(*) AS total_items,
+            SUM(CASE WHEN COALESCE(json_extract(item.value,'$.handoff.closed'),0)<>1 AND json_extract(item.value,'$.handoff.job_id') IS NOT NULL THEN 1 ELSE 0 END) AS open_linked,
+            MIN(CASE WHEN COALESCE(json_extract(item.value,'$.handoff.closed'),0)<>1 AND json_extract(item.value,'$.handoff.job_id') IS NOT NULL THEN CAST(item.key AS INTEGER) ELSE NULL END) AS first_open_index,
+            MAX(CASE WHEN COALESCE(json_extract(item.value,'$.handoff.closed'),0)<>1 AND json_extract(item.value,'$.handoff.job_id') IS NOT NULL THEN CAST(item.key AS INTEGER) ELSE NULL END) AS last_open_index
+            FROM capability_watch_state state,json_each(state.state_json,'$.items') item WHERE state.id='ecosystem-discoveries-canonical';"
+          npx wrangler d1 execute DB --remote --config wrangler.jsonc --env="" --command "$WINDOW_SQL"
