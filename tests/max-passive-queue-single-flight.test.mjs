@@ -201,3 +201,27 @@ test('fresh QUEUED with no historic preflight is NOT misclassified as second-pas
   assert.equal(isLegacyRequeuedMission({...untouched,plan_json:{revision:{reason:'SHA_MOVED'}},result_json:{
     teacher_bridge:{status:'WAITING_TEACHER'}}}),false,'live Teacher transport must not be passivized');
 });
+
+
+for(const persistent of [false,true]) test('concurrent second pass claims cannot activate two queued jobs ('+(persistent?'D1':'memory')+')',async()=>{
+  const db=persistent?sqliteD1():null;
+  const repo=new D1DevJobRepository(db);
+  try{
+    const seed=async id=>{
+      await repo.create({id,requested_by:'mel-autonomy',goal:id,optional_context:{roadmap_id:id}});
+      await repo.update(id,{status:'WAITING_TEACHER'});
+      return repo.update(id,{status:'QUEUED'});
+    };
+    const a=await seed('parallel-a');
+    const b=await seed('parallel-b');
+    const answers=await Promise.all([
+      repo.resumeSecondPassQueued(a.id,{expected:a}),
+      repo.resumeSecondPassQueued(b.id,{expected:b}),
+    ]);
+    assert.equal(answers.filter(Boolean).length,1,'D1 or memory must admit at most one second-pass mission');
+    const {singleFlightAutonomyMission}=await import('../src/evolution/provider-exhaustion-rotation.js');
+    const all=await repo.list();
+    assert.equal(all.filter(x=>x.result_json?.autonomy_queue_pass?.passive===false).length,1);
+    assert.equal(singleFlightAutonomyMission(all)?.id,answers.find(Boolean).id);
+  }finally{db?.close();}
+});
