@@ -90,6 +90,42 @@ jobs:
           echo "MEL_COUNCIL_MAIN_SHA=$MAIN" >> "$GITHUB_ENV"
           echo "MEL_COUNCIL_PR_NUMBER=$PR_NUMBER" >> "$GITHUB_ENV"
           echo "Verified immutable PR head $HEAD, review base $BASE and current main $MAIN"
+      - name: Require every exact-SHA CI gate before automatic Council review
+        if: github.event_name == 'workflow_run'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/commits/$MEL_COUNCIL_HEAD_SHA/check-runs?per_page=100" > council-checks.json
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const response=JSON.parse(fs.readFileSync('council-checks.json','utf8'));
+          const checks=response.check_runs||[];
+          if(!Number.isSafeInteger(response.total_count)||response.total_count!==checks.length)
+            throw Error('COUNCIL_CI_INCOMPLETE_CHECK_LIST');
+          const latest=new Map();
+          for(const row of checks){
+            const current=latest.get(row.name);
+            if(!current||Number(row.id)>Number(current.id))latest.set(row.name,row);
+          }
+          const mandatory=[
+            'gen2-17-targeted','gen2-17-full-suite','monitor-contract',
+            'encrypted-backup','professor-audit','shardvault-targeted',
+            'public-chat-targeted','public-chat-full-suite','durable-work',
+            'node-validation','lora-runtime-contract','self-audit-contract',
+            'MEL WORK free validation (no Vercel, no deployment)',
+          ];
+          for(const name of mandatory){
+            if(latest.get(name)?.conclusion!=='success')
+              throw Error('COUNCIL_CI_REQUIRED_CHECK_NOT_GREEN:'+name);
+          }
+          for(const row of latest.values()){
+            if(!['success','skipped'].includes(row.conclusion))
+              throw Error('COUNCIL_CI_NOT_ALL_COMPLETE_AND_GREEN:'+row.name);
+          }
+          console.log('COUNCIL_CI_ALL_GREEN_FOR_EXACT_SHA');
+          NODE
       - name: Construct complete immutable Council diff
         shell: bash
         run: |
