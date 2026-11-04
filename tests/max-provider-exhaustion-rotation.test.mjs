@@ -40,6 +40,8 @@ for (const storage of ['memory', 'sqlite']) test(`provider exhaustion rotates sa
   assert.equal((await repository.get(parkedId)).status, 'TEACHER_APPROVED');
   assert.equal((await repository.get(parkedId)).result_json.autonomy_deferral.attempts, 3);
   assert.equal((await supervisor.ensureNextJob()).job.id, next.job.id);
+  const claimed = await repository.claimQueuedAutonomy(next.job.id, { expected: next.job });
+  assert.equal(claimed?.status, 'PLANNING', 'only a claimed mission reserves the lane');
   await assert.rejects(
     () => repository.create({ id: 'mel-autonomy-mel-manifest-03-manual',
       requested_by: 'mel-autonomy', goal: 'Third objective',
@@ -98,8 +100,9 @@ test('D1 NULL deferral never bypasses the atomic admission fence', async t => {
   const DB = sqliteD1();
   t.after(() => DB.close());
   const repository = new D1DevJobRepository(DB);
-  await repository.create({ id: 'active-without-deferral', requested_by: 'mel-autonomy',
+  const active = await repository.create({ id: 'active-without-deferral', requested_by: 'mel-autonomy',
     goal: 'Running a real roadmap item', optional_context: { roadmap_id: 'MEL-MANIFEST-01' } });
+  assert.equal((await repository.claimQueuedAutonomy(active.id,{expected:active}))?.status,'PLANNING');
   await assert.rejects(() => repository.create({
     id: 'must-not-run-parallel', requested_by: 'mel-autonomy',
     goal: 'Second job', optional_context: { roadmap_id: 'MEL-MANIFEST-02' },
