@@ -1,12 +1,22 @@
 import { createR2BackupReader } from './r2-reader.mjs';
+import { discoverLatestEncryptedSnapshotKey, ENCRYPTED_SNAPSHOT_KEY } from './r2-snapshot-discovery.mjs';
 import { writeFile } from 'node:fs/promises';
 import { createBackupEncryptionCodec, decodeBackupEncryptionKey } from '../../src/backup/encrypted-backup-storage.js';
 import { proveSystemSnapshotRestore, isolatedRestoreFailure } from './system-restore-proof.mjs';
 let stage='CONFIGURATION';
 try {
  const bucket='meliturgos-private-media';
- const key=process.env.MEL_RESTORE_SNAPSHOT_KEY||'';
- if(!/^backups\/system\/[A-Za-z0-9._-]+\.enc\.json$/.test(key)) throw Error('ISOLATED_SNAPSHOT_KEY_INVALID');
+ let key=process.env.MEL_RESTORE_SNAPSHOT_KEY||'';
+ if(key && !ENCRYPTED_SNAPSHOT_KEY.test(key)) throw Error('ISOLATED_SNAPSHOT_KEY_INVALID');
+ if(!key) {
+  stage='DISCOVER';
+  key=await discoverLatestEncryptedSnapshotKey({
+   accountId:process.env.CLOUDFLARE_ACCOUNT_ID,
+   apiToken:process.env.CLOUDFLARE_API_TOKEN,
+   bucket:'meliturgos-private-media',
+  });
+ }
+ if(!ENCRYPTED_SNAPSHOT_KEY.test(key)) throw Error('ISOLATED_SNAPSHOT_KEY_INVALID');
  const reader=createR2BackupReader({accountId:process.env.CLOUDFLARE_ACCOUNT_ID,apiToken:process.env.CLOUDFLARE_API_TOKEN,bucket});
  stage='DOWNLOAD';
  const input=await reader.getBytes(key,{maxBytes:512*1024*1024});

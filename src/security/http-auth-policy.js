@@ -16,6 +16,7 @@ const DELEGATED_EXACT = Object.freeze(new Set([
   '/api/internal/release-launch-bootstrap',
   '/api/internal/sov-backup-download',
   '/api/internal/council-review',
+  '/api/internal/contingency-probe',
 ]));
 
 function methodOf(request) {

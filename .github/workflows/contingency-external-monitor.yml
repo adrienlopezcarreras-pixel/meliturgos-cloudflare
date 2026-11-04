@@ -18,9 +18,14 @@ on:
       - 'tests/replacement-attestation.test.mjs'
       - 'tests/public-contingency-heartbeat.test.mjs'
       - 'tests/shardvault-reconstruction-stress.test.mjs'
+      - 'tests/maintenance/r2-snapshot-discovery.test.mjs'
       - 'release-tools/predeploy-backup-refresh/**'
+      - 'src/backup/**'
+      - 'tests/predeploy-d1-restore-proof.test.mjs'
+      - 'tests/maintenance/system-restore-proof.test.mjs'
       - 'src/continuity/external-health-monitor.js'
       - 'scripts/run-external-contingency-monitor.mjs'
+      - 'scripts/contingency-source-rescue.mjs'
       - 'tests/external-health-monitor.test.mjs'
       - '.github/workflows/contingency-external-monitor.yml'
 permissions:
@@ -48,6 +53,9 @@ jobs:
           tests/external-health-monitor.test.mjs
           tests/shardvault-reconstruction-stress.test.mjs
           tests/passive-state-recovery.test.mjs
+          tests/predeploy-d1-restore-proof.test.mjs
+          tests/maintenance/system-restore-proof.test.mjs
+          tests/maintenance/r2-snapshot-discovery.test.mjs
           tests/gen2/sovereign-regeneration-*.test.mjs
   monitor-cloudflare:
     # Use the canonical Worker origin from wrangler.jsonc by default.
@@ -75,5 +83,39 @@ jobs:
           path: |
             artifacts/contingency/external-health.json
             artifacts/contingency/signed-health.json
+            artifacts/contingency/probe-delivery.json
           if-no-files-found: warn
           retention-days: 14
+
+  # Requires a signed DOWN quorum from the same workflow's independent monitor.
+  # Archives only checked-out source files; never activates MAX or touches D1.
+  source-rescue:
+    needs: [monitor-contract, monitor-cloudflare]
+    if: ${{ always() && github.event_name != 'pull_request' && needs.monitor-contract.result == 'success' && needs.monitor-cloudflare.result == 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MEL_CONTINGENCY_HEALTH_URL: ${{ vars.MEL_CONTINGENCY_HEALTH_URL || 'https://meliturgos.adrien-lopezcarreras.workers.dev/api/public/contingency/heartbeat' }}
+      MEL_CONTINGENCY_PROBE_HMAC_KEY: ${{ secrets.MEL_CONTINGENCY_PROBE_HMAC_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Read external incident evidence
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          name: mel-contingency-external-health
+          path: artifacts/contingency
+      - name: Revalidate signed outage and archive source SHA
+        run: node scripts/contingency-source-rescue.mjs
+      - name: Store source-only recovery archive and checksum receipt
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mel-source-rescue-code-only
+          path: |
+            artifacts/contingency/mel-source-only.tar.gz
+            artifacts/contingency/source-receipt.json
+          if-no-files-found: error
+          retention-days: 7

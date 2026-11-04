@@ -21,6 +21,7 @@ import { readSurvivalState, shouldResumeForSurvival } from '../legacy/survival-m
 import { applyLifeCountermeasure, lifeFactsFromSignals } from '../continuity/life-contingency.js';
 import { runContingencyCycle } from '../continuity/contingency-cycle.js';
 import { verifyContingencyProbeReports } from '../continuity/contingency-probe-auth.js';
+import { readContingencyProbeInbox } from '../continuity/contingency-probe-inbox.js';
 import { activeWorkerContingencyObserved } from '../continuity/contingency-observations.js';
 import { bindCountermeasureActions, maxControlProof } from '../continuity/countermeasure-actions.js';
 import { singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
@@ -804,7 +805,11 @@ async function applyObservedCountermeasures(env, repository, control, watchdog, 
   // Legacy job-supplied parts_up values are untrusted and intentionally ignored.
   // The currently running Worker is known alive locally; external outages
   // require a fresh authenticated observation before they can be diagnosed.
-  const probes = await verifyContingencyProbeReports(job?.result_json?.contingency_probes, {
+  // Independent signed reports are written to D1 by the GitHub monitor.
+  // A missing or unreadable inbox contributes no outage facts.
+  const externalReports = await readContingencyProbeInbox(env?.DB).catch(() => []);
+  const jobReports = Array.isArray(job?.result_json?.contingency_probes) ? job.result_json.contingency_probes : [];
+  const probes = await verifyContingencyProbeReports([...externalReports, ...jobReports], {
     secret: env?.MEL_CONTINGENCY_PROBE_HMAC_KEY,
     now: Date.now(),
   });
@@ -813,6 +818,7 @@ async function applyObservedCountermeasures(env, repository, control, watchdog, 
     life: countermeasureFacts({ control, watchdog, tick, job }),
     actions,
     replacements: Array.isArray(job?.result_json?.replacement_trials) ? job.result_json.replacement_trials : [],
+    // Keep independent signed replacement verification while adding the D1 health inbox.
     replacementAttestations: Array.isArray(job?.result_json?.replacement_probes) ? job.result_json.replacement_probes : [],
     replacementAttestationConfig: {
       secret: env?.MEL_REPLACEMENT_PROBE_HMAC_KEY,
