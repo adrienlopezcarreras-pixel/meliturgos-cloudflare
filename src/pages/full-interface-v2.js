@@ -1091,7 +1091,7 @@ function activityMarkup(a){
   const roadmapStateLabels={MISSION_REGISTERED:'Mission D1 enregistrée',BLOCKED_HUMAN:'Bloqué : intervention humaine',BLOCKED_EXTERNAL:'Bloqué : dépendance externe',WAITING_PREREQUISITES:'En attente de prérequis',CODE_DELIVERED_UNVERIFIED:'Code livré, preuve finale manquante',ROADMAP_DEFINED:'Défini dans la roadmap'};
   const passiveRoadmapPanel=passiveRoadmap===null
     ?'<div class="muted">Catalogue roadmap non disponible sur cette version.</div>'
-    :'<details class="act-roadmap-passive" open><summary><strong>Objectifs roadmap à venir ('+esc(a.passive_roadmap.remaining)+')</strong> · '+esc(a.passive_roadmap.verified)+' vérifiés</summary>'
+    :'<details class="act-roadmap-passive"><summary><strong>Objectifs roadmap à venir ('+esc(a.passive_roadmap.remaining)+')</strong> · '+esc(a.passive_roadmap.verified)+' vérifiés</summary>'
       +'<div class="muted">Catalogue passif, distinct des missions D1 : aucun appel IA, aucune réservation de créneau. « Défini » ne signifie pas exécuté.</div>'
       +'<div style="max-height:450px;overflow:auto;margin-top:8px" aria-label="Tous les objectifs non vérifiés de la roadmap">'
       +passiveRoadmap.map(item=>'<div class="act-kv"><strong>'+esc(item.id)+'</strong> · '+esc(item.title)
@@ -1131,10 +1131,20 @@ function activityMarkup(a){
   return h+'<div class="muted act-foot">Lu dans la D1 de production à '+esc(activityTime(Date.parse(a.observed_at)))+' · actualisation automatique toutes les 15 s.</div>';
 }
 let activityTimer=null;
+function renderActivityPanel(panel,activity){
+  // Start collapsed on a fresh panel, but preserve a deliberate user expansion
+  // across 15-second polling. This affects presentation only, never D1/QUEUED.
+  const roadmapWasOpen=panel.querySelector('.act-roadmap-passive')?.open===true;
+  panel.innerHTML=activityMarkup(activity);
+  if(roadmapWasOpen){
+    const roadmap=panel.querySelector('.act-roadmap-passive');
+    if(roadmap)roadmap.open=true;
+  }
+}
 async function showActivity(panel){
   if(!panel)return;if(!panel.innerHTML.trim()||/Chargement/.test(panel.textContent))panel.textContent='Chargement de l’activité…';
-  try{const d=await jfetch('/api/gen2/autonomy/activity');renderPcMode(d?.pc_executor);panel.innerHTML=activityMarkup(d)}catch(e){panel.textContent='Activité indisponible : '+e.message}
-  clearInterval(activityTimer);activityTimer=setInterval(()=>{const open=[qs('#desktopActivityPanel'),qs('#mobileActivityPanel')].some(x=>x&&!x.hidden);if(!open){clearInterval(activityTimer);return}if(!document.hidden)jfetch('/api/gen2/autonomy/activity').then(d=>{renderPcMode(d?.pc_executor);panel.innerHTML=activityMarkup(d)}).catch(()=>{})},15000);
+  try{const d=await jfetch('/api/gen2/autonomy/activity');renderPcMode(d?.pc_executor);renderActivityPanel(panel,d)}catch(e){panel.textContent='Activité indisponible : '+e.message}
+  clearInterval(activityTimer);activityTimer=setInterval(()=>{const open=[qs('#desktopActivityPanel'),qs('#mobileActivityPanel')].some(x=>x&&!x.hidden);if(!open){clearInterval(activityTimer);return}if(!document.hidden)jfetch('/api/gen2/autonomy/activity').then(d=>{renderPcMode(d?.pc_executor);renderActivityPanel(panel,d)}).catch(()=>{})},15000);
 }
 const mobileMax=qs('#mobileMaxAutonomy'),mobilePause=qs('#mobilePauseAutonomy'),mobileStart=qs('#mobileStartCycle'),mobileActivity=qs('#mobileActivityAutonomy');
 if(mobileMax)mobileMax.onclick=()=>autonomyAction(mobileMax,'/api/gen2/autonomy/max',{enabled:autonomyControl.max_autonomy!==true},'MAX 100%').catch(()=>{});
