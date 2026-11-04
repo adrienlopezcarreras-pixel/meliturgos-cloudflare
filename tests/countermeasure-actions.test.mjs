@@ -104,6 +104,7 @@ test('opening a private kit does not count as a full disaster recovery', async (
   let opened = false;
   const actions = bindCountermeasureActions({
     repository: repository(),
+    ownerApprovedRecovery: true, // approved, but the full rebuild executor is still absent
     openPrivateCopy: async () => { opened = true; return { ok: true }; },
   });
   const result = await applyLifeCountermeasure('MIGRATION_SOURCE_DIED', actions);
@@ -115,6 +116,7 @@ test('opening a private kit does not count as a full disaster recovery', async (
 test('even a claimed full rebuild without an integrity proof fails closed', async () => {
   const actions = bindCountermeasureActions({
     repository: repository(),
+    ownerApprovedRecovery: true,
     rebuildFromPrivateKit: async () => ({ ok: true, restored: true }),
   });
   const result = await applyLifeCountermeasure('MIGRATION_SOURCE_DIED', actions);
