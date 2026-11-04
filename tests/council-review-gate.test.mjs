@@ -56,6 +56,19 @@ test('council verdicts and majority rule', async () => {
   assert.match(wf, /DECISION" != "APPROVED"/);
 });
 
+test('two-model fast Council approval refuses case-aliased duplicate providers',async()=>{
+  const calls=[];
+  const env={AI:{async run(model){
+    calls.push(model);
+    return {response:'{"verdict":"APPROVE","summary":"review complete"}'};
+  }}};
+  const result=await runCouncilReview(env,{diff:'diff --git a/src/safe.js b/src/safe.js\n+safe\n',
+    models:['@cf/example/model-a','@CF/EXAMPLE/MODEL-A']});
+  assert.equal(result.decision,'INSUFFICIENT_REVIEWERS');
+  assert.deepEqual(calls,['@cf/example/model-a']);
+  assert.equal(result.reviews.length,1);
+});
+
 test('a recent failure is asked again only after the models that still answer', () => {
   const ids = ['@cf/openai/gpt-oss-120b', '@cf/meta/llama-3.3-70b-instruct-fp8-fast', '@cf/zai-org/glm-4.7-flash'];
   const now = 1_000_000;
