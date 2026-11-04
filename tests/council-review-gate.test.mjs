@@ -14,6 +14,19 @@ test('council verdicts and majority rule', async () => {
     { verdict: 'APPROVE', summary: 'tests checked' },
   ]), 'INSUFFICIENT_REVIEWERS', 'anonymous approvals cannot form a Council quorum');
   assert.equal(decide([
+    { model: 'reviewer-a', verdict: 'APPROVE', summary: 'security checked' },
+    { model: 'reviewer-b', verdict: 'APPROVE', summary: 'tests checked' },
+    { verdict: null, error: 'ANONYMOUS_TIMEOUT' },
+    { verdict: null, error: 'ANONYMOUS_TIMEOUT' },
+  ]), 'INSUFFICIENT_REVIEWERS',
+    'two approving models are not a majority of four attempted reviewers');
+  assert.equal(decide([
+    { model: 'reviewer-a', verdict: 'APPROVE', summary: 'security checked' },
+    { model: 'reviewer-b', verdict: 'APPROVE', summary: 'tests checked' },
+    { model: 'reviewer-c', verdict: 'APPROVE', summary: 'integration checked' },
+    { verdict: null, error: 'ANONYMOUS_TIMEOUT' },
+  ]), 'APPROVED','three reasoned independent votes meet quorum despite one silent seat');
+  assert.equal(decide([
     { model: '@cf/openai/gpt-oss-120b', verdict: 'APPROVE' },
     { model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', verdict: 'APPROVE' },
     { model: '@cf/nvidia/nemotron-3-120b-a12b', verdict: null, error: 'REVIEW_TIMEOUT' },
