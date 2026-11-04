@@ -215,3 +215,36 @@ test('owner MAX STOP persists a runtime PAUSE across D1 reload and blocks future
     db.close();
   }
 });
+
+test('release binder cannot override a persisted owner STOP or restore MAX', async () => {
+  const { sqliteD1 } = await import('./helpers/sqlite-d1.mjs');
+  const { getAutonomyControl, setOwnerMaxAutonomy, setAutonomyControl, shouldRestoreOwnerMax } =
+    await import('../src/evolution/autonomy-control.js');
+  const db = sqliteD1();
+  try {
+    await setOwnerMaxAutonomy(db, { enabled: true, paused: false, source: 'owner-ui', reason: 'owner-max-autonomy' });
+    const stop = await setOwnerMaxAutonomy(db, { enabled: false, paused: true, source: 'owner-ui', reason: 'owner-stop' });
+    const release = await setAutonomyControl(db, {
+      paused: true, max_autonomy: false, source: 'release-predeploy-binder', reason: 'predeploy-release-safety',
+      expected_updated_at: stop.updated_at,
+    });
+    assert.equal(release.paused, true);
+    assert.equal(release.source, 'owner-ui');
+    assert.equal(release.reason, 'owner-stop');
+    assert.equal(release.owner_control_version, stop.owner_control_version);
+    const persisted = await getAutonomyControl(db);
+    assert.equal(persisted.paused, true);
+    assert.equal(persisted.max_remembered, false);
+    assert.equal(shouldRestoreOwnerMax(persisted), false);
+    await assert.rejects(
+      setAutonomyControl(db, {
+        paused: false, max_autonomy: true, source: 'release-launch-bootstrap',
+        expected_updated_at: stop.updated_at,
+      }),
+      error => error?.code === 'AUTONOMY_CONTROL_CHANGED',
+      'a stale release must not overwrite the owner stop',
+    );
+  } finally {
+    db.close();
+  }
+});
