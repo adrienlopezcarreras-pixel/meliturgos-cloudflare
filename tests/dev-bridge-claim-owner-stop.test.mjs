@@ -6,7 +6,7 @@ import { setAutonomyControl, setOwnerMaxAutonomy } from '../src/evolution/autono
 
 function fixture(db, requester = 'mel-autonomy') {
   let claims = 0;
-  const job = { id: 'max-audit-02', requested_by: requester, result_json: { bridge_preparation: { status: 'READY' } } };
+  const job = { id: 'max-audit-02', status: 'CLAIMED', requested_by: requester, result_json: { bridge_preparation: { status: 'READY' } } };
   const repository = {
     get: async id => id === job.id ? job : null,
     claimPrepared: async () => { claims += 1; return { ...job, status: 'CLAIMED' }; },
@@ -66,4 +66,19 @@ test('the bridge does not claim a MAX job when its pause control cannot be read'
   assert.equal(response.status, 503);
   assert.equal((await response.json()).code, 'AUTONOMY_PAUSE_CHECK_FAILED');
   assert.equal(bridge.getClaims(), 0);
+});
+
+test('OIDC precommit cannot proceed while MAX owner stop is persisted', async t => {
+  const db = sqliteD1(); t.after(() => db.close());
+  await setAutonomyControl(db, { paused: true, max_autonomy: false, source: 'owner-ui', reason: 'owner-stop' });
+  const job = { id: 'max-audit-02', status: 'CLAIMED', requested_by: 'mel-autonomy',
+    result_json: { bridge_preparation: { status: 'READY' } } };
+  const request = new Request('https://mel.test/api/dev-bridge/precommit', {
+    method: 'POST', headers: { authorization: 'Bearer valid-bridge-key', 'content-type': 'application/json' },
+    body: JSON.stringify({ job_id: job.id }),
+  });
+  const result = await devRuntime(request, { DB: db, MEL_DEV_BRIDGE_TOKEN: 'valid-bridge-key' },
+    { repository: { get: async () => job } });
+  assert.equal(result.status, 403, 'bearer must not impersonate cloud OIDC for publication');
+  assert.equal((await result.json()).code, 'PRECOMMIT_OIDC_REQUIRED');
 });
