@@ -104,7 +104,8 @@ export async function handleCouncilBatchedReview(env,body,{
   if(previous && (previous.root_sha256!==root||previous.base!==base
       ||previous.batch_count!==count))return reject('COUNCIL_FINAL_REVIEW_CONFLICT',409);
   if(previous?.decision==='APPROVED')return {status:200,result:{
-    ok:true,cached:true,decision:'APPROVED',head,root_sha256:root,batch_count:count}};
+    ok:true,cached:true,decision:'APPROVED',head,root_sha256:root,
+    batch_count:count,complete_review:true}};
   if(previous?.decision==='REJECTED')return reject('COUNCIL_FINAL_REJECTED',409);
   const reviewSummary=records.map(row=>
     'LOT '+row.index+'/'+count+' SHA256='+row.sha256+'; fichiers='+
