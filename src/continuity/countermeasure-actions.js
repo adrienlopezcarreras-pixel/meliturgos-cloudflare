@@ -63,6 +63,9 @@ export function bindCountermeasureActions({
   previousVersionId = null,
   openPrivateCopy,
   rebuildFromPrivateKit,
+  // A full disaster migration can be authorized only by trusted owner control,
+  // never by a mission-provided flag or a healthy backup candidate alone.
+  ownerApprovedRecovery = false,
   restoreBackupBytes,
 } = {}) {
   const rollback = async () => {
@@ -116,12 +119,15 @@ export function bindCountermeasureActions({
     rollback,
     rollbackToSource: () => markJob(repository, null, 'ROLLBACK_TO_SOURCE', jobId),
     rebuild: async () => {
+      // A full rebuild can activate a replacement runtime, so refuse to call
+      // any executor unless an explicit, trusted owner approval is present.
+      if (ownerApprovedRecovery !== true) return { ok: false, code: 'OWNER_APPROVAL_REQUIRED' };
       // Opening an encrypted kit is NOT a rebuild. Require a separate,
       // explicit full-reconstruction executor with an integrity result.
       if (typeof rebuildFromPrivateKit !== 'function') return { ok: false, code: 'FULL_REBUILD_EXECUTOR_REQUIRED' };
       const result = await rebuildFromPrivateKit();
       return result?.ok === true && result?.restored === true && result?.integrity_verified === true
-        ? { ok: true, code: 'FULL_REBUILD_VERIFIED' }
+        ? { ok: true, code: 'FULL_REBUILD_VERIFIED', restored: true, integrity_verified: true }
         : { ok: false, code: result?.code || 'FULL_REBUILD_NOT_VERIFIED' };
     },
     restoreBackup: async () => {
