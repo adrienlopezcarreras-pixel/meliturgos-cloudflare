@@ -123,5 +123,5 @@ export async function handleCouncilBatchedReview(env,body,{
     mode:'COMPLETE_INDEPENDENT_MULTI_BATCH_REVIEW'};
   await persist(env.DB,key,final,now);
   return {status:200,result:{ok:true,decision:final.decision,head,
-    root_sha256:root,batch_count:count,complete_review:true}};
+    root_sha256:root,batch_count:count,complete_review:final.decision==='APPROVED'}};
 }
