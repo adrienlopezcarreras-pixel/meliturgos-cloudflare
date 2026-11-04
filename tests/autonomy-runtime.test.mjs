@@ -745,3 +745,34 @@ test('three ticks resume the same job and step, release the lease and distinguis
   assert.equal(autonomyTickOutcome({ advanced: false, waitingExternal: false }), 'NO_PROGRESS');
   assert.equal(autonomyTickOutcome({ advanced: false, workRemaining: false }), 'IDLE_COMPLETE');
 });
+
+test('three failed Council windows release a claimed PLANNING mission and run the next objective', async () => {
+  const fixture = runtimeFixture();
+  const { runAutonomyRuntimeTick: runCore } = await import('../src/evolution/autonomy-runtime-core.js');
+  const realNow = Date.now;
+  let clock = realNow();
+  const roadmap = [
+    { id:'TEST-FIRST',title:'First independent cloud objective',status:'PLANNED',priority:'P0',depends_on:[] },
+    { id:'TEST-NEXT',title:'Next independent cloud objective',status:'PLANNED',priority:'P1',depends_on:[] },
+  ];
+  fixture.env.AI.run = async () => { throw Object.assign(new Error('fixture outage'), { code:'COUNCIL_PROVIDER_TIMEOUT' }); };
+  try {
+    Date.now = () => clock;
+    let original;
+    for (let round=1;round<=3;round++) {
+      await runCore(fixture.env,{fetchImpl:fixture.fetchImpl,repository:fixture.repository,roadmap});
+      const jobs=await fixture.repository.list();
+      original=jobs.find(row=>row.optional_context.roadmap_id==='TEST-FIRST');
+      assert.ok(original);
+      assert.equal(original.result_json.autonomy_deferral.attempts,round);
+      assert.equal(original.status,round<3?'PLANNING':'QUEUED');
+      clock=Math.max(clock+30*60_000,...original.result_json.council_model_exclusions.map(row=>Number(row.until)||0))+1;
+    }
+    assert.equal(original.result_json.autonomy_queue_pass.passive,true);
+    assert.equal(original.result_json.autonomy_deferral.priority_penalty,1);
+    fixture.env.AI.run=async()=>({response:'EXISTANT: runtime; MANQUES: integration; OPTIONS: bounded; RISQUES: none; RECOMMANDATION: code; TESTS: CI'});
+    const next=await runCore(fixture.env,{fetchImpl:fixture.fetchImpl,repository:fixture.repository,roadmap});
+    assert.equal(next.job?.roadmap_id,'TEST-NEXT');
+    assert.equal((await fixture.repository.get(original.id)).status,'QUEUED');
+  } finally { Date.now=realNow; }
+});
