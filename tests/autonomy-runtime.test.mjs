@@ -261,6 +261,21 @@ test('stale Teacher approval is archived and requeued for a fresh Council and ex
   assert.equal(requeued.plan_json.revision.reason, 'TEACHER_APPROVAL_CANDIDATE_SHA_STALE');
 
   fixture.setReplies('');
+  // The parked original cannot call Council while untouched roadmap goals
+  // remain. Another first-pass job is admitted instead, without losing proof.
+  const other = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
+  assert.equal(other.job.roadmap_id, SECOND_AUTONOMY_ID);
+  assert.notEqual(other.job.id, first.job.id);
+  assert.equal(other.job.status, 'WAITING_TEACHER');
+  assert.equal((await fixture.repository.get(first.job.id)).status, 'QUEUED');
+  assert.equal((await fixture.repository.get(first.job.id)).result_json.autonomy_queue.round, 2);
+
+  // Once every other eligible first-pass objective has been handled, revisit
+  // the parked mission with the new SHA, preserving the revision chain.
+  await fixture.repository.update(other.job.id, { status: 'COMPLETED' });
+  const third = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
+  assert.equal(third.job.roadmap_id, THIRD_AUTONOMY_ID);
+  await fixture.repository.update(third.job.id, { status: 'COMPLETED' });
   const refreshed = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
   assert.equal(refreshed.job.id, first.job.id);
   assert.equal(refreshed.job.status, 'WAITING_TEACHER');
