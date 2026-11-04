@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     outputs:
-      open: ${{ steps.resolve.outputs.open }}
+      eligible: ${{ steps.resolve.outputs.eligible }}
       head: ${{ steps.resolve.outputs.head }}
       pr_number: ${{ steps.resolve.outputs.pr_number }}
     steps:
@@ -58,28 +58,33 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          META="$(gh api "repos/$GITHUB_REPOSITORY/pulls/3094" --jq '[.state,.base.ref,.head.sha,.head.repo.full_name] | @tsv')"
-          IFS=$'\t' read -r STATE BASE HEAD REPO <<< "$META"
-          if [ "$STATE" != "open" ]; then
-            echo "open=false" >> "$GITHUB_OUTPUT"
-            echo "Contingence PR closed; periodic review has nothing to do."
+          set -euo p          META="$(gh api "repos/$GITHUB_REPOSITORY/pulls/3094" --jq '[.state,.base.ref,.head.sha,.head.repo.full_name,(.merged_at // ""),(.merge_commit_sha // "")] | @tsv')"
+          IFS=$'\t' read -r STATE BASE HEAD REPO MERGED_AT MERGE_SHA <<< "$META"
+          if [ "$STATE" = "open" ]; then
+            echo "Council pre-merge review candidate is open."
+          elif [ "$STATE" = "closed" ] && [ -n "$MERGED_AT" ]; then
+            [[ "$MERGE_SHA" =~ ^[a-f0-9]{40}$ ]]
+            echo "::notice title=Council post-merge audit::PR #3094 already merged. Audit historic diff, NEVER issue retroactive deployment approval."
+          else
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+            echo "No eligible open/merged Contingence PR."
             exit 0
           fi
           test "$BASE" = "main"
           test "$REPO" = "$GITHUB_REPOSITORY"
           [[ "$HEAD" =~ ^[a-f0-9]{40}$ ]]
-          echo "open=true" >> "$GITHUB_OUTPUT"
+          echo "eligible=true" >> "$GITHUB_OUTPUT"
           echo "head=$HEAD" >> "$GITHUB_OUTPUT"
           echo "pr_number=3094" >> "$GITHUB_OUTPUT"
-          echo "Read-only Council review candidate pinned to current PR #3094 head: $HEAD"
+          echo "Read-only Council candidate pinned to PR #3094 head: $HEAD"
+ $HEAD"
   preflight:
     needs: [discover]
     if: >-
       always() &&
       (github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'schedule' &&
-       needs.discover.result == 'success' && needs.discover.outputs.open == 'true') ||
+       needs.discover.result == 'success' && needs.discover.outputs.eligible == 'true') ||
       (github.event_name == 'workflow_run' &&
        github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'pull_request' &&
