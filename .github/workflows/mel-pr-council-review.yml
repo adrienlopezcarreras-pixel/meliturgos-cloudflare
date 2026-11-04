@@ -18,6 +18,9 @@ on:
       - mel-self-audit-supervisor-ci
       - cloudflare-api-relay
     types: [completed]
+  # Recover a CI-complete PR that predates installation of this workflow on main.
+  schedule:
+    - cron: '47 */2 * * *'
   workflow_dispatch:
     inputs:
       pr_number:
@@ -32,16 +35,51 @@ on:
 permissions:
   contents: read
   actions: read
+  pull-requests: read
   id-token: write
 
 concurrency:
-  group: mel-pr-council-review-${{ github.event.workflow_run.pull_requests[0].number || inputs.pr_number }}
+  group: mel-pr-council-review-${{ github.event.workflow_run.pull_requests[0].number || inputs.pr_number || '3094' }}
   cancel-in-progress: false
 
 jobs:
+  discover:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    outputs:
+      open: ${{ steps.resolve.outputs.open }}
+      head: ${{ steps.resolve.outputs.head }}
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
+    steps:
+      - name: Resolve the pending Contingence PR from GitHub metadata
+        id: resolve
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          META="$(gh api "repos/$GITHUB_REPOSITORY/pulls/3094" --jq '[.state,.base.ref,.head.sha,.head.repo.full_name] | @tsv')"
+          IFS=$'\t' read -r STATE BASE HEAD REPO <<< "$META"
+          if [ "$STATE" != "open" ]; then
+            echo "open=false" >> "$GITHUB_OUTPUT"
+            echo "Contingence PR closed; periodic review has nothing to do."
+            exit 0
+          fi
+          test "$BASE" = "main"
+          test "$REPO" = "$GITHUB_REPOSITORY"
+          [[ "$HEAD" =~ ^[a-f0-9]{40}$ ]]
+          echo "open=true" >> "$GITHUB_OUTPUT"
+          echo "head=$HEAD" >> "$GITHUB_OUTPUT"
+          echo "pr_number=3094" >> "$GITHUB_OUTPUT"
+          echo "Read-only Council review candidate pinned to current PR #3094 head: $HEAD"
   review:
+    needs: [discover]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      always() &&
+      (github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' &&
+       needs.discover.result == 'success' && needs.discover.outputs.open == 'true') ||
       (github.event_name == 'workflow_run' &&
        github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'pull_request' &&
@@ -64,8 +102,8 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || inputs.pr_number }}
-          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || inputs.expected_sha }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || inputs.pr_number || needs.discover.outputs.pr_number }}
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || inputs.expected_sha || needs.discover.outputs.head }}
         run: |
           set -euo pipefail
           [[ "$PR_NUMBER" =~ ^[0-9]{1,6}$ ]]
@@ -98,7 +136,7 @@ jobs:
           echo "Verified immutable PR head $HEAD, review base $BASE and current main $MAIN"
       - name: Require every exact-SHA CI gate before automatic Council review
         id: ci_gate
-        if: github.event_name == 'workflow_run'
+        if: github.event_name != 'workflow_dispatch'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
