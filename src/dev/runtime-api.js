@@ -329,7 +329,13 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
           let control;
           try { control = await getAutonomyControl(env.DB); }
           catch { return Response.json({ job: null, code: 'AUTONOMY_PAUSE_CHECK_FAILED' }, { status: 503 }); }
-          if (control?.paused === true || isLegacyOwnerMaxStop(control)) {
+          // An uninitialized D1 falls back to default-d1-fail-closed.
+          // This is not an owner STOP: retain the independently authorized
+          // local fallback contract for a scoped cloud outage. All actual
+          // owner/technical runtime pauses still prevent new MAX claims.
+          const activePause = control?.paused === true
+            && control?.source !== 'default-d1-fail-closed';
+          if (activePause || isLegacyOwnerMaxStop(control)) {
             return Response.json({ job: null, code: 'AUTONOMY_OWNER_STOP_PAUSED' }, { status: 409 });
           }
         }
