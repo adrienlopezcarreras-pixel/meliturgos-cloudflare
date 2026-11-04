@@ -204,15 +204,19 @@ async function persistDiagnosticResult(repository, latest, result, field) {
   } catch (error) {
     if (error?.code !== 'JOB_UPDATE_CONFLICT') throw error;
     const fresh = await repository.get(latest.id);
+    // A CAS retry must not resurrect an in-flight attempt after a concurrent
+    // Mentor worker completed its diagnostic. Treat the bridge decision,
+    // rejection history and attempt marker as one concurrency unit for BOTH
+    // diagnostic persistence and attempt-marker persistence.
     const identity = job => JSON.stringify([
       job?.id, job?.status, job?.approval_status, job?.candidate_branch, job?.plan_json,
       job?.files_json, job?.patch_json, job?.tests_json,
       job?.result_json?.teacher_bridge, job?.result_json?.implementation_proposal,
       job?.result_json?.bridge_preparation, job?.result_json?.dev_bridge,
       job?.result_json?.autonomy_deferral, job?.result_json?.[field],
-      ...(field === 'bridge_preparation_diagnostic'
-        ? [job?.result_json?.mentor_attempt_history, job?.result_json?.bridge_preparation_attempt]
-        : []),
+      job?.result_json?.bridge_preparation_diagnostic,
+      job?.result_json?.mentor_attempt_history,
+      job?.result_json?.bridge_preparation_attempt,
     ]);
     if (!fresh || identity(fresh) !== identity(latest)) return fresh;
     const merged = { ...fresh.result_json, [field]: result[field] };
