@@ -44,3 +44,15 @@ test('Council keeps release gates while allowing only the pinned maintenance PR 
   assert.match(workflow, /const pending=mandatory\.filter\(name=>latest\.get\(name\)\?\.conclusion!=='success'\)/);
   assert.match(workflow, /const unfinished=\[\.\.\.latest\.values\(\)\]\.filter/);
 });
+
+test('scheduled Council audit and maintenance review have disjoint slots and exact selection', () => {
+  assert.match(workflow, /- cron: '47 \*\/2 \* \* \*'/);
+  assert.match(workflow, /- cron: '17 1-23\/2 \* \* \*'/);
+  assert.match(workflow, /'47 \*\/2 \* \* \*'\) SELECTED_PR=3094/);
+  assert.match(workflow, /'17 1-23\/2 \* \* \*'\) SELECTED_PR=3103/);
+  assert.match(workflow, /COUNCIL_UNRECOGNIZED_SCHEDULE/);
+  assert.match(workflow, /META="\$\(gh api "repos\/\$GITHUB_REPOSITORY\/pulls\/\$SELECTED_PR"/);
+  assert.match(workflow, /echo "pr_number=\$SELECTED_PR" >> "\$GITHUB_OUTPUT"/);
+  assert.match(workflow, /if \[ "\$SELECTED_PR" != 3094 \]; then/);
+  assert.match(workflow, /Maintenance PR merged; do not substitute historical release audit/);
+});
