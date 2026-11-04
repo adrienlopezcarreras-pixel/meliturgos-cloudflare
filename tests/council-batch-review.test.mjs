@@ -56,6 +56,7 @@ test('Council refuses global approval until every complete independently approve
     assert.equal(record.batch_hashes.length,plan.batchCount);
     const again=await call(DB,finish,async()=>{throw Error('cache must not call AI');});
     assert.equal(again.result.cached,true);
+    assert.equal(again.result.complete_review,true,'cached final approval must still carry complete_review proof');
   }finally{DB.close();}
 });
 
@@ -158,7 +159,10 @@ test('read-only PR Council dispatch binds reviewed diff to the exact same-repo P
   assert.match(workflow,/ref: main/);
   assert.match(workflow,/test "\$HEAD" = "\$EXPECTED_SHA"/);
   assert.match(workflow,/test "\$REPO" = "\$GITHUB_REPOSITORY"/);
-  assert.match(workflow,/git merge-base --is-ancestor "\$MAIN" "\$HEAD"/);
+  assert.ok(workflow.includes('BASE="$(git merge-base "$MAIN" "$HEAD")"'));
+  assert.match(workflow,/COUNCIL_PR_MAIN_HEAD_PATH_CONFLICT/);
+  assert.match(workflow,/MEL_COUNCIL_MAIN_SHA=\$MAIN/);
+  assert.match(workflow,/CURRENT_MAIN.*MEL_COUNCIL_MAIN_SHA/);
   assert.match(workflow,/run-council-batch-review\.mjs council\.diff council\.log/);
   assert.match(workflow,/COUNCIL_PR_HEAD_OR_BASE_CHANGED_DURING_REVIEW/);
   assert.match(workflow,/result\.root_sha256!==manifest\.sha256/);
