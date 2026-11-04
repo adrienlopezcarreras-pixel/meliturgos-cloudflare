@@ -82,3 +82,80 @@ test('OIDC precommit cannot proceed while MAX owner stop is persisted', async t 
   assert.equal(result.status, 403, 'bearer must not impersonate cloud OIDC for publication');
   assert.equal((await result.json()).code, 'PRECOMMIT_OIDC_REQUIRED');
 });
+
+async function reportBridgeFailure(db, requester = 'mel-autonomy') {
+  let job = { id: 'mel-autonomy-mel-audit-02-test-1', status: 'CLAIMED',
+    requested_by: requester, tests_json: [], result_json: {},
+    candidate_branch: 'candidate/mel-clean-autonomy' };
+  const repository = {
+    get: async id => id === job.id ? job : null,
+    update: async (id, patch) => {
+      assert.equal(id, job.id);
+      job = { ...job, ...patch };
+      return job;
+    },
+  };
+  const response = await devRuntime(
+    new Request('https://mel.test/api/dev-bridge/result', {
+      method: 'POST', headers: {
+        authorization: 'Bearer valid-bridge-key', 'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        job_id: job.id, status: 'READY_FOR_REVIEW',
+        tests_json: [{ name: 'full-regression', command: 'test', passed: false, exit_code: 1 }],
+        diff_summary: 'REPAIR_REQUIRED:test-failure',
+      }),
+    }),
+    { DB: db, MEL_DEV_BRIDGE_TOKEN: 'valid-bridge-key' },
+    { repository },
+  );
+  return { response, job };
+}
+
+test('failed autonomous Bridge result pauses D1 before admitting another mission', async t => {
+  const { getAutonomyControl } = await import('../src/evolution/autonomy-control.js');
+  const db = sqliteD1(); t.after(() => db.close());
+  await setOwnerMaxAutonomy(db, {
+    enabled: true, paused: false, source: 'owner-ui-launch-gate', reason: 'owner-max-autonomy',
+  });
+  const { response, job } = await reportBridgeFailure(db);
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.status, 'REPAIR_REQUIRED');
+  assert.equal(result.autonomy_pause?.confirmed, true);
+  assert.equal(result.autonomy_pause?.status, 'PAUSED');
+  assert.equal(job.status, 'REPAIR_REQUIRED');
+  const control = await getAutonomyControl(db);
+  assert.equal(control.paused, true);
+  assert.equal(control.max_autonomy, false);
+  assert.equal(control.source, 'bridge-repair-pause');
+  assert.match(control.reason, /^bridge-repair-required:/);
+});
+
+test('an existing owner STOP remains the owner STOP after Bridge failure', async t => {
+  const { getAutonomyControl } = await import('../src/evolution/autonomy-control.js');
+  const db = sqliteD1(); t.after(() => db.close());
+  const before = await setAutonomyControl(db, {
+    paused: true, max_autonomy: false, source: 'owner-ui', reason: 'owner-stop',
+  });
+  const { response } = await reportBridgeFailure(db);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).autonomy_pause?.confirmed, true);
+  const after = await getAutonomyControl(db);
+  assert.equal(after.source, 'owner-ui');
+  assert.equal(after.reason, 'owner-stop');
+  assert.equal(after.updated_at, before.updated_at);
+});
+
+test('failed owner-chat Bridge does not stop the independently running MAX lane', async t => {
+  const { getAutonomyControl } = await import('../src/evolution/autonomy-control.js');
+  const db = sqliteD1(); t.after(() => db.close());
+  await setOwnerMaxAutonomy(db, {
+    enabled: true, paused: false, source: 'owner-ui-launch-gate', reason: 'owner-max-autonomy',
+  });
+  const { response } = await reportBridgeFailure(db, 'owner-chat');
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).status, 'REPAIR_REQUIRED');
+  assert.equal((await getAutonomyControl(db)).paused, false);
+  assert.equal((await getAutonomyControl(db)).max_autonomy, true);
+});
