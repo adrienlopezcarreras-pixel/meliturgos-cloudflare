@@ -309,7 +309,7 @@ test('scheduled Council recovers missed CI completion events without reviewing c
     "needs.discover.result == 'success' && needs.discover.outputs.open == 'true'",
     'inputs.expected_sha || needs.discover.outputs.head',
     'inputs.pr_number || needs.discover.outputs.pr_number',
-    "if: github.event_name != 'workflow_dispatch'",
+    "needs: [discover, preflight]",
     "pull-requests: read",
   ])assert.ok(workflow.includes(token),token);
   // Scheduled checks may never bypass the exact-commit CI gate or deployment
@@ -345,16 +345,34 @@ test('automatic Council is scoped to trusted CI completion, exact PR head and al
     "const pending=mandatory.filter(name=>latest.get(name)?.conclusion!=='success')",
     "const ready=pending.length===0&&unfinished.length===0",
     "fs.appendFileSync(fsOut,'ready='+String(ready)+'\\n')",
-    "if: github.event_name == 'workflow_dispatch' || steps.ci_gate.outputs.ready == 'true'",
+    "needs.preflight.outputs.ready == 'true'",
   ])assert.ok(workflow.includes(expected),expected);
   assert.ok(workflow.indexOf('Require every exact-SHA CI gate before automatic Council review')
     <workflow.indexOf('Full multi-batch independent Council verdict'));
-  assert.equal((workflow.match(/if: github\.event_name == 'workflow_dispatch' \|\| steps\.ci_gate\.outputs\.ready == 'true'/g)||[]).length,3);
+  assert.equal((workflow.match(/needs\.preflight\.outputs\.ready == 'true'/g)||[]).length,1);
   assert.ok(workflow.includes('id: ci_gate'));
   assert.ok(workflow.includes('ref: main'));
   assert.ok(!workflow.includes('pull_request_target:'));
   assert.ok(!workflow.includes('contents: write'));
   assert.ok(!workflow.includes('git push'));
+});
+
+test('no Council job can be reported as approved before exact-SHA CI passes, including manual dispatch',()=>{
+  const workflow=file('../.github/workflows/mel-pr-council-review.yml');
+  const preflight=workflow.slice(workflow.indexOf('  preflight:\n'),workflow.indexOf('  review:\n'));
+  const review=workflow.slice(workflow.indexOf('  review:\n'));
+  assert.ok(preflight.includes('id: ci_gate'));
+  assert.ok(preflight.includes('GITHUB_OUTPUT'));
+  assert.ok(preflight.includes("const ready=pending.length===0&&unfinished.length===0"));
+  assert.ok(review.includes('needs: [discover, preflight]'));
+  assert.ok(review.includes("needs.preflight.result == 'success'"));
+  assert.ok(review.includes("needs.preflight.outputs.ready == 'true'"));
+  assert.ok(!review.includes('id: ci_gate'),'CI gate must run in a separate preflight job');
+  assert.ok(!review.includes("if: github.event_name == 'workflow_dispatch'"),
+    'manual dispatch cannot bypass the mandatory CI proof');
+  assert.ok(!review.includes('steps.ci_gate.outputs.ready'));
+  assert.ok(review.indexOf('Full multi-batch independent Council verdict')
+    <review.indexOf('Recheck immutable head and main'));
 });
 
 test('read-only PR review binds immutable head and base without mistaking moved main for base',()=>{
