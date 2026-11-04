@@ -414,7 +414,7 @@ test('MAX passive UI shows catalog separate from true D1 QUEUED missions',async(
 });
 
 
-test('QUEUED reserves MAX internal lane but does not masquerade as running',async()=>{
+test('QUEUED is passive and never reserves the MAX execution lane',async()=>{
   const first={id:'queued-old',requested_by:'mel-autonomy',status:'QUEUED',created_at:now-2000,updated_at:now-2000,
     optional_context:{roadmap_id:'MEL-FOUNDER-05'},result_json:{}};
   const second={...first,id:'queued-new',created_at:now-1000,updated_at:now-1000,
@@ -424,10 +424,10 @@ test('QUEUED reserves MAX internal lane but does not masquerade as running',asyn
   const activity=await buildAutonomyActivity({DB:db},{now,repository:{list:async()=>rows}});
   assert.equal(activity.counts.active,0);
   assert.equal(activity.counts.waiting,2);
-  assert.equal(activity.scheduler_slot.reserved,true);
+  assert.equal(activity.scheduler_slot.reserved,false);
   assert.equal(activity.scheduler_slot.executing,false);
-  assert.equal(activity.scheduler_slot.mission_id,'queued-old');
-  assert.equal(activity.scheduler_slot.reason,'QUEUED_RESERVES_SINGLE_FLIGHT');
+  assert.equal(activity.scheduler_slot.mission_id,null);
+  assert.equal(activity.scheduler_slot.reason,null);
   assert.equal(JSON.stringify(rows),before);
   const ui=await (await import('node:fs/promises')).readFile(new URL('../src/pages/full-interface-v2.js',import.meta.url),'utf8');
   assert.ok(ui.includes('a.scheduler_slot?.reserved===true'));
