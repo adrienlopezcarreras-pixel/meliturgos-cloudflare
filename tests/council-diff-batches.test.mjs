@@ -39,3 +39,11 @@ test('oversized single Council calls never reach AI with truncated code',async()
   assert.deepEqual(res.reviews,[]);
   assert.equal(calls,0);
 });
+test('promotion routes oversized candidates to a manifest and full independent batch gate',()=>{
+  const workflow=readFileSync(new URL('../.github/workflows/mel-candidate-promotion.yml',import.meta.url),'utf8');
+  for(const marker of ['COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT','DIFF_BYTES','-gt 48000',
+    'prepare-council-review-batches.mjs','council-review-manifest.json'])
+    assert.ok(workflow.includes(marker),marker);
+  assert.ok(readFileSync(new URL('../src/evolution/council-review.js',import.meta.url),'utf8')
+    .includes('COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT'));
+});

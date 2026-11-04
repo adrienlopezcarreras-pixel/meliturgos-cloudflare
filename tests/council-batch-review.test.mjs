@@ -267,3 +267,125 @@ test('previously approved final Council cache must re-vote after quorum or manif
     }finally{db.close();}
   }
 });
+
+test('authenticated endpoint and MAX promotion must fail closed',()=>{
+  const endpoint=file('../src/evolution/council-review.js');
+  const handler=endpoint.slice(endpoint.indexOf('export async function handleCouncilReviewRequest'));
+  assert.ok(handler.indexOf('authorizeGitHubActionsOidcRequest')<
+    handler.indexOf('handleCouncilBatchedReview'));
+  assert.ok(handler.includes("'mel-pr-council-review.yml'"));
+  const promotion=file('../.github/workflows/mel-candidate-promotion.yml');
+  assert.ok(promotion.includes('timeout-minutes: 45'));
+  assert.ok(promotion.includes('run-council-batch-review.mjs'));
+  assert.ok(promotion.includes('COUNCIL_BATCH_REVIEW_NOT_APPROVED'));
+  assert.ok(promotion.indexOf('run-council-batch-review.mjs')<promotion.indexOf('DECISION='));
+  const runner=file('../scripts/run-council-batch-review.mjs');
+  assert.ok(runner.includes("batch_decision!=='APPROVED'"));
+  assert.ok(runner.includes('complete_review!==true'));
+  assert.ok(!runner.includes('COUNCIL_REVIEW_OVERRIDE'));
+});
+
+test('OIDC identity is renewed for every individual review',()=>{
+  const runner=file('../scripts/run-council-batch-review.mjs');
+  for(const token of ['async function currentOidcToken()',
+    'ACTIONS_ID_TOKEN_REQUEST_URL','ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+    "issuerUrl.searchParams.set('audience','meliturgos-worker')",
+    'const freshToken=await currentOidcToken()',
+    "'x-mel-github-oidc':freshToken"])assert.ok(runner.includes(token),token);
+  assert.ok(!runner.includes("'x-mel-github-oidc':token"));
+});
+
+test('scheduled Council recovers missed CI completion events without reviewing closed or moved PRs',()=>{
+  const workflow=file('../.github/workflows/mel-pr-council-review.yml');
+  for(const token of [
+    "schedule:\n    - cron: '47 */2 * * *'",
+    "discover:\n    if: github.event_name == 'schedule'",
+    'repos/$GITHUB_REPOSITORY/pulls/3094',
+    'if [ "$STATE" != "open" ]',
+    'test "$BASE" = "main"',
+    'test "$REPO" = "$GITHUB_REPOSITORY"',
+    '[[ "$HEAD" =~ ^[a-f0-9]{40}$ ]]',
+    'needs: [discover]',
+    "needs.discover.result == 'success' && needs.discover.outputs.open == 'true'",
+    'inputs.expected_sha || needs.discover.outputs.head',
+    'inputs.pr_number || needs.discover.outputs.pr_number',
+    "needs: [discover, preflight]",
+    "pull-requests: read",
+  ])assert.ok(workflow.includes(token),token);
+  // Scheduled checks may never bypass the exact-commit CI gate or deployment
+  // restrictions simply because they were launched by a cron.
+  assert.ok(workflow.indexOf('Require every exact-SHA CI gate before automatic Council review')
+    <workflow.indexOf('Full multi-batch independent Council verdict'));
+  assert.ok(!workflow.includes('pull_request_target:'));
+  assert.ok(!workflow.includes('contents: write'));
+  assert.ok(!workflow.includes('wrangler deploy'));
+  assert.ok(!workflow.includes('git push'));
+});
+
+test('automatic Council is scoped to trusted CI completion, exact PR head and all green gates',()=>{
+  const workflow=file('../.github/workflows/mel-pr-council-review.yml');
+  for(const expected of [
+    'workflow_run:', 'types: [completed]',
+    '- MEL external contingency monitor',
+    '- mel-work-free-validation',
+    '- hardware-lab-ci',
+    '- lora-runtime-pipeline-ci',
+    '- mel-self-audit-supervisor-ci',
+    '- cloudflare-api-relay',
+    "github.event.workflow_run.conclusion == 'success'",
+    "github.event.workflow_run.event == 'pull_request'",
+    "github.event.workflow_run.head_branch == 'integration/max-contingency-release-candidate'",
+    "github.event.workflow_run.pull_requests[0].number != null",
+    'github.event.workflow_run.head_sha || inputs.expected_sha',
+    'github.event.workflow_run.pull_requests[0].number || inputs.pr_number',
+    'Require every exact-SHA CI gate before automatic Council review',
+    'COUNCIL_CI_INCOMPLETE_CHECK_LIST',
+    'COUNCIL_CI_REQUIRED_CHECK_NOT_GREEN',
+    'COUNCIL_CI_NOT_ALL_COMPLETE_AND_GREEN',
+    "const pending=mandatory.filter(name=>latest.get(name)?.conclusion!=='success')",
+    "const ready=pending.length===0&&unfinished.length===0",
+    "fs.appendFileSync(fsOut,'ready='+String(ready)+'\\n')",
+    "needs.preflight.outputs.ready == 'true'",
+  ])assert.ok(workflow.includes(expected),expected);
+  assert.ok(workflow.indexOf('Require every exact-SHA CI gate before automatic Council review')
+    <workflow.indexOf('Full multi-batch independent Council verdict'));
+  assert.equal((workflow.match(/needs\.preflight\.outputs\.ready == 'true'/g)||[]).length,1);
+  assert.ok(workflow.includes('id: ci_gate'));
+  assert.ok(workflow.includes('ref: main'));
+  assert.ok(!workflow.includes('pull_request_target:'));
+  assert.ok(!workflow.includes('contents: write'));
+  assert.ok(!workflow.includes('git push'));
+});
+
+test('no Council job can be reported as approved before exact-SHA CI passes, including manual dispatch',()=>{
+  const workflow=file('../.github/workflows/mel-pr-council-review.yml');
+  const preflight=workflow.slice(workflow.indexOf('  preflight:\n'),workflow.indexOf('  review:\n'));
+  const review=workflow.slice(workflow.indexOf('  review:\n'));
+  assert.ok(preflight.includes('id: ci_gate'));
+  assert.ok(preflight.includes('GITHUB_OUTPUT'));
+  assert.ok(preflight.includes("const ready=pending.length===0&&unfinished.length===0"));
+  assert.ok(review.includes('needs: [discover, preflight]'));
+  assert.ok(review.includes("needs.preflight.result == 'success'"));
+  assert.ok(review.includes("needs.preflight.outputs.ready == 'true'"));
+  assert.ok(!review.includes('id: ci_gate'),'CI gate must run in a separate preflight job');
+  assert.ok(!review.includes("if: github.event_name == 'workflow_dispatch'"),
+    'manual dispatch cannot bypass the mandatory CI proof');
+  assert.ok(!review.includes('steps.ci_gate.outputs.ready'));
+  assert.ok(review.indexOf('Full multi-batch independent Council verdict')
+    <review.indexOf('Recheck immutable head and main'));
+});
+
+test('read-only PR review binds immutable head and base without mistaking moved main for base',()=>{
+  const workflow=file('../.github/workflows/mel-pr-council-review.yml');
+  for(const token of ['workflow_dispatch:','ref: main','test "$HEAD" = "$EXPECTED_SHA"',
+    'test "$REPO" = "$GITHUB_REPOSITORY"',
+    'BASE="$(git merge-base "$MAIN" "$HEAD")"',
+    'COUNCIL_PR_MAIN_HEAD_PATH_CONFLICT','MEL_COUNCIL_MAIN_SHA=$MAIN',
+    'CURRENT_MAIN" != "$MEL_COUNCIL_MAIN_SHA',
+    'run-council-batch-review.mjs council.diff council.log',
+    'COUNCIL_PR_HEAD_OR_BASE_CHANGED_DURING_REVIEW',
+    'result.root_sha256!==manifest.sha256','id-token: write',
+    'contents: read','council-pr-review-receipt'])assert.ok(workflow.includes(token),token);
+  for(const forbidden of ['contents: write','git push','wrangler deploy',
+    'npm run deploy','DEPLOY_APPROVED'])assert.ok(!workflow.includes(forbidden),forbidden);
+});
