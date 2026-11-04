@@ -79,3 +79,22 @@ test('MAX Council review remains narrowly scoped and SHA-pinned without weakenin
   assert.match(workflow, /release_authorized:false/);
   assert.match(workflow, /Full multi-batch independent Council verdict/);
 });
+
+test('Council retries the two MAX correction reviews automatically after CI and once daily', () => {
+  for (const name of [
+    'reconciled-development-audit-ci',
+    'max-cloud-readiness-ci',
+    'cloud-bridge-auth-ci',
+    'evolution-ledger-ci',
+  ]) assert.ok(workflow.includes("      - " + name), name);
+  assert.match(workflow, /- cron: '07 2 \* \* \*'/);
+  assert.match(workflow, /- cron: '37 2 \* \* \*'/);
+  assert.match(workflow, /'07 2 \* \* \*'\) SELECTED_PR=3112/);
+  assert.match(workflow, /'37 2 \* \* \*'\) SELECTED_PR=3113/);
+  // The scheduled selector and preflight must pin the actual live PR head,
+  // forbid merged MAX PRs, and preserve the content-free Council receipt.
+  assert.match(workflow, /test "\$HEAD" = "\$EXPECTED_SHA"/);
+  assert.match(workflow, /if \[ "\$SELECTED_PR" != 3094 \]; then/);
+  assert.match(workflow, /if \[ "\$STATE" = "open" \]; then/);
+  assert.match(workflow, /release_authorized:false/);
+});
