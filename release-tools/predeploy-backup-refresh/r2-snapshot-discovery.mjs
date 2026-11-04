@@ -103,7 +103,7 @@ export function requireFreshDecryptedSnapshot(snapshot, {
     fail('ISOLATED_R2_SNAPSHOT_FRESHNESS_CONFIG_INVALID');
   const createdAt = snapshot?.createdAt;
   if (typeof createdAt !== 'string'
-      || !/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$/.test(createdAt))
+      || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(createdAt))
     fail('ISOLATED_R2_SNAPSHOT_TIMESTAMP_INVALID');
   const created = Date.parse(createdAt);
   if (!Number.isFinite(created) || created > now || created < now - maxAgeMs)
