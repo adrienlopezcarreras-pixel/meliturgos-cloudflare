@@ -181,7 +181,7 @@ export class D1DevJobRepository {
         if (existing) throw Object.assign(new Error('AUTONOMY_OBJECTIVE_ALREADY_ACTIVE'), {code:'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE',job_id:existing.id});
       }
       if (exclusiveAutonomyAdmission(j)) {
-        const inFlight = await this.db.prepare("SELECT id FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + ACTIVE_JOB_SQL + " AND NOT COALESCE(" + ROTATABLE_PROVIDER_EXHAUSTION_SQL + ",0) ORDER BY created_at ASC, id ASC LIMIT 1").first();
+        const inFlight = await this.db.prepare("SELECT id FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + ACTIVE_JOB_SQL + " AND NOT COALESCE(" + ROTATABLE_PROVIDER_EXHAUSTION_SQL + ",0) AND NOT COALESCE(" + SECOND_PASS_QUEUED_SQL + ",0) ORDER BY created_at ASC, id ASC LIMIT 1").first();
         if (inFlight) throw Object.assign(new Error('AUTONOMY_OBJECTIVE_ALREADY_ACTIVE'), {code:'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE',job_id:inFlight.id});
       }
       if (j.optional_context?.source === 'revenue-watch') {
@@ -476,7 +476,7 @@ export class D1DevJobRepository {
     delete result.dependency_wait;
     if (!this.db) {
       if ([...this.memory.values()].some(row => row.id !== id && row.requested_by === 'mel-autonomy'
-          && activeJob(row) && !isRotatableProviderExhaustion(row))) return null;
+          && activeJob(row) && !isRotatableProviderExhaustion(row) && !isSecondPassQueued(row))) return null;
       return this.update(id, { status: prior, result_json: result }, { expected: job });
     }
     const updatedAt = Math.max(Date.now(), Number(job.updated_at || 0) + 1);
@@ -484,7 +484,7 @@ export class D1DevJobRepository {
       "UPDATE dev_jobs SET status=?,updated_at=?,result_json=? WHERE id=? AND status='WAITING_DEPENDENCY' AND updated_at=?"
       + " AND NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED')"
       + " AND NOT EXISTS (SELECT 1 FROM dev_jobs WHERE id<>? AND requested_by='mel-autonomy' AND "
-      + ACTIVE_JOB_SQL + " AND NOT COALESCE(" + ROTATABLE_PROVIDER_EXHAUSTION_SQL + ",0))";
+      + ACTIVE_JOB_SQL + " AND NOT COALESCE(" + ROTATABLE_PROVIDER_EXHAUSTION_SQL + ",0) AND NOT COALESCE(" + SECOND_PASS_QUEUED_SQL + ",0))";
     const write = await this.db.prepare(statement).bind(prior, updatedAt, JSON.stringify(result), id,
       job.updated_at, MAINTENANCE_FENCE_ID, id).run();
     if (Number(write?.meta?.changes) !== 1) return null;
