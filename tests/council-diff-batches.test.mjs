@@ -4,48 +4,46 @@ import { readFileSync } from 'node:fs';
 import { planCouncilDiffBatches, COUNCIL_REVIEW_BATCH_LIMIT_BYTES } from '../src/evolution/council-diff-batches.js';
 import { runCouncilReview } from '../src/evolution/council-review.js';
 
-const file = (path, lines = 10) =>
-  'diff --git a/' + path + ' b/' + path + '\n' +
-  '--- a/' + path + '\n+++ b/' + path + '\n@@ -0,0 +1,' + lines + ' @@\n' +
-  ('+const verified = "naïve–test";\n'.repeat(lines));
+const file=(path,n=10)=>
+  'diff --git a/'+path+' b/'+path+'\n--- a/'+path+'\n+++ b/'+path+
+  '\n@@ -0,0 +1,'+n+' @@\n'+('+const verified = "naïve–test";\n'.repeat(n));
 
-test('plans a large Council diff in whole-file batches with byte-for-byte coverage', () => {
-  const diff = Array.from({length: 12}, (_, i) => file('src/feature-' + i + '.js', 160)).join('');
-  const result = planCouncilDiffBatches(diff);
-  assert.equal(result.ok, true);
-  assert.ok(result.totalBytes > 48_000);
-  assert.ok(result.batchCount > 1);
-  assert.equal(result.fileCount, 12);
-  assert.equal(result.status, 'PENDING_ALL_BATCH_REVIEWS');
-  assert.ok(result.batches.every(b => b.bytes <= COUNCIL_REVIEW_BATCH_LIMIT_BYTES));
-  assert.equal(result.batches.map(b => b.diff).join(''), diff);
-  assert.deepEqual(result.batches.flatMap(b => b.paths),
-    Array.from({length: 12}, (_, i) => 'src/feature-' + i + '.js'));
-  assert.equal(result.batches.reduce((sum, b) => sum + b.bytes, 0), new TextEncoder().encode(diff).byteLength);
+test('multi-batch whole-file planning is deterministic and byte-for-byte complete',()=>{
+  const diff=Array.from({length:12},(_,i)=>file('src/feature-'+i+'.js',160)).join('');
+  const plan=planCouncilDiffBatches(diff);
+  assert.equal(plan.ok,true);
+  assert.ok(plan.totalBytes>48_000&&plan.batchCount>1);
+  assert.equal(plan.fileCount,12);
+  assert.equal(plan.status,'PENDING_ALL_BATCH_REVIEWS');
+  assert.ok(plan.batches.every(b=>b.bytes<=COUNCIL_REVIEW_BATCH_LIMIT_BYTES));
+  assert.equal(plan.batches.map(b=>b.diff).join(''),diff);
+  assert.deepEqual(plan.batches.flatMap(b=>b.paths),
+    Array.from({length:12},(_,i)=>'src/feature-'+i+'.js'));
+  assert.equal(plan.batches.reduce((n,b)=>n+b.bytes,0),new TextEncoder().encode(diff).length);
 });
-test('never silently drops an oversized file, bad header, excessive count or data', () => {
-  assert.equal(planCouncilDiffBatches('diff --git a/p b/p\n'+'x'.repeat(46_000)).code,'COUNCIL_REVIEW_SINGLE_FILE_TOO_LARGE');
-  assert.equal(planCouncilDiffBatches('text before diff\ndiff --git a/p b/p\n').code,'COUNCIL_REVIEW_BATCH_INPUT_INVALID');
-  assert.equal(planCouncilDiffBatches('diff --git invalid header\n').code,'COUNCIL_REVIEW_BATCH_INPUT_INVALID');
-  assert.equal(planCouncilDiffBatches(file('x',20),{maxBatchBytes:1}).code,'COUNCIL_REVIEW_BATCH_INPUT_INVALID');
-  const list = Array.from({length: 8}, (_,i) => file('x' + i, 75)).join('');
-  assert.equal(planCouncilDiffBatches(list,{maxBatchBytes:3000,maxBatches:1}).code,'COUNCIL_REVIEW_TOO_MANY_BATCHES');
-  assert.equal(planCouncilDiffBatches(list,{maxBatchBytes:3000,maxTotalBytes:3000}).code,'COUNCIL_REVIEW_TOTAL_TOO_LARGE');
+test('oversize, malformed headers, too many batches and excessive source bytes all block',()=>{
+  const code=(diff,opts)=>planCouncilDiffBatches(diff,opts).code;
+  assert.equal(code('diff --git a/p b/p\n'+'x'.repeat(46_000)),'COUNCIL_REVIEW_SINGLE_FILE_TOO_LARGE');
+  assert.equal(code('text before diff\ndiff --git a/p b/p\n'),'COUNCIL_REVIEW_BATCH_INPUT_INVALID');
+  assert.equal(code('diff --git invalid header\n'),'COUNCIL_REVIEW_BATCH_INPUT_INVALID');
+  assert.equal(code(file('x',20),{maxBatchBytes:1}),'COUNCIL_REVIEW_BATCH_INPUT_INVALID');
+  const data=Array.from({length:8},(_,i)=>file('x'+i,75)).join('');
+  assert.equal(code(data,{maxBatchBytes:3000,maxBatches:1}),'COUNCIL_REVIEW_TOO_MANY_BATCHES');
+  assert.equal(code(data,{maxBatchBytes:3000,maxTotalBytes:3000}),'COUNCIL_REVIEW_TOTAL_TOO_LARGE');
 });
-test('oversized Council input cannot be signed off from a truncated AI prompt', async () => {
-  let queried = 0;
-  const env={ AI:{ async run(){ queried++; return { response:'{"verdict":"APPROVE","summary":"OK"}' }; }}};
-  const decision=await runCouncilReview(env,{diff:file('safety.js',2000)});
-  assert.equal(decision.decision,'COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT');
-  assert.deepEqual(decision.reviews,[]);
-  assert.equal(queried,0);
+test('oversized single Council calls never reach AI with truncated code',async()=>{
+  let calls=0;
+  const env={AI:{async run(){calls++;return {response:'{"verdict":"APPROVE","summary":"ok"}'};}}};
+  const res=await runCouncilReview(env,{diff:file('safety.js',2000)});
+  assert.equal(res.decision,'COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT');
+  assert.deepEqual(res.reviews,[]);
+  assert.equal(calls,0);
 });
-test('promotion remains explicitly blocked above the one-request Council limit', () => {
+test('promotion routes oversized candidates to a manifest and full independent batch gate',()=>{
   const workflow=readFileSync(new URL('../.github/workflows/mel-candidate-promotion.yml',import.meta.url),'utf8');
-  assert.match(workflow,/COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT/);
-  assert.match(workflow,/DIFF_BYTES.*-gt 48000/);
-  assert.match(workflow,/prepare-council-review-batches\.mjs/);
-  assert.match(workflow,/council-review-manifest\.json/);
-  const handler=readFileSync(new URL('../src/evolution/council-review.js',import.meta.url),'utf8');
-  assert.match(handler,/COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT/);
+  for(const marker of ['COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT','DIFF_BYTES','-gt 48000',
+    'prepare-council-review-batches.mjs','council-review-manifest.json'])
+    assert.ok(workflow.includes(marker),marker);
+  assert.ok(readFileSync(new URL('../src/evolution/council-review.js',import.meta.url),'utf8')
+    .includes('COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT'));
 });
