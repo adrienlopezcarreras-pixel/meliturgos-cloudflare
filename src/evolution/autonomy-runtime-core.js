@@ -204,17 +204,34 @@ async function persistDiagnosticResult(repository, latest, result, field) {
   } catch (error) {
     if (error?.code !== 'JOB_UPDATE_CONFLICT') throw error;
     const fresh = await repository.get(latest.id);
+    // A CAS retry must not resurrect an in-flight attempt after a concurrent
+    // Mentor worker completed its diagnostic. Treat the bridge decision,
+    // rejection history and attempt marker as one concurrency unit for BOTH
+    // diagnostic persistence and attempt-marker persistence.
     const identity = job => JSON.stringify([
       job?.id, job?.status, job?.approval_status, job?.candidate_branch, job?.plan_json,
       job?.files_json, job?.patch_json, job?.tests_json,
       job?.result_json?.teacher_bridge, job?.result_json?.implementation_proposal,
       job?.result_json?.bridge_preparation, job?.result_json?.dev_bridge,
       job?.result_json?.autonomy_deferral, job?.result_json?.[field],
+      job?.result_json?.bridge_preparation_diagnostic,
+      job?.result_json?.mentor_attempt_history,
+      job?.result_json?.bridge_preparation_attempt,
     ]);
     if (!fresh || identity(fresh) !== identity(latest)) return fresh;
     const merged = { ...fresh.result_json, [field]: result[field] };
     if (result.autonomy_deferral) merged.autonomy_deferral = result.autonomy_deferral;
     else delete merged.autonomy_deferral;
+    // A CAS collision on the diagnostic must not discard the Mentor failure
+    // history that drives provider escalation, or leave an already-finished
+    // bridge attempt marked as running. The identity guard above ensures no
+    // competing mission transition or bridge decision was overwritten.
+    if (field === 'bridge_preparation_diagnostic') {
+      for (const key of ['mentor_attempt_history', 'bridge_preparation_attempt']) {
+        if (Object.hasOwn(result, key)) merged[key] = result[key];
+        else delete merged[key];
+      }
+    }
     return repository.update(fresh.id, { result_json: merged }, { expected: fresh });
   }
 }
@@ -321,7 +338,16 @@ export async function markBridgePreparationAttempt(repository, jobId, { now = Da
   if (latest?.status !== 'TEACHER_APPROVED') return { job: latest, killed: 0, exhausted: false };
   const result = latest.result_json && typeof latest.result_json === 'object' ? { ...latest.result_json } : {};
   const previous = result.bridge_preparation_attempt || {};
-  const unfinished = Number(previous.started_at) > 0 && now - Number(previous.started_at) > BRIDGE_ATTEMPT_KILLED_AFTER_MS;
+  const previousStart = Number(previous.started_at);
+  // A recent persisted claim still belongs to the first Mentor invocation.
+  // Never replace its token or spend a second provider call before timeout.
+  // Even a future timestamp is treated as occupied (fail closed).
+  if (Number.isFinite(previousStart) && previousStart > 0
+      && now - previousStart <= BRIDGE_ATTEMPT_KILLED_AFTER_MS) {
+    return { job: latest, killed: Number(previous.killed || 0),
+      exhausted: false, claimed: false, in_progress: true };
+  }
+  const unfinished = previousStart > 0 && now - previousStart > BRIDGE_ATTEMPT_KILLED_AFTER_MS;
   const killed = unfinished ? Number(previous.killed || 0) + 1 : Number(previous.killed || 0);
   if (killed >= BRIDGE_ATTEMPT_MAX_KILLED) {
     delete result.bridge_preparation_attempt;
@@ -335,9 +361,15 @@ export async function markBridgePreparationAttempt(repository, jobId, { now = Da
     const job = await persistDiagnosticResult(repository, latest, result, 'bridge_preparation_diagnostic');
     return { job, killed, exhausted: true };
   }
-  result.bridge_preparation_attempt = { started_at: now, killed };
+  // Only the invocation that persisted this unique marker may spend Mentor
+  // tokens preparing the bridge. A CAS conflict may return a newer row without
+  // persisting our attempt; that is NOT permission to run another preparation.
+  const attemptId = crypto.randomUUID();
+  result.bridge_preparation_attempt = { started_at: now, killed, attempt_id: attemptId };
   const job = await persistDiagnosticResult(repository, latest, result, 'bridge_preparation_attempt');
-  return { job, killed, exhausted: false };
+  const claimed = job?.status === 'TEACHER_APPROVED'
+    && job?.result_json?.bridge_preparation_attempt?.attempt_id === attemptId;
+  return { job, killed, exhausted: false, claimed };
 }
 
 export async function persistBridgePreparationDiagnostic(repository, jobId, diagnostic) {
@@ -1099,7 +1131,11 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     }
     if (attempt?.exhausted) {
       bridgePreparation = { status: 'NOT_READY', code: 'BRIDGE_PREPARATION_KILLED', failures: [] };
-    } else if (implementation?.status === 'READY' && job && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED') {
+    } else if (implementation?.status === 'READY' && job && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED' && !attempt?.claimed) {
+      // An exception or a losing CAS must never launch a second expensive
+      // Mentor/Bridge call on a stale job. Retry with the next scheduled tick.
+      bridgePreparation = { status: 'NOT_READY', code: 'BRIDGE_PREPARATION_CLAIM_NOT_PERSISTED', failures: [] };
+    } else if (implementation?.status === 'READY' && job && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED' && attempt?.claimed) {
       try {
         globalThis.__melTickStage = 'bridge-package';
         bridgePreparation = await prepareApprovedBridgePackage({

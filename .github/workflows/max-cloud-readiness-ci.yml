@@ -1,0 +1,70 @@
+name: max-cloud-readiness-ci
+
+# Independent, read-only proof of MAX's cloud scheduler contract.
+# This is NOT a ShardVault certification or permission to deploy.
+on:
+  push:
+    branches:
+      - candidate/mel-clean-autonomy
+      - 'fix/max-*'
+  pull_request:
+    paths:
+      - 'src/evolution/**'
+      - 'src/dev/d1-dev-job-repository.js'
+      - 'src/learning/mentor-engine.js'
+      - 'tests/max-*.test.mjs'
+      - 'tests/autonomy-supervisor-revision-priority.test.mjs'
+      - 'tests/mentor-engine.test.mjs'
+      - '.github/workflows/max-cloud-readiness-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: max-cloud-readiness-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  max-cloud-scheduler:
+    name: max-cloud-scheduler
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Syntax-check MAX runtime and D1 repository
+        run: |
+          node --check src/evolution/autonomy-runtime-core.js
+          node --check src/evolution/autonomy-supervisor.js
+          node --check src/evolution/provider-exhaustion-rotation.js
+          node --check src/dev/d1-dev-job-repository.js
+      - name: Prove passive queue and first-before-second pass
+        run: |
+          node --test tests/max-queued-atomic-first-pass.test.mjs tests/max-passive-queue-single-flight.test.mjs
+      - name: Prove provider rotation and bounded Mentor deferral
+        run: |
+          node --test tests/max-provider-exhaustion-rotation.test.mjs tests/mentor-engine.test.mjs tests/autonomy-supervisor-revision-priority.test.mjs tests/max-mentor-cas-conflict.test.mjs tests/mentor-attempt-history.test.mjs tests/bridge-attempt-killed.test.mjs
+      - name: Prove interrupted cloud runtime and resumable evidence waits
+        run: |
+          node --test tests/autonomy-runtime-epoch.test.mjs tests/autonomy-verification-wait.test.mjs
+      - name: Declare scope of evidence
+        run: |
+          {
+            echo '### MAX cloud readiness (unit/integration only)'
+            echo ''
+            echo "- Tested commit: \`$GITHUB_SHA\`"
+            echo '- Single-flight admission and passive QUEUED tested in memory and SQLite.'
+            echo '- This check neither calls production D1 nor approves any real mission.'
+            echo '- ShardVault remains separately uncertified. A failed ShardVault preview is NOT passed by this check.'
+            echo '- Deployment, Council exact-SHA review, restore and live MAX 1/1 remain independent gates.'
+          } >> "$GITHUB_STEP_SUMMARY"
