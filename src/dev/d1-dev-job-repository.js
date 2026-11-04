@@ -326,6 +326,36 @@ export class D1DevJobRepository {
       : [...this.memory.values()].filter(job => job.requested_by === 'mel-autonomy' && (activeJob(job) || job.status === 'WAITING_DEPENDENCY'));
   }
 
+  // Acceptance is durable software knowledge, not a recent UI event. Keep
+  // its exact proof envelope across the 100-row window without reloading
+  // source contents, Teacher prompts, bridge history or learning payloads.
+  async listAutonomyAcceptanceJobs() {
+    await this.init();
+    if (!this.db) return [...this.memory.values()].filter(job => job.requested_by === 'mel-autonomy'
+      && job.status === 'COMPLETED' && job.result_json?.roadmap_code_acceptance);
+    const sql = `SELECT id,created_at,updated_at,status,requested_by,
+      json_object('roadmap_id',json_extract(optional_context,'$.roadmap_id'),
+        'roadmap_contract_revision',json_extract(optional_context,'$.roadmap_contract_revision'),
+        'source',json_extract(optional_context,'$.source')) AS optional_context,
+      (SELECT json_group_array(json_object('path',CASE WHEN f.type='object' THEN json_extract(f.value,'$.path') ELSE NULL END))
+        FROM json_each(CASE WHEN json_valid(dev_jobs.files_json) THEN dev_jobs.files_json ELSE '[]' END) f) AS files_json,
+      json_object('roadmap_code_acceptance',json_extract(result_json,'$.roadmap_code_acceptance'),
+        'verify_existing',json_object('status',json_extract(result_json,'$.verify_existing.status'),
+          'candidate_sha',json_extract(result_json,'$.verify_existing.candidate_sha')),
+        'autonomy_completion',json_object('status',json_extract(result_json,'$.autonomy_completion.status'),
+          'candidate_sha',json_extract(result_json,'$.autonomy_completion.candidate_sha'),
+          'candidate_branch',json_extract(result_json,'$.autonomy_completion.candidate_branch'),
+          'ci',json_extract(result_json,'$.autonomy_completion.ci'),
+          'mel_implementation',json_object(
+            'verified',json(COALESCE(result_json -> '$.autonomy_completion.mel_implementation.verified','null')),
+            'providers_attempted',json_extract(result_json,'$.autonomy_completion.mel_implementation.providers_attempted')))) AS result_json
+      FROM dev_jobs WHERE requested_by='mel-autonomy' AND status='COMPLETED'
+        AND json_valid(optional_context)
+        AND CASE WHEN json_valid(result_json) THEN json_type(result_json,'$.roadmap_code_acceptance')='object' ELSE 0 END
+      ORDER BY created_at ASC,id ASC`;
+    return ((await this.db.prepare(sql).all()).results || []).map(row => this._row(row));
+  }
+
   // A completed/cancelled attempt can fall outside the 100-row UI list.
   // Counting it in D1 prevents the next deterministic job ID from colliding
   // with historical records and silently reusing a terminal job.

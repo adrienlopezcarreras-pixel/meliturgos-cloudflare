@@ -306,9 +306,13 @@ export function isSupervisedAutonomyJob(job) {
 
 export async function listAutonomySchedulerJobs(repository) {
   const recent = await repository.list();
-  if (typeof repository.listActiveAutonomyJobs !== 'function') return recent;
-  const active = await repository.listActiveAutonomyJobs();
-  const byId = new Map(recent.map(job => [job.id, job]));
+  const active = typeof repository.listActiveAutonomyJobs === 'function'
+    ? await repository.listActiveAutonomyJobs() : [];
+  const accepted = typeof repository.listAutonomyAcceptanceJobs === 'function'
+    ? await repository.listAutonomyAcceptanceJobs() : [];
+  const byId = new Map(accepted.map(job => [job.id, job]));
+  // Retain the richer current row when it is already in the recent window.
+  for (const job of recent) byId.set(job.id, job);
   for (const job of active) byId.set(job.id, job);
   return [...byId.values()];
 }
@@ -363,9 +367,14 @@ export class AutonomySupervisor {
     for (const item of evolutionItems || []) if (isClosedRoadmapStatus(item.status)) verifiedRoadmapIds.add('EVOLUTION-' + item.id);
     const reopenedIds = new Set(this.roadmap.filter(item => String(item.status).toUpperCase() === 'REGRESSED').map(item => item.id));
     for (const item of evolutionItems || []) if (item.status === 'REGRESSED') reopenedIds.add('EVOLUTION-' + item.id);
-    const completedIds = supervisedJobs
-      .filter(job => contractRevisions[roadmapIdFromJob(job)] ? isAcceptedRoadmapCodeJob(job) : ['COMPLETED'].includes(String(job.status).toUpperCase()) || isClosedRoadmapStatus(job.status))
-      .map(roadmapIdFromJob).filter(id => id && !reopenedIds.has(id));
+    const completedIds = [...new Set([
+      ...supervisedJobs
+        .filter(job => contractRevisions[roadmapIdFromJob(job)] ? isAcceptedRoadmapCodeJob(job) : ['COMPLETED'].includes(String(job.status).toUpperCase()) || isClosedRoadmapStatus(job.status))
+        .map(roadmapIdFromJob),
+      // Resetting the activity view cannot erase independently verified code.
+      // The unchanged contract/SHA/CI checks still run; REGRESSED wins below.
+      ...jobs.filter(isAcceptedRoadmapCodeJob).map(roadmapIdFromJob),
+    ].filter(id => id && !reopenedIds.has(id)))];
     const completedSet = new Set(completedIds);
     // Terminal code delivery is not an acceptance verdict. Only exact roadmap
     // DONE_VERIFIED proof may unlock an objective that depends on this one.
