@@ -131,10 +131,13 @@ export function bindCountermeasureActions({
         : { ok: false, code: result?.code || 'FULL_REBUILD_NOT_VERIFIED' };
     },
     restoreBackup: async () => {
+      // This executor may overwrite live memory. Scheduled read-only
+      // isolated drills do not use this action and remain fully automatic.
+      if (ownerApprovedRecovery !== true) return { ok: false, code: 'OWNER_APPROVAL_REQUIRED' };
       if (typeof restoreBackupBytes !== 'function') return { ok: false, code: 'BACKUP_REQUIRED' };
       const result = await restoreBackupBytes();
       return result?.ok === true && result?.restored === true && result?.integrity_verified === true
-        ? { ok: true, code: 'BACKUP_RESTORE_VERIFIED' }
+        ? { ok: true, code: 'BACKUP_RESTORE_VERIFIED', restored: true, integrity_verified: true }
         : { ok: false, code: result?.code || 'BACKUP_RESTORE_NOT_VERIFIED' };
     },
     openKit,
