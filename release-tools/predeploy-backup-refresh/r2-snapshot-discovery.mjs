@@ -89,3 +89,24 @@ export async function discoverLatestEncryptedSnapshotKey({
   // Never select from an incomplete listing: a newer object may exist.
   fail('ISOLATED_R2_LIST_PAGE_LIMIT');
 }
+
+/**
+ * R2 last_modified belongs to the encrypted object, not to the backup's
+ * underlying content. A freshly copied old snapshot must never qualify as
+ * an automatic recent recovery. Historical explicit restores remain allowed.
+ */
+export function requireFreshDecryptedSnapshot(snapshot, {
+  now = Date.now(), maxAgeMs = DEFAULT_AUTO_RESTORE_MAX_AGE_MS,
+} = {}) {
+  if (!Number.isFinite(now) || !Number.isSafeInteger(maxAgeMs) || maxAgeMs <= 0
+      || maxAgeMs > 7 * 24 * 60 * 60 * 1000)
+    fail('ISOLATED_R2_SNAPSHOT_FRESHNESS_CONFIG_INVALID');
+  const createdAt = snapshot?.createdAt;
+  if (typeof createdAt !== 'string'
+      || !/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$/.test(createdAt))
+    fail('ISOLATED_R2_SNAPSHOT_TIMESTAMP_INVALID');
+  const created = Date.parse(createdAt);
+  if (!Number.isFinite(created) || created > now || created < now - maxAgeMs)
+    fail('ISOLATED_R2_SNAPSHOT_STALE');
+  return true;
+}
