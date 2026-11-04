@@ -32,6 +32,11 @@ test('selects the newest encrypted snapshot across paginated read-only R2 listin
   assert.equal(urls.length,2);
   assert.equal(urls[0].hostname,'api.cloudflare.com');
   assert.equal(urls[0].searchParams.get('prefix'),'backups/system/');
+  // Nested backup payloads must be grouped so the object pagination budget
+  // is spent on encrypted root-level system snapshots instead.
+  assert.equal(urls[0].searchParams.get('delimiter'),'/');
+  assert.equal(urls[0].searchParams.get('per_page'),'1000');
+  assert.equal(urls[1].searchParams.get('delimiter'),'/');
   assert.equal(urls[1].searchParams.get('cursor'),'next-1');
   assert.equal(reqs.every(i=>i.method==='GET'&&i.redirect==='error'),true);
   assert.equal(reqs.every(i=>i.headers.authorization==='Bearer '+apiToken),true);
