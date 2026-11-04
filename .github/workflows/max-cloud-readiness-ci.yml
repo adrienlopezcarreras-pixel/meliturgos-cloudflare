@@ -51,7 +51,7 @@ jobs:
           node --check src/dev/d1-dev-job-repository.js
       - name: Prove passive queue and first-before-second pass
         run: |
-          node --test tests/max-queued-atomic-first-pass.test.mjs tests/max-passive-queue-single-flight.test.mjs tests/max-quick-win-priority.test.mjs tests/max-passive-roadmap-collapse-ui.test.mjs
+          node --test tests/max-queued-atomic-first-pass.test.mjs tests/max-passive-queue-single-flight.test.mjs tests/max-quick-win-priority.test.mjs tests/max-passive-roadmap-collapse-ui.test.mjs tests/max-release-handoff-diagnostics.test.mjs
       - name: Prove provider rotation and bounded Mentor deferral
         run: |
           node --test tests/max-provider-exhaustion-rotation.test.mjs tests/mentor-engine.test.mjs tests/autonomy-supervisor-revision-priority.test.mjs tests/max-mentor-cas-conflict.test.mjs tests/mentor-attempt-history.test.mjs tests/bridge-attempt-killed.test.mjs
