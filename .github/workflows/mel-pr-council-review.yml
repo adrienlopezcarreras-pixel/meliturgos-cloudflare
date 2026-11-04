@@ -128,7 +128,7 @@ jobs:
           const ready=pending.length===0&&unfinished.length===0;
           const fsOut=process.env.GITHUB_OUTPUT;
           if(!fsOut)throw Error('COUNCIL_CI_OUTPUT_REQUIRED');
-          fs.appendFileSync(fsOut,'ready='+String(ready)+'\\n');
+          fs.appendFileSync(fsOut,'ready='+String(ready)+'\n');
           if(!ready){
             console.log('::notice title=Council pending CI::' + 'COUNCIL_CI_REQUIRED_CHECK_NOT_GREEN='
               +pending.join(',')+'; COUNCIL_CI_NOT_ALL_COMPLETE_AND_GREEN='
