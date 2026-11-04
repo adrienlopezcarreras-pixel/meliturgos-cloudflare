@@ -254,7 +254,10 @@ jobs:
           const fs=require('node:fs');
           const result=JSON.parse(fs.readFileSync('council-verdict.json','utf8'));
           const manifest=JSON.parse(fs.readFileSync('council-review-manifest.json','utf8'));
-          if(result.decision!=='APPROVED'||result.complete_review!==true
+          const auditOnly=process.env.MEL_COUNCIL_REVIEW_KIND==='POST_MERGE_AUDIT_ONLY';
+          const expected=auditOnly?'POST_MERGE_AUDIT_APPROVED':'APPROVED';
+          if(result.decision!==expected||result.complete_review!==true
+            ||result.audit_only!==auditOnly||result.release_authorized!==false
             ||result.head!==process.env.MEL_COUNCIL_HEAD_SHA
             ||result.root_sha256!==manifest.sha256
             ||result.reviewed_file_count!==manifest.file_count
@@ -284,7 +287,10 @@ jobs:
           const mode=process.env.MEL_COUNCIL_REVIEW_KIND;
           if(!['PRE_MERGE_REVIEW','POST_MERGE_AUDIT_ONLY'].includes(mode))
             throw Error('COUNCIL_REVIEW_KIND_REQUIRED');
-          if(verdict.decision!=='APPROVED'||verdict.complete_review!==true)
+          const expected=mode==='POST_MERGE_AUDIT_ONLY'?'POST_MERGE_AUDIT_APPROVED':'APPROVED';
+          if(verdict.decision!==expected||verdict.complete_review!==true
+            ||verdict.audit_only!==(mode==='POST_MERGE_AUDIT_ONLY')
+            ||verdict.release_authorized!==false)
             throw Error('COUNCIL_AUDIT_VERDICT_NOT_APPROVED');
           const receipt={
             schema:'mel.council.pr-review-provenance/v1',
