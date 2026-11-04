@@ -40,12 +40,12 @@ for (const storage of ['memory', 'sqlite']) test(`provider exhaustion rotates sa
   assert.equal((await repository.get(parkedId)).status, 'TEACHER_APPROVED');
   assert.equal((await repository.get(parkedId)).result_json.autonomy_deferral.attempts, 3);
   assert.equal((await supervisor.ensureNextJob()).job.id, next.job.id);
-  await assert.rejects(
-    () => repository.create({ id: 'mel-autonomy-mel-manifest-03-manual',
-      requested_by: 'mel-autonomy', goal: 'Third objective',
-      optional_context: { roadmap_id: 'MEL-MANIFEST-03' } }),
-    { code: 'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE' },
-  );
+  // A third QUEUED row is passive storage, not another executed mission.
+  const third=await repository.create({ id:'mel-autonomy-mel-manifest-03-manual',
+    requested_by:'mel-autonomy',goal:'Third objective',
+    optional_context:{roadmap_id:'MEL-MANIFEST-03'} });
+  assert.equal(third.status,'QUEUED');
+  assert.equal((await repository.get(next.job.id)).status,'QUEUED');
   await assert.rejects(
     () => repository.create({ id: 'mel-autonomy-mel-manifest-01-duplicate',
       requested_by: 'mel-autonomy', goal: 'Duplicate exhausted objective',
@@ -98,8 +98,10 @@ test('D1 NULL deferral never bypasses the atomic admission fence', async t => {
   const DB = sqliteD1();
   t.after(() => DB.close());
   const repository = new D1DevJobRepository(DB);
-  await repository.create({ id: 'active-without-deferral', requested_by: 'mel-autonomy',
+  const queued=await repository.create({ id: 'active-without-deferral', requested_by: 'mel-autonomy',
     goal: 'Running a real roadmap item', optional_context: { roadmap_id: 'MEL-MANIFEST-01' } });
+  const claimed=await repository.claimQueuedAutonomy(queued.id,{expected:queued});
+  assert.equal(claimed.status,'PLANNING');
   await assert.rejects(() => repository.create({
     id: 'must-not-run-parallel', requested_by: 'mel-autonomy',
     goal: 'Second job', optional_context: { roadmap_id: 'MEL-MANIFEST-02' },
@@ -180,6 +182,9 @@ for (const storage of ['memory', 'sqlite']) test(`changed parked context cannot 
   assert.equal(replacement.created, true);
   assert.equal(replacement.job.optional_context.roadmap_id, 'MEL-MANIFEST-02');
 
+  // The real runtime atomically claims the successor before doing any work.
+  const claim=await repository.claimQueuedAutonomy(replacement.job.id,{expected:replacement.job});
+  assert.equal(claim.status,'PLANNING');
   const previous = await repository.get(firstId);
   await repository.update(firstId, { result_json: {
     ...previous.result_json,
@@ -209,9 +214,9 @@ for (const storage of ['memory', 'sqlite']) test(`bounded cloud policy reopens a
     attempts: 3, max_attempts: 3, exhausted: true, retry_after: Date.now() + 600_000 };
   await repository.update(original.id, { result_json: { autonomy_deferral: old } });
   assert.equal(isRotatableProviderExhaustion(await repository.get(original.id)), false);
-  await assert.rejects(() => repository.create({ id: 'parallel-mission', requested_by: 'mel-autonomy',
-    goal: '[MEL-MANIFEST-02] Must wait', optional_context: { roadmap_id: 'MEL-MANIFEST-02' } }),
-  { code: 'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE' });
+  const passive=await repository.create({ id:'parallel-mission',requested_by:'mel-autonomy',
+    goal:'[MEL-MANIFEST-02] Passive first pass',optional_context:{roadmap_id:'MEL-MANIFEST-02'} });
+  assert.equal(passive.status,'QUEUED');
   const supervisor = new AutonomySupervisor({ repository, roadmap });
   const resumed = await supervisor.ensureNextJob();
   assert.equal(resumed.job.id, original.id);
@@ -221,7 +226,9 @@ for (const storage of ['memory', 'sqlite']) test(`bounded cloud policy reopens a
   await repository.update(original.id, { result_json: { autonomy_deferral: first } });
   const repeated = boundedCouncilDeferral({ job: await repository.get(original.id), deferred: { code: old.code }, retryAt: now + 300_001, now: now + 1 });
   assert.equal(repeated.attempts, 1, 'the new policy is persisted; heartbeat/redeploy cannot replenish attempts');
-  assert.equal((await supervisor.ensureNextJob()).job, null, 'current policy cooldown is still enforced');
+  const pending=await supervisor.ensureNextJob();
+  assert.equal(pending.job?.id,passive.id,'a fresh QUEUED goal can be selected while Council cooldown is enforced');
+  assert.equal((await repository.get(original.id)).result_json.autonomy_deferral.attempts,1);
 });
 
 
