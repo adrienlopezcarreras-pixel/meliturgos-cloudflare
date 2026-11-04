@@ -19,6 +19,13 @@ async function persist(db,key,record,now) {
     status=excluded.status,metadata_json=excluded.metadata_json`;
   await db.prepare(sql).bind(key,now,record.decision,JSON.stringify(record)).run();
 }
+// Approval requires two distinct model identities and two nonempty reasons;
+// a result flag, duplicated identity or missing review never establishes quorum.
+const independentQuorum = reviews => Array.isArray(reviews) &&
+  new Set(reviews.filter(row=>row?.verdict==='APPROVE'
+    &&typeof row.summary==='string' &&row.summary.trim())
+    .map(row=>String(row.model||'').trim()).filter(Boolean)).size>=2;
+
 const isValid = b => b && SHA.test(b.head||'') && SHA.test(b.base||'')
   && DIGEST.test(b.root_sha256||'')
   && Number.isInteger(b.batch_count) && b.batch_count>=2 && b.batch_count<=32
@@ -46,7 +53,10 @@ export async function handleCouncilBatchedReview(env,body,{
         ||prior.files!==files||prior.head!==head||prior.base!==base
         ||prior.root!==root||prior.diff!==body.diff))
       return reject('COUNCIL_BATCH_IMMUTABLE_CONFLICT',409);
-    if(prior?.decision==='APPROVED')return {status:200,result:{
+    // Legacy or corrupted cached votes may lack the two independent,
+    // reasoned approvals that current releases require. Never trust the
+    // stored APPROVED label alone: re-review rather than promoting a cache.
+    if(prior?.decision==='APPROVED' && independentQuorum(prior.reviews))return {status:200,result:{
       ok:true,decision:'PENDING_ALL_BATCH_REVIEWS',batch_decision:'APPROVED',
       cached:true,batch_index:i,head,root_sha256:root}};
     if(prior?.decision==='REJECTED')return {status:409,result:{
@@ -55,13 +65,10 @@ export async function handleCouncilBatchedReview(env,body,{
     const vote=await review(env,{diff:body.diff,goal:'Independent Council review of complete file batch '
       +i+'/'+count+' for '+head+'; each batch and the final integration need separate real approvals.',
       attempts:Math.max(0,Number(prior?.attempts||0))});
-    const approvingModels=new Set((Array.isArray(vote?.reviews)?vote.reviews:[])
-      .filter(row=>row?.verdict==='APPROVE'&&typeof row.summary==='string'&&row.summary.trim())
-      .map(row=>String(row.model||'').trim()).filter(Boolean));
-    const verifiedDecision=vote?.decision==='APPROVED'&&approvingModels.size<2
+    const verifiedDecision=vote?.decision==='APPROVED'&&!independentQuorum(vote?.reviews)
       ?'COUNCIL_BATCH_QUORUM_UNPROVEN':vote?.decision||'COUNCIL_BATCH_VOTE_MISSING';
     const record={head,base,root,count,total,files,index:i,sha256:sha,
-      diff:body.diff,decision:verifiedDecision,reviews:vote.reviews||[],
+      diff:body.diff,decision:verifiedDecision,reviews:Array.isArray(vote?.reviews)?vote.reviews:[],
       attempts:Number(prior?.attempts||0)+1,reviewed_at:now};
     await persist(env.DB,key,record,now);
     return {status:200,result:{ok:true,decision:verifiedDecision==='APPROVED'
@@ -74,9 +81,7 @@ export async function handleCouncilBatchedReview(env,body,{
     if(!row||row.head!==head||row.base!==base||row.root!==root
       ||row.count!==count||row.total!==total||row.files!==files||row.index!==i
       ||row.decision!=='APPROVED'||!Array.isArray(row.reviews)
-      ||new Set(row.reviews.filter(x=>x.verdict==='APPROVE'
-        &&String(x.summary||'').trim()).map(x=>String(x.model||'').trim())
-        .filter(Boolean)).size<2)
+      ||!independentQuorum(row.reviews))
       return reject('COUNCIL_BATCH_REVIEWS_INCOMPLETE',409);
     if(await digest(row.diff,cryptoImpl)!==row.sha256)
       return reject('COUNCIL_BATCH_STORED_DIFF_TAMPERED',409);
@@ -92,7 +97,14 @@ export async function handleCouncilBatchedReview(env,body,{
   const previous=await load(env.DB,key);
   if(previous && (previous.root_sha256!==root||previous.base!==base
       ||previous.batch_count!==count))return reject('COUNCIL_FINAL_REVIEW_CONFLICT',409);
-  if(previous?.decision==='APPROVED')return {status:200,result:{
+  // Re-validate the whole cache, including distinct independent reviewers,
+  // immutable batch hashes and metadata. An old bare APPROVED must be re-voted.
+  const cacheProven=previous?.mode==='COMPLETE_INDEPENDENT_MULTI_BATCH_REVIEW'
+    && previous.file_count===files && previous.total_bytes===total
+    && Array.isArray(previous.batch_hashes) && previous.batch_hashes.length===count
+    && previous.batch_hashes.every((hash,i)=>hash===records[i].sha256)
+    && independentQuorum(previous.reviews);
+  if(previous?.decision==='APPROVED' && cacheProven)return {status:200,result:{
     ok:true,cached:true,decision:'APPROVED',head,root_sha256:root,
     batch_count:count,complete_review:true}};
   if(previous?.decision==='REJECTED')return reject('COUNCIL_FINAL_REJECTED',409);
@@ -111,10 +123,7 @@ export async function handleCouncilBatchedReview(env,body,{
   });
   // The separate integration verdict must meet the same independent, reasoned
   // model quorum as every batch. A bare APPROVED flag is never sufficient.
-  const finalApprovingModels=new Set((Array.isArray(finalVote?.reviews)?finalVote.reviews:[])
-    .filter(row=>row?.verdict==='APPROVE'&&typeof row.summary==='string'&&row.summary.trim())
-    .map(row=>String(row.model||'').trim()).filter(Boolean));
-  const finalDecision=finalVote?.decision==='APPROVED'&&finalApprovingModels.size<2
+  const finalDecision=finalVote?.decision==='APPROVED'&&!independentQuorum(finalVote?.reviews)
     ?'COUNCIL_FINAL_QUORUM_UNPROVEN':finalVote?.decision||'COUNCIL_FINAL_VOTE_MISSING';
   const final={decision:finalDecision,head,base,root_sha256:root,
     batch_count:count,file_count:files,total_bytes:total,
