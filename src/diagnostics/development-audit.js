@@ -60,9 +60,26 @@ export async function probeCodeModels(env, { registry = standardRegistry, timeou
 }
 
 export function auditDevelopment({ jobs = [], env = {}, registry = standardRegistry, now = Date.now(), maxAutonomy = true, probes = [] } = {}) {
-  const week = jobs.filter(job => Number(job?.updated_at || 0) >= now - WEEK_MS);
+  // Exclude future timestamps and duplicate snapshots of the same durable job.
+  // Different job ids for the same roadmap objective remain distinct attempts.
+  const seenJobs = new Set();
+  const week = jobs.filter(job => {
+    const updated = Number(job?.updated_at || 0);
+    return Number.isFinite(updated) && updated >= now - WEEK_MS && updated <= now;
+  }).sort((a, b) => Number(b.updated_at) - Number(a.updated_at)).filter(job => {
+    const id = String(job?.id || '');
+    if (!id) return true;
+    if (seenJobs.has(id)) return false;
+    seenJobs.add(id);
+    return true;
+  });
   const findings = [];
-  const add = (code, detail) => findings.push({ code, detail: String(detail).slice(0, 300) });
+  const findingKeys = new Set();
+  const add = (code, detail) => {
+    const finding = { code, detail: String(detail).slice(0, 300) };
+    const key = JSON.stringify(finding);
+    if (!findingKeys.has(key)) { findings.push(finding); findingKeys.add(key); }
+  };
 
   const specialists = new Set(registry.list().filter(model => (model.capabilities || []).includes('CODE_SPECIALIST')).map(model => 'workers-ai:' + model.id));
   const metrics = mentorMetrics(week);
@@ -102,6 +119,51 @@ export function auditDevelopment({ jobs = [], env = {}, registry = standardRegis
     status: findings.length ? 'DEVELOPMENT_AUDIT_FAILED' : 'DEVELOPMENT_AUDIT_OK',
     findings,
     probes,
-    summary: { jobs: week.length, completed, failed, council_rejected: councilRejected, models: metrics.models.length },
+    summary: {
+      jobs: week.length, completed, failed,
+      blocked: week.filter(job => ['BLOCKED', 'WAITING_DEPENDENCY'].includes(String(job?.status || '').toUpperCase())).length,
+      repeated_objectives: loops.length,
+      council_rejected: councilRejected, models: metrics.models.length,
+    },
   };
+}
+
+/**
+ * Durable weekly evidence for MEL-AUDIT-02. This records observations only:
+ * no status transitions, roadmap admissions or repair dispatches. A repeated
+ * invocation updates the same weekly report and cannot duplicate findings.
+ */
+export async function persistWeeklyDevelopmentAudit(db, report, { now = Date.now() } = {}) {
+  if (!db?.prepare || !report || !Array.isArray(report.findings)) {
+    throw Object.assign(new Error('DEVELOPMENT_AUDIT_PERSIST_INPUT_REQUIRED'), { code: 'DEVELOPMENT_AUDIT_PERSIST_INPUT_REQUIRED' });
+  }
+  const at = Number(now);
+  if (!Number.isFinite(at)) throw Object.assign(new Error('DEVELOPMENT_AUDIT_TIME_INVALID'), { code: 'DEVELOPMENT_AUDIT_TIME_INVALID' });
+  // ISO-style UTC weeks begin Monday; 1970-01-05 was the first Monday.
+  const mondayOffset = 4 * 24 * 60 * 60 * 1000;
+  const weekStart = Math.floor((at - mondayOffset) / WEEK_MS) * WEEK_MS + mondayOffset;
+  await db.prepare(`CREATE TABLE IF NOT EXISTS mel_development_audit_reports (
+    week_start INTEGER PRIMARY KEY, report_json TEXT NOT NULL, updated_at INTEGER NOT NULL
+  )`).run();
+  await db.prepare(`CREATE TABLE IF NOT EXISTS mel_development_audit_findings (
+    week_start INTEGER NOT NULL, code TEXT NOT NULL, detail TEXT NOT NULL,
+    PRIMARY KEY (week_start, code, detail)
+  )`).run();
+  await db.prepare(`INSERT INTO mel_development_audit_reports(week_start,report_json,updated_at)
+    VALUES(?,?,?) ON CONFLICT(week_start) DO UPDATE SET
+      report_json=excluded.report_json, updated_at=excluded.updated_at`)
+    .bind(weekStart, JSON.stringify(report), at).run();
+  const distinct = new Map();
+  for (const finding of report.findings) {
+    const code = String(finding?.code || '').slice(0, 120);
+    if (!code) continue;
+    const detail = String(finding?.detail || '').slice(0, 300);
+    distinct.set(JSON.stringify([code, detail]), { code, detail });
+  }
+  for (const { code, detail } of distinct.values()) {
+    await db.prepare(`INSERT INTO mel_development_audit_findings(week_start,code,detail)
+      VALUES(?,?,?) ON CONFLICT(week_start,code,detail) DO NOTHING`)
+      .bind(weekStart, code, detail).run();
+  }
+  return { persisted: true, week_start: weekStart, findings_recorded: distinct.size };
 }
