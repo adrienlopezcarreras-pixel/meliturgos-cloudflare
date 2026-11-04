@@ -64,6 +64,37 @@ const AUTONOMY_ORDER = [
 ];
 const AUTONOMY_INDEX = new Map(AUTONOMY_ORDER.map((id, index) => [id, index]));
 
+// Owner-requested short-queue policy: prioritize independently testable,
+// low-risk single-file missions before the large founder/release backlog.
+// This is a conservative *estimate of scope*, never proof of acceptance.
+// New code targets are NOT automatically whitelisted as "easy".
+const QUICK_WIN_CODE_PATHS = new Set([
+  'scripts/ui-production-audit.mjs',
+  'scripts/workers-ai-catalog-diff.mjs',
+  'src/api/chat-media-intent.js',
+  'src/api/response-quality.js',
+  'src/capabilities/github-code-capabilities.js',
+  'src/diagnostics/architecture-audit-store.js',
+  'src/diagnostics/development-audit.js',
+  'src/diagnostics/domain-audit.js',
+  'src/diagnostics/outcome-loop.js',
+  'src/roadmap/manifest-01-acceptance.js',
+]);
+
+export function isMaxQuickWin(item) {
+  if (!item || String(item.mode || '').toUpperCase() !== 'IMPLEMENT'
+    || item.required_proof !== 'DIFF_TESTS_EXACT_SHA_CI'
+    || item.verify_existing === false
+    || BLOCKED_ROADMAP.has(String(item.external_acceptance?.status || '').toUpperCase())
+    || !Array.isArray(item.code_paths) || item.code_paths.length !== 1
+    || !QUICK_WIN_CODE_PATHS.has(item.code_paths[0])
+    || !Array.isArray(item.test_paths) || item.test_paths.length < 1 || item.test_paths.length > 2
+    || !item.test_paths.every(path => typeof path === 'string'
+      && path.startsWith('tests/') && path.endsWith('.test.mjs') && !path.includes('..'))
+    || !Array.isArray(item.acceptance) || item.acceptance.length < 1 || item.acceptance.length > 2) return false;
+  return true;
+}
+
 function score(item) {
   const autonomy = AUTONOMY_INDEX.has(item.id) ? AUTONOMY_INDEX.get(item.id) : 1000;
   const priority = PRIORITY_WEIGHT[item.priority] ?? 40;
@@ -232,11 +263,14 @@ export function manifestObjective(roadmap = flattenRoadmap()) {
     .slice(0, 900);
 }
 
-export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedIds = [], verifiedIds = [], blockedIds = [], activeIds = [] } = {}) {
+export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedIds = [], verifiedIds = [], blockedIds = [], activeIds = [], quickWinsFirst = false } = {}) {
   const completed = new Set(completedIds);
   const blocked = new Set(blockedIds);
   const active = new Set(activeIds);
-  const rank = (a, b) => score(a) - score(b) || String(a.id).localeCompare(String(b.id));
+  // First-pass admission only: never pre-empt the current job or promote a
+  // second-pass QUEUED mission. All existing proof/dependency gates still run.
+  const rank = (a, b) => (quickWinsFirst ? Number(!isMaxQuickWin(a)) - Number(!isMaxQuickWin(b)) : 0)
+    || score(a) - score(b) || String(a.id).localeCompare(String(b.id));
   const open = roadmap
     .filter((item) => item && item.id)
     .filter((item) => !isVerifiedRoadmap(item))
@@ -280,7 +314,7 @@ export async function listAutonomySchedulerJobs(repository) {
 }
 
 export class AutonomySupervisor {
-  constructor({ repository, roadmap = currentRoadmap(), evolutionLoader = null, epochMs = 0, onlyJobId = null, singleFlight = true } = {}) {
+  constructor({ repository, roadmap = currentRoadmap(), evolutionLoader = null, epochMs = 0, onlyJobId = null, singleFlight = true, quickWinsFirst = true } = {}) {
     if (!repository || typeof repository.list !== 'function' || typeof repository.create !== 'function') {
       throw Object.assign(new Error('AUTONOMY_JOB_REPOSITORY_REQUIRED'), { code: 'AUTONOMY_JOB_REPOSITORY_REQUIRED' });
     }
@@ -289,6 +323,7 @@ export class AutonomySupervisor {
     this.epochMs = Number(epochMs) || 0;
     this.onlyJobId = onlyJobId ? String(onlyJobId) : null;
     this.singleFlight = singleFlight === true;
+    this.quickWinsFirst = quickWinsFirst === true;
     if (evolutionLoader !== null && typeof evolutionLoader !== 'function') throw new Error('EVOLUTION_QUEUE_INVALID_LOADER');
     this.evolutionLoader = evolutionLoader;
   }
@@ -372,6 +407,7 @@ export class AutonomySupervisor {
       verifiedIds: verifiedDependencyIds,
       blockedIds,
       activeIds,
+      quickWinsFirst: this.quickWinsFirst,
     });
     if (!next && this.evolutionLoader && this.roadmap.every(row => verifiedRoadmapIds.has(row.id))) {
       const items = evolutionItems === null ? await readEvolution() : approvedEvolutionRoadmap(evolutionItems);

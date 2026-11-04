@@ -77,7 +77,7 @@ for (const storage of ['memory','sqlite']) test(`replan an old declarative job, 
   assert.match(current.goal,/manifest-01-acceptance\.js/);assert.doesNotMatch(current.goal,/\| OBJECTIF/);
   assert.deepEqual(await refreshRoadmapCodeMissions(repository,await repository.list(),canonical),[],'a heartbeat or release must not repeatedly reset the same technical plan');
   const selected=await new AutonomySupervisor({repository,roadmap:canonical}).ensureNextJob();
-  assert.equal(selected.job.optional_context.roadmap_id,'MEL-FOUNDER-01');assert.notEqual(selected.job.id,old.id);
+  assert.equal(selected.job.optional_context.roadmap_id,'MEL-UI-AUDIT-01', 'quick-first picks independent verified-test scope without resuming stale manifesto work');assert.notEqual(selected.job.id,old.id);
 });
 
 for(const storage of ['memory','sqlite'])test(`roadmap absolute priority defers an older repair without deleting its evidence on ${storage}`,async t=>{
