@@ -142,12 +142,14 @@ test('MAX cannot resurrect a bridge attempt after a concurrent Mentor READY CAS 
   assert.equal(successfulWrites, 0, 'a competing Mentor decision must abort stale CAS retry');
 });
 
-test('MAX bridge claim carries a unique persisted token before preparation', async () => {
+test('MAX Bridge claim stays exclusive for a live attempt and rotates only after expiry', async () => {
   let row = { id: 'founder-07', status: 'TEACHER_APPROVED', result_json: {} };
+  let writes = 0;
   const repo = {
     async get() { return structuredClone(row); },
     async update(id, patch) {
       assert.equal(id, row.id);
+      writes += 1;
       row = { ...row, ...structuredClone(patch) };
       return structuredClone(row);
     },
@@ -157,8 +159,30 @@ test('MAX bridge claim carries a unique persisted token before preparation', asy
   assert.match(first.job.result_json.bridge_preparation_attempt.attempt_id,
     /^[a-f0-9-]{36}$/i);
   const firstId = first.job.result_json.bridge_preparation_attempt.attempt_id;
-  const next = await markBridgePreparationAttempt(repo, row.id, { now: 1_000_001 });
-  assert.equal(next.claimed, true);
-  assert.notEqual(next.job.result_json.bridge_preparation_attempt.attempt_id, firstId,
-    'a stale invocation must not share the newer token');
+  const concurrent = await markBridgePreparationAttempt(repo, row.id, { now: 1_000_001 });
+  assert.equal(concurrent.claimed, false);
+  assert.equal(concurrent.in_progress, true);
+  assert.equal(writes, 1, 'a second tick must not spend a write or a provider call');
+  assert.equal(row.result_json.bridge_preparation_attempt.attempt_id, firstId);
+  const expired = await markBridgePreparationAttempt(repo, row.id, {
+    now: 1_000_000 + 3 * 60_000 + 1,
+  });
+  assert.equal(expired.claimed, true, 'only an expired claim can be replaced');
+  assert.equal(expired.killed, 1);
+  assert.equal(writes, 2);
+  assert.notEqual(expired.job.result_json.bridge_preparation_attempt.attempt_id, firstId);
+});
+
+test('MAX keeps a future-dated Bridge attempt passive until the lease can be assessed', async () => {
+  const row = { id: 'founder-07', status: 'TEACHER_APPROVED', result_json: {
+    bridge_preparation_attempt: { started_at: 1_500_000, killed: 0, attempt_id: 'other-worker' },
+  } };
+  const repo = {
+    async get() { return structuredClone(row); },
+    async update() { throw new Error('A future-dated claim must not be replaced'); },
+  };
+  const pending = await markBridgePreparationAttempt(repo, row.id, { now: 1_000_000 });
+  assert.equal(pending.claimed, false);
+  assert.equal(pending.in_progress, true);
+  assert.equal(pending.job.result_json.bridge_preparation_attempt.attempt_id, 'other-worker');
 });
