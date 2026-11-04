@@ -53,7 +53,7 @@ jobs:
           node --test tests/max-queued-atomic-first-pass.test.mjs tests/max-passive-queue-single-flight.test.mjs
       - name: Prove provider rotation and bounded Mentor deferral
         run: |
-          node --test tests/max-provider-exhaustion-rotation.test.mjs tests/mentor-engine.test.mjs tests/autonomy-supervisor-revision-priority.test.mjs tests/max-mentor-cas-conflict.test.mjs tests/mentor-attempt-history.test.mjs
+          node --test tests/max-provider-exhaustion-rotation.test.mjs tests/mentor-engine.test.mjs tests/autonomy-supervisor-revision-priority.test.mjs tests/max-mentor-cas-conflict.test.mjs tests/mentor-attempt-history.test.mjs tests/bridge-attempt-killed.test.mjs
       - name: Prove interrupted cloud runtime and resumable evidence waits
         run: |
           node --test tests/autonomy-runtime-epoch.test.mjs tests/autonomy-verification-wait.test.mjs
