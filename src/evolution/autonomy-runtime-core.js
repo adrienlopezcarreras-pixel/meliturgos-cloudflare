@@ -967,13 +967,15 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         const retryAt = isCooldown && Number.isFinite(requestedRetry)
           ? Math.max(now + 1_000, Math.min(now + 30 * 60_000, requestedRetry))
           : deferred.retry_after;
+        const councilDeferral = boundedCouncilDeferral({ job: latest, deferred, retryAt, freshAttempts, now });
         await jobRepository.update(job.id, {
+          // A claimed PLANNING mission must release the lane after three
+          // review windows, preserving its proof and lower-priority requeue.
+          ...(councilDeferral.exhausted ? { status: 'QUEUED' } : {}),
           result_json: {
             ...latest.result_json,
             ...(staleCouncilDeferral(latest) ? { council_previous_policy_failure: { deferral: latest.result_json?.autonomy_deferral, attempts: latest.result_json?.council_model_attempts || [], exclusions: latest.result_json?.council_model_exclusions || [] } } : {}),
-            autonomy_deferral: boundedCouncilDeferral({
-              job: latest, deferred, retryAt, freshAttempts, now,
-            }),
+            autonomy_deferral: councilDeferral,
             council_model_attempts: attempts,
             council_model_exclusions: [...quarantine.values()].slice(0, 40),
             ...(isCooldown ? { council_provider_cooldown: {

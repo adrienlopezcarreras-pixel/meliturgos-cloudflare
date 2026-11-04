@@ -580,15 +580,17 @@ test('single-flight keeps oldest internal objective when a newer one is actionab
 });
 
 
-test('repository atomically admits only one autonomous objective across competing supervisors', async () => {
+test('repository admits passive objectives but atomically claims only one execution lane', async () => {
   const repo = isolatedRepo();
   const results = await Promise.all([
     repo.createIfAbsent({ id: 'mel-autonomy-work-race', requested_by: 'mel-autonomy', goal: 'Work', optional_context: { roadmap_id: 'MEL-WORK-01' } }),
     repo.createIfAbsent({ id: 'mel-autonomy-gen-race', requested_by: 'mel-autonomy', goal: 'Evolution', optional_context: { roadmap_id: 'GEN2-17' } }),
   ]);
-  assert.equal(results.filter(row => row.created).length, 1);
-  assert.equal(results[0].job.id, results[1].job.id);
-  assert.equal((await repo.list()).length, 1);
+  assert.equal(results.filter(row => row.created).length, 2);
+  const claims = await Promise.all(results.map(row => repo.claimQueuedAutonomy(row.job.id)));
+  assert.equal(claims.filter(Boolean).length, 1);
+  assert.equal((await repo.list()).filter(row => row.status === 'PLANNING').length, 1);
+  assert.equal((await repo.list()).filter(row => row.status === 'QUEUED').length, 1);
 });
 
 

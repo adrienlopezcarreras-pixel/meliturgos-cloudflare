@@ -86,9 +86,10 @@ async function selectablePcJobs(repository, epochMs, roadmap, count, singleFligh
   // Both autonomy modes pin one objective; independent tests inside that objective may parallelize elsewhere.
   return (singleFlight ? jobs.slice(0, 1) : jobs).map(job => job.id);
 }
-const ACTIONABLE_FAILURE_STATES = new Set(['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE', 'TEACHER_APPROVED']);
+const ACTIONABLE_FAILURE_STATES = new Set(['QUEUED', 'PLANNING', 'CLAIMED', 'COUNCIL_COMPLETE', 'TEACHER_APPROVED']);
 const ACTIVE_RUNTIME_STATES = new Set([
   'QUEUED',
+  'PLANNING',
   'CLAIMED',
   'COUNCIL_COMPLETE',
   'WAITING_TEACHER',
