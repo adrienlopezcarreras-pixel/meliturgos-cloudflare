@@ -46,11 +46,12 @@ jobs:
         run: |
           node --check src/evolution/autonomy-runtime-core.js
           node --check src/evolution/autonomy-supervisor.js
+          node --check src/evolution/autonomy-activity.js
           node --check src/evolution/provider-exhaustion-rotation.js
           node --check src/dev/d1-dev-job-repository.js
       - name: Prove passive queue and first-before-second pass
         run: |
-          node --test tests/max-queued-atomic-first-pass.test.mjs tests/max-passive-queue-single-flight.test.mjs
+          node --test tests/max-queued-atomic-first-pass.test.mjs tests/max-passive-queue-single-flight.test.mjs tests/max-quick-win-priority.test.mjs
       - name: Prove provider rotation and bounded Mentor deferral
         run: |
           node --test tests/max-provider-exhaustion-rotation.test.mjs tests/mentor-engine.test.mjs tests/autonomy-supervisor-revision-priority.test.mjs tests/max-mentor-cas-conflict.test.mjs tests/mentor-attempt-history.test.mjs tests/bridge-attempt-killed.test.mjs
