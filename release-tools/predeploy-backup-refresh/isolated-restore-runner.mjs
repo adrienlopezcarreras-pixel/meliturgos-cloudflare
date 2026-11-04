@@ -1,5 +1,5 @@
 import { createR2BackupReader } from './r2-reader.mjs';
-import { discoverLatestEncryptedSnapshotKey, ENCRYPTED_SNAPSHOT_KEY } from './r2-snapshot-discovery.mjs';
+import { discoverLatestEncryptedSnapshotKey, ENCRYPTED_SNAPSHOT_KEY, requireFreshDecryptedSnapshot } from './r2-snapshot-discovery.mjs';
 import { writeFile } from 'node:fs/promises';
 import { createBackupEncryptionCodec, decodeBackupEncryptionKey } from '../../src/backup/encrypted-backup-storage.js';
 import { proveSystemSnapshotRestore, isolatedRestoreFailure } from './system-restore-proof.mjs';
@@ -7,6 +7,7 @@ let stage='CONFIGURATION';
 try {
  const bucket='meliturgos-private-media';
  let key=process.env.MEL_RESTORE_SNAPSHOT_KEY||'';
+ const autoSelected=!key;
  if(key && !ENCRYPTED_SNAPSHOT_KEY.test(key)) throw Error('ISOLATED_SNAPSHOT_KEY_INVALID');
  if(!key) {
   stage='DISCOVER';
@@ -25,6 +26,8 @@ try {
  stage='DECRYPT';
  const codec=createBackupEncryptionCodec({keyId:process.env.MEL_BACKUP_ENCRYPTION_KEY_ID,keyBytes:decodeBackupEncryptionKey(process.env.MEL_BACKUP_ENCRYPTION_KEY_B64)});
  const snapshot=await codec.open(envelope);
+ stage='FRESHNESS';
+ if(autoSelected)requireFreshDecryptedSnapshot(snapshot);
  stage='RESTORE';
  const sizes=new Map((Array.isArray(snapshot.exports?.r2_objects?.objects)?snapshot.exports.r2_objects.objects:[]).map(row=>[row.backup_key,row.size]));
  const proof=await proveSystemSnapshotRestore(snapshot,{async get(key){const data=await reader.getBytes(key,{maxBytes:sizes.get(key)??32*1024*1024});return data===null?null:{arrayBuffer:async()=>data.buffer.slice(data.byteOffset,data.byteOffset+data.byteLength)};}});
