@@ -16,6 +16,7 @@ function fakePanel() {
   let html = '', details = null;
   return {
     querySelector(selector) {
+      if (selector === '.act-waiting-passive') return null;
       assert.equal(selector, '.act-roadmap-passive');
       return details;
     },
