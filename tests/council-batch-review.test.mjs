@@ -357,6 +357,24 @@ test('automatic Council is scoped to trusted CI completion, exact PR head and al
   assert.ok(!workflow.includes('git push'));
 });
 
+test('GitHub Actions preflight boolean guard is well-balanced and cannot fail workflow registration',()=>{
+  const wf=file('../.github/workflows/mel-pr-council-review.yml');
+  const preflight=wf.slice(wf.indexOf('  preflight:\n'),wf.indexOf('  review:\n'));
+  const match=preflight.match(/\n    if: >-\n([\s\S]*?)\n    runs-on:/);
+  assert.ok(match,'Council CI preflight must have a valid job-level guard');
+  const guard=match[1].replace(/'[^']*'/g,"''");
+  let depth=0;
+  for(const char of guard){
+    if(char==='(')depth++;
+    if(char===')')depth--;
+    assert.ok(depth>=0,'preflight guard closes an unopened parenthesis');
+  }
+  assert.equal(depth,0,'preflight guard has unclosed parenthesis and GitHub silently rejects its workflow');
+  assert.match(guard,/always\(\)/);
+  assert.match(guard,/needs\.discover\.outputs\.eligible/);
+  assert.match(guard,/github\.event\.workflow_run\.pull_requests\[0\]\.number != null/);
+});
+
 test('no Council job can be reported as approved before exact-SHA CI passes, including manual dispatch',()=>{
   const workflow=file('../.github/workflows/mel-pr-council-review.yml');
   const preflight=workflow.slice(workflow.indexOf('  preflight:\n'),workflow.indexOf('  review:\n'));
