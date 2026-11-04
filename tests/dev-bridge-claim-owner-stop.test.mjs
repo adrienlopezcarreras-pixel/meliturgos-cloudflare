@@ -159,3 +159,19 @@ test('failed owner-chat Bridge does not stop the independently running MAX lane'
   assert.equal((await getAutonomyControl(db)).paused, false);
   assert.equal((await getAutonomyControl(db)).max_autonomy, true);
 });
+
+test('after REPAIR_REQUIRED, the Bridge workflow never dispatches another roadmap tick', async () => {
+  const { readFileSync } = await import('node:fs');
+  const workflow = readFileSync(new URL('../.github/workflows/gen2-42-apply-ready-bridge.yml', import.meta.url), 'utf8');
+  const step = workflow.slice(workflow.indexOf('      - name: Continue autonomy after persisted bridge result'),
+    workflow.indexOf('      - name: Upload sanitized apply evidence'));
+  const beforeDispatch = step.slice(0, step.indexOf('actions/workflows/gen2-42-runtime-tick.yml/dispatches'));
+  assert.match(beforeDispatch, /AUTONOMY_CHAIN_STOP_REPAIR_REQUIRED/);
+  assert.match(beforeDispatch, /AUTONOMY_CHAIN_STOP_OWNER_PAUSED_OR_DISABLED/);
+  assert.match(beforeDispatch, /AUTONOMY_CHAIN_STOP_OWNER_CONTROL_UNAVAILABLE/);
+  assert.match(beforeDispatch, /AUTONOMY_CHAIN_STOP_NON_AUTONOMOUS_JOB/);
+  assert.match(beforeDispatch, /r\.status==='READY_FOR_REVIEW'&&r\.needs_repair!==true/);
+  assert.match(beforeDispatch, /v\.max_autonomy===true&&v\.paused===false/);
+  assert.ok(beforeDispatch.indexOf('AUTONOMY_CHAIN_STOP_REPAIR_REQUIRED')
+    < beforeDispatch.indexOf('actions/workflows/') || beforeDispatch.includes('AUTONOMY_CHAIN_STOP_REPAIR_REQUIRED'));
+});
