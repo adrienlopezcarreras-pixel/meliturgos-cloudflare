@@ -70,9 +70,13 @@ for (const persistent of [false, true]) test(`concurrent MAX roadmap and error r
         optional_context: { source: 'error-ledger' } },
     ];
     const results = await Promise.allSettled(jobs.map(job => repo.create(job)));
-    assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
-    assert.equal((await repo.list()).length, 1);
-    const rejected = results.find(result => result.status === 'rejected');
-    assert.equal(rejected.reason.code, 'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE');
+    // Both may persist as passive QUEUED; they must never both claim PLANNING.
+    assert.equal(results.filter(result => result.status === 'fulfilled').length, 2);
+    assert.equal((await repo.list()).length, 2);
+    assert.ok((await repo.list()).every(row=>row.status==='QUEUED'));
+    const claims=await Promise.all(jobs.map(job=>repo.claimQueuedAutonomy(job.id)));
+    assert.equal(claims.filter(Boolean).length,1);
+    assert.equal((await repo.list()).filter(row=>row.status==='PLANNING').length,1);
+    assert.equal((await repo.list()).filter(row=>row.status==='QUEUED').length,1);
   } finally { db?.close(); }
 });
