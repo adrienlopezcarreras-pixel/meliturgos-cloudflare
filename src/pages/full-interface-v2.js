@@ -1106,7 +1106,7 @@ function activityMarkup(a){
       +'</strong> (QUEUED), mais aucune exécution n’a commencé. La prochaine mission attend la reprise de ce cycle ; ne pas créer une deuxième exécution.</div>':'';
   h+=activitySection('Missions — En cours ('+executing.length+'/1) · À venir ('+fmtN(a.counts?.waiting)+')',
     '<div class="act-kv">'+Object.entries(by).map(([k,v])=>esc(k)+' : '+esc(v)).join(' · ')+'</div>'+queuedSlot
-    +'<div class="act-queue-columns" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px"><div><strong>En cours ('+executing.length+'/1)</strong>'+(executing.length?'': '<div class="muted">Aucune mission en exécution</div>')+executing.map(j=>'<div class="act-kv">'+esc(j.roadmap_id||j.id)+' · '+esc(j.status)+'</div>').join('')+'</div><div><strong>À venir ('+fmtN(a.counts?.waiting)+')</strong><div class="muted">File passive : aucun appel IA, aucun jeton, aucun retry.</div>'+awaiting.map(j=>'<div class="act-kv">'+esc(j.roadmap_id||j.id)+' · '+esc(j.status)+'</div>').join('')+passiveRoadmapPanel+'</div></div>'
+    +'<div class="act-queue-columns" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px"><div><strong>En cours ('+executing.length+'/1)</strong>'+(executing.length?'': '<div class="muted">Aucune mission en exécution</div>')+executing.map(j=>'<div class="act-kv">'+esc(j.roadmap_id||j.id)+' · '+esc(j.status)+'</div>').join('')+'</div><div><details class="act-waiting-passive"><summary><strong>À venir ('+fmtN(a.counts?.waiting)+')</strong></summary><div class="muted">File passive : aucun appel IA, aucun jeton, aucun retry.</div>'+awaiting.map(j=>'<div class="act-kv">'+esc(j.roadmap_id||j.id)+' · '+esc(j.status)+'</div>').join('')+'</details>'+passiveRoadmapPanel+'</div></div>'
     +(!jobsKnown?'<div class="muted">Historique d’activité non chargé.</div>':!a.jobs.length?'<div class="muted">Aucune activité récente observée.</div>':'')+(a.jobs||[]).filter(j=>j.queue_state!=='WAITING').slice(0,12).map(j=>{
       const steps=(j.pipeline||[]).map(s=>'<span class="act-step act-'+esc(s.state)+'" title="'+esc(s.label)+'">'+(s.state==='done'?'✓':s.state==='current'?'▶':s.state==='blocked'?'✕':'·')+' '+esc(s.label)+'</span>').join('');
       return '<details class="act-job"'+(['TEACHER_APPROVED','CLAIMED','APPLIED','TESTING','WAITING_TEACHER','PLANNING'].includes(j.status)?' open':'')+'><summary><b>'+esc(j.roadmap_id||j.id)+'</b> · '+esc(j.queue_state==='WAITING'?'EN ATTENTE'+(j.priority_penalty>0?' · priorité réduite':''):j.status)+' · <span class="muted">'+esc(j.origin)+' · màj '+esc(activityTime(j.updated_at))+'</span></summary>'
@@ -1135,10 +1135,15 @@ function renderActivityPanel(panel,activity){
   // Start collapsed on a fresh panel, but preserve a deliberate user expansion
   // across 15-second polling. This affects presentation only, never D1/QUEUED.
   const roadmapWasOpen=panel.querySelector('.act-roadmap-passive')?.open===true;
+  const waitingWasOpen=panel.querySelector('.act-waiting-passive')?.open===true;
   panel.innerHTML=activityMarkup(activity);
   if(roadmapWasOpen){
     const roadmap=panel.querySelector('.act-roadmap-passive');
     if(roadmap)roadmap.open=true;
+  }
+  if(waitingWasOpen){
+    const waiting=panel.querySelector('.act-waiting-passive');
+    if(waiting)waiting.open=true;
   }
 }
 async function showActivity(panel){
