@@ -75,6 +75,20 @@ test('missing, denied and garbled R2 listings fail closed with safe codes',async
     ...options,fetchImpl:async()=>response,
   }), error=>error.code===code&&error.message===code);
 });
+test('ambiguous pagination metadata cannot masquerade as a complete object listing', async()=>{
+  const valid=entry('recent','2026-11-03T20:30:00Z');
+  for(const result_info of [{}, {cursor:'next'}, {is_truncated:'false'}, {is_truncated:0}, {is_truncated:null}, []]) {
+    await assert.rejects(discoverLatestEncryptedSnapshotKey({
+      ...options,fetchImpl:async()=>new Response(JSON.stringify({
+        success:true,result:[valid],result_info,
+      }),{status:200}),
+    }),error=>error.code==='ISOLATED_R2_LIST_RESPONSE_INVALID');
+  }
+  assert.equal(await discoverLatestEncryptedSnapshotKey({
+    ...options,fetchImpl:async()=>page([valid],{is_truncated:false}),
+  }),valid.key);
+});
+
 test('missing cursors, repeated cursors and incomplete pagination cannot select old snapshots',async()=>{
   const old=entry('old','2026-10-29T10:00:00Z');
   for(const [reply,code] of [
