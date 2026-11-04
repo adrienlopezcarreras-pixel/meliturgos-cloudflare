@@ -425,7 +425,7 @@ export class D1DevJobRepository {
         && !['WAITING_TEACHER','PENDING','REQUESTED'].includes(teacherStatus)) {
       const previousPass = Number(j.result_json?.autonomy_queue_pass?.round || 1);
       n.result_json = { ...(n.result_json || {}), autonomy_queue_pass: {
-        passive: true, round: 2, // Exactly two scheduling passes; preserve retry history elsewhere.
+        passive: true, round: Math.max(2, previousPass + 1),
         deferred_at: n.updated_at, previous_status: previousStatus,
       } };
     }
