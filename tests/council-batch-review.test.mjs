@@ -106,6 +106,24 @@ test('duplicate model identities and absent reasons do not establish quorum',asy
   }finally{db.close();}
 });
 
+test('case variants of a single Council model cannot impersonate two independent reviewers',async()=>{
+  const db=sqliteD1({maintenanceFence:true});
+  try{
+    const aliased=async()=>({decision:'APPROVED',reviews:[
+      {model:'@cf/meta/llama-reviewer',verdict:'APPROVE',summary:'security checked'},
+      {model:'@CF/META/LLAMA-REVIEWER',verdict:'APPROVE',summary:'integration checked'},
+    ]});
+    const result=(await call(db,batch(plan.batches[0]),aliased)).result;
+    assert.equal(result.batch_decision,'COUNCIL_BATCH_QUORUM_UNPROVEN');
+    assert.equal(result.decision,'COUNCIL_BATCH_NOT_APPROVED');
+    for(const b of plan.batches)
+      assert.equal((await call(db,batch(b))).result.batch_decision,'APPROVED');
+    const finalResult=(await call(db,final,aliased)).result;
+    assert.equal(finalResult.decision,'COUNCIL_FINAL_QUORUM_UNPROVEN');
+    assert.equal(finalResult.complete_review,false);
+  }finally{db.close();}
+});
+
 test('the independent final integration vote cannot approve without two distinct reasons',async()=>{
   const db=sqliteD1({maintenanceFence:true});
   try{
