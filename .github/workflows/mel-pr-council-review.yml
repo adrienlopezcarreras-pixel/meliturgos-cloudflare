@@ -17,6 +17,10 @@ on:
       - lora-runtime-pipeline-ci
       - mel-self-audit-supervisor-ci
       - cloudflare-api-relay
+      - reconciled-development-audit-ci
+      - max-cloud-readiness-ci
+      - cloud-bridge-auth-ci
+      - evolution-ledger-ci
     types: [completed]
   # Recover a CI-complete PR that predates installation of this workflow on main.
   schedule:
@@ -24,6 +28,10 @@ on:
     - cron: '47 */2 * * *'
     # Odd-hour maintenance review for open #3103; keep the audit slot separate.
     - cron: '17 1-23/2 * * *'
+    # Independent MAX repair reviews: daily fallback, distinct from legacy slots.
+    # Open PRs only; merged repairs are never reviewed retroactively as release approvals.
+    - cron: '07 2 * * *'
+    - cron: '37 2 * * *'
   workflow_dispatch:
     inputs:
       pr_number:
@@ -66,6 +74,8 @@ jobs:
           case "$SCHEDULE_CRON" in
             '47 */2 * * *') SELECTED_PR=3094 ;;
             '17 1-23/2 * * *') SELECTED_PR=3103 ;;
+            '07 2 * * *') SELECTED_PR=3112 ;;
+            '37 2 * * *') SELECTED_PR=3113 ;;
             *) echo "::error::COUNCIL_UNRECOGNIZED_SCHEDULE"; exit 1 ;;
           esac
           META="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$SELECTED_PR" --jq '[.state,.base.ref,.head.sha,.head.repo.full_name,(.merged_at // ""),(.merge_commit_sha // "")] | @tsv')"
