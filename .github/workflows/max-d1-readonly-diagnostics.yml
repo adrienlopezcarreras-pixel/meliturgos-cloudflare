@@ -75,3 +75,23 @@ jobs:
             AND COALESCE(json_extract(attempt.value,'$.status'),'') <> 'OK'
           GROUP BY failure_class ORDER BY attempts DESC LIMIT 20;"
           npx wrangler d1 execute DB --remote --config wrangler.jsonc --env="" --command "$FAILURE_SQL"
+
+          ROADMAP_SQL="WITH recent AS (SELECT id,status,updated_at,result_json,optional_context,
+            ROW_NUMBER() OVER(PARTITION BY json_extract(optional_context,'$.roadmap_id') ORDER BY updated_at DESC) AS rank
+            FROM dev_jobs WHERE requested_by='mel-autonomy' AND json_extract(optional_context,'$.roadmap_id') LIKE 'MEL-%')
+            SELECT json_extract(optional_context,'$.roadmap_id') AS roadmap_id,status,
+              datetime(updated_at/1000,'unixepoch') AS updated_utc,
+              json_extract(result_json,'$.autonomy_deferral.phase') AS phase,
+              json_extract(result_json,'$.autonomy_deferral.attempts') AS attempts,
+              json_extract(result_json,'$.autonomy_deferral.exhausted') AS exhausted,
+              json_extract(result_json,'$.autonomy_queue_pass.round') AS queue_round,
+              json_extract(result_json,'$.autonomy_completion.ci.verified') AS ci_verified
+            FROM recent WHERE rank=1 ORDER BY updated_at DESC LIMIT 50;"
+          npx wrangler d1 execute DB --remote --config wrangler.jsonc --env="" --command "$ROADMAP_SQL"
+          MENTOR_SQL="SELECT json_extract(job.optional_context,'$.roadmap_id') AS roadmap_id,
+            CASE WHEN json_extract(failure.value,'$.code') NOT GLOB '*[^A-Z0-9_]*' THEN json_extract(failure.value,'$.code') ELSE 'OTHER' END AS failure_code,
+            COUNT(*) AS occurrences
+            FROM dev_jobs job,json_each(job.result_json,'$.bridge_preparation_diagnostic.mentor_failure_codes') failure
+            WHERE job.requested_by='mel-autonomy' AND job.status IN ('QUEUED','PLANNING','TEACHER_APPROVED','REPAIR_REQUIRED')
+            GROUP BY roadmap_id,failure_code LIMIT 30;"
+          npx wrangler d1 execute DB --remote --config wrangler.jsonc --env="" --command "$MENTOR_SQL"
