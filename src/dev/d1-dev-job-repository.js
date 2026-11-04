@@ -443,6 +443,7 @@ export class D1DevJobRepository {
       return this.update(id, { result_json: result }, { expected: job });
     }
     const updatedAt = Math.max(Date.now(), Number(job.updated_at || 0) + 1);
+    const raw = await this.db.prepare('SELECT result_json FROM dev_jobs WHERE id=?').bind(id).first();
     const statement = "UPDATE dev_jobs SET updated_at=?,result_json=? WHERE id=? AND status='QUEUED' AND updated_at=?"
       + " AND COALESCE(result_json,'null')=?"
       + " AND NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED')"
@@ -451,7 +452,7 @@ export class D1DevJobRepository {
       + " AND NOT COALESCE(" + SECOND_PASS_QUEUED_SQL + ",0))";
     const write = await this.db.prepare(statement).bind(
       updatedAt, JSON.stringify(result), id, job.updated_at,
-      JSON.stringify(job.result_json), MAINTENANCE_FENCE_ID, id).run();
+      raw?.result_json ?? 'null', MAINTENANCE_FENCE_ID, id).run();
     if (Number(write?.meta?.changes) !== 1) return null;
     const resumed = await this.get(id);
     await this.recordEvolution(resumed, 'JOB_UPDATED', {
