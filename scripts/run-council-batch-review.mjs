@@ -5,7 +5,10 @@ import {planCouncilDiffBatches} from '../src/evolution/council-diff-batches.js';
 const [source,logPath]=process.argv.slice(2);
 const head=String(process.env.MEL_COUNCIL_HEAD_SHA||'').toLowerCase();
 const base=String(process.env.MEL_COUNCIL_BASE_SHA||'').toLowerCase();
-const token=process.env.MEL_COUNCIL_OIDC_TOKEN||'';
+const reviewKind=String(process.env.MEL_COUNCIL_REVIEW_KIND||'');
+if(!['PRE_MERGE_REVIEW','POST_MERGE_AUDIT_ONLY'].includes(reviewKind))
+  throw Error('COUNCIL_REVIEW_KIND_REQUIRED');
+const auditOnly=reviewKind==='POST_MERGE_AUDIT_ONLY';
 const url='https://meliturgos.adrien-lopezcarreras.workers.dev/api/internal/council-review';
 if(!source||!logPath||!/^[a-f0-9]{40}$/.test(head)||!/^[a-f0-9]{40}$/.test(base)
     ||!process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN||!process.env.ACTIONS_ID_TOKEN_REQUEST_URL)throw Error('COUNCIL_BATCH_RUNNER_NOT_CONFIGURED');
@@ -17,7 +20,7 @@ if(!planned.ok||planned.batchCount<2)throw Error(planned.code||'COUNCIL_BATCH_EX
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const root=hash(raw);
 const common={head,base,root_sha256:root,batch_count:planned.batchCount,
-  total_bytes:planned.totalBytes,file_count:planned.fileCount};
+  total_bytes:planned.totalBytes,file_count:planned.fileCount,audit_only:auditOnly};
 async function currentOidcToken(){
   const requestUrl=process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
   const requestToken=process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
@@ -55,9 +58,12 @@ for(const batch of planned.batches){
     ' approved independently; overall approval still pending.\n');
 }
 const result=await post({...common,mode:'final',log});
-if(result?.ok!==true||result?.decision!=='APPROVED'||result?.complete_review!==true
+const expectedDecision=auditOnly?'POST_MERGE_AUDIT_APPROVED':'APPROVED';
+if(result?.ok!==true||result?.decision!==expectedDecision||result?.complete_review!==true
+    ||result?.audit_only!==auditOnly||result?.release_authorized!==false
     ||result.head!==head||result.root_sha256!==root
     ||result.batch_count!==planned.batchCount)throw Error('COUNCIL_FINAL_REVIEW_NOT_APPROVED');
-process.stdout.write(JSON.stringify({ok:true,decision:'APPROVED',head,
+process.stdout.write(JSON.stringify({ok:true,decision:expectedDecision,head,
   root_sha256:root,reviewed_file_count:planned.fileCount,
-  reviewed_batch_count:planned.batchCount,complete_review:true}));
+  reviewed_batch_count:planned.batchCount,complete_review:true,
+  audit_only:auditOnly,release_authorized:false}));
