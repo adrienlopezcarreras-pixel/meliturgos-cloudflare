@@ -55,11 +55,11 @@ export async function handleCouncilBatchedReview(env,body,{
     const vote=await review(env,{diff:body.diff,goal:'Independent Council review of complete file batch '
       +i+'/'+count+' for '+head+'; each batch and the final integration need separate real approvals.',
       attempts:Math.max(0,Number(prior?.attempts||0))});
-    const approvingModels=new Set((vote.reviews||[])
-      .filter(row=>row.verdict==='APPROVE'&&String(row.summary||'').trim())
+    const approvingModels=new Set((Array.isArray(vote?.reviews)?vote.reviews:[])
+      .filter(row=>row?.verdict==='APPROVE'&&typeof row.summary==='string'&&row.summary.trim())
       .map(row=>String(row.model||'').trim()).filter(Boolean));
-    const verifiedDecision=vote.decision==='APPROVED'&&approvingModels.size<2
-      ?'COUNCIL_BATCH_QUORUM_UNPROVEN':vote.decision;
+    const verifiedDecision=vote?.decision==='APPROVED'&&approvingModels.size<2
+      ?'COUNCIL_BATCH_QUORUM_UNPROVEN':vote?.decision||'COUNCIL_BATCH_VOTE_MISSING';
     const record={head,base,root,count,total,files,index:i,sha256:sha,
       diff:body.diff,decision:verifiedDecision,reviews:vote.reviews||[],
       attempts:Number(prior?.attempts||0)+1,reviewed_at:now};
@@ -109,9 +109,16 @@ export async function handleCouncilBatchedReview(env,body,{
     goal:'Independent Council final architecture/security/integration decision; do not approve a mere artifact or code summary',
     attempts:Math.max(0,Number(previous?.attempts||0)),
   });
-  const final={decision:finalVote.decision,head,base,root_sha256:root,
+  // The separate integration verdict must meet the same independent, reasoned
+  // model quorum as every batch. A bare APPROVED flag is never sufficient.
+  const finalApprovingModels=new Set((Array.isArray(finalVote?.reviews)?finalVote.reviews:[])
+    .filter(row=>row?.verdict==='APPROVE'&&typeof row.summary==='string'&&row.summary.trim())
+    .map(row=>String(row.model||'').trim()).filter(Boolean));
+  const finalDecision=finalVote?.decision==='APPROVED'&&finalApprovingModels.size<2
+    ?'COUNCIL_FINAL_QUORUM_UNPROVEN':finalVote?.decision||'COUNCIL_FINAL_VOTE_MISSING';
+  const final={decision:finalDecision,head,base,root_sha256:root,
     batch_count:count,file_count:files,total_bytes:total,
-    batch_hashes:records.map(row=>row.sha256),reviews:finalVote.reviews||[],
+    batch_hashes:records.map(row=>row.sha256),reviews:finalVote?.reviews||[],
     reviewed_at:now,attempts:Number(previous?.attempts||0)+1,
     mode:'COMPLETE_INDEPENDENT_MULTI_BATCH_REVIEW'};
   await persist(env.DB,key,final,now);
