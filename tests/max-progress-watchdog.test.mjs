@@ -139,3 +139,16 @@ test('a plan or package step advances MAX but only a completion counts as a deli
   const later=await recordAutonomyProgressWatchdog(db,{advanced:true,progress:{advanced:true,events:['JOB_CREATED'],work_remaining:true}},{maxAutonomy:true,now:3000});
   assert.equal(later.last_delivered_at,new Date(2000).toISOString());
 });
+
+
+test('reasonless stalled ticks record an explicit diagnostic without inventing progress', async()=>{
+  const db=new MemoryD1();
+  const tick={advanced:false,progress:{advanced:false,events:[],work_remaining:true,waiting_external:false}};
+  for(let i=0;i<3;i++) await recordAutonomyProgressWatchdog(db,tick,{maxAutonomy:true,now:1000+i});
+  const state=await readAutonomyProgressWatchdog(db);
+  assert.equal(state.status,'STALLED');
+  assert.equal(state.last_block_reason,'MAX_STALL_REASON_UNREPORTED');
+  assert.equal(state.last_job_id,null);
+  assert.equal(state.counters.advanced_ticks,0);
+  assert.equal(state.counters.jobs_created,0);
+});
