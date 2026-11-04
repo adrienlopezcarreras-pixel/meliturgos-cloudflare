@@ -56,6 +56,43 @@ test('every real batch and distinct final Council vote are required; SHA cache p
   }finally{db.close();}
 });
 
+test('post-merge Council audits are nonauthorizing and never populate promotion approval records',async()=>{
+  const db=sqliteD1({maintenanceFence:true});
+  try {
+    assert.equal((await call(db,{...batch(plan.batches[0]),audit_only:'true'})).result.code,
+      'COUNCIL_BATCH_INPUT_INVALID');
+    for(const b of plan.batches){
+      const result=(await call(db,{...batch(b),audit_only:true})).result;
+      assert.equal(result.batch_decision,'APPROVED');
+    }
+    const audit=(await call(db,{...final,audit_only:true})).result;
+    assert.equal(audit.decision,'POST_MERGE_AUDIT_APPROVED');
+    assert.equal(audit.complete_review,true);
+    assert.equal(audit.audit_only,true);
+    assert.equal(audit.release_authorized,false);
+    const auditRecord=await db.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?')
+      .bind('council-postmerge-review:'+head).first();
+    assert.equal(JSON.parse(auditRecord.metadata_json).audit_only,true);
+    const promotion=await db.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?')
+      .bind('council-review:'+head).first();
+    assert.equal(promotion??null,null,'postmerge vote must not be visible to promotion gates');
+    const notPreapproved=(await call(db,final)).result;
+    assert.equal(notPreapproved.code,'COUNCIL_BATCH_REVIEWS_INCOMPLETE');
+    const cached=(await call(db,{...final,audit_only:true},async()=>{
+      throw Error('postmerge audit must use its separate cached proof');
+    })).result;
+    assert.equal(cached.decision,'POST_MERGE_AUDIT_APPROVED');
+    assert.equal(cached.cached,true);
+    assert.equal(cached.release_authorized,false);
+    for(const b of plan.batches)
+      assert.equal((await call(db,batch(b))).result.batch_decision,'APPROVED');
+    assert.equal((await call(db,final)).result.decision,'APPROVED');
+    const stillAudit=(await db.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?')
+      .bind('council-postmerge-review:'+head).first());
+    assert.equal(JSON.parse(stillAudit.metadata_json).audit_only,true);
+  }finally{db.close();}
+});
+
 test('forgery, tampered stored batch, altered input and stale head fail closed',async()=>{
   const db=sqliteD1({maintenanceFence:true});
   try{
