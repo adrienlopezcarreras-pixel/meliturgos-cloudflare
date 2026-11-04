@@ -397,6 +397,7 @@ test('MAX passive catalog never truncates roadmap to 3, 30, 60 or 100 items',asy
   const a=await buildAutonomyActivity({DB:db},{now,repository:{list:async()=>[]}});
   assert.equal(a.counts.waiting,0);
   assert.equal(a.counts.active,0);
+  assert.equal(a.scheduler_slot.reserved,false);
   assert.equal(a.passive_roadmap.remaining,open.length);
   assert.equal(a.passive_roadmap.items.length,open.length);
 });
@@ -410,4 +411,25 @@ test('MAX passive UI shows catalog separate from true D1 QUEUED missions',async(
   assert.ok(ui.includes('pas de mission D1'));
   assert.ok(ui.includes('aucun appel IA, aucune réservation de créneau'));
   assert.ok(ui.includes("const awaiting=(a.jobs||[]).filter(j=>j.queue_state==='WAITING');"));
+});
+
+
+test('QUEUED reserves MAX internal lane but does not masquerade as running',async()=>{
+  const first={id:'queued-old',requested_by:'mel-autonomy',status:'QUEUED',created_at:now-2000,updated_at:now-2000,
+    optional_context:{roadmap_id:'MEL-FOUNDER-05'},result_json:{}};
+  const second={...first,id:'queued-new',created_at:now-1000,updated_at:now-1000,
+    optional_context:{roadmap_id:'MEL-FOUNDER-06'}};
+  const db={prepare(){const st={bind(){return st;},async run(){return{};},async all(){return{results:[]};},async first(){return null;}};return st;}};
+  const rows=[first,second],before=JSON.stringify(rows);
+  const activity=await buildAutonomyActivity({DB:db},{now,repository:{list:async()=>rows}});
+  assert.equal(activity.counts.active,0);
+  assert.equal(activity.counts.waiting,2);
+  assert.equal(activity.scheduler_slot.reserved,true);
+  assert.equal(activity.scheduler_slot.executing,false);
+  assert.equal(activity.scheduler_slot.mission_id,'queued-old');
+  assert.equal(activity.scheduler_slot.reason,'QUEUED_RESERVES_SINGLE_FLIGHT');
+  assert.equal(JSON.stringify(rows),before);
+  const ui=await (await import('node:fs/promises')).readFile(new URL('../src/pages/full-interface-v2.js',import.meta.url),'utf8');
+  assert.ok(ui.includes('a.scheduler_slot?.reserved===true'));
+  assert.ok(ui.includes('Créneau MAX réservé par'));
 });
