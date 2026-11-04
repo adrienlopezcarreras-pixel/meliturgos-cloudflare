@@ -69,3 +69,28 @@ test('supervisor prioritizes the next unattempted objective after a QUEUED reque
   assert.equal(second.job.status,'QUEUED');
   assert.equal(singleFlightAutonomyMission(await repo.list()),null);
 });
+
+for (const second of [false,true]) test(`D1 ${second?'second':'first'} pass refuses a Teacher mutation between snapshot and CAS`,async()=>{
+ const db=sqliteD1(),repo=new D1DevJobRepository(db);
+ try {
+  let job=await repo.create(input('snapshot-race'));
+  if(second){await repo.claimQueuedAutonomy(job.id);job=await repo.update(job.id,{status:'QUEUED'});}
+  const changed={...job.result_json,teacher_bridge:{status:'WAITING_TEACHER',request:{request_id:'arrived-concurrently'}}};
+  const prepare=db.prepare.bind(db);let injected=false;
+  db.prepare=sql=>{
+   const statement=prepare(sql);
+   if(sql==='SELECT result_json,plan_json FROM dev_jobs WHERE id=?'){
+    const first=statement.first.bind(statement);
+    statement.first=async()=>{
+     if(!injected){injected=true;await prepare('UPDATE dev_jobs SET result_json=? WHERE id=?').bind(JSON.stringify(changed),job.id).run();}
+     return first();
+    };
+   }
+   return statement;
+  };
+  const result=second?await repo.resumeSecondPassQueued(job.id,{expected:job}):await repo.claimQueuedAutonomy(job.id,{expected:job});
+  assert.equal(injected,true);assert.equal(result,null);
+  const preserved=await repo.get(job.id);
+  assert.equal(preserved.status,'QUEUED');assert.deepEqual(preserved.result_json,changed);
+ }finally{db.close();}
+});

@@ -457,16 +457,19 @@ export class D1DevJobRepository {
       return updated;
     }
     const updatedAt = Math.max(Date.now(), Number(job.updated_at || 0) + 1);
-    const raw = await this.db.prepare('SELECT result_json FROM dev_jobs WHERE id=?').bind(id).first();
+    const raw = await this.db.prepare('SELECT result_json,plan_json FROM dev_jobs WHERE id=?').bind(id).first();
+    const observed = this._row({ ...raw });
+    if (!raw || JSON.stringify(observed.result_json ?? null) !== JSON.stringify(job.result_json ?? null)
+        || JSON.stringify(observed.plan_json ?? null) !== JSON.stringify(job.plan_json ?? null)) return null;
     const statement = "UPDATE dev_jobs SET status='PLANNING',updated_at=?,result_json=? WHERE id=? AND status='QUEUED' AND updated_at=?"
-      + " AND COALESCE(result_json,'null')=?"
+      + " AND COALESCE(result_json,'null')=? AND COALESCE(plan_json,'null')=?"
       + " AND NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED')"
       + " AND NOT EXISTS (SELECT 1 FROM dev_jobs WHERE id<>? AND requested_by='mel-autonomy' AND "
       + ACTIVE_JOB_SQL + " AND NOT COALESCE(" + ROTATABLE_PROVIDER_EXHAUSTION_SQL + ",0)"
       + " AND NOT COALESCE(" + PASSIVE_QUEUED_AUTONOMY_SQL + ",0))";
     const write = await this.db.prepare(statement).bind(
       updatedAt, JSON.stringify(result), id, job.updated_at,
-      raw?.result_json ?? 'null', MAINTENANCE_FENCE_ID, id).run();
+      raw?.result_json ?? 'null', raw?.plan_json ?? 'null', MAINTENANCE_FENCE_ID, id).run();
     if (Number(write?.meta?.changes) !== 1) return null;
     const resumed = await this.get(id);
     await this.recordEvolution(resumed, 'JOB_UPDATED', {
@@ -507,6 +510,11 @@ export class D1DevJobRepository {
       return claimed;
     }
     const raw = await this.db.prepare('SELECT result_json,plan_json FROM dev_jobs WHERE id=?').bind(id).first();
+    const observed = this._row({ ...raw });
+    // Freeze the snapshot validated above. A fresh SELECT must not silently
+    // authorize a Teacher/Bridge mutation which arrived between the reads.
+    if (!raw || JSON.stringify(observed.result_json ?? null) !== JSON.stringify(job.result_json ?? null)
+        || JSON.stringify(observed.plan_json ?? null) !== JSON.stringify(job.plan_json ?? null)) return null;
     const updatedAt=Math.max(Date.now(),Number(job.updated_at || 0)+1);
     const sql="UPDATE dev_jobs SET status='PLANNING',updated_at=?"
       +" WHERE id=? AND requested_by='mel-autonomy' AND status='QUEUED' AND updated_at=?"
