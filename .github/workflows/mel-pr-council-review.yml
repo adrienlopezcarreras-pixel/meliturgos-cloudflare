@@ -105,12 +105,20 @@ jobs:
           set -euo pipefail
           [[ "$PR_NUMBER" =~ ^[0-9]{1,6}$ ]]
           [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]]
-          META="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '[.state,.base.ref,.head.sha,.head.repo.full_name] | @tsv')"
-          IFS=$'\t' read -r STATE TARGET HEAD REPO <<< "$META"
-          test "$STATE" = "open"
+          META="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '[.state,.base.ref,.head.sha,.head.repo.full_name,(.merged_at // ""),(.merge_commit_sha // "")] | @tsv')"
+          IFS=$'\t' read -r STATE TARGET HEAD REPO MERGED_AT MERGE_SHA <<< "$META"
           test "$TARGET" = "main"
           test "$REPO" = "$GITHUB_REPOSITORY"
           test "$HEAD" = "$EXPECTED_SHA"
+          if [ "$STATE" = "open" ]; then
+            echo "Council pre-merge CI preflight."
+          elif [ "$STATE" = "closed" ] && [ -n "$MERGED_AT" ]; then
+            [[ "$MERGE_SHA" =~ ^[a-f0-9]{40}$ ]]
+            echo "::notice title=Council post-merge audit::Review only; never grant retroactive merge or deployment approval."
+          else
+            echo "::error::COUNCIL_PR_NOT_OPEN_OR_MERGED"
+            exit 1
+          fi
           echo "MEL_COUNCIL_HEAD_SHA=$HEAD" >> "$GITHUB_ENV"
       - name: Require every exact-SHA CI gate before automatic Council review
         id: ci_gate
