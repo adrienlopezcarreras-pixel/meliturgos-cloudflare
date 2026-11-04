@@ -1101,8 +1101,11 @@ function activityMarkup(a){
         +(item.unmet_prerequisites?.length?' · prérequis : '+item.unmet_prerequisites.map(esc).join(', '):'')
         +'</div></div>').join('')+'</div></details>';
 
+  const queuedSlot=(a.scheduler_slot?.reserved===true&&a.scheduler_slot.status==='QUEUED')
+    ?'<div class="act-kv">Créneau MAX réservé par <strong>'+esc(a.scheduler_slot.roadmap_id||a.scheduler_slot.mission_id)
+      +'</strong> (QUEUED), mais aucune exécution n’a commencé. La prochaine mission attend la reprise de ce cycle ; ne pas créer une deuxième exécution.</div>':'';
   h+=activitySection('Missions — En cours ('+executing.length+'/1) · À venir ('+fmtN(a.counts?.waiting)+')',
-    '<div class="act-kv">'+Object.entries(by).map(([k,v])=>esc(k)+' : '+esc(v)).join(' · ')+'</div>'
+    '<div class="act-kv">'+Object.entries(by).map(([k,v])=>esc(k)+' : '+esc(v)).join(' · ')+'</div>'+queuedSlot
     +'<div class="act-queue-columns" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px"><div><strong>En cours ('+executing.length+'/1)</strong>'+(executing.length?'': '<div class="muted">Aucune mission en exécution</div>')+executing.map(j=>'<div class="act-kv">'+esc(j.roadmap_id||j.id)+' · '+esc(j.status)+'</div>').join('')+'</div><div><strong>À venir ('+fmtN(a.counts?.waiting)+')</strong><div class="muted">File passive : aucun appel IA, aucun jeton, aucun retry.</div>'+awaiting.map(j=>'<div class="act-kv">'+esc(j.roadmap_id||j.id)+' · '+esc(j.status)+'</div>').join('')+passiveRoadmapPanel+'</div></div>'
     +(!jobsKnown?'<div class="muted">Historique d’activité non chargé.</div>':!a.jobs.length?'<div class="muted">Aucune activité récente observée.</div>':'')+(a.jobs||[]).filter(j=>j.queue_state!=='WAITING').slice(0,12).map(j=>{
       const steps=(j.pipeline||[]).map(s=>'<span class="act-step act-'+esc(s.state)+'" title="'+esc(s.label)+'">'+(s.state==='done'?'✓':s.state==='current'?'▶':s.state==='blocked'?'✕':'·')+' '+esc(s.label)+'</span>').join('');
