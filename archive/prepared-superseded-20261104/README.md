@@ -15,3 +15,15 @@ source; keeping an executable old snapshot would regress that source.
 
 Archiving is not execution, mission completion or roadmap acceptance. No D1
 status, Teacher approval, Council vote or completion receipt is altered.
+
+## MEL-MANIFEST-07 — réconciliation des reçus historiques
+
+La correction du handoff modifie `reconcileDiscoveryJobs`, au milieu du fichier
+`src/evaluation/capability-watch-runtime.js`. Le snapshot MANIFEST-07 a pour base
+la version antérieure et son remplacement intégral effacerait cette correction.
+Le rebase automatique existant n'autorise que les ajouts en fin de fichier et
+refuse donc ce cas. Le paquet original est conservé ici, sans modification,
+pour reconstruire son diff sur la nouvelle base. La mission reste à faire :
+aucune acceptation, aucun job terminé et aucune preuve CI ne sont créés par
+cet archivage. Le préparateur doit employer une nouvelle proposition inspectée,
+pas réappliquer ce snapshot obsolète.

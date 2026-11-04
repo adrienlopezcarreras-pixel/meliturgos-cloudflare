@@ -1,6 +1,7 @@
 import { detectCapabilityGap } from '../evolution/capability-gap-detector.js';
 import { proposeModuleDraft, proposePluginDraft } from '../capabilities/module-proposal-capability.js';
 import { flattenRoadmap } from '../roadmap/master-roadmap.js';
+import { isAcceptedRoadmapCodeJob } from '../roadmap/roadmap-code-acceptance.js';
 
 export const ECOSYSTEM_DISCOVERY_SCHEMA = 'mel.ecosystem-discovery-plan/v1';
 export const ECOSYSTEM_DISCOVERY_LEDGER_SCHEMA = 'mel.ecosystem-discovery-ledger/v1';
@@ -417,6 +418,14 @@ export function markEcosystemDiscoveryOwnerDecision(ledger = {}, fingerprint, de
   return { ...ledger, updated_at: now, items };
 }
 
+// A failed CAS before any job/Teacher link is an admission retry, not a
+// delivered mission or an occupied execution slot. All other failures retain
+// their existing retry/approval policy.
+function retryableAdmissionConflict(handoff) {
+  return handoff?.status === 'FAILED' && handoff?.code === 'JOB_UPDATE_CONFLICT'
+    && !String(handoff?.job_id || '').trim() && !String(handoff?.teacher_request_id || '').trim();
+}
+
 export function markEcosystemDiscoveryHandoff(ledger = {}, fingerprint, handoff = {}, now = Date.now()) {
   const target = String(fingerprint || '');
   return {
@@ -434,7 +443,7 @@ export function markEcosystemDiscoveryHandoff(ledger = {}, fingerprint, handoff 
           ...before,
           ...handoff,
           code: hasCode ? handoff.code : (resolved ? null : (before.code || null)),
-          retryable: resolved ? false : (handoff?.retryable ?? before?.retryable ?? false),
+          retryable: resolved ? false : (retryableAdmissionConflict(handoff) || (handoff?.retryable ?? before?.retryable ?? false)),
           terminal_reason: resolved ? null : (handoff?.terminal_reason ?? before?.terminal_reason ?? null),
           attempts: Math.max(0, Number(before.attempts) || 0) + 1,
           updated_at: now,
@@ -512,6 +521,7 @@ function jobHandoffSnapshot(job, before = {}, now = Date.now()) {
     ) || null),
     ci_run_id: Number(completion?.ci?.run_id || before?.ci_run_id || 0) || null,
     completion_verified: completion?.status === 'VERIFIED',
+    accepted_job_id: null,
     closed,
     retryable: staleRequeue ? true : retryable,
     code: status === 'FAILED'
@@ -527,7 +537,11 @@ function jobHandoffSnapshot(job, before = {}, now = Date.now()) {
   };
 }
 
-export function reconcileEcosystemDiscoveryHandoffs(ledger = {}, jobs = [], now = Date.now()) {
+export function reconcileEcosystemDiscoveryHandoffs(ledger = {}, jobs = [], now = Date.now(), { acceptedJobs = [] } = {}) {
+  const regressed = new Set(flattenRoadmap().filter(row => row.status === 'REGRESSED').map(row => row.id));
+  const accepted = new Map(acceptedJobs.filter(isAcceptedRoadmapCodeJob)
+    .filter(job => !regressed.has(job.optional_context.roadmap_id))
+    .map(job => [job.optional_context.roadmap_id, job]));
   const byId = new Map(
     (Array.isArray(jobs) ? jobs : [])
       .filter(job => job?.id)
@@ -536,10 +550,31 @@ export function reconcileEcosystemDiscoveryHandoffs(ledger = {}, jobs = [], now 
   let changed = false;
   const items = (Array.isArray(ledger?.items) ? ledger.items : []).map(item => {
     const jobId = String(item?.handoff?.job_id || '');
-    if (!jobId) return item;
+    if (!jobId) {
+      if (retryableAdmissionConflict(item.handoff) && item.handoff.retryable !== true) {
+        changed = true;
+        return { ...item, handoff: { ...item.handoff, retryable: true,
+          terminal_reason: 'ADMISSION_CONFLICT_RETRY_PENDING', reconciled_at: now } };
+      }
+      return item;
+    }
     const job = byId.get(jobId);
     if (!job) return item;
     const next = jobHandoffSnapshot(job, item.handoff, now);
+    const delivered = accepted.get(job.optional_context?.roadmap_id);
+    // A passive duplicate is not a new capability delivery. Reuse only the
+    // current contract's unchanged exact-SHA receipt; never rewrite the job.
+    if (job.requested_by === 'mel-autonomy' && String(job.status).toUpperCase() === 'QUEUED' && delivered
+        && job.optional_context?.roadmap_contract_revision === delivered.optional_context.roadmap_contract_revision) {
+      Object.assign(next, {
+        status: 'REUSE_EXISTING', closed: true, retryable: false,
+        accepted_job_id: delivered.id,
+        candidate_sha: delivered.result_json.roadmap_code_acceptance.candidate_sha,
+        ci_run_id: delivered.result_json.roadmap_code_acceptance.ci_run_id,
+        completion_verified: true, teacher_request_id: null, teacher_verdict: null,
+        terminal_reason: 'VERIFIED_ROADMAP_CODE_ALREADY_DELIVERED', code: null,
+      });
+    }
     const beforeComparable = JSON.stringify({
       status: item.handoff?.status || null,
       teacher_request_id: item.handoff?.teacher_request_id || null,
@@ -552,6 +587,7 @@ export function reconcileEcosystemDiscoveryHandoffs(ledger = {}, jobs = [], now 
       code: item.handoff?.code || null,
       terminal_reason: item.handoff?.terminal_reason || null,
       job_updated_at: Number(item.handoff?.job_updated_at || 0) || null,
+      accepted_job_id: item.handoff?.accepted_job_id || null,
     });
     const nextComparable = JSON.stringify({
       status: next.status,
@@ -565,6 +601,7 @@ export function reconcileEcosystemDiscoveryHandoffs(ledger = {}, jobs = [], now 
       code: next.code || null,
       terminal_reason: next.terminal_reason,
       job_updated_at: next.job_updated_at,
+      accepted_job_id: next.accepted_job_id || null,
     });
     if (beforeComparable === nextComparable) return item;
     changed = true;
