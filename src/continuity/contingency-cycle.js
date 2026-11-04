@@ -34,6 +34,8 @@ async function note(actions, code) {
 
 export async function runContingencyCycle({
   observed = {}, life = {}, actions = {}, replacements = [],
+  // Untrusted observations can recommend a rebuild, not authorize one.
+  ownerApprovedRecovery = false,
   replacementAttestations = [], replacementAttestationConfig = {},
 } = {}) {
   const scenario = currentContingency(observed);
@@ -83,13 +85,21 @@ export async function runContingencyCycle({
         continue;
       }
       if (kind === 'rebuild') {
+        // Availability of a private kit is NOT permission to deploy or rebuild.
+        if (ownerApprovedRecovery !== true) {
+          ran.push({ code, applied: false, activation_performed: false, reason: 'OWNER_APPROVAL_REQUIRED' });
+          continue;
+        }
         if (typeof actions.rebuild !== 'function') {
           ran.push({ code, applied: false, activation_performed: false, reason: 'PRIVATE_KIT_REQUIRED' });
           continue;
         }
         try {
           const result = await actions.rebuild();
-          ran.push({ code, applied: result?.ok === true, activation_performed: result?.ok === true, reason: result?.code || null });
+          const verified = result?.ok === true && result?.restored === true
+            && result?.integrity_verified === true;
+          ran.push({ code, applied: verified, activation_performed: verified,
+            reason: verified ? 'FULL_REBUILD_VERIFIED' : result?.code || 'FULL_REBUILD_NOT_VERIFIED' });
         } catch (error) {
           ran.push({ code, applied: false, activation_performed: false, reason: String(error?.code || 'REBUILD_FAILED') });
         }
