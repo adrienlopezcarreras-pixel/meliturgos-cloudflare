@@ -19,7 +19,7 @@ import { liveTechnicalSovereigntyReport } from '../portability/technical-soverei
 import { runScheduledSystemBackup } from '../backup/system-backup-runtime.js';
 import { readPersistentCapabilityStress } from './persistent-capability-stress.js';
 import { getAutonomyControl } from '../evolution/autonomy-control.js';
-import { auditDevelopment, probeCodeModels } from './development-audit.js';
+import { auditDevelopment, probeCodeModels, persistWeeklyDevelopmentAudit } from './development-audit.js';
 import { runDomainAudit } from './domain-audit.js';
 import { appendResolved, findingsForRepair, measureOutcomeRepairs, recordRepairs } from './outcome-loop.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
@@ -663,7 +663,14 @@ export async function runMelSelfAuditSupervisor(env = {}, {
     results.push(await capture('development-audit', async () => {
       const jobs = deps.listDevJobs ? await deps.listDevJobs() : await new D1DevJobRepository(env.DB).list();
       const probes = deps.probeCodeModels ? await deps.probeCodeModels() : await probeCodeModels(env);
-      return auditDevelopment({ jobs: (jobs || []).filter(job => String(job?.requested_by || '') === 'mel-autonomy'), env, now: current, maxAutonomy: control?.max_autonomy === true, probes });
+      const report = auditDevelopment({ jobs: (jobs || []).filter(job => String(job?.requested_by || '') === 'mel-autonomy'), env, now: current, maxAutonomy: control?.max_autonomy === true, probes });
+      // MEL-AUDIT-02: evidence must survive the next supervisor run; the
+      // readonly analysis never admits or repairs jobs. Fail closed if D1
+      // persistence fails instead of claiming a durable report was saved.
+      const persistence = env?.DB?.prepare
+        ? await persistWeeklyDevelopmentAudit(env.DB, report, { now: current })
+        : { persisted: false, reason: 'DB_UNAVAILABLE' };
+      return { ...report, persistence };
     }));
     results.push(await capture('domain-audit', async () => (deps.runDomainAudit || (() => runDomainAudit(env.DB, { now: current })))()));
     const stressResult = await capture('weekly-capability-stress', async () => bus.execute('capability.audit', { deep: true }, context));
