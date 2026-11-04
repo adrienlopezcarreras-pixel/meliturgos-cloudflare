@@ -327,15 +327,26 @@ test('NEEDS_CHANGES automatically re-runs Council and emits a new Teacher reques
 
   const revised = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
   assert.equal(revised.reconciliation.applied.length, 1);
-  assert.equal(revised.job.id, first.job.id);
-  assert.equal(revised.job.status, 'WAITING_TEACHER');
-  assert.ok(revised.teacher?.request_id);
-  assert.notEqual(revised.teacher.request_id, firstRequestId);
-  assert.ok(fixture.aiCalls.length >= initialAiCalls + 2, 'revision must perform a fresh multi-AI Council');
+  assert.equal(revised.job.roadmap_id, SECOND_AUTONOMY_ID);
   const stored = await fixture.repository.get(first.job.id);
+  assert.equal(stored.status, 'QUEUED');
+  assert.equal(stored.result_json.autonomy_queue.round, 2);
   assert.equal(stored.result_json.teacher_bridge_history.length, 1);
   assert.equal(stored.result_json.last_teacher_review.request_id, firstRequestId);
-  assert.equal(stored.result_json.teacher_bridge.request.provenance.revision_of, firstRequestId);
+  // The next Council is for a fresh item. The rejected revision has no
+  // retry-model calls until all first-pass objectives have been handled.
+  await fixture.repository.update(revised.job.id,{ status:'COMPLETED' });
+  fixture.setReplies('');
+  const third = await runAutonomyRuntimeTick(fixture.env,{ fetchImpl:fixture.fetchImpl,repository:fixture.repository });
+  assert.equal(third.job.roadmap_id,THIRD_AUTONOMY_ID);
+  await fixture.repository.update(third.job.id,{ status:'COMPLETED' });
+  const retried = await runAutonomyRuntimeTick(fixture.env,{ fetchImpl:fixture.fetchImpl,repository:fixture.repository });
+  assert.equal(retried.job.id,first.job.id);
+  assert.equal(retried.job.status,'WAITING_TEACHER');
+  assert.ok(retried.teacher?.request_id);
+  assert.notEqual(retried.teacher.request_id,firstRequestId);
+  assert.ok(fixture.aiCalls.length >= initialAiCalls + 2, 'second pass must re-run the Council');
+  assert.equal((await fixture.repository.get(first.job.id)).result_json.teacher_bridge.request.provenance.revision_of,firstRequestId);
 });
 
 test('Teacher REJECT terminates only the rejected item and immediately moves autonomy to the next safe roadmap item', async () => {
