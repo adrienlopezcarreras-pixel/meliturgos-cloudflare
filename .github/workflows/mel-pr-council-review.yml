@@ -1,6 +1,17 @@
 name: mel-pr-council-review
 
 on:
+  # Review the Contingence release candidate automatically after each
+  # relevant completed CI workflow; never run untrusted PR code.
+  workflow_run:
+    workflows:
+      - gen2-17-multi-cycle-ci
+      - MEL-RES-05 encrypted backup CI
+      - Professor UI audit CI
+      - MEL Core durable work CI
+      - mel-conn-01-public-chat-ci
+      - shardvault-ci
+    types: [completed]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -18,11 +29,18 @@ permissions:
   id-token: write
 
 concurrency:
-  group: mel-pr-council-review-${{ inputs.pr_number }}
+  group: mel-pr-council-review-${{ github.event.workflow_run.pull_requests[0].number || inputs.pr_number }}
   cancel-in-progress: false
 
 jobs:
   review:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'pull_request' &&
+       github.event.workflow_run.head_branch == 'integration/max-contingency-release-candidate' &&
+       github.event.workflow_run.pull_requests[0].number != null)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -40,8 +58,8 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || inputs.pr_number }}
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || inputs.expected_sha }}
         run: |
           set -euo pipefail
           [[ "$PR_NUMBER" =~ ^[0-9]{1,6}$ ]]
