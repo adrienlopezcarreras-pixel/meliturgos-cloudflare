@@ -5,22 +5,19 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-test('Council preflight produces a content-free manifest, not an approval',()=>{
-  const root=mkdtempSync(join(tmpdir(),'council-batches-'));
-  try {
-    const diff=Array.from({length:10},(_,i)=>'diff --git a/src/file'+i+'.js b/src/file'+i+'.js\n'+'+source\n'.repeat(1000)).join('');
-    const source=join(root,'council.diff'),destination=join(root,'manifest.json');
-    writeFileSync(source,diff);
-    execFileSync(process.execPath,[resolve('scripts/prepare-council-review-batches.mjs'),source,destination],{stdio:'pipe'});
-    const manifest=JSON.parse(readFileSync(destination,'utf8'));
-    assert.equal(manifest.schema,'mel.council-review-batches/v1');
-    assert.equal(manifest.status,'PENDING_INDEPENDENT_COUNCIL');
-    assert.equal(manifest.approved,false);
-    assert.ok(manifest.batch_count>1);
-    assert.equal(manifest.file_count,10);
-    assert.equal(manifest.batches.length,manifest.batch_count);
-    assert.ok(manifest.batches.every(batch=>batch.reviewed===false));
-    assert.equal(manifest.batches.reduce((n,b)=>n+b.bytes,0),manifest.total_bytes);
-    assert.ok(!JSON.stringify(manifest).includes('+source'));
-  } finally {rmSync(root,{recursive:true,force:true});}
+test('manifest contains all batches but grants no approval or diff content',()=>{
+  const dir=mkdtempSync(join(tmpdir(),'council-'));
+  try{
+    const src=join(dir,'diff'),out=join(dir,'manifest');
+    writeFileSync(src,Array.from({length:10},(_,i)=>
+      'diff --git a/file'+i+' b/file'+i+'\n'+'+source\n'.repeat(1000)).join(''));
+    execFileSync(process.execPath,[resolve('scripts/prepare-council-review-batches.mjs'),src,out]);
+    const m=JSON.parse(readFileSync(out,'utf8'));
+    assert.deepEqual([m.schema,m.status,m.approved,m.file_count],
+      ['mel.council-review-batches/v1','PENDING_INDEPENDENT_COUNCIL',false,10]);
+    assert.ok(m.batch_count>1&&m.batches.length===m.batch_count);
+    assert.ok(m.batches.every(b=>b.reviewed===false));
+    assert.equal(m.batches.reduce((n,b)=>n+b.bytes,0),m.total_bytes);
+    assert.ok(!JSON.stringify(m).includes('+source'));
+  }finally{rmSync(dir,{recursive:true,force:true});}
 });
