@@ -215,7 +215,17 @@ export async function runCouncilReview(env, { diff, goal = '', models = null, ti
     return { decision: 'COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT', reviews: [] };
   const user = 'Objectif annoncé : ' + String(goal || '(non fourni)').slice(0, 1500) + '\n\nDIFF :\n' + completeDiff;
   const health = await readModelHealth(env);
-  const catalog = Array.isArray(models) && models.length ? models : orderCouncilModels(freeCouncilCatalog(env), health, now);
+  const proposed = Array.isArray(models) && models.length ? models : orderCouncilModels(freeCouncilCatalog(env), health, now);
+  // The two-model fast path must not count the same provider model twice
+  // through casing aliases or duplicate catalog entries.
+  const seenModels=new Set();
+  const catalog=proposed.filter(id=>{
+    if(typeof id!=='string'||!id.trim())return false;
+    const identity=id.trim().toLowerCase();
+    if(seenModels.has(identity))return false;
+    seenModels.add(identity);
+    return true;
+  });
   const reviews = [];
   let index = 0;
   // Two-stage review (owner decision 31/10: a 4-model review on every change
