@@ -182,6 +182,8 @@ for (const storage of ['memory', 'sqlite']) test(`changed parked context cannot 
   const replacement = await supervisor.ensureNextJob();
   assert.equal(replacement.created, true);
   assert.equal(replacement.job.optional_context.roadmap_id, 'MEL-MANIFEST-02');
+  const successor = await repository.claimQueuedAutonomy(replacement.job.id, { expected: replacement.job });
+  assert.equal(successor?.status, 'PLANNING', 'passive QUEUED does not reserve an execution lane');
 
   const previous = await repository.get(firstId);
   await repository.update(firstId, { result_json: {
