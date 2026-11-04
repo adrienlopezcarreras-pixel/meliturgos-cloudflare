@@ -117,8 +117,11 @@ test('unbounded response body and invalid credentials never yield a candidate',a
 test('manual main-branch restore stays read-only and runs targeted checks without full-suite delay', async()=>{
   const {readFile}=await import('node:fs/promises');
   const workflow=await readFile(new URL('../../.github/workflows/mel-res-05-encrypted-backup-ci.yml',import.meta.url),'utf8');
-  assert.match(workflow,/if: github\.event_name != 'workflow_dispatch'\n\s+run: npm test/);
-  assert.match(workflow,/isolated-snapshot-restore:\n\s+if: github\.event_name == 'workflow_dispatch' && github\.ref == 'refs\/heads\/main'/);
+  assert.match(workflow,/if: github\.event_name == 'pull_request'\n\s+run: npm test/);
+  assert.match(workflow,/schedule:\n\s+- cron: '23 3 \* \* \*'/);
+  assert.match(workflow,/isolated-snapshot-restore:\n\s+if: \(github\.event_name == 'workflow_dispatch' \|\| github\.event_name == 'schedule'\) && github\.ref == 'refs\/heads\/main'/);
+  assert.match(workflow,/concurrency:\n\s+group: mel-isolated-snapshot-restore\n\s+cancel-in-progress: false/);
+  assert.match(workflow,/MEL_RESTORE_SNAPSHOT_KEY: \$\{\{ inputs\.snapshot_key \}\}/);
   assert.match(workflow,/needs: encrypted-backup/);
   assert.match(workflow,/run: node scripts\/runtime-security-gate\.mjs/);
   assert.match(workflow,/run: node release-tools\/predeploy-backup-refresh\/isolated-restore-runner\.mjs/);
