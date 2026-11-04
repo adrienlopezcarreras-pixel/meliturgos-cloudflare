@@ -164,3 +164,40 @@ test('MAX protects QUEUED revisions still claimed by a live Bridge',async()=>{
   const repo=new D1DevJobRepository(null,{memoryStore:new Map([['unsafe',{...job,updated_at:1,created_at:1,optional_context:{roadmap_id:'X'}}]])});
   assert.equal(await repo.resumeSecondPassQueued('unsafe'),null);
 });
+
+
+test('legacy revisioned QUEUED rows move to round two; untouched roadmap items retain first-pass priority',async()=>{
+  const old=(id,order)=>({id,requested_by:'mel-autonomy',status:'QUEUED',goal:id,
+    created_at:order,updated_at:order,
+    optional_context:{roadmap_id:id},
+    result_json:{last_teacher_review:{request_id:'teacher-'+id}},
+    plan_json:{revision:{reason:'TEACHER_REQUEST_STALE_SHA'}}});
+  const raw=[old('MEL-A',10),old('MEL-B',11)];
+  const repo=new D1DevJobRepository(null,{memoryStore:new Map(raw.map(row=>[row.id,row]))});
+  const roadmap=['MEL-A','MEL-B','MEL-C'].map((id,i)=>({id,title:id,status:'IN_PROGRESS',priority:'P'+i,depends_on:[]}));
+  const controller=new AutonomySupervisor({repository:repo,roadmap});
+  const first=await controller.ensureNextJob();
+  assert.equal(first.job.optional_context.roadmap_id,'MEL-C');
+  assert.equal(first.created,true);
+  const a=await repo.get('MEL-A'),b=await repo.get('MEL-B');
+  assert.equal(a.status,'QUEUED');
+  assert.equal(b.status,'QUEUED');
+  assert.equal(a.result_json.autonomy_queue_pass.passive,true);
+  assert.equal(b.result_json.autonomy_queue_pass.passive,true);
+  assert.equal(a.result_json.last_teacher_review.request_id,'teacher-MEL-A');
+  assert.equal(b.plan_json.revision.reason,'TEACHER_REQUEST_STALE_SHA');
+  await repo.update(first.job.id,{status:'COMPLETED'});
+  const second=await controller.ensureNextJob();
+  assert.equal(second.job.id,'MEL-A');
+  assert.equal(second.job.result_json.autonomy_queue_pass.passive,false);
+  assert.equal((await repo.get('MEL-B')).result_json.autonomy_queue_pass.passive,true);
+});
+
+test('fresh QUEUED with no historic preflight is NOT misclassified as second-pass work',async()=>{
+  const {isLegacyRequeuedMission}=await import('../src/evolution/provider-exhaustion-rotation.js');
+  const untouched={requested_by:'mel-autonomy',status:'QUEUED',result_json:{},plan_json:{}};
+  assert.equal(isLegacyRequeuedMission(untouched),false);
+  assert.equal(isLegacyRequeuedMission({...untouched,plan_json:{revision:{reason:'SHA_MOVED'}}}),true);
+  assert.equal(isLegacyRequeuedMission({...untouched,plan_json:{revision:{reason:'SHA_MOVED'}},result_json:{
+    teacher_bridge:{status:'WAITING_TEACHER'}}}),false,'live Teacher transport must not be passivized');
+});
