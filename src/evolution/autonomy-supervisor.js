@@ -5,7 +5,7 @@ import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { approvedEvolutionRoadmap } from '../roadmap/evolution-autonomy-queue.js';
 import { flattenRoadmap, ROADMAP_STATUSES, isClosedRoadmapStatus } from '../roadmap/master-roadmap.js';
 import { isClaimedPreparedDevBridgeJob } from '../dev/bridge-job-state.js';
-import { providerRetryContext, isRotatableProviderExhaustion, isSecondPassQueued, singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
+import { providerRetryContext, isRotatableProviderExhaustion, isLegacyRequeuedMission, isSecondPassQueued, singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
 import { unmetSoftwarePrerequisites, preparedBypassesExhaustion } from './own-roadmap-advance.js';
 export { providerRetryContext } from './provider-exhaustion-rotation.js';
 
@@ -394,6 +394,26 @@ export class AutonomySupervisor {
 
   async ensureNextJob() {
     await refreshRoadmapCodeMissions(this.repository, await this.listSchedulerJobs(), this.roadmap);
+    // Upgrade a bounded number of legacy revisioned QUEUED rows in place.
+    // No new D1 job, no model call, no state reset or rewrite of past reviews.
+    // Historical rows outside the current MAX activity epoch stay untouched.
+    if (!this.onlyJobId) {
+      const queuedBeforeMarker = (await this.listSchedulerJobs())
+        .filter(job => (!this.epochMs || jobActivityTimestamp(job) >= this.epochMs)
+          && isLegacyRequeuedMission(job)).slice(0, 8);
+      for (const job of queuedBeforeMarker) {
+        try {
+          await this.repository.update(job.id, {
+            result_json: { ...(job.result_json || {}), autonomy_queue_pass: {
+              passive: true, round: 2, deferred_at: Date.now(),
+              previous_status: 'LEGACY_QUEUED_REVISION',
+            } },
+          }, { expected: job });
+        } catch (error) {
+          if (error?.code !== 'JOB_UPDATE_CONFLICT') throw error;
+        }
+      }
+    }
     // Release stale non-executing D1 jobs only when the canonical roadmap
     // explicitly marks their objective verified. Never delete history or
     // interrupt Teacher, Bridge or review lanes.
