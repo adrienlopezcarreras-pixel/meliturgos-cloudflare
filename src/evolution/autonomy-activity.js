@@ -470,6 +470,14 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
       blocks_cloud: false,
       proofs: coder?.ok === true ? 'available' : 'set_aside',
     },
+    scheduler_slot: holder ? {
+      reserved: true, mission_id: holder.id,
+      roadmap_id: holder.optional_context?.roadmap_id || null,
+      status: String(holder.status || 'UNKNOWN').toUpperCase(),
+      executing: activeMission?.id === holder.id,
+      reason: String(holder.status || '').toUpperCase() === 'QUEUED'
+        ? 'QUEUED_RESERVES_SINGLE_FLIGHT' : 'MISSION_IN_DELIVERY_LIFECYCLE',
+    } : { reserved: false, mission_id: null, roadmap_id: null, executing: false, reason: null },
     counts: {
       supervised_total: unique.length,
       active: activeMission ? 1 : 0,
