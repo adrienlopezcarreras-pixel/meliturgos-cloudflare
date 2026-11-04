@@ -180,10 +180,15 @@ test('automatic Council is scoped to trusted CI completion, exact PR head and al
     'COUNCIL_CI_INCOMPLETE_CHECK_LIST',
     'COUNCIL_CI_REQUIRED_CHECK_NOT_GREEN',
     'COUNCIL_CI_NOT_ALL_COMPLETE_AND_GREEN',
-    "latest.get(name)?.conclusion!=='success'",
+    "const pending=mandatory.filter(name=>latest.get(name)?.conclusion!=='success')",
+    "const ready=pending.length===0&&unfinished.length===0",
+    "fs.appendFileSync(fsOut,'ready='+String(ready)+'\\n')",
+    "if: github.event_name == 'workflow_dispatch' || steps.ci_gate.outputs.ready == 'true'",
   ])assert.ok(workflow.includes(expected),expected);
   assert.ok(workflow.indexOf('Require every exact-SHA CI gate before automatic Council review')
     <workflow.indexOf('Full multi-batch independent Council verdict'));
+  assert.equal((workflow.match(/if: github\.event_name == 'workflow_dispatch' \|\| steps\.ci_gate\.outputs\.ready == 'true'/g)||[]).length,3);
+  assert.ok(workflow.includes('id: ci_gate'));
   assert.ok(workflow.includes('ref: main'));
   assert.ok(!workflow.includes('pull_request_target:'));
   assert.ok(!workflow.includes('contents: write'));
