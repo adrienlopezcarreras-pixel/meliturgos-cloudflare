@@ -6,7 +6,7 @@ import { D1DevJobRepository } from './d1-dev-job-repository.js';
 import { D1BridgeRepository } from './d1-bridge-repository.js';
 import { AutonomySupervisor } from '../evolution/autonomy-supervisor.js';
 import { runAutonomyRuntimeTick } from '../evolution/autonomy-runtime.js';
-import { getAutonomyControl, isLegacyOwnerMaxStop } from '../evolution/autonomy-control.js';
+import { getAutonomyControl, setAutonomyControl, isLegacyOwnerMaxStop } from '../evolution/autonomy-control.js';
 import { prepareDevelopmentRequest } from '../evolution/development-preflight.js';
 import { createTeacherReviewRequest } from '../teachers/teacher-request.js';
 import { queueRuntimeTeacherRequest, applyRuntimeTeacherReply } from '../teachers/runtime-teacher-bridge.js';
@@ -418,6 +418,40 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
         error: body.error ? String(body.error).slice(0, 500) : null,
       };
       const updated = await repo.update(job.id, patch);
+      // The owner wants ONE roadmap mission at a time. A failed autonomous
+      // Bridge must pause the runtime before any further mission is admitted.
+      // Do not override an owner STOP or a concurrent owner resume: CAS binds
+      // the pause to the precise control version observed before the write.
+      if (job.requested_by === 'mel-autonomy'
+          && (effectiveStatus === 'REPAIR_REQUIRED' || mergedResult.dev_bridge?.needs_repair === true)) {
+        let control;
+        try {
+          control = await getAutonomyControl(env.DB);
+          if (control.paused !== true) {
+            const ownerStopped = isLegacyOwnerMaxStop(control);
+            control = await setAutonomyControl(env.DB, {
+              paused: true, max_autonomy: false,
+              source: ownerStopped ? 'owner-ui' : 'bridge-repair-pause',
+              reason: ownerStopped ? 'owner-stop' : ('bridge-repair-required:' + job.id).slice(0, 500),
+              expected_updated_at: control.updated_at,
+            });
+          }
+        } catch (error) {
+          // Tests were recorded, but PAUSE was not proven. The reporting
+          // workflow must fail shut rather than chain into another mission.
+          return Response.json({
+            ...updated, autonomy_pause: {
+              confirmed: false, code: error?.code || 'AUTONOMY_REPAIR_PAUSE_UNVERIFIED',
+            },
+          }, { status: 503 });
+        }
+        return Response.json({
+          ...updated, autonomy_pause: {
+            confirmed: control.paused === true,
+            status: control.status, reason: control.reason,
+          },
+        });
+      }
       if (effectiveStatus !== 'READY_FOR_REVIEW' || mergedResult.dev_bridge?.needs_repair === true) {
         return Response.json(updated);
       }
