@@ -357,23 +357,36 @@ test('automatic Council is scoped to trusted CI completion, exact PR head and al
   assert.ok(!workflow.includes('git push'));
 });
 
-test('Council discovery YAML keeps its complete Bash block and no orphan top-level lines',()=>{
+test('Council discovery shell is a complete YAML run block with no orphan lines',()=>{
   const workflow=file('../.github/workflows/mel-pr-council-review.yml');
   const discover=workflow.slice(workflow.indexOf('  discover:\n'),workflow.indexOf('  preflight:\n'));
   assert.ok(discover.includes('        run: |\n          set -euo pipefail\n          META="$(gh api'));
-  assert.ok(discover.includes('          IFS=
+  assert.ok(discover.includes('          IFS='));
+  assert.ok(discover.includes('          echo "head=$HEAD" >> "$GITHUB_OUTPUT"'));
+  assert.ok(discover.includes('          echo "pr_number=3094" >> "$GITHUB_OUTPUT"'));
+  assert.ok(discover.includes('          echo "Read-only Council candidate pinned to PR #3094 head: $HEAD"'));
+  assert.ok(!discover.includes('set -euo p          META'));
+  const start=discover.indexOf('        run: |\n');
+  assert.ok(start>=0);
+  const run=discover.slice(start+'        run: |\n'.length);
+  for(const line of run.split('\n').filter(Boolean))
+    assert.match(line,/^ {10,}/,'every discovery command must remain indented in the YAML run block');
+  assert.equal(workflow.split('\n  preflight:\n').length,2);
+});
+
+test('GitHub Actions preflight boolean guard is balanced',()=>{
   const wf=file('../.github/workflows/mel-pr-council-review.yml');
   const preflight=wf.slice(wf.indexOf('  preflight:\n'),wf.indexOf('  review:\n'));
   const match=preflight.match(/\n    if: >-\n([\s\S]*?)\n    runs-on:/);
-  assert.ok(match,'Council CI preflight must have a valid job-level guard');
+  assert.ok(match,'preflight requires a valid job-level condition');
   const guard=match[1].replace(/'[^']*'/g,"''");
   let depth=0;
   for(const char of guard){
     if(char==='(')depth++;
     if(char===')')depth--;
-    assert.ok(depth>=0,'preflight guard closes an unopened parenthesis');
+    assert.ok(depth>=0,'unexpected closing parenthesis');
   }
-  assert.equal(depth,0,'preflight guard has unclosed parenthesis and GitHub silently rejects its workflow');
+  assert.equal(depth,0,'unclosed parenthesis in GitHub Actions guard');
   assert.match(guard,/always\(\)/);
   assert.match(guard,/needs\.discover\.outputs\.eligible/);
   assert.match(guard,/github\.event\.workflow_run\.pull_requests\[0\]\.number != null/);
