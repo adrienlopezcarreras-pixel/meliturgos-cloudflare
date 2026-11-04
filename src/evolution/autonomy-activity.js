@@ -391,7 +391,7 @@ export function buildCodePlan(jobs = [], { roadmap = flattenRoadmap(), now = Dat
   const excluded = active.map(job => job.roadmap_id);
   const next = [];
   while (next.length < limit) {
-    const item = selectNextAutonomyItem({ roadmap, blockedIds: [...excluded, ...next.map(row => row.id)] });
+    const item = selectNextAutonomyItem({ roadmap, blockedIds: [...excluded, ...next.map(row => row.id)], quickWinsFirst: true });
     if (!item) break;
     next.push({ id: item.id, title: clip(item.title, 140), status: item.status });
   }
