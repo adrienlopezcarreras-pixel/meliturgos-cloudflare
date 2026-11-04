@@ -28,3 +28,12 @@ test('release verification still fails when handoff evidence is not 200',()=>{
   assert.match(script,/test "\$\{CAPABILITY_WATCH_READY\}" = "1"/);
   assert.match(script,/GEN2-42 handoff proof attempt/);
 });
+
+test('uppercase-looking secret is not accepted as a diagnostic reason',()=>{
+  const output=diagnostic(JSON.stringify({error:'TOPSECRETAPIKEY123',reason:'PRIVATE_TOKEN_ABC123',status:'CONFLICT'}));
+  assert.equal(output,'GEN2-42 sanitized reason: CONFLICT');
+  assert.doesNotMatch(output,/TOPSECRETAPIKEY123|PRIVATE_TOKEN_ABC123/);
+});
+test('unknown all-uppercase codes fail closed',()=>{
+  assert.equal(diagnostic(JSON.stringify({error:'UNREVIEWED_REASON_123'})),'GEN2-42 sanitized reason: UNCLASSIFIED_RESPONSE');
+});
