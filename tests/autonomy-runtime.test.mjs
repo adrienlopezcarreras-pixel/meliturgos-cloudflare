@@ -662,35 +662,36 @@ test('first QUEUED mission retains real Council failure evidence during provider
       autonomy_deferral: { ...persisted.result_json.autonomy_deferral, retry_after: Date.now() - 1 },
     },
   }, { expected: persisted });
-  const cooldown = await runCore(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository, roadmap: TEST_ROADMAP });
-  assert.equal(cooldown.progress.block_reason, 'COUNCIL_PROVIDER_COOLDOWN_PENDING');
-  // The tick can call AI independently for its Work-DAG evidence probe.
-  // The Council-specific no-invocation contract is tested at its adapter
-  // boundary; the persisted Council trace must stay unchanged below.
-  const waiting = await fixture.repository.get(persisted.id);
-  assert.equal(waiting.status, 'QUEUED');
-  assert.deepEqual(waiting.result_json.council_model_attempts, failures);
-  assert.equal(waiting.result_json.council_provider_cooldown.status, 'WAITING_FOR_AUTHORIZED_PROVIDERS');
-  const validExpirations = [...exclusions].map(row => row.until).sort((a,b) => a-b);
-  assert.ok(validExpirations.includes(waiting.result_json.autonomy_deferral.retry_after),
-    'retry must align with the expiry of a real quarantined provider');
-  assert.ok(waiting.result_json.autonomy_deferral.retry_after >= validExpirations[0]);
+  // A cooled-down QUEUED objective stays passive. A different first-pass
+  // objective gets Council instead of replaying the original on every tick.
+  const second=await runCore(fixture.env,{
+    fetchImpl:fixture.fetchImpl,repository:fixture.repository,roadmap:TEST_ROADMAP});
+  assert.equal(second.progress.block_reason,'COUNCIL_INSUFFICIENT_RESPONSES');
+  const waiting=await fixture.repository.get(persisted.id);
+  assert.equal(waiting.status,'QUEUED');
+  assert.equal(waiting.result_json.autonomy_queue.round,2);
+  assert.deepEqual(waiting.result_json.council_model_attempts,failures);
+  assert.equal(waiting.result_json.council_provider_cooldown.status,'WAITING_FOR_AUTHORIZED_PROVIDERS');
+  assert.equal((await fixture.repository.list()).length,2);
+  await runCore(fixture.env,{
+    fetchImpl:fixture.fetchImpl,repository:fixture.repository,roadmap:TEST_ROADMAP});
+  assert.equal((await fixture.repository.list()).length,3);
+  assert.deepEqual((await fixture.repository.get(persisted.id)).result_json.council_model_attempts,failures);
 
-  // Recovery on this exact mission, not admission of a second queued job.
-  fixture.env.AI.run = async model => ({
-    response: 'EXISTANT: code present; MANQUES: integration; OPTIONS: minimal diff; RISQUES: limited; RECOMMANDATION: inspect; TESTS: CI'
-      + String(model),
-  });
-  const realNow = Date.now;
-  try {
-    Date.now = () => Math.max(...exclusions.map(row => row.until)) + 1;
-    const recovered = await runCore(fixture.env, {
-      fetchImpl: fixture.fetchImpl, repository: fixture.repository, roadmap: TEST_ROADMAP,
-    });
-    assert.equal(recovered.job?.id, persisted.id, 'resume the original objective');
-    assert.equal(recovered.job?.status, 'WAITING_TEACHER');
-    assert.equal((await fixture.repository.list()).length, 1);
-  } finally { Date.now = realNow; }
+  fixture.env.AI.run=async model=>({response:
+    'EXISTANT: code present; MANQUES: integration; OPTIONS: minimal diff; RISQUES: limited; RECOMMANDATION: inspect; TESTS: CI'
+    +String(model)});
+  const realNow=Date.now;
+  try{
+    const all=await fixture.repository.list();
+    const expiration=Math.max(...all.flatMap(row=>(row.result_json?.council_model_exclusions||[]).map(x=>x.until)));
+    Date.now=()=>expiration+1;
+    const recovered=await runCore(fixture.env,{
+      fetchImpl:fixture.fetchImpl,repository:fixture.repository,roadmap:TEST_ROADMAP});
+    assert.equal(recovered.job?.id,persisted.id,'original objective resumes on the second pass');
+    assert.equal(recovered.job?.status,'WAITING_TEACHER');
+    assert.equal((await fixture.repository.list()).length,3);
+  }finally{Date.now=realNow;}
 });
 
 
