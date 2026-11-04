@@ -653,6 +653,37 @@ jobs:
           CHAIN_DEPTH: ${{ inputs.chain_depth || '0' }}
         run: |
           set -euo pipefail
+          # A failed test or failed report must terminate this autonomy chain,
+          # not dispatch a fresh roadmap tick. Only an autonomous job whose
+          # bounded tests passed may proceed, and owner MAX must still be active.
+          if [ ! -s bridge-apply-result.json ]; then
+            echo "AUTONOMY_CHAIN_STOP_NO_VERIFIED_BRIDGE_RESULT"
+            exit 0
+          fi
+          BRIDGE_STATUS="$(node -e "const fs=require('fs');const r=JSON.parse(fs.readFileSync('bridge-apply-result.json','utf8'));process.stdout.write(r.status==='READY_FOR_REVIEW'&&r.needs_repair!==true?'ready':'repair')")"
+          if [ "$BRIDGE_STATUS" != "ready" ]; then
+            echo "AUTONOMY_CHAIN_STOP_REPAIR_REQUIRED"
+            exit 0
+          fi
+          if [ -s "$BRIDGE_JOB_FILE" ]; then
+            REQUESTER="$(node -e "const fs=require('fs');const j=JSON.parse(fs.readFileSync(process.env.BRIDGE_JOB_FILE,'utf8'));process.stdout.write(String(j.requested_by||''))")"
+          else
+            echo "AUTONOMY_CHAIN_STOP_JOB_MISSING"
+            exit 0
+          fi
+          if [ "$REQUESTER" != "mel-autonomy" ]; then
+            echo "AUTONOMY_CHAIN_STOP_NON_AUTONOMOUS_JOB"
+            exit 0
+          fi
+          CONTROL="$(curl --fail --silent --show-error --max-time 20 "https://meliturgos.adrien-lopezcarreras.workers.dev/api/gen2/autonomy/control")" || {
+            echo "AUTONOMY_CHAIN_STOP_OWNER_CONTROL_UNAVAILABLE"
+            exit 0
+          }
+          AUTHORIZED="$(printf '%s' "$CONTROL" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let v={};try{v=JSON.parse(s)}catch{};process.stdout.write(v.max_autonomy===true&&v.paused===false?"true":"false")})')"
+          if [ "$AUTHORIZED" != "true" ]; then
+            echo "AUTONOMY_CHAIN_STOP_OWNER_PAUSED_OR_DISABLED"
+            exit 0
+          fi
           [[ "$CHAIN_DEPTH" =~ ^[0-9]+$ ]]
           if [ "$CHAIN_DEPTH" -ge 20 ]; then
             echo "AUTONOMY_CHAIN_LIMIT_REACHED depth=$CHAIN_DEPTH"
