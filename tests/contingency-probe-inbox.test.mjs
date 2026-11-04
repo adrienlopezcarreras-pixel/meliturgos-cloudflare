@@ -90,6 +90,8 @@ test('GitHub monitor delivers the signed envelope without claiming automatic fai
   assert.match(runner,/method: 'POST', redirect: 'manual'/);
   assert.match(runner,/JSON\.stringify\(signed\)/);
   assert.match(workflow,/artifacts\/contingency\/probe-delivery\.json/);
+  assert.ok(workflow.includes("group: mel-contingency-monitor-${{ github.ref }}"));
+  assert.ok(workflow.includes("cancel-in-progress: ${{ github.event_name == 'pull_request' }}"));
   assert.match(runtime,/readContingencyProbeInbox\(env\?\.DB\)/);
   assert.match(runtime,/replacementAttestations: Array\.isArray\(job\?\.result_json\?\.replacement_probes\)/);
   assert.match(runtime,/MEL_REPLACEMENT_PROBE_HMAC_KEY/);
