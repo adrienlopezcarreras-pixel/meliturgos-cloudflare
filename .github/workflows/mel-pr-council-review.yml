@@ -58,7 +58,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo p          META="$(gh api "repos/$GITHUB_REPOSITORY/pulls/3094" --jq '[.state,.base.ref,.head.sha,.head.repo.full_name,(.merged_at // ""),(.merge_commit_sha // "")] | @tsv')"
+          set -euo pipefail
+          META="$(gh api "repos/$GITHUB_REPOSITORY/pulls/3094" --jq '[.state,.base.ref,.head.sha,.head.repo.full_name,(.merged_at // ""),(.merge_commit_sha // "")] | @tsv')"
           IFS=$'\t' read -r STATE BASE HEAD REPO MERGED_AT MERGE_SHA <<< "$META"
           if [ "$STATE" = "open" ]; then
             echo "Council pre-merge review candidate is open."
@@ -77,7 +78,6 @@ jobs:
           echo "head=$HEAD" >> "$GITHUB_OUTPUT"
           echo "pr_number=3094" >> "$GITHUB_OUTPUT"
           echo "Read-only Council candidate pinned to PR #3094 head: $HEAD"
- $HEAD"
   preflight:
     needs: [discover]
     if: >-
