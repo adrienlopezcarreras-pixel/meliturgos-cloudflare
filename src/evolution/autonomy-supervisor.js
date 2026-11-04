@@ -620,7 +620,7 @@ export class AutonomySupervisor {
       }
       const passiveOwner = current.active
         .filter(isSupervisedAutonomyJob)
-        .filter((job) => isPassiveRuntimeJob(job) && !isRotatableProviderExhaustion(job))
+        .filter((job) => isPassiveRuntimeJob(job) && !isRotatableProviderExhaustion(job) && !isSecondPassQueued(job))
         .sort(compareActiveJobs)[0] || null;
       // A prepared CLAIMED package is already executing outside the heartbeat.
       // Returning it as `job` would make autonomy-runtime-core run its generic
