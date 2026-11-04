@@ -164,6 +164,12 @@ test('automatic Council is scoped to trusted CI completion, exact PR head and al
   const workflow=file('../.github/workflows/mel-pr-council-review.yml');
   for(const expected of [
     'workflow_run:', 'types: [completed]',
+    '- MEL external contingency monitor',
+    '- mel-work-free-validation',
+    '- hardware-lab-ci',
+    '- lora-runtime-pipeline-ci',
+    '- mel-self-audit-supervisor-ci',
+    '- cloudflare-api-relay',
     "github.event.workflow_run.conclusion == 'success'",
     "github.event.workflow_run.event == 'pull_request'",
     "github.event.workflow_run.head_branch == 'integration/max-contingency-release-candidate'",
