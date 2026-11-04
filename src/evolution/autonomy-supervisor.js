@@ -5,7 +5,7 @@ import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { approvedEvolutionRoadmap } from '../roadmap/evolution-autonomy-queue.js';
 import { flattenRoadmap, ROADMAP_STATUSES, isClosedRoadmapStatus } from '../roadmap/master-roadmap.js';
 import { isClaimedPreparedDevBridgeJob } from '../dev/bridge-job-state.js';
-import { providerRetryContext, isRotatableProviderExhaustion, singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
+import { providerRetryContext, isRotatableProviderExhaustion, isLegacyRequeuedMission, isSecondPassQueued, singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
 import { unmetSoftwarePrerequisites, preparedBypassesExhaustion } from './own-roadmap-advance.js';
 export { providerRetryContext } from './provider-exhaustion-rotation.js';
 
@@ -212,7 +212,7 @@ export function selectActionableAutonomyJobs(jobs = [], { epochMs = 0, roadmap =
         && !unmetSoftwarePrerequisites(item, roadmap, verifiedIds).length);
     })
     .filter((job) => !TERMINAL_JOB.has(String(job?.status || '').toUpperCase()))
-    .filter((job) => !isPassiveRuntimeJob(job))
+    .filter((job) => !isPassiveRuntimeJob(job) && !isSecondPassQueued(job))
     .filter((job) => !epoch || jobActivityTimestamp(job) >= epoch)
     .filter((job) => !excluded.has(job?.id))
     .sort(compareActiveJobs)
@@ -394,6 +394,26 @@ export class AutonomySupervisor {
 
   async ensureNextJob() {
     await refreshRoadmapCodeMissions(this.repository, await this.listSchedulerJobs(), this.roadmap);
+    // Upgrade a bounded number of legacy revisioned QUEUED rows in place.
+    // No new D1 job, no model call, no state reset or rewrite of past reviews.
+    // Historical rows outside the current MAX activity epoch stay untouched.
+    if (!this.onlyJobId) {
+      const queuedBeforeMarker = (await this.listSchedulerJobs())
+        .filter(job => (!this.epochMs || jobActivityTimestamp(job) >= this.epochMs)
+          && isLegacyRequeuedMission(job)).slice(0, 8);
+      for (const job of queuedBeforeMarker) {
+        try {
+          await this.repository.update(job.id, {
+            result_json: { ...(job.result_json || {}), autonomy_queue_pass: {
+              passive: true, round: 2, deferred_at: Date.now(),
+              previous_status: 'LEGACY_QUEUED_REVISION',
+            } },
+          }, { expected: job });
+        } catch (error) {
+          if (error?.code !== 'JOB_UPDATE_CONFLICT') throw error;
+        }
+      }
+    }
     // Release stale non-executing D1 jobs only when the canonical roadmap
     // explicitly marks their objective verified. Never delete history or
     // interrupt Teacher, Bridge or review lanes.
@@ -450,6 +470,7 @@ export class AutonomySupervisor {
     if (!this.onlyJobId) {
       const blocked = current.active.find(job => {
         if (job.requested_by !== 'mel-autonomy'
+            || isSecondPassQueued(job)
             || !['QUEUED', 'TEACHER_APPROVED'].includes(String(job.status || '').toUpperCase())) return false;
         const item = this.roadmap.find(row => row.id === roadmapIdFromJob(job));
         return item && (BLOCKED_ROADMAP.has(String(item.status || '').toUpperCase())
@@ -509,9 +530,9 @@ export class AutonomySupervisor {
     // The shared selector can rank a changed-context TEACHER_APPROVED job
     // above its QUEUED successor; constrain internal selection to the slot
     // holder while preserving explicit owner-chat priority.
-    const selectableJobs = this.singleFlight && activeInternal
+    const selectableJobs = (this.singleFlight && activeInternal
       ? current.active.filter(job => job.requested_by !== 'mel-autonomy' || job.id === activeInternal.id)
-      : current.active;
+      : current.active).filter(job => !isSecondPassQueued(job));
     const actionable = selectActionableAutonomyJob(selectableJobs, { epochMs: this.epochMs, roadmap: this.roadmap, completedIds: current.completedIds, verifiedIds: current.verifiedDependencyIds });
     if (this.singleFlight && activeInternal && actionable?.requested_by !== 'owner-chat') {
       // COMMITTED means the candidate was committed, not necessarily that the
@@ -544,7 +565,7 @@ export class AutonomySupervisor {
     // objective is still active, even when its external lane is passive.
     // Keep the old selection/owner-priority semantics for the active job.
     const inFlightInternal = current.active
-      .filter(job => job.requested_by === 'mel-autonomy' && !isRotatableProviderExhaustion(job))
+      .filter(job => job.requested_by === 'mel-autonomy' && !isRotatableProviderExhaustion(job) && !isSecondPassQueued(job))
       .sort(compareActiveJobs)[0] || null;
     if (this.singleFlight && inFlightInternal) {
       if (String(inFlightInternal.status || '').toUpperCase() === 'COMMITTED') {
@@ -577,7 +598,7 @@ export class AutonomySupervisor {
     const passiveInternal = current.active
       .filter(isSupervisedAutonomyJob)
       .filter((job) => isPassiveRuntimeJob(job) && job.requested_by === 'mel-autonomy')
-      .filter((job) => !isRotatableProviderExhaustion(job))
+      .filter((job) => !isRotatableProviderExhaustion(job) && !isSecondPassQueued(job))
       .filter((job) => !hasLiveExternalProgress(job))
       .sort(compareActiveJobs)[0];
     if (passiveInternal) {
@@ -592,9 +613,39 @@ export class AutonomySupervisor {
       }
     }
     if (!current.next) {
+      // All first-pass eligible roadmap work has been visited. Re-queued
+      // revisions get a SECOND turn; neither polling nor their D1 existence
+      // consumes inference resources while they wait. CAS admits just one.
+      const deferredSecondPass = current.active
+        .filter(job => isSecondPassQueued(job)
+          && Number(job.result_json?.autonomy_queue_pass?.round) === 2)
+        .sort((a,b) => Number(a.result_json.autonomy_queue_pass.deferred_at||0)
+          - Number(b.result_json.autonomy_queue_pass.deferred_at||0)
+          || String(a.id).localeCompare(String(b.id)));
+      // The oldest revision is not necessarily eligible today. Keep its D1
+      // status and pass marker intact, and try the next passive candidate.
+      // Otherwise one missing prerequisite starves every other second turn.
+      const eligibleSecondPass = deferredSecondPass.find(job => {
+        const item = this.roadmap.find(row => row.id === roadmapIdFromJob(job));
+        return !item || (!BLOCKED_ROADMAP.has(String(item.status || '').toUpperCase())
+          && unmetSoftwarePrerequisites(item, this.roadmap, current.verifiedDependencyIds).length === 0);
+      });
+      if (eligibleSecondPass) {
+        if (typeof this.repository.resumeSecondPassQueued !== 'function') {
+          return { created: false, job: null, next: null, complete: false,
+            external_progress: { job_id: eligibleSecondPass.id, status: 'SECOND_PASS_ATOMIC_CLAIM_UNAVAILABLE' } };
+        }
+        const resumed = await this.repository.resumeSecondPassQueued(eligibleSecondPass.id, {expected: eligibleSecondPass});
+        if (!resumed) return { created: false, job: null, next: null, complete: false,
+          external_progress: {job_id: eligibleSecondPass.id, status: 'SECOND_PASS_SLOT_BUSY'} };
+        return { created: false, job: resumed, next: null, complete: false };
+      }
+      if (deferredSecondPass.length) return { created: false, job: null, next: null,
+        complete: false, external_progress: {job_id: deferredSecondPass[0].id,
+          status: 'SECOND_PASS_PREREQUISITES_PENDING', blocked_count: deferredSecondPass.length} };
       const passiveOwner = current.active
         .filter(isSupervisedAutonomyJob)
-        .filter((job) => isPassiveRuntimeJob(job) && !isRotatableProviderExhaustion(job))
+        .filter((job) => isPassiveRuntimeJob(job) && !isRotatableProviderExhaustion(job) && !isSecondPassQueued(job))
         .sort(compareActiveJobs)[0] || null;
       // A prepared CLAIMED package is already executing outside the heartbeat.
       // Returning it as `job` would make autonomy-runtime-core run its generic
