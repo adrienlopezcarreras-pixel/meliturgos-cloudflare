@@ -1086,9 +1086,24 @@ function activityMarkup(a){
   const jobsKnown=Array.isArray(a.jobs),fmtN=v=>{const n=finiteMetric(v);return n===null?'—':String(n)};
   const executing=(a.jobs||[]).filter(j=>j.queue_state==='ACTIVE').slice(0,1);
   const awaiting=(a.jobs||[]).filter(j=>j.queue_state==='WAITING');
+  // Canonical roadmap definitions are informational, not QUEUED D1 jobs.
+  const passiveRoadmap=Array.isArray(a.passive_roadmap?.items)?a.passive_roadmap.items:null;
+  const roadmapStateLabels={MISSION_REGISTERED:'Mission D1 enregistrée',BLOCKED_HUMAN:'Bloqué : intervention humaine',BLOCKED_EXTERNAL:'Bloqué : dépendance externe',WAITING_PREREQUISITES:'En attente de prérequis',CODE_DELIVERED_UNVERIFIED:'Code livré, preuve finale manquante',ROADMAP_DEFINED:'Défini dans la roadmap'};
+  const passiveRoadmapPanel=passiveRoadmap===null
+    ?'<div class="muted">Catalogue roadmap non disponible sur cette version.</div>'
+    :'<details class="act-roadmap-passive" open><summary><strong>Objectifs roadmap à venir ('+esc(a.passive_roadmap.remaining)+')</strong> · '+esc(a.passive_roadmap.verified)+' vérifiés</summary>'
+      +'<div class="muted">Catalogue passif, distinct des missions D1 : aucun appel IA, aucune réservation de créneau. « Défini » ne signifie pas exécuté.</div>'
+      +'<div style="max-height:450px;overflow:auto;margin-top:8px" aria-label="Tous les objectifs non vérifiés de la roadmap">'
+      +passiveRoadmap.map(item=>'<div class="act-kv"><strong>'+esc(item.id)+'</strong> · '+esc(item.title)
+        +'<div class="muted">'+esc(item.priority||'')+' · '+esc(roadmapStateLabels[item.state]||item.state)
+        +(item.mission_status?' · D1 : '+esc(item.mission_status):' · pas de mission D1')
+        +(item.contract_defined?' · contrat technique défini':'')
+        +(item.unmet_prerequisites?.length?' · prérequis : '+item.unmet_prerequisites.map(esc).join(', '):'')
+        +'</div></div>').join('')+'</div></details>';
+
   h+=activitySection('Missions — En cours ('+executing.length+'/1) · À venir ('+fmtN(a.counts?.waiting)+')',
     '<div class="act-kv">'+Object.entries(by).map(([k,v])=>esc(k)+' : '+esc(v)).join(' · ')+'</div>'
-    +'<div class="act-queue-columns" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px"><div><strong>En cours ('+executing.length+'/1)</strong>'+(executing.length?'': '<div class="muted">Aucune mission en exécution</div>')+executing.map(j=>'<div class="act-kv">'+esc(j.roadmap_id||j.id)+' · '+esc(j.status)+'</div>').join('')+'</div><div><strong>À venir ('+fmtN(a.counts?.waiting)+')</strong><div class="muted">File passive : aucun appel IA, aucun jeton, aucun retry.</div>'+awaiting.map(j=>'<div class="act-kv">'+esc(j.roadmap_id||j.id)+' · '+esc(j.status)+'</div>').join('')+'</div></div>'
+    +'<div class="act-queue-columns" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px"><div><strong>En cours ('+executing.length+'/1)</strong>'+(executing.length?'': '<div class="muted">Aucune mission en exécution</div>')+executing.map(j=>'<div class="act-kv">'+esc(j.roadmap_id||j.id)+' · '+esc(j.status)+'</div>').join('')+'</div><div><strong>À venir ('+fmtN(a.counts?.waiting)+')</strong><div class="muted">File passive : aucun appel IA, aucun jeton, aucun retry.</div>'+awaiting.map(j=>'<div class="act-kv">'+esc(j.roadmap_id||j.id)+' · '+esc(j.status)+'</div>').join('')+passiveRoadmapPanel+'</div></div>'
     +(!jobsKnown?'<div class="muted">Historique d’activité non chargé.</div>':!a.jobs.length?'<div class="muted">Aucune activité récente observée.</div>':'')+(a.jobs||[]).filter(j=>j.queue_state!=='WAITING').slice(0,12).map(j=>{
       const steps=(j.pipeline||[]).map(s=>'<span class="act-step act-'+esc(s.state)+'" title="'+esc(s.label)+'">'+(s.state==='done'?'✓':s.state==='current'?'▶':s.state==='blocked'?'✕':'·')+' '+esc(s.label)+'</span>').join('');
       return '<details class="act-job"'+(['TEACHER_APPROVED','CLAIMED','APPLIED','TESTING','WAITING_TEACHER','PLANNING'].includes(j.status)?' open':'')+'><summary><b>'+esc(j.roadmap_id||j.id)+'</b> · '+esc(j.queue_state==='WAITING'?'EN ATTENTE'+(j.priority_penalty>0?' · priorité réduite':''):j.status)+' · <span class="muted">'+esc(j.origin)+' · màj '+esc(activityTime(j.updated_at))+'</span></summary>'
