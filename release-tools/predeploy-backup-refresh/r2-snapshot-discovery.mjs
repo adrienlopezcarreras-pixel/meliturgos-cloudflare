@@ -50,7 +50,11 @@ export async function discoverLatestEncryptedSnapshotKey({
   const endpoint = new URL('https://api.cloudflare.com/client/v4/accounts/'
     + accountId + '/r2/buckets/' + bucket + '/objects');
   endpoint.searchParams.set('prefix', 'backups/system/');
-  endpoint.searchParams.set('per_page', '100');
+  // The bucket also holds potentially thousands of nested R2 byte backups.
+  // Group those subdirectories instead of consuming the page budget before
+  // reaching root-level encrypted system snapshot envelopes.
+  endpoint.searchParams.set('delimiter', '/');
+  endpoint.searchParams.set('per_page', '1000');
   const seenCursors = new Set();
   let cursor = '';
   let best = null;
