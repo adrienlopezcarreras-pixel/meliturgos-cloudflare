@@ -1,6 +1,41 @@
 // Run from a system outside Cloudflare (for example GitHub Actions).
 // This is evidence gathering, NOT an automatic failover actuator.
 const DEFAULT_ATTEMPTS = 3;
+const MAX_HEALTH_RESPONSE_BYTES = 64 * 1024;
+
+// The heartbeat response is tiny. A public server, reverse proxy or
+// malicious endpoint may otherwise send an arbitrarily large body before
+// .text() finishes, exhausting the independent monitor's memory.
+async function checkHealthMarker(response, expectedText) {
+  const stream = response?.body;
+  if (!stream?.getReader) {
+    // Preserve the existing fetch stubs while bounding their result too.
+    if (typeof response?.text !== 'function') return {ok:false,code:'HEALTH_BODY_UNAVAILABLE'};
+    const body = await response.text();
+    const size = new TextEncoder().encode(String(body)).byteLength;
+    return size > MAX_HEALTH_RESPONSE_BYTES
+      ? {ok:false,code:'HEALTH_BODY_TOO_LARGE'}
+      : {ok:String(body).includes(expectedText),code:'EXPECTED_MARKER_NOT_FOUND'};
+  }
+  const reader = stream.getReader();
+  const decoder = new TextDecoder('utf-8', {fatal:true});
+  let total = 0, body = '';
+  try {
+    for (;;) {
+      const {done,value} = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_HEALTH_RESPONSE_BYTES)
+        return {ok:false,code:'HEALTH_BODY_TOO_LARGE'};
+      body += decoder.decode(value, {stream:true});
+    }
+    body += decoder.decode();
+    return {ok:body.includes(expectedText),code:'EXPECTED_MARKER_NOT_FOUND'};
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
 
 export function validateExternalHealthUrl(value) {
   try {
@@ -31,8 +66,10 @@ export async function probeExternalHealth(url, { fetchImpl = fetch, timeoutMs = 
     if (status >= 500) return { status: 'DOWN', code: 'HTTP_SERVER_FAILURE', http_status: status };
     if (status < 200 || status >= 300) return { status: 'DOWN', code: 'HTTP_NOT_OK', http_status: status };
     if (expectedText) {
-      const body = (await response.text()).slice(0, 100000);
-      if (!body.includes(expectedText)) return { status: 'UNKNOWN', code: 'EXPECTED_MARKER_NOT_FOUND', http_status: status };
+      let checked;
+      try { checked = await checkHealthMarker(response, expectedText); }
+      catch { return { status: 'UNKNOWN', code: 'HEALTH_BODY_UNREADABLE', http_status: status }; }
+      if (!checked.ok) return { status: 'UNKNOWN', code: checked.code, http_status: status };
     }
     return { status: 'UP', code: 'HTTP_REACHABLE', http_status: status };
   } catch {
