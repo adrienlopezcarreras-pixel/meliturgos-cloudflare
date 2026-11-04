@@ -59,7 +59,7 @@ for (const persistent of [false, true]) test(`error-ledger obeys the global MAX 
   } finally { db?.close(); }
 });
 
-for (const persistent of [false, true]) test(`concurrent MAX roadmap and error repair admits only one mission (${persistent ? 'D1' : 'memory'})`, async () => {
+for (const persistent of [false, true]) test(`concurrent MAX roadmap and error repair admits two passive missions but only one execution (${persistent ? 'D1' : 'memory'})`, async () => {
   const db = persistent ? sqliteD1() : null;
   try {
     const repo = new D1DevJobRepository(db);
@@ -70,9 +70,10 @@ for (const persistent of [false, true]) test(`concurrent MAX roadmap and error r
         optional_context: { source: 'error-ledger' } },
     ];
     const results = await Promise.allSettled(jobs.map(job => repo.create(job)));
-    assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
-    assert.equal((await repo.list()).length, 1);
-    const rejected = results.find(result => result.status === 'rejected');
-    assert.equal(rejected.reason.code, 'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE');
+    assert.equal(results.filter(result => result.status === 'fulfilled').length, 2);
+    assert.equal((await repo.list()).length, 2);
+    const claimed = await Promise.all(jobs.map(job => repo.claimQueuedAutonomy(job.id)));
+    assert.equal(claimed.filter(Boolean).length, 1, 'the atomic claim admits only one executor');
+    assert.equal((await repo.list()).filter(job => job.status === 'PLANNING').length, 1);
   } finally { db?.close(); }
 });

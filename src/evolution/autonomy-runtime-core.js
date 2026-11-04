@@ -791,6 +791,13 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   globalThis.__melTickStage = 'ensure-next-job';
   const ensured = await supervisor.ensureNextJob();
   let job = ensured.job;
+  // Admission into the passive D1 queue is not permission to run a model.
+  // Losing the atomic slot race means this tick does no fresh Council work.
+  if (job?.requested_by === 'mel-autonomy' && String(job.status || '').toUpperCase() === 'QUEUED') {
+    job = typeof jobRepository.claimQueuedAutonomy === 'function'
+      ? await jobRepository.claimQueuedAutonomy(job.id,{expected:job})
+      : null;
+  }
   const initialJobId = job?.id || null;
   const initialJobStatus = String(job?.status || '').toUpperCase() || null;
   const initialCompletedCount = Array.isArray(stateBefore?.completedIds) ? stateBefore.completedIds.length : 0;
@@ -918,7 +925,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     }
   }
 
-  if (job && ['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE', 'READY_FOR_REVIEW'].includes(String(job.status || '').toUpperCase())) {
+  if (job && ['PLANNING', 'CLAIMED', 'COUNCIL_COMPLETE', 'READY_FOR_REVIEW'].includes(String(job.status || '').toUpperCase())) {
     try {
       globalThis.__melTickStage = 'council-teacher';
       teacher = await prepareAutonomyTeacherRequest({ env, repository: jobRepository, job, fetchImpl });
@@ -960,13 +967,15 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         const retryAt = isCooldown && Number.isFinite(requestedRetry)
           ? Math.max(now + 1_000, Math.min(now + 30 * 60_000, requestedRetry))
           : deferred.retry_after;
+        const councilDeferral = boundedCouncilDeferral({ job: latest, deferred, retryAt, freshAttempts, now });
         await jobRepository.update(job.id, {
+          // A claimed PLANNING mission must release the lane after three
+          // review windows, preserving its proof and lower-priority requeue.
+          ...(councilDeferral.exhausted ? { status: 'QUEUED' } : {}),
           result_json: {
             ...latest.result_json,
             ...(staleCouncilDeferral(latest) ? { council_previous_policy_failure: { deferral: latest.result_json?.autonomy_deferral, attempts: latest.result_json?.council_model_attempts || [], exclusions: latest.result_json?.council_model_exclusions || [] } } : {}),
-            autonomy_deferral: boundedCouncilDeferral({
-              job: latest, deferred, retryAt, freshAttempts, now,
-            }),
+            autonomy_deferral: councilDeferral,
             council_model_attempts: attempts,
             council_model_exclusions: [...quarantine.values()].slice(0, 40),
             ...(isCooldown ? { council_provider_cooldown: {

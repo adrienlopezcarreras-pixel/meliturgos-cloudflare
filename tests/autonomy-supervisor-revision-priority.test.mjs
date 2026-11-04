@@ -49,7 +49,7 @@ test('a requeued internal Teacher revision outruns an unrelated owner preflight'
   const selected = await supervisor.ensureNextJob();
   assert.equal(selected.created, false);
   assert.equal(selected.job.id, 'mel-autonomy-gen2-17-1');
-  assert.equal(selected.job.status, 'QUEUED');
+  assert.equal(selected.job.status, 'PLANNING');
   assert.equal((await repository.get(owner.id)).status, owner.status);
 });
 
@@ -68,7 +68,7 @@ test('a branch-mismatch revision outruns an already CLAIMED owner preflight matc
   const selected = await supervisor.ensureNextJob();
   assert.equal(selected.created, false);
   assert.equal(selected.job.id, 'mel-autonomy-gen2-17-1');
-  assert.equal(selected.job.status, 'QUEUED');
+  assert.equal(selected.job.status, 'PLANNING', 'the selected queued mission now acquires the execution lane');
   assert.equal((await repository.get(owner.id)).status, 'CLAIMED');
 });
 

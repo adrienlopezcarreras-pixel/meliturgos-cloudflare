@@ -603,7 +603,7 @@ test('insufficient Council responses defer the same mission without consuming ru
   const jobs = await fixture.repository.list();
   assert.equal(jobs.length, 1);
   const pending = jobs[0];
-  assert.equal(pending.status, 'QUEUED');
+  assert.equal(pending.status, 'PLANNING', 'a bounded Council deferral retains the claimed lane');
   assert.equal(pending.result_json.runtime_retry, undefined);
   assert.equal(pending.result_json.autonomy_deferral.code, 'COUNCIL_INSUFFICIENT_RESPONSES');
   assert.ok(pending.result_json.autonomy_deferral.retry_after > Date.now());
@@ -664,7 +664,7 @@ test('first QUEUED mission retains real Council failure evidence during provider
   // The Council-specific no-invocation contract is tested at its adapter
   // boundary; the persisted Council trace must stay unchanged below.
   const waiting = await fixture.repository.get(persisted.id);
-  assert.equal(waiting.status, 'QUEUED');
+  assert.equal(waiting.status, 'PLANNING', 'Council cooldown retains its in-flight mission without a second claim');
   assert.deepEqual(waiting.result_json.council_model_attempts, failures);
   assert.equal(waiting.result_json.council_provider_cooldown.status, 'WAITING_FOR_AUTHORIZED_PROVIDERS');
   const validExpirations = [...exclusions].map(row => row.until).sort((a,b) => a-b);

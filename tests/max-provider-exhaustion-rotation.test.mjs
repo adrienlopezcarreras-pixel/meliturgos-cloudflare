@@ -40,6 +40,8 @@ for (const storage of ['memory', 'sqlite']) test(`provider exhaustion rotates sa
   assert.equal((await repository.get(parkedId)).status, 'TEACHER_APPROVED');
   assert.equal((await repository.get(parkedId)).result_json.autonomy_deferral.attempts, 3);
   assert.equal((await supervisor.ensureNextJob()).job.id, next.job.id);
+  const claimed = await repository.claimQueuedAutonomy(next.job.id, { expected: next.job });
+  assert.equal(claimed?.status, 'PLANNING', 'only a claimed mission reserves the lane');
   await assert.rejects(
     () => repository.create({ id: 'mel-autonomy-mel-manifest-03-manual',
       requested_by: 'mel-autonomy', goal: 'Third objective',
@@ -98,8 +100,9 @@ test('D1 NULL deferral never bypasses the atomic admission fence', async t => {
   const DB = sqliteD1();
   t.after(() => DB.close());
   const repository = new D1DevJobRepository(DB);
-  await repository.create({ id: 'active-without-deferral', requested_by: 'mel-autonomy',
+  const active = await repository.create({ id: 'active-without-deferral', requested_by: 'mel-autonomy',
     goal: 'Running a real roadmap item', optional_context: { roadmap_id: 'MEL-MANIFEST-01' } });
+  assert.equal((await repository.claimQueuedAutonomy(active.id,{expected:active}))?.status,'PLANNING');
   await assert.rejects(() => repository.create({
     id: 'must-not-run-parallel', requested_by: 'mel-autonomy',
     goal: 'Second job', optional_context: { roadmap_id: 'MEL-MANIFEST-02' },
@@ -179,6 +182,8 @@ for (const storage of ['memory', 'sqlite']) test(`changed parked context cannot 
   const replacement = await supervisor.ensureNextJob();
   assert.equal(replacement.created, true);
   assert.equal(replacement.job.optional_context.roadmap_id, 'MEL-MANIFEST-02');
+  const successor = await repository.claimQueuedAutonomy(replacement.job.id, { expected: replacement.job });
+  assert.equal(successor?.status, 'PLANNING', 'passive QUEUED does not reserve an execution lane');
 
   const previous = await repository.get(firstId);
   await repository.update(firstId, { result_json: {
@@ -205,6 +210,9 @@ for (const storage of ['memory', 'sqlite']) test(`bounded cloud policy reopens a
   const repository = new D1DevJobRepository(DB, { memoryStore: new Map() });
   const original = await repository.create({ id: 'old-unbounded-council', requested_by: 'mel-autonomy',
     goal: '[MEL-MANIFEST-01] Recover bounded Cloud review', optional_context: { roadmap_id: 'MEL-MANIFEST-01' } });
+  // A passive QUEUED row is not an active lease: acquire PLANNING before
+  // asserting that another autonomous objective cannot take the lane.
+  assert.equal((await repository.claimQueuedAutonomy(original.id, { expected: original }))?.status, 'PLANNING');
   const old = { code: 'COUNCIL_INSUFFICIENT_RESPONSES', phase: 'council', context: providerRetryContext(original),
     attempts: 3, max_attempts: 3, exhausted: true, retry_after: Date.now() + 600_000 };
   await repository.update(original.id, { result_json: { autonomy_deferral: old } });

@@ -126,6 +126,9 @@ for (const storage of ['memory', 'sqlite']) {
     } });
     const active = await repository.create({ id: 'active', requested_by: 'mel-autonomy', goal: 'independent',
       optional_context: { roadmap_id: 'TEST-FOUNDATION' } });
+    // QUEUED is passive; only a claimed PLANNING row occupies the execution slot.
+    const claimed = await repository.claimQueuedAutonomy(active.id, { expected: active });
+    assert.equal(claimed?.status, 'PLANNING');
     assert.equal(await repository.resumeWaitingDependency(blocked.id), null);
     assert.equal((await repository.get(blocked.id)).status, 'WAITING_DEPENDENCY');
     await repository.update(active.id, { status: 'COMPLETED' });

@@ -171,6 +171,8 @@ test('a transient core failure is attributed to the current job, then resumes it
   try {
     const old = await f.oldJob('old-approved', 'CANCELLED');
     const current = await f.repository.create({ id: 'current-queued', requested_by: 'mel-autonomy', goal: 'current work', optional_context: { roadmap_id: ROADMAP[0].id } });
+    // The transient read belongs to an actual executor, not a passive QUEUED row.
+    assert.equal((await f.repository.claimQueuedAutonomy(current.id, { expected: current }))?.status, 'PLANNING');
     let reads = 0;
     const repository = Object.create(f.repository);
     repository.list = async () => {
