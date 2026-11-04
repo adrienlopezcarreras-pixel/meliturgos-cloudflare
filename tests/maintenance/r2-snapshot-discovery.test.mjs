@@ -119,8 +119,8 @@ test('manual main-branch restore stays read-only and runs targeted checks withou
   const workflow=await readFile(new URL('../../.github/workflows/mel-res-05-encrypted-backup-ci.yml',import.meta.url),'utf8');
   assert.match(workflow,/if: github\.event_name == 'pull_request'\n\s+run: npm test/);
   assert.match(workflow,/schedule:\n\s+- cron: '23 3 \* \* \*'/);
-  assert.match(workflow,/group: mel-res-05-\\$\\{\\{ github\\.event\\.pull_request\\.number \\|\\| github\\.ref \\}\\}/);
-  assert.match(workflow,/cancel-in-progress: \\$\\{\\{ github\\.event_name == 'pull_request' \\}\\}/);
+  assert.match(workflow,/group: mel-res-05-\$\{\{ github\.event\.pull_request\.number \|\| github\.ref \}\}/);
+  assert.match(workflow,/cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}/);
   assert.match(workflow,/isolated-snapshot-restore:\n\s+if: \(github\.event_name == 'workflow_dispatch' \|\| github\.event_name == 'schedule'\) && github\.ref == 'refs\/heads\/main'/);
   assert.match(workflow,/concurrency:\n\s+group: mel-isolated-snapshot-restore\n\s+cancel-in-progress: false/);
   assert.match(workflow,/MEL_RESTORE_SNAPSHOT_KEY: \$\{\{ inputs\.snapshot_key \}\}/);
