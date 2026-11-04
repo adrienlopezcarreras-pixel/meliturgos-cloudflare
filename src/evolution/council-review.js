@@ -206,7 +206,12 @@ export function sensitiveDiff(diff) {
 }
 
 export async function runCouncilReview(env, { diff, goal = '', models = null, timeoutMs = 120_000, now = Date.now(), attempts = 0, system = SYSTEM, companion = createMentorCompanionFallback } = {}) {
-  const user = 'Objectif annoncé : ' + String(goal || '(non fourni)').slice(0, 1500) + '\n\nDIFF :\n' + String(diff || '').slice(0, MAX_DIFF);
+  const completeDiff = String(diff || '');
+  // A partial diff can NEVER be approved as the complete candidate SHA.
+  // Larger changes require the separate, independently voted batch protocol.
+  if (new TextEncoder().encode(completeDiff).byteLength > MAX_DIFF)
+    return { decision: 'COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT', reviews: [] };
+  const user = 'Objectif annoncé : ' + String(goal || '(non fourni)').slice(0, 1500) + '\n\nDIFF :\n' + completeDiff;
   const health = await readModelHealth(env);
   const catalog = Array.isArray(models) && models.length ? models : orderCouncilModels(freeCouncilCatalog(env), health, now);
   const reviews = [];
