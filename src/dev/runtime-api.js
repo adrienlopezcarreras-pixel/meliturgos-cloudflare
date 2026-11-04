@@ -369,6 +369,27 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
       return Response.json(await repo.update(job.id, { plan_json: { ...existingPlan, legacy_dev_agent: await agent.plan(diagnosis) }, status: 'CLAIMED' }));
     }
 
+    if (path === '/api/dev-bridge/precommit' && request.method === 'POST') {
+      // The cloud Bridge may hold a CLAIM across an explicit owner STOP.
+      // Revalidate the persisted stop immediately before its candidate push.
+      // A failure is a veto, never permission to continue writing.
+      if (!oidcBridge) return Response.json({ ok: false, code: 'PRECOMMIT_OIDC_REQUIRED' }, { status: 403 });
+      const jobId = String(body?.job_id || '').trim();
+      if (!jobId) return Response.json({ ok: false, code: 'PRECOMMIT_JOB_ID_REQUIRED' }, { status: 422 });
+      const job = await repo.get(jobId);
+      if (!job || job.status !== 'CLAIMED' || job?.result_json?.bridge_preparation?.status !== 'READY')
+        return Response.json({ ok: false, code: 'PRECOMMIT_JOB_NOT_CLAIMED_READY' }, { status: 409 });
+      if (job.requested_by === 'mel-autonomy') {
+        let control;
+        try { control = await getAutonomyControl(env.DB); }
+        catch { return Response.json({ ok: false, code: 'AUTONOMY_PAUSE_CHECK_FAILED' }, { status: 503 }); }
+        const actualPause = control?.paused === true && control?.source !== 'default-d1-fail-closed';
+        if (actualPause || isLegacyOwnerMaxStop(control))
+          return Response.json({ ok: false, code: 'AUTONOMY_OWNER_STOP_PAUSED' }, { status: 409 });
+      }
+      return Response.json({ ok: true, code: 'PRECOMMIT_ALLOWED', job_id: jobId }, { headers: { 'cache-control': 'no-store' } });
+    }
+
     if (path === '/api/dev-bridge/result' && request.method === 'POST') {
       const job = await repo.get(body.job_id);
       requireValue(job, 'JOB_NOT_FOUND', 404);
