@@ -14,3 +14,19 @@ const epoch=Number((await read("SELECT last_seen FROM dev_bridge_state WHERE bri
 const rows=raw.map(row=>{for(const key of ['optional_context','files_json','result_json'])row[key]=JSON.parse(row[key]);return row;});
 const accepted=rows.filter(isAcceptedRoadmapCodeJob);
 console.log(JSON.stringify({rows_written:0,receipt_count:rows.length,accepted_count:accepted.length,accepted_before_activity_reset:accepted.filter(row=>row.created_at<epoch).map(row=>row.optional_context.roadmap_id),accepted_after_activity_reset:accepted.filter(row=>row.created_at>=epoch).map(row=>row.optional_context.roadmap_id)}));
+const handoffs=await read(`SELECT json_extract(i.value,'$.handoff.status') AS handoff_status,
+ json_extract(i.value,'$.handoff.closed') AS closed,
+ json_extract(i.value,'$.handoff.retryable') AS retryable,
+ CASE WHEN json_extract(i.value,'$.handoff.code') IN ('TEACHER_REQUEST_STALE_SHA','COUNCIL_INSUFFICIENT_RESPONSES','ACTIVITY_LIST_RESET') THEN json_extract(i.value,'$.handoff.code') ELSE 'OTHER_OR_NONE' END AS handoff_code,
+ CASE WHEN length(COALESCE(json_extract(i.value,'$.handoff.teacher_request_id'),''))>0 THEN 1 ELSE 0 END AS has_teacher_request,
+ j.status AS canonical_job_status,
+ json_extract(j.optional_context,'$.roadmap_id') AS roadmap_id,
+ json_extract(j.result_json,'$.teacher_bridge.status') AS teacher_status,
+ json_extract(j.result_json,'$.teacher_bridge.review.verdict') AS verdict,
+ json_extract(j.result_json,'$.autonomy_completion.status') AS completion_status,
+ json_extract(j.result_json,'$.autonomy_completion.ci.conclusion') AS ci_conclusion,
+ json_extract(i.value,'$.owner_decision.decided_at') AS owner_decided_at
+ FROM capability_watch_state s,json_each(s.state_json,'$.items') i
+ LEFT JOIN dev_jobs j ON j.id=json_extract(i.value,'$.handoff.job_id')
+ WHERE s.id='ecosystem-discoveries-canonical' AND json_type(i.value,'$.handoff')='object' LIMIT 50`);
+console.log(JSON.stringify({schema:'mel.handoff-diagnostic-readonly/v1',rows_written:0,handoffs}));
