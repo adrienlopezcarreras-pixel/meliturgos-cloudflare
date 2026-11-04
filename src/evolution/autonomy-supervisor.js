@@ -171,6 +171,16 @@ function revisionContinuationRank(job) {
   return internalRevision ? 0 : 1;
 }
 
+// Legacy requeues without a new queue marker still count as a later pass
+// when they contain evidence from a previous Council/Teacher attempt.
+export function autonomyQueueRound(job) {
+  if (String(job?.status || '').toUpperCase() !== 'QUEUED') return 0;
+  const explicit = Number(job?.result_json?.autonomy_queue?.round);
+  if (Number.isSafeInteger(explicit) && explicit >= 2) return explicit;
+  return job?.plan_json?.preflight || job?.result_json?.teacher_bridge
+    || job?.result_json?.last_teacher_review ? 2 : 1;
+}
+
 function activeJobRank(job) {
   // Passive jobs stay persisted and untouched but cannot starve another job
   // that can genuinely advance. Implementation-ready work outranks preflight;
@@ -180,6 +190,7 @@ function activeJobRank(job) {
     passive: isPassiveRuntimeJob(job) ? 1 : 0,
     category: autonomyQueueCategory(job),
     executionReady: executionReadyRank(job),
+    queueRound: autonomyQueueRound(job),
     revisionContinuation: revisionContinuationRank(job),
     requester: job?.requested_by === 'owner-chat' ? 0 : 1,
     createdAt: Number(job?.created_at || 0),
@@ -192,6 +203,7 @@ function compareActiveJobs(left, right) {
   return a.passive - b.passive
     || a.category - b.category
     || a.executionReady - b.executionReady
+    || a.queueRound - b.queueRound
     || a.revisionContinuation - b.revisionContinuation
     || a.requester - b.requester
     || a.createdAt - b.createdAt
@@ -232,10 +244,11 @@ export function manifestObjective(roadmap = flattenRoadmap()) {
     .slice(0, 900);
 }
 
-export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedIds = [], verifiedIds = [], blockedIds = [], activeIds = [] } = {}) {
+export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedIds = [], verifiedIds = [], blockedIds = [], activeIds = [], attemptedIds = [] } = {}) {
   const completed = new Set(completedIds);
   const blocked = new Set(blockedIds);
   const active = new Set(activeIds);
+  const attempted = new Set(attemptedIds);
   const rank = (a, b) => score(a) - score(b) || String(a.id).localeCompare(String(b.id));
   const open = roadmap
     .filter((item) => item && item.id)
@@ -246,9 +259,13 @@ export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedId
     .filter((item) => !completed.has(item.id) || String(item.status).toUpperCase() === 'REGRESSED');
   // A live mission stays excluded. A prepared package is only eligible once
   // every item that has not spent its attempt budget is already taken.
-  return open.filter((item) => !blocked.has(item.id)).sort(rank)[0]
-    || open.filter((item) => blocked.has(item.id) && preparedBypassesExhaustion(item.id)).sort(rank)[0]
+  // FIRST PASS: every eligible never-attempted objective comes before a retry.
+  // Revisit failed/parked prepared work only after fresh eligible work is gone.
+  const fresh = open.filter(item => !attempted.has(item.id));
+  const pick = items => items.filter(item => !blocked.has(item.id)).sort(rank)[0]
+    || items.filter(item => blocked.has(item.id) && preparedBypassesExhaustion(item.id)).sort(rank)[0]
     || null;
+  return pick(fresh) || pick(open);
 }
 
 // A capability-watch discovery cites GEN2-42 as its origin, not as the item it
@@ -362,6 +379,9 @@ export class AutonomySupervisor {
         failedAttemptsByRoadmap.set(id, Math.max(failedAttemptsByRoadmap.get(id) || 0, Number(count) || 0));
       }
     }
+    const attemptedIds = typeof this.repository.attemptedAutonomyRoadmapIds === 'function'
+      ? await this.repository.attemptedAutonomyRoadmapIds()
+      : supervisedJobs.map(roadmapIdFromJob).filter(Boolean);
     const retryExhaustedIds = [...failedAttemptsByRoadmap.entries()]
       .filter(([, attempts]) => attempts >= MAX_AUTONOMOUS_ROADMAP_ATTEMPTS)
       .map(([roadmapId]) => roadmapId);
@@ -372,6 +392,7 @@ export class AutonomySupervisor {
       verifiedIds: verifiedDependencyIds,
       blockedIds,
       activeIds,
+      attemptedIds,
     });
     if (!next && this.evolutionLoader && this.roadmap.every(row => verifiedRoadmapIds.has(row.id))) {
       const items = evolutionItems === null ? await readEvolution() : approvedEvolutionRoadmap(evolutionItems);
@@ -484,6 +505,9 @@ export class AutonomySupervisor {
     }
     if (this.onlyJobId) {
       const wanted = current.active.find(job => job.id === this.onlyJobId) || null;
+      if (wanted?.requested_by === 'mel-autonomy' && autonomyQueueRound(wanted) >= 2 && current.next)
+        return { created:false, job:null, next:current.next, complete:false,
+          external_progress:{ job_id:wanted.id, status:'QUEUED_SECOND_PASS_PENDING' } };
       const holder = singleFlightAutonomyMission(current.active);
       if (this.singleFlight && wanted?.requested_by === 'mel-autonomy' && holder?.id !== wanted.id) {
         return { created: false, job: null, next: current.next, complete: false,
@@ -538,13 +562,18 @@ export class AutonomySupervisor {
       }
       return { created: false, job: activeInternal, next: current.next };
     }
-    if (actionable) return { created: false, job: actionable, next: current.next };
+    // QUEUED is passive and does not hold the execution slot. A requeued
+    // mission is never selected before all still-eligible first passes.
+    if (actionable && !(actionable.requested_by === 'mel-autonomy'
+        && autonomyQueueRound(actionable) >= 2 && current.next))
+      return { created: false, job: actionable, next: current.next };
 
     // Never materialize another roadmap job while an existing internal
     // objective is still active, even when its external lane is passive.
     // Keep the old selection/owner-priority semantics for the active job.
     const inFlightInternal = current.active
-      .filter(job => job.requested_by === 'mel-autonomy' && !isRotatableProviderExhaustion(job))
+      .filter(job => job.requested_by === 'mel-autonomy'
+        && String(job.status || '').toUpperCase() !== 'QUEUED' && !isRotatableProviderExhaustion(job))
       .sort(compareActiveJobs)[0] || null;
     if (this.singleFlight && inFlightInternal) {
       if (String(inFlightInternal.status || '').toUpperCase() === 'COMMITTED') {
