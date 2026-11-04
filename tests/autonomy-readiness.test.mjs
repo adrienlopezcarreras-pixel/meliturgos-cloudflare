@@ -475,3 +475,24 @@ test('a revoked or uncorrelated Teacher review cannot certify verified CI comple
     assert.equal(readiness.self_development_ready, false);
   }
 });
+
+// MEL-MANIFEST-01: computed priority ledger.
+test('manifest priorities are computed from proofs, business indicators stay report data and absent hardware stays external', async () => {
+  const { manifest01FoundationPrerequisites, MANIFEST_01_FOUNDATION } = await import('../src/roadmap/manifest-01-acceptance.js');
+  const roadmap = MANIFEST_01_FOUNDATION.map(row => ({ id: row.roadmap_id, status: 'PLANNED',
+    ...(row.priority === 4 ? { external_acceptance: { status: 'BLOCKED_HUMAN' } } : {}) }));
+  const indicators = ['revenu', 'clients', 'missions', 'disponibilité', 'satisfaction', 'sixième'].map((id, value) => ({ id, value }));
+  const report = manifest01FoundationPrerequisites(roadmap, {
+    verifiedIds: ['MEL-FOUNDER-01', 'MEL-FOUNDER-04', 'MEL-FOUNDER-06'], businessIndicators: indicators });
+  assert.deepEqual(report.priorities.map(row => row.roadmap_id), MANIFEST_01_FOUNDATION.map(row => row.roadmap_id), 'five founder priorities only');
+  assert.equal(report.business_indicators.length, 5);
+  assert.ok(report.business_indicators.every(row => row.kind === 'REPORT_DATA'));
+  assert.ok(!report.priorities.some(row => indicators.some(indicator => indicator.id === row.roadmap_id)), 'an indicator is never a priority');
+  const byId = Object.fromEntries(report.priorities.map(row => [row.roadmap_id, row]));
+  assert.equal(byId['MEL-FOUNDER-01'].verified, true, 'computed from the accepted receipt');
+  assert.equal(byId['MEL-FOUNDER-02'].verified, false);
+  assert.equal(byId['MEL-FOUNDER-06'].verified, false, 'a software receipt never certifies absent hardware');
+  assert.equal(byId['MEL-FOUNDER-06'].reason, 'PHYSICAL_DEVICE_PROOF_REQUIRED');
+  assert.equal(byId['MEL-FOUNDER-06'].blocking, false);
+  assert.deepEqual(report.blocking_pending.map(row => row.roadmap_id), ['MEL-FOUNDER-02', 'MEL-FOUNDER-03']);
+});

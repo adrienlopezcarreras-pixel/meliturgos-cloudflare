@@ -11,12 +11,17 @@ export const MANIFEST_01_FOUNDATION = Object.freeze([
   Object.freeze({ priority: 4, roadmap_id: 'MEL-FOUNDER-06', proof: 'REAL_DEVICE_ACCEPTANCE', blocking: false }),
 ]);
 
-export function manifest01FoundationPrerequisites(roadmap = flattenRoadmap()) {
+// MEL-MANIFEST-01: statuses come from proofs. `verifiedIds` are roadmap ids
+// holding an accepted exact-SHA code receipt; business indicators (at most
+// five) are report data only and can never become a priority.
+export function manifest01FoundationPrerequisites(roadmap = flattenRoadmap(), { verifiedIds = [], businessIndicators = [] } = {}) {
+  const proven = new Set(Array.isArray(verifiedIds) ? verifiedIds : []);
   const items = new Map((Array.isArray(roadmap) ? roadmap : []).map(item => [item?.id, item]));
   const priorities = MANIFEST_01_FOUNDATION.map(requirement => {
     const found = items.get(requirement.roadmap_id);
     const status = String((requirement.priority === 4 ? found?.external_acceptance?.status : null) || found?.status || 'NOT_FOUND').trim().toUpperCase();
-    const verified = status === ROADMAP_STATUSES.VERIFIED;
+    // Physical acceptance (P4) is never satisfied by a software receipt.
+    const verified = status === ROADMAP_STATUSES.VERIFIED || (requirement.priority !== 4 && proven.has(requirement.roadmap_id));
     return {
       ...requirement,
       status,
@@ -49,6 +54,8 @@ export function manifest01FoundationPrerequisites(roadmap = flattenRoadmap()) {
     required_count: MANIFEST_01_FOUNDATION.length,
     blocking_required_count: priorities.filter(row => row.blocking).length,
     priorities,
+    business_indicators: (Array.isArray(businessIndicators) ? businessIndicators : []).slice(0, 5)
+      .map(row => ({ id: String(row?.id || ''), value: row?.value ?? null, kind: 'REPORT_DATA' })),
     pending: pending.map(({ priority, roadmap_id, reason, blocking }) => ({ priority, roadmap_id, reason, blocking })),
     blocking_pending: blockingPending.map(({ priority, roadmap_id, reason }) => ({ priority, roadmap_id, reason })),
     nonblocking_pending: nonblockingPending.map(({ priority, roadmap_id, reason }) => ({ priority, roadmap_id, reason })),
