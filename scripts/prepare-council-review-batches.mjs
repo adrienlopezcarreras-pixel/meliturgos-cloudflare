@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// Content-free manifest for independent Council reviewers. Never approves.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { planCouncilDiffBatches } from '../src/evolution/council-diff-batches.js';
