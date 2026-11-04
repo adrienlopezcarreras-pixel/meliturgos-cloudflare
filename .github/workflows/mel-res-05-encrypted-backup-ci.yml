@@ -1,6 +1,10 @@
 name: MEL-RES-05 encrypted backup CI
 
 on:
+  # Autonomous, read-only recovery drill on the default branch. The job
+  # decrypts and restores into isolated temporary storage, never production.
+  schedule:
+    - cron: '23 3 * * *'
   pull_request:
     paths:
       - "src/backup/**"
@@ -44,15 +48,15 @@ jobs:
       - name: Normalize branch for candidate-only integration tests
         run: git checkout -B candidate/mel-res-05-encrypted-backup-ci "$(git rev-parse HEAD)"
       - name: Full regression suite
-        # A manual read-only drill runs targeted restore tests, syntax and the
-        # security gate. PR validation retains the complete regression suite.
-        if: github.event_name != 'workflow_dispatch'
+        # Both scheduled and manually initiated isolated drills run bounded
+        # targeted tests and the security gate. PR validation stays exhaustive.
+        if: github.event_name == 'pull_request'
         run: npm test
       - name: Runtime dependency security gate
         run: node scripts/runtime-security-gate.mjs
 
   isolated-snapshot-restore:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && github.ref == 'refs/heads/main'
     needs: encrypted-backup
     runs-on: ubuntu-latest
     timeout-minutes: 60
