@@ -93,8 +93,11 @@ export function decide(reviews) {
   const seen = new Set();
   for (const review of Array.isArray(reviews) ? reviews : []) {
     const model = String(review?.model || '').trim().toLowerCase();
-    // An unidentified reply cannot establish an independent Council vote.
-    if (!model || seen.has(model)) continue;
+    // Missing identity is an unanswered Council seat, not an approval.
+    // Preserve it in the quorum denominator so two real votes cannot turn
+    // four attempted reviews into a fake unanimous two-model Council.
+    if (!model) { convened.push({}); continue; }
+    if (seen.has(model)) continue;
     seen.add(model);
     convened.push(review);
   }
