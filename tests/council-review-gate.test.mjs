@@ -5,7 +5,7 @@ import { parseVerdict, decide, runCouncilReview, orderCouncilModels, freeCouncil
 
 test('council verdicts and majority rule', async () => {
   assert.equal(parseVerdict('x {"verdict":"approve"} y').verdict, 'APPROVE');
-  const A = { verdict: 'APPROVE' }, R = { verdict: 'REJECT' }, N = { verdict: null };
+  const A = { verdict: 'APPROVE', summary: 'validated' }, R = { verdict: 'REJECT', summary: 'unsafe' }, N = { verdict: null };
   assert.equal(decide([A, A, R, N]), 'INSUFFICIENT_REVIEWERS');
   assert.equal(decide([A, R, R, A]), 'REJECTED');
   assert.equal(decide([A, N, N, N]), 'INSUFFICIENT_REVIEWERS');
@@ -25,10 +25,19 @@ test('council verdicts and majority rule', async () => {
     { model: '@cf/openai/gpt-oss-120b', verdict: 'APPROVE' },
     { model: '@cf/openai/gpt-oss-120b', verdict: 'APPROVE' },
   ]), 'INSUFFICIENT_REVIEWERS');
+  // Different models cannot approve without an actual reason.
   assert.equal(decide([
     { model: '@cf/openai/gpt-oss-120b', verdict: 'APPROVE' },
     { model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', verdict: 'APPROVE' },
+  ]), 'INSUFFICIENT_REVIEWERS');
+  assert.equal(decide([
+    { model: '@cf/openai/gpt-oss-120b', verdict: 'APPROVE', summary: 'security checked' },
+    { model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', verdict: 'APPROVE', summary: 'tests checked' },
   ]), 'APPROVED');
+  assert.equal(decide([
+    { model: '@cf/openai/gpt-oss-120b', verdict: 'APPROVE', summary: 'security checked' },
+    { model: '@CF/OPENAI/GPT-OSS-120B', verdict: 'APPROVE', summary: 'same model, another case' },
+  ]), 'INSUFFICIENT_REVIEWERS');
   assert.equal(decide([
     { model: 'a', verdict: 'APPROVE', summary: '' },
     { model: 'b', verdict: 'APPROVE', summary: '   ' },
