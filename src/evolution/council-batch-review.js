@@ -69,7 +69,7 @@ export async function handleCouncilBatchedReview(env,body,{
     const prior=await load(env.DB,key);
     if(prior && (prior.sha256!==sha||prior.count!==count||prior.total!==total
         ||prior.files!==files||prior.head!==head||prior.base!==base
-        ||prior.root!==root||prior.diff!==body.diff||prior.audit_only!==auditOnly))
+        ||prior.root!==root||prior.diff!==body.diff||(prior.audit_only===true)!==auditOnly))
       return reject('COUNCIL_BATCH_IMMUTABLE_CONFLICT',409);
     // Legacy or corrupted cached votes may lack the two independent,
     // reasoned approvals that current releases require. Never trust the
@@ -98,7 +98,7 @@ export async function handleCouncilBatchedReview(env,body,{
     const row=await load(env.DB,keyFor(head,base,root,i,auditOnly));
     if(!row||row.head!==head||row.base!==base||row.root!==root
       ||row.count!==count||row.total!==total||row.files!==files||row.index!==i
-      ||row.audit_only!==auditOnly
+      ||(row.audit_only===true)!==auditOnly
       ||row.decision!=='APPROVED'||!Array.isArray(row.reviews)
       ||!independentQuorum(row.reviews))
       return reject('COUNCIL_BATCH_REVIEWS_INCOMPLETE',409);
@@ -115,11 +115,11 @@ export async function handleCouncilBatchedReview(env,body,{
   const key=(auditOnly?'council-postmerge-review:':'council-review:')+head;
   const previous=await load(env.DB,key);
   if(previous && (previous.root_sha256!==root||previous.base!==base
-      ||previous.batch_count!==count||previous.audit_only!==auditOnly))return reject('COUNCIL_FINAL_REVIEW_CONFLICT',409);
+      ||previous.batch_count!==count||(previous.audit_only===true)!==auditOnly))return reject('COUNCIL_FINAL_REVIEW_CONFLICT',409);
   // Re-validate the whole cache, including distinct independent reviewers,
   // immutable batch hashes and metadata. An old bare APPROVED must be re-voted.
   const cacheProven=previous?.mode==='COMPLETE_INDEPENDENT_MULTI_BATCH_REVIEW'
-    && previous.audit_only===auditOnly
+    && (previous.audit_only===true)===auditOnly
     && previous.file_count===files && previous.total_bytes===total
     && Array.isArray(previous.batch_hashes) && previous.batch_hashes.length===count
     && previous.batch_hashes.every((hash,i)=>hash===records[i].sha256)
