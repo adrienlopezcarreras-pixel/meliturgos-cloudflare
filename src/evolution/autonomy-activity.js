@@ -340,8 +340,10 @@ export function buildPassiveRoadmapCatalog(roadmap = flattenRoadmap(), jobs = []
   const rows = Array.isArray(roadmap) ? roadmap : [];
   const verifiedIds = new Set(rows.filter(row => isClosedRoadmapStatus(row?.status)).map(row => row.id));
   for (const job of jobs) {
-    if (isAcceptedRoadmapCodeJob(job) && job?.optional_context?.roadmap_id) {
-      verifiedIds.add(job.optional_context.roadmap_id);
+    const acceptedId = job?.optional_context?.roadmap_id;
+    if (acceptedId && isAcceptedRoadmapCodeJob(job)
+        && !rows.some(row => row.id === acceptedId && String(row.status || '').toUpperCase() === 'REGRESSED')) {
+      verifiedIds.add(acceptedId);
     }
   }
   const latestJobs = new Map();
