@@ -81,11 +81,12 @@ export function boundedCouncilDeferral({ job, deferred, retryAt, freshAttempts =
     retry_after: stillInWindow ? previousRetryAt : retryAt };
 }
 
-// One persisted mission owns the whole Council -> Teacher -> Bridge -> delivery
-// lifecycle. Every executor and the activity feed use this same ordering.
+// QUEUED has no execution lease. It is re-selected by the canonical roadmap
+// scheduler, then atomically claimed as PLANNING before a model can be called.
+// Only a claimed mission owns the Council -> Teacher -> Bridge lifecycle.
 export function singleFlightAutonomyMission(jobs = []) {
   return jobs.filter(job => job?.requested_by === 'mel-autonomy'
-    && !['COMPLETED','CANCELLED','FAILED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED','WAITING_DEPENDENCY'].includes(String(job.status).toUpperCase())
+    && !['COMPLETED','CANCELLED','FAILED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED','WAITING_DEPENDENCY','QUEUED'].includes(String(job.status).toUpperCase())
     && !isRotatableProviderExhaustion(job))
     .sort((a,b)=>Number(Boolean(a.result_json?.autonomy_deferral?.exhausted && typeof a.result_json.autonomy_deferral.context === 'string' && a.result_json.autonomy_deferral.context !== providerRetryContext(a)))
       - Number(Boolean(b.result_json?.autonomy_deferral?.exhausted && typeof b.result_json.autonomy_deferral.context === 'string' && b.result_json.autonomy_deferral.context !== providerRetryContext(b)))
@@ -95,7 +96,7 @@ export function singleFlightAutonomyMission(jobs = []) {
 // SQL equivalent used inside the atomic claim, not just a preflight read.
 export const SINGLE_FLIGHT_AUTONOMY_JOB_SQL = `SELECT id FROM dev_jobs
   WHERE requested_by='mel-autonomy'
-    AND status NOT IN ('COMPLETED','CANCELLED','FAILED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED','WAITING_DEPENDENCY')
+    AND status NOT IN ('COMPLETED','CANCELLED','FAILED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED','WAITING_DEPENDENCY','QUEUED')
     AND NOT COALESCE(${ROTATABLE_PROVIDER_EXHAUSTION_SQL},0)
   ORDER BY CASE WHEN json_extract(result_json,'$.autonomy_deferral.exhausted')=1
     AND json_type(result_json,'$.autonomy_deferral.context') = 'text'
@@ -106,7 +107,7 @@ export const SINGLE_FLIGHT_AUTONOMY_JOB_SQL = `SELECT id FROM dev_jobs
       json_extract(result_json,'$.implementation_proposal.teacher_request_id'))
     THEN 1 ELSE 0 END, created_at ASC, id ASC LIMIT 1`;
 
-// QUEUED alone is not evidence that execution has begun.
+// QUEUED cannot occupy the execution slot, even with an earlier creation date.
 export function activeAutonomyMission(jobs = []) {
   return singleFlightAutonomyMission(jobs.filter(job => String(job?.status || '').toUpperCase() !== 'QUEUED'));
 }
