@@ -328,6 +328,20 @@ export class D1DevJobRepository {
       : [...this.memory.values()].filter(job => job.requested_by === 'mel-autonomy' && (activeJob(job) || job.status === 'WAITING_DEPENDENCY'));
   }
 
+  // First-pass scheduling must consider old attempts beyond the UI's 100 rows.
+  // Distinct IDs, not payloads, keep this read-only query bounded in memory.
+  async attemptedAutonomyRoadmapIds() {
+    await this.init();
+    if (!this.db) return [...new Set([...this.memory.values()]
+      .filter(row => row.requested_by === 'mel-autonomy')
+      .map(row => objectiveId(row)).filter(Boolean))];
+    const result=await this.db.prepare(
+      "SELECT DISTINCT json_extract(optional_context,'$.roadmap_id') AS id FROM dev_jobs "
+      + "WHERE requested_by='mel-autonomy' AND json_extract(optional_context,'$.roadmap_id') IS NOT NULL"
+    ).all();
+    return (result.results||[]).map(row=>row.id).filter(Boolean);
+  }
+
   // A completed/cancelled attempt can fall outside the 100-row UI list.
   // Counting it in D1 prevents the next deterministic job ID from colliding
   // with historical records and silently reusing a terminal job.
