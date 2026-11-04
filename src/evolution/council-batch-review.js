@@ -19,12 +19,27 @@ async function persist(db,key,record,now) {
     status=excluded.status,metadata_json=excluded.metadata_json`;
   await db.prepare(sql).bind(key,now,record.decision,JSON.stringify(record)).run();
 }
-// Approval requires two distinct model identities and two nonempty reasons;
-// a result flag, duplicated identity or missing review never establishes quorum.
-const independentQuorum = reviews => Array.isArray(reviews) &&
-  new Set(reviews.filter(row=>row?.verdict==='APPROVE'
-    &&typeof row.summary==='string' &&row.summary.trim())
-    .map(row=>String(row.model||'').trim().toLowerCase()).filter(Boolean)).size>=2;
+// A cached APPROVED flag never outranks the actual model votes. Require
+// two independent, reasoned approvals AND a strict majority of all returned
+// reviewer seats, including anonymous/unanswered seats. Conflicting duplicate
+// model identities invalidate the set instead of silently increasing quorum.
+const independentQuorum = reviews => {
+  if (!Array.isArray(reviews)) return false;
+  const seen = new Set();
+  let seats = 0, approvals = 0;
+  for (const row of reviews) {
+    seats++;
+    const model = String(row?.model || '').trim().toLowerCase();
+    if (!model) continue;
+    if (seen.has(model)) return false;
+    seen.add(model);
+    if (row?.verdict === 'APPROVE'
+        && typeof row.summary === 'string' && row.summary.trim()
+        && (!Array.isArray(row.blocking) || row.blocking.length === 0))
+      approvals++;
+  }
+  return approvals >= 2 && approvals > seats / 2;
+};
 
 const isValid = b => b && SHA.test(b.head||'') && SHA.test(b.base||'')
   && DIGEST.test(b.root_sha256||'')
