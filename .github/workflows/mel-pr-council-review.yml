@@ -88,7 +88,8 @@ jobs:
       (github.event_name == 'workflow_run' &&
        github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'pull_request' &&
-       github.event.workflow_run.head_branch == 'integration/max-contingency-release-candidate' &&
+       (github.event.workflow_run.head_branch == 'integration/max-contingency-release-candidate' ||
+        github.event.workflow_run.head_branch == 'fix/council-historical-audit-main-advance-20261104') &&
        github.event.workflow_run.pull_requests[0].number != null))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -119,6 +120,12 @@ jobs:
             echo "::error::COUNCIL_PR_NOT_OPEN_OR_MERGED"
             exit 1
           fi
+          case "$PR_NUMBER" in
+            3094) test "$STATE" = "closed" || test "$STATE" = "open" ;;
+            3103) test "$STATE" = "open" ;;
+            *) echo "::error::COUNCIL_PR_NOT_ALLOWLISTED"; exit 1 ;;
+          esac
+          echo "MEL_COUNCIL_PR_NUMBER=$PR_NUMBER" >> "$GITHUB_ENV"
           echo "MEL_COUNCIL_HEAD_SHA=$HEAD" >> "$GITHUB_ENV"
       - name: Require every exact-SHA CI gate before automatic Council review
         id: ci_gate
@@ -139,13 +146,19 @@ jobs:
             const current=latest.get(row.name);
             if(!current||Number(row.id)>Number(current.id))latest.set(row.name,row);
           }
-          const mandatory=[
+          const releaseMandatory=[
             'gen2-17-targeted','gen2-17-full-suite','monitor-contract',
             'encrypted-backup','professor-audit','shardvault-targeted',
             'public-chat-targeted','public-chat-full-suite','durable-work',
             'node-validation','lora-runtime-contract','self-audit-contract',
             'MEL WORK free validation (no Vercel, no deployment)',
           ];
+          // Maintenance PR #3103 changes only Council review wiring and tests.
+          // Never relax the 13-gate release profile for #3094.
+          const maintenanceMandatory=['gen2-17-targeted','gen2-17-full-suite','encrypted-backup'];
+          const prNumber=process.env.MEL_COUNCIL_PR_NUMBER;
+          if(!['3094','3103'].includes(prNumber))throw Error('COUNCIL_PR_NOT_ALLOWLISTED');
+          const mandatory=prNumber==='3094'?releaseMandatory:maintenanceMandatory;
           const pending=mandatory.filter(name=>latest.get(name)?.conclusion!=='success');
           const unfinished=[...latest.values()].filter(row=>!['success','skipped'].includes(row.conclusion));
           const ready=pending.length===0&&unfinished.length===0;
