@@ -274,6 +274,32 @@ jobs:
             rm -f council-verdict.json
             exit 1
           fi
+      - name: Record exact-SHA audit provenance without granting release authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const verdict=JSON.parse(fs.readFileSync('council-verdict.json','utf8'));
+          const mode=process.env.MEL_COUNCIL_REVIEW_KIND;
+          if(!['PRE_MERGE_REVIEW','POST_MERGE_AUDIT_ONLY'].includes(mode))
+            throw Error('COUNCIL_REVIEW_KIND_REQUIRED');
+          if(verdict.decision!=='APPROVED'||verdict.complete_review!==true)
+            throw Error('COUNCIL_AUDIT_VERDICT_NOT_APPROVED');
+          const receipt={
+            schema:'mel.council.pr-review-provenance/v1',
+            mode,
+            pr_number:Number(process.env.MEL_COUNCIL_PR_NUMBER),
+            reviewed_head_sha:process.env.MEL_COUNCIL_HEAD_SHA,
+            review_base_sha:process.env.MEL_COUNCIL_BASE_SHA,
+            merge_sha:mode==='POST_MERGE_AUDIT_ONLY'?process.env.MEL_COUNCIL_MERGE_SHA:null,
+            diff_sha256:verdict.root_sha256,
+            independently_reviewed: true,
+            retroactive_premerge_approval:false,
+            release_authorized:false,
+          };
+          fs.writeFileSync('council-review-provenance.json',JSON.stringify(receipt,null,2)+'\n');
+          NODE
       - name: Preserve content-free independent review receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -282,5 +308,6 @@ jobs:
           path: |
             council-review-manifest.json
             council-verdict.json
+            council-review-provenance.json
           if-no-files-found: warn
           retention-days: 14
