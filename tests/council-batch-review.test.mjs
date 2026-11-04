@@ -106,6 +106,33 @@ test('duplicate model identities and absent reasons do not establish quorum',asy
   }finally{db.close();}
 });
 
+test('the independent final integration vote cannot approve without two distinct reasons',async()=>{
+  const db=sqliteD1({maintenanceFence:true});
+  try{
+    for(const b of plan.batches){
+      assert.equal((await call(db,batch(b))).result.batch_decision,'APPROVED');
+    }
+    for(const reviews of [
+      [],
+      [{model:'one',verdict:'APPROVE',summary:'security checked'}],
+      [{model:'same',verdict:'APPROVE',summary:'security checked'},
+       {model:'same',verdict:'APPROVE',summary:'integration checked'}],
+      [{model:'one',verdict:'APPROVE',summary:'security checked'},
+       {model:'two',verdict:'APPROVE',summary:' '}],
+    ]){
+      const result=(await call(db,final,async()=>({decision:'APPROVED',reviews}))).result;
+      assert.equal(result.decision,'COUNCIL_FINAL_QUORUM_UNPROVEN');
+      assert.equal(result.complete_review,false);
+      const row=await db.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?')
+        .bind('council-review:'+head).first();
+      assert.equal(JSON.parse(row.metadata_json).decision,'COUNCIL_FINAL_QUORUM_UNPROVEN');
+    }
+    const accepted=(await call(db,final,approved)).result;
+    assert.equal(accepted.decision,'APPROVED');
+    assert.equal(accepted.complete_review,true);
+  }finally{db.close();}
+});
+
 test('authenticated endpoint and MAX promotion must fail closed',()=>{
   const endpoint=file('../src/evolution/council-review.js');
   const handler=endpoint.slice(endpoint.indexOf('export async function handleCouncilReviewRequest'));
