@@ -34,10 +34,7 @@ jobs:
   promote:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-24.04
-    # Up to 32 complete file batches, each with independent model reviews.
-    # Do not weaken any quorum just because the original 10-minute budget
-    # was intended for a single diff.
-    timeout-minutes: 45
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -130,21 +127,13 @@ jobs:
           # pipefail can also raise SIGPIPE and prevent any review at all.
           git diff "$MAIN" "$CAND" -- . ':(exclude)bridge-apply-result.json' > council.diff
           DIFF_BYTES="$(wc -c < council.diff | tr -d '[:space:]')"
-          git log --format=%s "$MAIN..$CAND" > council.log
           if [ "$DIFF_BYTES" -gt 48000 ]; then
-            echo "::notice title=MEL Council::COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT bytes=$DIFF_BYTES — initiating complete-file multi-batch Council; no approval by truncation."
-            # Every full-file batch needs independent Council approval, followed
-            # by a separate overall integration quorum. Absent proof fails shut.
-            node scripts/prepare-council-review-batches.mjs council.diff council-review-manifest.json
-            REVIEW="$(MEL_COUNCIL_HEAD_SHA="$CAND" MEL_COUNCIL_BASE_SHA="$MAIN" MEL_COUNCIL_OIDC_TOKEN="$TOKEN" \
-              node scripts/run-council-batch-review.mjs council.diff council.log)" || {
-              echo "::warning title=MEL Council::COUNCIL_BATCH_REVIEW_NOT_APPROVED — promotion blocked."
-              exit 0
-            }
-          else
-            node -e 'const fs=require("fs");fs.writeFileSync("council.json",JSON.stringify({base:process.argv[1],head:process.argv[2],diff:fs.readFileSync("council.diff","utf8"),log:fs.readFileSync("council.log","utf8")}))' "$MAIN" "$CAND"
-            REVIEW="$(curl --silent --show-error --max-time 300 --request POST --header "x-mel-github-oidc: $TOKEN" --header 'content-type: application/json' --data-binary @council.json https://meliturgos.adrien-lopezcarreras.workers.dev/api/internal/council-review || echo '{}')"
+            echo "::warning title=MEL Council::COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT bytes=$DIFF_BYTES — do not approve an incomplete review."
+            exit 0
           fi
+          git log --format=%s "$MAIN..$CAND" > council.log
+          node -e 'const fs=require("fs");fs.writeFileSync("council.json",JSON.stringify({base:process.argv[1],head:process.argv[2],diff:fs.readFileSync("council.diff","utf8"),log:fs.readFileSync("council.log","utf8")}))' "$MAIN" "$CAND"
+          REVIEW="$(curl --silent --show-error --max-time 300 --request POST --header "x-mel-github-oidc: $TOKEN" --header 'content-type: application/json' --data-binary @council.json https://meliturgos.adrien-lopezcarreras.workers.dev/api/internal/council-review || echo '{}')"
           DECISION="$(printf '%s' "$REVIEW" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)}catch{};process.stdout.write(String(j.decision||j.code||"REVIEW_UNAVAILABLE"))})')"
           echo "COUNCIL_REVIEW $CAND -> $DECISION"
           # A rejected candidate must not block every later promotion: put the
@@ -179,12 +168,3 @@ jobs:
           git -c http.https://github.com/.extraheader= push "https://x-access-token:${MEL_WORKFLOW_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$CAND:refs/heads/main"
           echo "::notice title=MEL promoted::main $MAIN -> $CAND ($AHEAD commit(s), full-candidate-ci green). Production release follows within the hour."
           dispatch_release
-
-      - name: Preserve content-free Council batch preflight without granting approval
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: council-pending-batch-review
-          path: council-review-manifest.json
-          if-no-files-found: ignore
-          retention-days: 14
