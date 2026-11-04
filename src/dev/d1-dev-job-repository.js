@@ -7,6 +7,8 @@ import { isRotatableProviderExhaustion, ROTATABLE_PROVIDER_EXHAUSTION_SQL, singl
 
 // Durable prerequisite waits own no execution slot; admission remains atomic.
 const ACTIVE_JOB_SQL = "status NOT IN ('CANCELLED','FAILED','COMPLETED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED','WAITING_DEPENDENCY')";
+// QUEUED is persisted but consumes no execution slot; only an atomic claim may enter PLANNING.
+const ACTIVE_EXECUTION_SQL = ACTIVE_JOB_SQL + " AND status <> 'QUEUED'";
 const objectiveId = job => job?.requested_by === 'mel-autonomy' ? String(job?.optional_context?.roadmap_id || '').trim() : '';
 // Error-ledger repairs do not have roadmap_id, but still share the single
 // autonomous Council/Teacher execution slot with roadmap missions.
@@ -19,7 +21,7 @@ function memoryAdmission(memory, job) {
   const duplicate = objective && [...memory.values()].find(row => (activeJob(row) || row.status === 'WAITING_DEPENDENCY') && objectiveId(row) === objective);
   if (duplicate) throw Object.assign(new Error('AUTONOMY_OBJECTIVE_ALREADY_ACTIVE'), {code:'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE',job_id:duplicate.id});
   if (exclusiveAutonomyAdmission(job)) {
-    const inFlight = [...memory.values()].find(row => row.requested_by === 'mel-autonomy' && activeJob(row) && !isRotatableProviderExhaustion(row));
+    const inFlight = [...memory.values()].find(row => row.requested_by === 'mel-autonomy' && activeJob(row) && row.status !== 'QUEUED' && !isRotatableProviderExhaustion(row));
     if (inFlight) throw Object.assign(new Error('AUTONOMY_OBJECTIVE_ALREADY_ACTIVE'), {code:'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE',job_id:inFlight.id});
   }
   if (job?.optional_context?.source === 'revenue-watch' && [...memory.values()].filter(row=>activeJob(row)&&row?.optional_context?.source==='revenue-watch').length >= MAX_ACTIVE_REVENUE_JOBS) {
@@ -172,7 +174,7 @@ export class D1DevJobRepository {
     return j;
     }
     // Same SQL statement as the insertion: a preflight read cannot close this race.
-    const admission = await this.db.prepare("INSERT INTO dev_jobs(id,created_at,updated_at,status,requested_by,goal,optional_context,plan_json,files_json,patch_json,tests_json,result_json,candidate_branch,approval_status,error) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED') AND (?='' OR NOT EXISTS (SELECT 1 FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + "(" + ACTIVE_JOB_SQL + " OR status='WAITING_DEPENDENCY') AND json_extract(optional_context,'$.roadmap_id')=?)) AND (?=0 OR NOT EXISTS (SELECT 1 FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + ACTIVE_JOB_SQL + " AND NOT COALESCE(" + ROTATABLE_PROVIDER_EXHAUSTION_SQL + ",0))) AND (?<> 'revenue-watch' OR (SELECT COUNT(*) FROM dev_jobs WHERE " + "(" + ACTIVE_JOB_SQL + " OR status='WAITING_DEPENDENCY') AND json_extract(optional_context,'$.source')='revenue-watch') < " + MAX_ACTIVE_REVENUE_JOBS + ")")
+    const admission = await this.db.prepare("INSERT INTO dev_jobs(id,created_at,updated_at,status,requested_by,goal,optional_context,plan_json,files_json,patch_json,tests_json,result_json,candidate_branch,approval_status,error) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED') AND (?='' OR NOT EXISTS (SELECT 1 FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + "(" + ACTIVE_JOB_SQL + " OR status='WAITING_DEPENDENCY') AND json_extract(optional_context,'$.roadmap_id')=?)) AND (?=0 OR NOT EXISTS (SELECT 1 FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + ACTIVE_EXECUTION_SQL + " AND NOT COALESCE(" + ROTATABLE_PROVIDER_EXHAUSTION_SQL + ",0))) AND (?<> 'revenue-watch' OR (SELECT COUNT(*) FROM dev_jobs WHERE " + "(" + ACTIVE_JOB_SQL + " OR status='WAITING_DEPENDENCY') AND json_extract(optional_context,'$.source')='revenue-watch') < " + MAX_ACTIVE_REVENUE_JOBS + ")")
       .bind(j.id, j.created_at, j.updated_at, j.status, j.requested_by, j.goal, JSON.stringify(j.optional_context), null, '[]', null, '[]', null, null, j.approval_status, null, MAINTENANCE_FENCE_ID, objectiveId(j), objectiveId(j), exclusiveAutonomyAdmission(j) ? 1 : 0, j.optional_context?.source || '')
       .run();
     if (Number(admission?.meta?.changes) !== 1) {
@@ -181,7 +183,7 @@ export class D1DevJobRepository {
         if (existing) throw Object.assign(new Error('AUTONOMY_OBJECTIVE_ALREADY_ACTIVE'), {code:'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE',job_id:existing.id});
       }
       if (exclusiveAutonomyAdmission(j)) {
-        const inFlight = await this.db.prepare("SELECT id FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + ACTIVE_JOB_SQL + " AND NOT COALESCE(" + ROTATABLE_PROVIDER_EXHAUSTION_SQL + ",0) ORDER BY created_at ASC, id ASC LIMIT 1").first();
+        const inFlight = await this.db.prepare("SELECT id FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + ACTIVE_EXECUTION_SQL + " AND NOT COALESCE(" + ROTATABLE_PROVIDER_EXHAUSTION_SQL + ",0) ORDER BY created_at ASC, id ASC LIMIT 1").first();
         if (inFlight) throw Object.assign(new Error('AUTONOMY_OBJECTIVE_ALREADY_ACTIVE'), {code:'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE',job_id:inFlight.id});
       }
       if (j.optional_context?.source === 'revenue-watch') {
@@ -382,6 +384,17 @@ export class D1DevJobRepository {
         || JSON.stringify(snapshot.result_json) !== JSON.stringify(j.result_json)
         || JSON.stringify(snapshot.plan_json) !== JSON.stringify(j.plan_json)) throw conflict();
     const n = { ...j, ...patch, updated_at: Math.max(Date.now(), Number(j.updated_at || 0) + 1) };
+    // A retry that moves back to QUEUED is a second-pass candidate, never
+    // a live lease. Preserve all previous Council/Teacher/CI evidence in D1.
+    if (j.requested_by === 'mel-autonomy' && String(j.status).toUpperCase() !== 'QUEUED'
+        && String(n.status).toUpperCase() === 'QUEUED') {
+      const previous = n.result_json && typeof n.result_json === 'object' ? n.result_json : {};
+      const oldRound = Math.max(1, Number(j.result_json?.autonomy_queue?.round) || 1);
+      n.result_json = { ...previous, autonomy_queue: {
+        ...previous.autonomy_queue, round: oldRound + 1, requeued_at: n.updated_at,
+      } };
+    }
+
     if (!this.db) {
       this.memory.set(id, n);
       return n;
@@ -465,6 +478,44 @@ export class D1DevJobRepository {
       throw Object.assign(new Error('CHECKPOINT_BRANCH_MISMATCH'), { code: 'CHECKPOINT_BRANCH_MISMATCH' });
     }
     return { job, checkpoint };
+  }
+
+  /** Claim a passive QUEUED mission before any AI call. Competing workers
+   * cannot claim two jobs: the NOT EXISTS fence is inside the same SQL UPDATE.
+   * No new job, table, lease, or candidate branch is created. */
+  async claimQueuedAutonomy(id, { expected = null } = {}) {
+    await this.init();
+    const job = await this.get(id);
+    if (!job || job.requested_by !== 'mel-autonomy' || job.status !== 'QUEUED') return null;
+    if (expected && (expected.updated_at !== job.updated_at || expected.status !== job.status
+        || JSON.stringify(expected.result_json) !== JSON.stringify(job.result_json))) return null;
+    const contenders = [...(this.db ? [] : this.memory.values())];
+    const executable = row => row.id !== id && row.requested_by === 'mel-autonomy'
+      && activeJob(row) && row.status !== 'QUEUED' && !isRotatableProviderExhaustion(row);
+    if (!this.db) {
+      if (contenders.some(executable)) return null;
+      const claimed = { ...job, status:'PLANNING',
+        updated_at:Math.max(Date.now(), Number(job.updated_at || 0)+1) };
+      this.memory.set(id, claimed);
+      await this.recordEvolution(claimed, 'JOB_UPDATED', {
+        previous_status:'QUEUED', next_status:'PLANNING', changed_fields:['status'] });
+      return claimed;
+    }
+    const now = Math.max(Date.now(), Number(job.updated_at || 0)+1);
+    const write = await this.db.prepare(
+      "UPDATE dev_jobs SET status='PLANNING', updated_at=?"
+      + " WHERE id=? AND requested_by='mel-autonomy' AND status='QUEUED' AND updated_at=?"
+      + " AND COALESCE(result_json,'null')=? AND COALESCE(plan_json,'null')=?"
+      + " AND NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED')"
+      + " AND NOT EXISTS (SELECT 1 FROM dev_jobs WHERE id<>? AND requested_by='mel-autonomy' AND "
+      + ACTIVE_EXECUTION_SQL + " AND NOT COALESCE(" + ROTATABLE_PROVIDER_EXHAUSTION_SQL + ",0))"
+    ).bind(now,id,job.updated_at,JSON.stringify(job.result_json),JSON.stringify(job.plan_json),
+      MAINTENANCE_FENCE_ID,id).run();
+    if (Number(write.meta?.changes)!==1) return null;
+    const claimed = await this.get(id);
+    await this.recordEvolution(claimed, 'JOB_UPDATED', {
+      previous_status:'QUEUED', next_status:'PLANNING', changed_fields:['status'] });
+    return claimed;
   }
 
   /**
