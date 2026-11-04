@@ -335,9 +335,10 @@ test('OIDC identity is renewed for every individual review',()=>{
 test('scheduled Council recovers missed CI events and merged PR history safely',()=>{
   const workflow=file('../.github/workflows/mel-pr-council-review.yml');
   for(const token of [
-    "schedule:\n    - cron: '47 */2 * * *'",
+    "- cron: '47 */2 * * *'",
+    "- cron: '17 1-23/2 * * *'",
     "discover:\n    if: github.event_name == 'schedule'",
-    'repos/$GITHUB_REPOSITORY/pulls/3094',
+    'repos/$GITHUB_REPOSITORY/pulls/$SELECTED_PR',
     'if [ "$STATE" = "open" ]',
     'test "$BASE" = "main"',
     'test "$REPO" = "$GITHUB_REPOSITORY"',
@@ -397,11 +398,11 @@ test('automatic Council is scoped to trusted CI completion, exact PR head and al
 test('Council discovery shell is a complete YAML run block with no orphan lines',()=>{
   const workflow=file('../.github/workflows/mel-pr-council-review.yml');
   const discover=workflow.slice(workflow.indexOf('  discover:\n'),workflow.indexOf('  preflight:\n'));
-  assert.ok(discover.includes('        run: |\n          set -euo pipefail\n          META="$(gh api'));
+  assert.ok(discover.includes('        run: |\n          set -euo pipefail\n          case "$SCHEDULE_CRON" in'));
   assert.ok(discover.includes('          IFS='));
   assert.ok(discover.includes('          echo "head=$HEAD" >> "$GITHUB_OUTPUT"'));
-  assert.ok(discover.includes('          echo "pr_number=3094" >> "$GITHUB_OUTPUT"'));
-  assert.ok(discover.includes('          echo "Read-only Council candidate pinned to PR #3094 head: $HEAD"'));
+  assert.ok(discover.includes('          echo "pr_number=$SELECTED_PR" >> "$GITHUB_OUTPUT"'));
+  assert.ok(discover.includes('          echo "Read-only Council candidate pinned to PR #$SELECTED_PR head: $HEAD"'));
   assert.ok(!discover.includes('set -euo p          META'));
   const start=discover.indexOf('        run: |\n');
   assert.ok(start>=0);
@@ -478,7 +479,10 @@ test('read-only PR review binds immutable head and base without mistaking moved 
     'COUNCIL_PR_MAIN_HEAD_PATH_CONFLICT','MEL_COUNCIL_MAIN_SHA=$MAIN',
     'CURRENT_MAIN" != "$MEL_COUNCIL_MAIN_SHA',
     'run-council-batch-review.mjs council.diff council.log',
-    'COUNCIL_PR_HEAD_OR_BASE_CHANGED_DURING_REVIEW',
+    'COUNCIL_PR_HEAD_CHANGED_DURING_REVIEW',
+    'COUNCIL_PR_BASE_CHANGED_DURING_REVIEW',
+    'COUNCIL_HISTORICAL_MERGE_NO_LONGER_IN_MAIN',
+    'git merge-base --is-ancestor "$MEL_COUNCIL_MERGE_SHA" "$LIVE_MAIN"',
     'result.root_sha256!==manifest.sha256','id-token: write',
     'contents: read','council-pr-review-receipt'])assert.ok(workflow.includes(token),token);
   for(const forbidden of ['contents: write','git push','wrangler deploy',

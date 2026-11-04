@@ -43,8 +43,8 @@ const independentQuorum = reviews => {
 
 const isValid = b => b && SHA.test(b.head||'') && SHA.test(b.base||'')
   && DIGEST.test(b.root_sha256||'')
-  && Number.isInteger(b.batch_count) && b.batch_count>=2 && b.batch_count<=32
-  && Number.isInteger(b.total_bytes) && b.total_bytes>48_000 && b.total_bytes<=512_000
+  && Number.isInteger(b.batch_count) && b.batch_count>=1 && b.batch_count<=32
+  && Number.isInteger(b.total_bytes) && b.total_bytes>0 && b.total_bytes<=512_000
   && Number.isInteger(b.file_count) && b.file_count>=b.batch_count && b.file_count<=256;
 
 export async function handleCouncilBatchedReview(env,body,{

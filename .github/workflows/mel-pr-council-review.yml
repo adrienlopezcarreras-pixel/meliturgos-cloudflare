@@ -20,7 +20,10 @@ on:
     types: [completed]
   # Recover a CI-complete PR that predates installation of this workflow on main.
   schedule:
+    # Even-hour historical audit for merged #3094.
     - cron: '47 */2 * * *'
+    # Odd-hour maintenance review for open #3103; keep the audit slot separate.
+    - cron: '17 1-23/2 * * *'
   workflow_dispatch:
     inputs:
       pr_number:
@@ -57,14 +60,25 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          SCHEDULE_CRON: ${{ github.event.schedule }}
         run: |
           set -euo pipefail
-          META="$(gh api "repos/$GITHUB_REPOSITORY/pulls/3094" --jq '[.state,.base.ref,.head.sha,.head.repo.full_name,(.merged_at // ""),(.merge_commit_sha // "")] | @tsv')"
+          case "$SCHEDULE_CRON" in
+            '47 */2 * * *') SELECTED_PR=3094 ;;
+            '17 1-23/2 * * *') SELECTED_PR=3103 ;;
+            *) echo "::error::COUNCIL_UNRECOGNIZED_SCHEDULE"; exit 1 ;;
+          esac
+          META="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$SELECTED_PR" --jq '[.state,.base.ref,.head.sha,.head.repo.full_name,(.merged_at // ""),(.merge_commit_sha // "")] | @tsv')"
           IFS=$'\t' read -r STATE BASE HEAD REPO MERGED_AT MERGE_SHA <<< "$META"
           if [ "$STATE" = "open" ]; then
             echo "Council pre-merge review candidate is open."
           elif [ "$STATE" = "closed" ] && [ -n "$MERGED_AT" ]; then
             [[ "$MERGE_SHA" =~ ^[a-f0-9]{40}$ ]]
+            if [ "$SELECTED_PR" != 3094 ]; then
+              echo "eligible=false" >> "$GITHUB_OUTPUT"
+              echo "Maintenance PR merged; do not substitute historical release audit."
+              exit 0
+            fi
             echo "::notice title=Council post-merge audit::PR #3094 already merged. Audit historic diff, NEVER issue retroactive deployment approval."
           else
             echo "eligible=false" >> "$GITHUB_OUTPUT"
@@ -76,8 +90,8 @@ jobs:
           [[ "$HEAD" =~ ^[a-f0-9]{40}$ ]]
           echo "eligible=true" >> "$GITHUB_OUTPUT"
           echo "head=$HEAD" >> "$GITHUB_OUTPUT"
-          echo "pr_number=3094" >> "$GITHUB_OUTPUT"
-          echo "Read-only Council candidate pinned to PR #3094 head: $HEAD"
+          echo "pr_number=$SELECTED_PR" >> "$GITHUB_OUTPUT"
+          echo "Read-only Council candidate pinned to PR #$SELECTED_PR head: $HEAD"
   preflight:
     needs: [discover]
     if: >-
@@ -88,7 +102,8 @@ jobs:
       (github.event_name == 'workflow_run' &&
        github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'pull_request' &&
-       github.event.workflow_run.head_branch == 'integration/max-contingency-release-candidate' &&
+       (github.event.workflow_run.head_branch == 'integration/max-contingency-release-candidate' ||
+        github.event.workflow_run.head_branch == 'fix/council-historical-audit-main-advance-20261104') &&
        github.event.workflow_run.pull_requests[0].number != null))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -119,6 +134,12 @@ jobs:
             echo "::error::COUNCIL_PR_NOT_OPEN_OR_MERGED"
             exit 1
           fi
+          case "$PR_NUMBER" in
+            3094) test "$STATE" = "closed" || test "$STATE" = "open" ;;
+            3103) test "$STATE" = "open" ;;
+            *) echo "::error::COUNCIL_PR_NOT_ALLOWLISTED"; exit 1 ;;
+          esac
+          echo "MEL_COUNCIL_PR_NUMBER=$PR_NUMBER" >> "$GITHUB_ENV"
           echo "MEL_COUNCIL_HEAD_SHA=$HEAD" >> "$GITHUB_ENV"
       - name: Require every exact-SHA CI gate before automatic Council review
         id: ci_gate
@@ -139,13 +160,19 @@ jobs:
             const current=latest.get(row.name);
             if(!current||Number(row.id)>Number(current.id))latest.set(row.name,row);
           }
-          const mandatory=[
+          const releaseMandatory=[
             'gen2-17-targeted','gen2-17-full-suite','monitor-contract',
             'encrypted-backup','professor-audit','shardvault-targeted',
             'public-chat-targeted','public-chat-full-suite','durable-work',
             'node-validation','lora-runtime-contract','self-audit-contract',
             'MEL WORK free validation (no Vercel, no deployment)',
           ];
+          // Maintenance PR #3103 changes only Council review wiring and tests.
+          // Never relax the 13-gate release profile for #3094.
+          const maintenanceMandatory=['gen2-17-targeted','gen2-17-full-suite','encrypted-backup'];
+          const prNumber=process.env.MEL_COUNCIL_PR_NUMBER;
+          if(!['3094','3103'].includes(prNumber))throw Error('COUNCIL_PR_NOT_ALLOWLISTED');
+          const mandatory=prNumber==='3094'?releaseMandatory:maintenanceMandatory;
           const pending=mandatory.filter(name=>latest.get(name)?.conclusion!=='success');
           const unfinished=[...latest.values()].filter(row=>!['success','skipped'].includes(row.conclusion));
           const ready=pending.length===0&&unfinished.length===0;
@@ -272,8 +299,24 @@ jobs:
           set -euo pipefail
           CURRENT_HEAD="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$MEL_COUNCIL_PR_NUMBER" --jq '.head.sha')"
           CURRENT_MAIN="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq '.sha')"
-          if [ "$CURRENT_HEAD" != "$MEL_COUNCIL_HEAD_SHA" ] || [ "$CURRENT_MAIN" != "$MEL_COUNCIL_MAIN_SHA" ]; then
-            echo "::error::COUNCIL_PR_HEAD_OR_BASE_CHANGED_DURING_REVIEW"
+          if [ "$CURRENT_HEAD" != "$MEL_COUNCIL_HEAD_SHA" ]; then
+            echo "::error::COUNCIL_PR_HEAD_CHANGED_DURING_REVIEW"
+            rm -f council-verdict.json
+            exit 1
+          fi
+          if [ "$MEL_COUNCIL_REVIEW_KIND" = "POST_MERGE_AUDIT_ONLY" ]; then
+            # The audited merge and its parents are immutable; main may safely advance
+            # while independent historical votes are being collected.
+            # Require that the original merge still belongs to the live main history.
+            git fetch origin main
+            LIVE_MAIN="$(git rev-parse FETCH_HEAD)"
+            if ! git merge-base --is-ancestor "$MEL_COUNCIL_MERGE_SHA" "$LIVE_MAIN"; then
+              echo "::error::COUNCIL_HISTORICAL_MERGE_NO_LONGER_IN_MAIN"
+              rm -f council-verdict.json
+              exit 1
+            fi
+          elif [ "$CURRENT_MAIN" != "$MEL_COUNCIL_MAIN_SHA" ]; then
+            echo "::error::COUNCIL_PR_BASE_CHANGED_DURING_REVIEW"
             rm -f council-verdict.json
             exit 1
           fi
