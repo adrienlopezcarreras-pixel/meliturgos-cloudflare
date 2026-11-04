@@ -110,3 +110,22 @@ test('manual main-branch restore stays read-only and runs targeted checks withou
   assert.match(workflow,/run: node release-tools\/predeploy-backup-refresh\/isolated-restore-runner\.mjs/);
   assert.doesNotMatch(workflow,/run:\s*(?:wrangler deploy|npm run deploy|git push)/);
 });
+
+test('auto restore checks decrypted snapshot age, not just the R2 object modification date',async()=>{
+  const {requireFreshDecryptedSnapshot,DEFAULT_AUTO_RESTORE_MAX_AGE_MS}=await import('../../release-tools/predeploy-backup-refresh/r2-snapshot-discovery.mjs');
+  const now=options.now;
+  assert.equal(requireFreshDecryptedSnapshot({createdAt:'2026-11-03T21:00:00.000Z'},{now}),true);
+  assert.equal(requireFreshDecryptedSnapshot({createdAt:new Date(now-DEFAULT_AUTO_RESTORE_MAX_AGE_MS).toISOString()},{now}),true);
+  for(const createdAt of [
+    '2026-10-29T21:00:00.000Z',
+    new Date(now+60_000).toISOString(),
+  ]) assert.throws(()=>requireFreshDecryptedSnapshot({createdAt},{now}),e=>e.code==='ISOLATED_R2_SNAPSHOT_STALE');
+  for(const value of [{},{createdAt:'invalid'},{createdAt:'2026-11-03T21:00:00+00:00'}])
+    assert.throws(()=>requireFreshDecryptedSnapshot(value,{now}),e=>e.code==='ISOLATED_R2_SNAPSHOT_TIMESTAMP_INVALID');
+  assert.throws(()=>requireFreshDecryptedSnapshot({createdAt:new Date(now).toISOString()},{now,maxAgeMs:0}),e=>e.code==='ISOLATED_R2_SNAPSHOT_FRESHNESS_CONFIG_INVALID');
+  const {readFileSync}=await import('node:fs');
+  const runner=readFileSync(new URL('../../release-tools/predeploy-backup-refresh/isolated-restore-runner.mjs',import.meta.url),'utf8');
+  assert.match(runner,/const autoSelected=!key/);
+  assert.match(runner,/if\\(autoSelected\\)requireFreshDecryptedSnapshot\\(snapshot\\)/);
+  assert.ok(runner.indexOf('requireFreshDecryptedSnapshot(snapshot)')<runner.indexOf("stage='RESTORE'"));
+});
