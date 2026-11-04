@@ -1,7 +1,3 @@
-// Fail-closed, file-complete Council review partition planning.
-// This prepares review batches ONLY. It never grants approval or changes the
-// production/promotion state. A Council still has to approve every batch and
-// the combined integration before any large candidate may be promoted.
 export const COUNCIL_REVIEW_BATCH_LIMIT_BYTES = 44_000;
 export const COUNCIL_REVIEW_TOTAL_LIMIT_BYTES = 512_000;
 export const COUNCIL_REVIEW_MAX_BATCHES = 32;
@@ -14,10 +10,6 @@ const headerPath = section => {
   return match?.[2] || null;
 };
 
-/** A reviewable unit is one whole Git file diff, never part of a hunk.
- * Even a single over-limit file is rejected rather than truncated.
- * Re-joining all returned batch.diff strings must give the original diff.
- */
 export function planCouncilDiffBatches(diff, {
   maxBatchBytes = COUNCIL_REVIEW_BATCH_LIMIT_BYTES,
   maxTotalBytes = COUNCIL_REVIEW_TOTAL_LIMIT_BYTES,
