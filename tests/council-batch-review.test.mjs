@@ -478,7 +478,10 @@ test('read-only PR review binds immutable head and base without mistaking moved 
     'COUNCIL_PR_MAIN_HEAD_PATH_CONFLICT','MEL_COUNCIL_MAIN_SHA=$MAIN',
     'CURRENT_MAIN" != "$MEL_COUNCIL_MAIN_SHA',
     'run-council-batch-review.mjs council.diff council.log',
-    'COUNCIL_PR_HEAD_OR_BASE_CHANGED_DURING_REVIEW',
+    'COUNCIL_PR_HEAD_CHANGED_DURING_REVIEW',
+    'COUNCIL_PR_BASE_CHANGED_DURING_REVIEW',
+    'COUNCIL_HISTORICAL_MERGE_NO_LONGER_IN_MAIN',
+    'git merge-base --is-ancestor "$MEL_COUNCIL_MERGE_SHA" "$LIVE_MAIN"',
     'result.root_sha256!==manifest.sha256','id-token: write',
     'contents: read','council-pr-review-receipt'])assert.ok(workflow.includes(token),token);
   for(const forbidden of ['contents: write','git push','wrangler deploy',
