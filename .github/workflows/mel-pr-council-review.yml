@@ -191,9 +191,8 @@ jobs:
           set -euo pipefail
           [[ "$PR_NUMBER" =~ ^[0-9]{1,6}$ ]]
           [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]]
-          META="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '[.state,.base.ref,.head.sha,.head.repo.full_name] | @tsv')"
-          IFS=$'\t' read -r STATE TARGET HEAD REPO <<< "$META"
-          test "$STATE" = "open"
+          META="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '[.state,.base.ref,.head.sha,.head.repo.full_name,(.merged_at // ""),(.merge_commit_sha // "")] | @tsv')"
+          IFS=$'\t' read -r STATE TARGET HEAD REPO MERGED_AT MERGE_SHA <<< "$META"
           test "$TARGET" = "main"
           test "$REPO" = "$GITHUB_REPOSITORY"
           test "$HEAD" = "$EXPECTED_SHA"
@@ -202,21 +201,42 @@ jobs:
           test "$FETCHED" = "$HEAD"
           git fetch origin main
           MAIN="$(git rev-parse FETCH_HEAD)"
-          BASE="$(git merge-base "$MAIN" "$HEAD")"
-          test -n "$BASE"
-          if [ "$BASE" != "$MAIN" ]; then
-            OVERLAP="$(comm -12 <(git diff --name-only "$BASE" "$MAIN" | LC_ALL=C sort) <(git diff --name-only "$BASE" "$HEAD" | LC_ALL=C sort))"
-            if [ -n "$OVERLAP" ]; then
-              echo "::error::COUNCIL_PR_MAIN_HEAD_PATH_CONFLICT"
-              printf '%s\n' "$OVERLAP"
-              exit 1
+          if [ "$STATE" = "open" ]; then
+            REVIEW_KIND="PRE_MERGE_REVIEW"
+            BASE="$(git merge-base "$MAIN" "$HEAD")"
+            test -n "$BASE"
+            if [ "$BASE" != "$MAIN" ]; then
+              OVERLAP="$(comm -12 <(git diff --name-only "$BASE" "$MAIN" | LC_ALL=C sort) <(git diff --name-only "$BASE" "$HEAD" | LC_ALL=C sort))"
+              if [ -n "$OVERLAP" ]; then
+                echo "::error::COUNCIL_PR_MAIN_HEAD_PATH_CONFLICT"
+                printf '%s\n' "$OVERLAP"
+                exit 1
+              fi
             fi
+          elif [ "$STATE" = "closed" ] && [ -n "$MERGED_AT" ]; then
+            # GitHub merge commits preserve the complete original PR diff as
+            # FIRST_PARENT..SECOND_PARENT. Never use merge-base(main,head):
+            # after a merge that would be HEAD and silently yield EMPTY DIFF.
+            REVIEW_KIND="POST_MERGE_AUDIT_ONLY"
+            [[ "$MERGE_SHA" =~ ^[a-f0-9]{40}$ ]]
+            git merge-base --is-ancestor "$MERGE_SHA" "$MAIN"
+            read -ra PARENTS <<< "$(git rev-list --parents -n 1 "$MERGE_SHA")"
+            test "${#PARENTS[@]}" -eq 3
+            test "${PARENTS[0]}" = "$MERGE_SHA"
+            test "${PARENTS[2]}" = "$HEAD"
+            BASE="${PARENTS[1]}"
+            echo "::notice title=Council historical audit::Review immutable merge parents; no retroactive deployment authorization."
+          else
+            echo "::error::COUNCIL_PR_NOT_OPEN_OR_MERGED"
+            exit 1
           fi
+          echo "MEL_COUNCIL_REVIEW_KIND=$REVIEW_KIND" >> "$GITHUB_ENV"
+          echo "MEL_COUNCIL_MERGE_SHA=${MERGE_SHA:-}" >> "$GITHUB_ENV"
           echo "MEL_COUNCIL_HEAD_SHA=$HEAD" >> "$GITHUB_ENV"
           echo "MEL_COUNCIL_BASE_SHA=$BASE" >> "$GITHUB_ENV"
           echo "MEL_COUNCIL_MAIN_SHA=$MAIN" >> "$GITHUB_ENV"
           echo "MEL_COUNCIL_PR_NUMBER=$PR_NUMBER" >> "$GITHUB_ENV"
-          echo "Verified immutable PR head $HEAD, review base $BASE and current main $MAIN"
+          echo "Verified immutable $REVIEW_KIND diff $BASE..$HEAD for PR #$PR_NUMBER (current main $MAIN)"
       - name: Construct complete immutable Council diff
         shell: bash
         run: |
