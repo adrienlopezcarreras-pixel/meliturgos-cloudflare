@@ -133,6 +133,58 @@ test('the independent final integration vote cannot approve without two distinct
   }finally{db.close();}
 });
 
+test('previously approved Council batch cache is not trusted when model quorum vanishes',async()=>{
+  const db=sqliteD1({maintenanceFence:true});
+  try{
+    const item=batch(plan.batches[0]);
+    assert.equal((await call(db,item)).result.batch_decision,'APPROVED');
+    const key='council-diff-batch:'+head+':'+base+':'+h(source)+':1';
+    const row=await db.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?')
+      .bind(key).first();
+    const old=JSON.parse(row.metadata_json);
+    await db.prepare('UPDATE dev_bridge_state SET metadata_json=? WHERE bridge_id=?')
+      .bind(JSON.stringify({...old,reviews:[approvals[0]]}),key).run();
+    let calls=0;
+    const unproven=await call(db,item,async()=>{calls++;return {
+      decision:'APPROVED',reviews:[{model:'single',verdict:'APPROVE',summary:'only one reviewer'}],
+    };});
+    assert.equal(calls,1);
+    assert.equal(unproven.result.batch_decision,'COUNCIL_BATCH_QUORUM_UNPROVEN');
+    assert.notEqual(unproven.result.cached,true);
+    assert.equal((await call(db,item)).result.batch_decision,'APPROVED');
+  }finally{db.close();}
+});
+
+test('previously approved final Council cache must re-vote after quorum or manifest tampering',async()=>{
+  for(const tamper of [
+    row=>({...row,reviews:[approvals[0]]}),
+    row=>({...row,batch_hashes:['wrong']}),
+    row=>({...row,mode:'LEGACY_UNVERIFIED'}),
+  ]){
+    const db=sqliteD1({maintenanceFence:true});
+    try{
+      for(const b of plan.batches)
+        assert.equal((await call(db,batch(b))).result.batch_decision,'APPROVED');
+      assert.equal((await call(db,final)).result.decision,'APPROVED');
+      const key='council-review:'+head;
+      const row=await db.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?')
+        .bind(key).first();
+      await db.prepare('UPDATE dev_bridge_state SET metadata_json=? WHERE bridge_id=?')
+        .bind(JSON.stringify(tamper(JSON.parse(row.metadata_json))),key).run();
+      let calls=0;
+      const unproven=(await call(db,final,async()=>{
+        calls++;return {decision:'APPROVED',reviews:[approvals[0]]};
+      })).result;
+      assert.equal(calls,1,'tampered cache must trigger fresh independent review');
+      assert.equal(unproven.decision,'COUNCIL_FINAL_QUORUM_UNPROVEN');
+      assert.equal(unproven.complete_review,false);
+      const restored=(await call(db,final)).result;
+      assert.equal(restored.decision,'APPROVED');
+      assert.equal(restored.complete_review,true);
+    }finally{db.close();}
+  }
+});
+
 test('authenticated endpoint and MAX promotion must fail closed',()=>{
   const endpoint=file('../src/evolution/council-review.js');
   const handler=endpoint.slice(endpoint.indexOf('export async function handleCouncilReviewRequest'));
