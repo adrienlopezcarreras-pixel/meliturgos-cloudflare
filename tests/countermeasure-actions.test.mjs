@@ -27,6 +27,7 @@ test('every countermeasure is bound to an action', async () => {
     previousVersionId: 'version-1',
     rollbackWorker: async (version) => { calls.push(version); return { ok: true }; },
     openPrivateCopy: async () => { calls.push('kit'); return { ok: true }; },
+    ownerApprovedRecovery: true, // explicit trusted approval for this fixture only
     rebuildFromPrivateKit: async () => { calls.push('rebuild'); return { ok: true, restored: true, integrity_verified: true }; },
     restoreBackupBytes: async () => { calls.push('backup'); return { ok: true, restored: true, integrity_verified: true }; },
   });
@@ -119,6 +120,28 @@ test('even a claimed full rebuild without an integrity proof fails closed', asyn
   const result = await applyLifeCountermeasure('MIGRATION_SOURCE_DIED', actions);
   assert.equal(result.applied, false);
   assert.equal(result.reason, 'FULL_REBUILD_NOT_VERIFIED');
+});
+
+test('private-kit full rebuild never runs without explicit owner approval', async () => {
+  let invocations = 0;
+  const options = {
+    repository: repository(),
+    rebuildFromPrivateKit: async () => {
+      invocations++;
+      return { ok: true, restored: true, integrity_verified: true };
+    },
+  };
+  const blocked = await applyLifeCountermeasure('MIGRATION_SOURCE_DIED', bindCountermeasureActions(options));
+  assert.equal(blocked.applied, false);
+  assert.equal(blocked.activation_performed, false);
+  assert.equal(blocked.reason, 'OWNER_APPROVAL_REQUIRED');
+  assert.equal(invocations, 0);
+  const permitted = await applyLifeCountermeasure('MIGRATION_SOURCE_DIED', bindCountermeasureActions({
+    ...options, ownerApprovedRecovery: true,
+  }));
+  assert.equal(permitted.applied, true);
+  assert.equal(permitted.activation_performed, true);
+  assert.equal(invocations, 1);
 });
 
 test('scheduler invocation without an admitted job is not a successful repair', async () => {
