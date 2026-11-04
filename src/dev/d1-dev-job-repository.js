@@ -436,11 +436,23 @@ export class D1DevJobRepository {
       autonomy_queue_pass: { ...job.result_json.autonomy_queue_pass,
         passive: false, resumed_at: Date.now() } };
     if (!this.db) {
+      // No await between the final check and the map write: two concurrent
+      // resume calls must not each observe a free slot and both become active.
+      const observed = this.memory.get(id);
+      if (!isSecondPassQueued(observed) || observed.updated_at !== job.updated_at
+          || JSON.stringify(observed.result_json) !== JSON.stringify(job.result_json)) return null;
       const busy = [...this.memory.values()].some(row => row.id !== id
         && row.requested_by === 'mel-autonomy' && activeJob(row)
         && !isRotatableProviderExhaustion(row) && !isSecondPassQueued(row));
       if (busy) return null;
-      return this.update(id, { result_json: result }, { expected: job });
+      const updated = { ...observed, result_json: result,
+        updated_at: Math.max(Date.now(), Number(observed.updated_at || 0) + 1) };
+      this.memory.set(id, updated);
+      await this.recordEvolution(updated, 'JOB_UPDATED', {
+        previous_status: 'QUEUED', next_status: 'QUEUED',
+        changed_fields: ['result_json'], queue_pass: 'SECOND_ROUND_RESUMED',
+      });
+      return updated;
     }
     const updatedAt = Math.max(Date.now(), Number(job.updated_at || 0) + 1);
     const raw = await this.db.prepare('SELECT result_json FROM dev_jobs WHERE id=?').bind(id).first();
