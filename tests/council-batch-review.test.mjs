@@ -124,6 +124,50 @@ test('case variants of a single Council model cannot impersonate two independent
   }finally{db.close();}
 });
 
+test('Council batch and final approvals require a majority of every returned reviewer seat',async()=>{
+  const db=sqliteD1({maintenanceFence:true});
+  try{
+    const minority=async()=>({decision:'APPROVED',reviews:[
+      {model:'reviewer-a',verdict:'APPROVE',summary:'security checked'},
+      {model:'reviewer-b',verdict:'APPROVE',summary:'integration checked'},
+      {model:'reviewer-c',verdict:'REJECT',summary:'safety concern'},
+      {model:'reviewer-d',verdict:'REJECT',summary:'untested change'},
+      {model:'reviewer-e',verdict:'REJECT',summary:'integration risk'},
+    ]});
+    const denied=(await call(db,batch(plan.batches[0]),minority)).result;
+    assert.equal(denied.batch_decision,'COUNCIL_BATCH_QUORUM_UNPROVEN');
+    assert.equal(denied.decision,'COUNCIL_BATCH_NOT_APPROVED');
+    for(const b of plan.batches)
+      assert.equal((await call(db,batch(b))).result.batch_decision,'APPROVED');
+    const blocked=(await call(db,final,minority)).result;
+    assert.equal(blocked.decision,'COUNCIL_FINAL_QUORUM_UNPROVEN');
+    assert.equal(blocked.complete_review,false);
+    const verified=(await call(db,final)).result;
+    assert.equal(verified.decision,'APPROVED');
+    assert.equal(verified.complete_review,true);
+  }finally{db.close();}
+});
+
+test('unanswered seats and blocking objections cannot inflate a Council majority',async()=>{
+  const db=sqliteD1({maintenanceFence:true});
+  try{
+    const vote=async()=>({decision:'APPROVED',reviews:[
+      {model:'model-a',verdict:'APPROVE',summary:'security checked'},
+      {model:'model-b',verdict:'APPROVE',summary:'integration checked'},
+      null,
+      {model:'model-c',verdict:null,error:'REVIEW_TIMEOUT'},
+    ]});
+    assert.equal((await call(db,batch(plan.batches[0]),vote)).result.batch_decision,
+      'COUNCIL_BATCH_QUORUM_UNPROVEN');
+    const selfContradictory=async()=>({decision:'APPROVED',reviews:[
+      {model:'model-a',verdict:'APPROVE',summary:'security checked',blocking:['unsafe']},
+      {model:'model-b',verdict:'APPROVE',summary:'integration checked'},
+    ]});
+    assert.equal((await call(db,batch(plan.batches[0]),selfContradictory)).result.batch_decision,
+      'COUNCIL_BATCH_QUORUM_UNPROVEN');
+  }finally{db.close();}
+});
+
 test('the independent final integration vote cannot approve without two distinct reasons',async()=>{
   const db=sqliteD1({maintenanceFence:true});
   try{
