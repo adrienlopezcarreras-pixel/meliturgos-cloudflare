@@ -42,3 +42,5 @@ const council=await read(`SELECT s.status AS decision,json_extract(s.metadata_js
  FROM dev_bridge_state s,json_each(s.metadata_json,'$.reviews') r
  WHERE s.bridge_id='council-review:3c1fb505f1b753dcfd2844698ce9b402064a44e6' LIMIT 10`);
 console.log(JSON.stringify({schema:'mel.council-review-readonly/v1',rows_written:0,council}));
+const objections=await read(`SELECT json_extract(r.value,'$.blocking') AS blocking FROM dev_bridge_state s,json_each(s.metadata_json,'$.reviews') r WHERE s.bridge_id='council-review:3c1fb505f1b753dcfd2844698ce9b402064a44e6' AND json_extract(r.value,'$.model')='@cf/nvidia/nemotron-3-120b-a12b' AND json_extract(r.value,'$.verdict')='REJECT' LIMIT 1`);
+console.log(JSON.stringify({schema:'mel.public-code-review-objections/v1',rows_written:0,objections}));
