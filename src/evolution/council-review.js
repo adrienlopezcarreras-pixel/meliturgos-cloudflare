@@ -200,7 +200,7 @@ async function askCompanion(adapter, user, timeoutMs, system = SYSTEM) {
 }
 
 // MAX's own runtime, security, workflows and deployment always get the full council.
-const SENSITIVE_PATH = /^(?:src\/evolution\/autonomy[^/]*|src\/evolution\/council-review\.js|src\/security\/|src\/maintenance\/|\.github\/workflows\/|wrangler\.)/;
+const SENSITIVE_PATH = /^(?:src\/evolution\/autonomy[^/]*|src\/evolution\/council-[^/]*\.js|src\/security\/|src\/maintenance\/|\.github\/workflows\/|wrangler\.)/;
 export function sensitiveDiff(diff) {
   const paths = [...String(diff || '').matchAll(/^(?:diff --git a\/(\S+)|\+\+\+ b\/(\S+)|EDIT (\S+))/gm)].map(match => match[1] || match[2] || match[3]);
   return !paths.length || paths.some(path => SENSITIVE_PATH.test(path));
