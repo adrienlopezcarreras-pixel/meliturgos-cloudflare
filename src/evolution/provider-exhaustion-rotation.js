@@ -91,6 +91,27 @@ export function isSecondPassQueued(job) {
       String(job?.result_json?.dev_bridge?.status || '').toUpperCase());
 }
 
+// Older releases can have revisioned QUEUED rows without the new marker.
+// Reconcile only rows with persisted evidence of a prior preflight/revision;
+// an untouched initial QUEUED must remain eligible for its first run.
+export function isLegacyRequeuedMission(job) {
+  if (job?.requested_by !== 'mel-autonomy'
+      || String(job?.status || '').toUpperCase() !== 'QUEUED'
+      || job?.result_json?.autonomy_queue_pass) return false;
+  const result = job.result_json || {};
+  const plan = job.plan_json || {};
+  const previousWork = Boolean(plan.revision?.previous_request_id
+    || plan.revision?.reason
+    || result.last_teacher_review?.request_id
+    || (Array.isArray(result.teacher_bridge_history) && result.teacher_bridge_history.length)
+    || result.superseded_code_contract);
+  const bridge = String(result.dev_bridge?.status || '').toUpperCase();
+  const teacher = String(result.teacher_bridge?.status || '').toUpperCase();
+  return previousWork
+    && !['RUNNING','IN_PROGRESS','CLAIMED','READY_FOR_REVIEW'].includes(bridge)
+    && !['WAITING_TEACHER','PENDING','REQUESTED'].includes(teacher);
+}
+
 export const SECOND_PASS_QUEUED_SQL = `(
   status='QUEUED'
   AND json_extract(result_json,'$.autonomy_queue_pass.passive')=1
