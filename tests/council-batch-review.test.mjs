@@ -295,18 +295,18 @@ test('OIDC identity is renewed for every individual review',()=>{
   assert.ok(!runner.includes("'x-mel-github-oidc':token"));
 });
 
-test('scheduled Council recovers missed CI completion events without reviewing closed or moved PRs',()=>{
+test('scheduled Council recovers missed CI events and merged PR history safely',()=>{
   const workflow=file('../.github/workflows/mel-pr-council-review.yml');
   for(const token of [
     "schedule:\n    - cron: '47 */2 * * *'",
     "discover:\n    if: github.event_name == 'schedule'",
     'repos/$GITHUB_REPOSITORY/pulls/3094',
-    'if [ "$STATE" != "open" ]',
+    'if [ "$STATE" = "open" ]',
     'test "$BASE" = "main"',
     'test "$REPO" = "$GITHUB_REPOSITORY"',
     '[[ "$HEAD" =~ ^[a-f0-9]{40}$ ]]',
     'needs: [discover]',
-    "needs.discover.result == 'success' && needs.discover.outputs.open == 'true'",
+    "needs.discover.result == 'success' && needs.discover.outputs.eligible == 'true'",
     'inputs.expected_sha || needs.discover.outputs.head',
     'inputs.pr_number || needs.discover.outputs.pr_number',
     "needs: [discover, preflight]",
@@ -373,6 +373,29 @@ test('no Council job can be reported as approved before exact-SHA CI passes, inc
   assert.ok(!review.includes('steps.ci_gate.outputs.ready'));
   assert.ok(review.indexOf('Full multi-batch independent Council verdict')
     <review.indexOf('Recheck immutable head and main'));
+});
+
+test('merged PR Council review uses exact original merge-parent diff and cannot authorize a release retroactively',()=>{
+  const wf=file('../.github/workflows/mel-pr-council-review.yml');
+  for(const required of [
+    "elif [ \"$STATE\" = \"closed\" ] && [ -n \"$MERGED_AT\" ]",
+    "REVIEW_KIND=\"POST_MERGE_AUDIT_ONLY\"",
+    'git merge-base --is-ancestor "$MERGE_SHA" "$MAIN"',
+    'git rev-list --parents -n 1 "$MERGE_SHA"',
+    'test "${#PARENTS[@]}" -eq 3',
+    'test "${PARENTS[2]}" = "$HEAD"',
+    'BASE="${PARENTS[1]}"',
+    'git diff "$MEL_COUNCIL_BASE_SHA" "$MEL_COUNCIL_HEAD_SHA"',
+    "retroactive_premerge_approval:false",
+    "release_authorized:false",
+    "council-review-provenance.json",
+  ])assert.ok(wf.includes(required),required);
+  assert.ok(wf.includes('eligible=true'));
+  assert.ok(wf.includes('eligible=false'));
+  const postMerge=wf.slice(wf.indexOf('REVIEW_KIND="POST_MERGE_AUDIT_ONLY"'),wf.indexOf('MEL_COUNCIL_HEAD_SHA=$HEAD'));
+  assert.ok(!postMerge.includes('git push'));
+  assert.ok(!postMerge.includes('wrangler deploy'));
+  assert.ok(!wf.includes('pull_request_target:'));
 });
 
 test('read-only PR review binds immutable head and base without mistaking moved main for base',()=>{
