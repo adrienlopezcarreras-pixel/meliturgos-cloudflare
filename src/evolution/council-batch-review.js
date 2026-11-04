@@ -24,7 +24,7 @@ async function persist(db,key,record,now) {
 const independentQuorum = reviews => Array.isArray(reviews) &&
   new Set(reviews.filter(row=>row?.verdict==='APPROVE'
     &&typeof row.summary==='string' &&row.summary.trim())
-    .map(row=>String(row.model||'').trim()).filter(Boolean)).size>=2;
+    .map(row=>String(row.model||'').trim().toLowerCase()).filter(Boolean)).size>=2;
 
 const isValid = b => b && SHA.test(b.head||'') && SHA.test(b.base||'')
   && DIGEST.test(b.root_sha256||'')
