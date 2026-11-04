@@ -160,6 +160,30 @@ test('OIDC identity is renewed for every individual review',()=>{
   assert.ok(!runner.includes("'x-mel-github-oidc':token"));
 });
 
+test('automatic Council is scoped to trusted CI completion, exact PR head and all green gates',()=>{
+  const workflow=file('../.github/workflows/mel-pr-council-review.yml');
+  for(const expected of [
+    'workflow_run:', 'types: [completed]',
+    "github.event.workflow_run.conclusion == 'success'",
+    "github.event.workflow_run.event == 'pull_request'",
+    "github.event.workflow_run.head_branch == 'integration/max-contingency-release-candidate'",
+    "github.event.workflow_run.pull_requests[0].number != null",
+    'github.event.workflow_run.head_sha || inputs.expected_sha',
+    'github.event.workflow_run.pull_requests[0].number || inputs.pr_number',
+    'Require every exact-SHA CI gate before automatic Council review',
+    'COUNCIL_CI_INCOMPLETE_CHECK_LIST',
+    'COUNCIL_CI_REQUIRED_CHECK_NOT_GREEN',
+    'COUNCIL_CI_NOT_ALL_COMPLETE_AND_GREEN',
+    "latest.get(name)?.conclusion!=='success'",
+  ])assert.ok(workflow.includes(expected),expected);
+  assert.ok(workflow.indexOf('Require every exact-SHA CI gate before automatic Council review')
+    <workflow.indexOf('Full multi-batch independent Council verdict'));
+  assert.ok(workflow.includes('ref: main'));
+  assert.ok(!workflow.includes('pull_request_target:'));
+  assert.ok(!workflow.includes('contents: write'));
+  assert.ok(!workflow.includes('git push'));
+});
+
 test('read-only PR review binds immutable head and base without mistaking moved main for base',()=>{
   const workflow=file('../.github/workflows/mel-pr-council-review.yml');
   for(const token of ['workflow_dispatch:','ref: main','test "$HEAD" = "$EXPECTED_SHA"',
