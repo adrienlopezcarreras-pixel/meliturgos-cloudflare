@@ -171,6 +171,14 @@ test('stopping MAX persists the off state and does not run a cycle', async () =>
   const body = await response.json();
   assert.equal(body.persisted, true);
   assert.equal(body.control.max_autonomy, false);
+  assert.equal(body.control.paused, true, 'STOP must suspend the runtime, not only MAX mode');
+  assert.equal(body.control.status, 'PAUSED');
+  assert.equal(body.control.reason, 'owner-stop');
   assert.equal(body.tick.status, 'NOT_STARTED');
   assert.equal(memory.control.max_autonomy, false);
+  assert.equal(memory.control.paused, true);
+  const { runAutonomyRuntimeTick } = await import('../src/evolution/autonomy-runtime.js');
+  const tick = await runAutonomyRuntimeTick({}, { autonomyControlState: memory });
+  assert.equal(tick.status, 'PAUSED');
+  assert.equal(tick.advanced, false);
 });
