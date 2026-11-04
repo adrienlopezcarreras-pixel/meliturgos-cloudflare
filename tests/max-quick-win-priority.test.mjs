@@ -63,7 +63,7 @@ test('one existing Teacher-approved mission retains the single slot despite a ne
     id: 'mel-autonomy-founder-07-active',
     requested_by: 'mel-autonomy',
     goal: '[MEL-FOUNDER-07] restore safely',
-    optional_context: { roadmap_id: 'MEL-FOUNDER-07', source: 'autonomy-supervisor' },
+    optional_context: { roadmap_id: 'MEL-FOUNDER-07', roadmap_contract_revision: byId('MEL-FOUNDER-07').contract_revision, source: 'autonomy-supervisor' },
   });
   await repository.update(created.id, { status: 'TEACHER_APPROVED' });
   const supervisor = new AutonomySupervisor({
