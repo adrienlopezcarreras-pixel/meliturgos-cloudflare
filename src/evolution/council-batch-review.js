@@ -1,6 +1,3 @@
-// Persisted, SHA-bound Council reviews of complete diff chunks.
-// No partial vote can authorize a release: the final step reassembles and
-// hashes the exact original diff, checks every quorum, then asks Council anew.
 import { planCouncilDiffBatches } from './council-diff-batches.js';
 const enc = new TextEncoder();
 const SHA = /^[a-f0-9]{40}$/;
@@ -28,10 +25,6 @@ const isValid = b => b && SHA.test(b.head||'') && SHA.test(b.base||'')
   && Number.isInteger(b.total_bytes) && b.total_bytes>48_000 && b.total_bytes<=512_000
   && Number.isInteger(b.file_count) && b.file_count>=b.batch_count && b.file_count<=256;
 
-/**
- * Purely authenticated routing is performed by the caller.
- * Review callback is runCouncilReview; no approval is ever invented.
- */
 export async function handleCouncilBatchedReview(env,body,{
   review,now=Date.now(),cryptoImpl=globalThis.crypto,
 }={}) {
@@ -56,8 +49,6 @@ export async function handleCouncilBatchedReview(env,body,{
     if(prior?.decision==='APPROVED')return {status:200,result:{
       ok:true,decision:'PENDING_ALL_BATCH_REVIEWS',batch_decision:'APPROVED',
       cached:true,batch_index:i,head,root_sha256:root}};
-    // A refusal belongs to this exact head and full diff. Do not keep
-    // shopping models for a different verdict on the same rejected code.
     if(prior?.decision==='REJECTED')return {status:409,result:{
       ok:false,decision:'COUNCIL_BATCH_NOT_APPROVED',batch_decision:'REJECTED',
       batch_index:i,head,root_sha256:root}};
@@ -77,8 +68,6 @@ export async function handleCouncilBatchedReview(env,body,{
       ?'PENDING_ALL_BATCH_REVIEWS':'COUNCIL_BATCH_NOT_APPROVED',
       batch_decision:verifiedDecision,head,root_sha256:root,batch_index:i}};
   }
-  // Final review reconstructs the entire source diff, not just caller-provided
-  // hashes or a summary. Every exact segment must be independently approved.
   const records=[];
   for(let i=1;i<=count;i++){
     const row=await load(env.DB,keyFor(head,base,root,i));
