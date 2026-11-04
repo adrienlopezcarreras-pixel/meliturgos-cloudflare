@@ -53,6 +53,9 @@ jobs:
       - name: Prove provider rotation and bounded Mentor deferral
         run: |
           node --test tests/max-provider-exhaustion-rotation.test.mjs tests/mentor-engine.test.mjs tests/autonomy-supervisor-revision-priority.test.mjs
+      - name: Prove interrupted cloud runtime and resumable evidence waits
+        run: |
+          node --test tests/autonomy-runtime-epoch.test.mjs tests/autonomy-verification-wait.test.mjs
       - name: Declare scope of evidence
         run: |
           {
