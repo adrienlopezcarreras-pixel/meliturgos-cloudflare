@@ -95,3 +95,72 @@ for (const persistent of [false, true]) test(`existing passive repair cannot be 
     assert.equal((await repo.claimPrepared(repair.id))?.id, repair.id);
   } finally { db?.close(); }
 });
+
+
+for (const persisted of [false,true]) test('MAX yields QUEUED requeue to another objective, then resumes second pass with atomic single-flight ('+(persisted?'D1':'memory')+')',async()=>{
+  const db=persisted?sqliteD1():null;
+  const repo=new D1DevJobRepository(db);
+  try{
+    const a=await repo.create({id:'round-a',requested_by:'mel-autonomy',goal:'A',optional_context:{roadmap_id:'MEL-A'}});
+    const initial=await repo.get(a.id);
+    assert.equal(initial.status,'QUEUED');
+    assert.equal(initial.result_json,null);
+    // First pass is permitted to start; only a requeue demotes the mission.
+    const executing=await repo.update(a.id,{status:'WAITING_TEACHER'});
+    assert.equal(executing.status,'WAITING_TEACHER');
+    const deferred=await repo.update(a.id,{status:'QUEUED',result_json:{revision:{reason:'STALE_SHA'}}});
+    assert.equal(deferred.result_json.autonomy_queue_pass.passive,true);
+    assert.equal(deferred.result_json.autonomy_queue_pass.round,2);
+    const {isSecondPassQueued,singleFlightAutonomyMission}=await import('../src/evolution/provider-exhaustion-rotation.js');
+    assert.equal(isSecondPassQueued(deferred),true);
+    assert.equal(singleFlightAutonomyMission([deferred]),null);
+
+    const b=await repo.create({id:'round-b',requested_by:'mel-autonomy',goal:'B',optional_context:{roadmap_id:'MEL-B'}});
+    assert.equal(b.status,'QUEUED');
+    assert.equal(singleFlightAutonomyMission([deferred,b])?.id,b.id);
+    assert.equal(await repo.resumeSecondPassQueued(a.id,{expected:deferred}),null,'cannot resume while B owns the slot');
+    await repo.update(b.id,{status:'COMPLETED'});
+    const resumed=await repo.resumeSecondPassQueued(a.id,{expected:deferred});
+    assert.equal(resumed?.id,a.id);
+    assert.equal(resumed.status,'QUEUED');
+    assert.equal(resumed.result_json.autonomy_queue_pass.passive,false);
+    assert.equal(singleFlightAutonomyMission([resumed])?.id,a.id);
+    assert.equal(await repo.resumeSecondPassQueued(a.id,{expected:deferred}),null,'CAS rejects a repeated resume');
+    await repo.update(a.id,{status:'WAITING_TEACHER'});
+    const afterSecond=await repo.update(a.id,{status:'QUEUED'});
+    assert.equal(afterSecond.result_json.autonomy_queue_pass.round,3);
+    assert.equal(afterSecond.result_json.autonomy_queue_pass.passive,true);
+    assert.equal(await repo.resumeSecondPassQueued(a.id,{expected:afterSecond}),null,'no unbounded third round');
+  }finally{db?.close();}
+});
+
+test('MAX supervisor processes fresh roadmap work before returning a deferred QUEUED revision',async()=>{
+  const roadmap=[{id:'MEL-A',title:'First',status:'IN_PROGRESS',priority:'P0',depends_on:[]},
+    {id:'MEL-B',title:'Second',status:'IN_PROGRESS',priority:'P1',depends_on:[]}];
+  const repo=new D1DevJobRepository(null);
+  const supervisor=new AutonomySupervisor({repository:repo,roadmap});
+  const first=await supervisor.ensureNextJob();
+  assert.equal(first.job.optional_context.roadmap_id,'MEL-A');
+  await repo.update(first.job.id,{status:'WAITING_TEACHER'});
+  const queued=await repo.update(first.job.id,{status:'QUEUED'});
+  assert.equal(queued.result_json.autonomy_queue_pass.passive,true);
+  const second=await supervisor.ensureNextJob();
+  assert.equal(second.job.optional_context.roadmap_id,'MEL-B');
+  assert.equal(second.created,true);
+  assert.equal(await supervisor.ensureNextJob().then(x=>x.job.id),second.job.id);
+  await repo.update(second.job.id,{status:'COMPLETED'});
+  const resumed=await supervisor.ensureNextJob();
+  assert.equal(resumed.job.id,first.job.id);
+  assert.equal(resumed.job.result_json.autonomy_queue_pass.passive,false);
+  assert.equal(resumed.created,false);
+});
+
+test('MAX protects QUEUED revisions still claimed by a live Bridge',async()=>{
+  const {isSecondPassQueued}=await import('../src/evolution/provider-exhaustion-rotation.js');
+  const job={id:'unsafe',requested_by:'mel-autonomy',status:'QUEUED',
+    result_json:{autonomy_queue_pass:{passive:true,round:2},
+      dev_bridge:{status:'RUNNING'}}};
+  assert.equal(isSecondPassQueued(job),false);
+  const repo=new D1DevJobRepository(null,{memoryStore:new Map([['unsafe',{...job,updated_at:1,created_at:1,optional_context:{roadmap_id:'X'}}]])});
+  assert.equal(await repo.resumeSecondPassQueued('unsafe'),null);
+});
