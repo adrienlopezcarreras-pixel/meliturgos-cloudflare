@@ -87,4 +87,5 @@ jobs:
           name: isolated-restore-proof
           path: isolated-restore-proof.json
           if-no-files-found: error
-          retention-days: 1
+          # Keep two weeks of daily immutable drill receipts for external audit.
+          retention-days: 14
