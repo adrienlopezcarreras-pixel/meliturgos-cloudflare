@@ -184,12 +184,34 @@ test('MAX restoration cannot be marked successful without an active-state observ
 test('backup restoration requires proof of both completed restore and integrity', async () => {
   const actions = bindCountermeasureActions({
     repository: repository(),
+    ownerApprovedRecovery: true,
     restoreBackupBytes: async () => ({ ok: true, restored: true, integrity_verified: false }),
   });
   const result = await applyLifeCountermeasure('MEMORY_CORRUPT', actions);
   assert.equal(result.applied, false);
   assert.equal(result.activation_performed, false);
   assert.equal(result.reason, 'BACKUP_RESTORE_NOT_VERIFIED');
+});
+
+test('live memory restoration is never invoked without owner approval; isolated drills are independent', async () => {
+  let calls=0;
+  const options={
+    repository: repository(),
+    restoreBackupBytes: async () => {
+      calls++;
+      return { ok:true, restored:true, integrity_verified:true };
+    },
+  };
+  const blocked=await applyLifeCountermeasure('MEMORY_CORRUPT',bindCountermeasureActions(options));
+  assert.equal(blocked.applied,false);
+  assert.equal(blocked.activation_performed,false);
+  assert.equal(blocked.reason,'OWNER_APPROVAL_REQUIRED');
+  assert.equal(calls,0);
+  const authorized=await applyLifeCountermeasure('MEMORY_CORRUPT',
+    bindCountermeasureActions({...options,ownerApprovedRecovery:true}));
+  assert.equal(authorized.applied,true);
+  assert.equal(authorized.activation_performed,true);
+  assert.equal(calls,1);
 });
 
 test('contingency audit is scoped to the observed mission even with multiple active rows', async () => {
