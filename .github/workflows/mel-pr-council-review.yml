@@ -97,6 +97,7 @@ jobs:
           echo "MEL_COUNCIL_PR_NUMBER=$PR_NUMBER" >> "$GITHUB_ENV"
           echo "Verified immutable PR head $HEAD, review base $BASE and current main $MAIN"
       - name: Require every exact-SHA CI gate before automatic Council review
+        id: ci_gate
         if: github.event_name == 'workflow_run'
         shell: bash
         env:
@@ -122,17 +123,20 @@ jobs:
             'node-validation','lora-runtime-contract','self-audit-contract',
             'MEL WORK free validation (no Vercel, no deployment)',
           ];
-          for(const name of mandatory){
-            if(latest.get(name)?.conclusion!=='success')
-              throw Error('COUNCIL_CI_REQUIRED_CHECK_NOT_GREEN:'+name);
-          }
-          for(const row of latest.values()){
-            if(!['success','skipped'].includes(row.conclusion))
-              throw Error('COUNCIL_CI_NOT_ALL_COMPLETE_AND_GREEN:'+row.name);
-          }
-          console.log('COUNCIL_CI_ALL_GREEN_FOR_EXACT_SHA');
+          const pending=mandatory.filter(name=>latest.get(name)?.conclusion!=='success');
+          const unfinished=[...latest.values()].filter(row=>!['success','skipped'].includes(row.conclusion));
+          const ready=pending.length===0&&unfinished.length===0;
+          const fsOut=process.env.GITHUB_OUTPUT;
+          if(!fsOut)throw Error('COUNCIL_CI_OUTPUT_REQUIRED');
+          fs.appendFileSync(fsOut,'ready='+String(ready)+'\\n');
+          if(!ready){
+            console.log('::notice title=Council pending CI::' + 'COUNCIL_CI_REQUIRED_CHECK_NOT_GREEN='
+              +pending.join(',')+'; COUNCIL_CI_NOT_ALL_COMPLETE_AND_GREEN='
+              +unfinished.map(row=>row.name).join(','));
+          }else console.log('COUNCIL_CI_ALL_GREEN_FOR_EXACT_SHA');
           NODE
       - name: Construct complete immutable Council diff
+        if: github.event_name == 'workflow_dispatch' || steps.ci_gate.outputs.ready == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -141,6 +145,7 @@ jobs:
           git log --format=%s "$MEL_COUNCIL_BASE_SHA..$MEL_COUNCIL_HEAD_SHA" > council.log
           node scripts/prepare-council-review-batches.mjs council.diff council-review-manifest.json
       - name: Full multi-batch independent Council verdict
+        if: github.event_name == 'workflow_dispatch' || steps.ci_gate.outputs.ready == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -157,6 +162,7 @@ jobs:
             throw Error('COUNCIL_PR_FINAL_VERDICT_NOT_VERIFIED');
           NODE
       - name: Recheck immutable head and main after all independent votes
+        if: github.event_name == 'workflow_dispatch' || steps.ci_gate.outputs.ready == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
