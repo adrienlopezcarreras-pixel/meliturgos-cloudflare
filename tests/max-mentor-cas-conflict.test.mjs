@@ -134,9 +134,31 @@ test('MAX cannot resurrect a bridge attempt after a concurrent Mentor READY CAS 
   };
   const response = await markBridgePreparationAttempt(repo, row.id, { now: 1793790300000 });
   const current = await repo.get(row.id);
+  assert.equal(response.claimed, false, 'losing a CAS conflict does not grant a bridge claim');
   assert.equal(response.job.result_json.bridge_preparation_diagnostic.status, 'READY');
   assert.equal(current.result_json.bridge_preparation_diagnostic.status, 'READY');
   assert.equal(current.result_json.bridge_preparation_attempt, undefined,
     'a completed preparation must never regain a stale in-flight marker');
   assert.equal(successfulWrites, 0, 'a competing Mentor decision must abort stale CAS retry');
+});
+
+test('MAX bridge claim carries a unique persisted token before preparation', async () => {
+  let row = { id: 'founder-07', status: 'TEACHER_APPROVED', result_json: {} };
+  const repo = {
+    async get() { return structuredClone(row); },
+    async update(id, patch) {
+      assert.equal(id, row.id);
+      row = { ...row, ...structuredClone(patch) };
+      return structuredClone(row);
+    },
+  };
+  const first = await markBridgePreparationAttempt(repo, row.id, { now: 1_000_000 });
+  assert.equal(first.claimed, true);
+  assert.match(first.job.result_json.bridge_preparation_attempt.attempt_id,
+    /^[a-f0-9-]{36}$/i);
+  const firstId = first.job.result_json.bridge_preparation_attempt.attempt_id;
+  const next = await markBridgePreparationAttempt(repo, row.id, { now: 1_000_001 });
+  assert.equal(next.claimed, true);
+  assert.notEqual(next.job.result_json.bridge_preparation_attempt.attempt_id, firstId,
+    'a stale invocation must not share the newer token');
 });
