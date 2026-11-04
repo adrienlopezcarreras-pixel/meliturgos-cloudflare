@@ -251,6 +251,33 @@ test('OIDC identity is renewed for every individual review',()=>{
   assert.ok(!runner.includes("'x-mel-github-oidc':token"));
 });
 
+test('scheduled Council recovers missed CI completion events without reviewing closed or moved PRs',()=>{
+  const workflow=file('../.github/workflows/mel-pr-council-review.yml');
+  for(const token of [
+    "schedule:\n    - cron: '47 */2 * * *'",
+    "discover:\n    if: github.event_name == 'schedule'",
+    'repos/$GITHUB_REPOSITORY/pulls/3094',
+    'if [ "$STATE" != "open" ]',
+    'test "$BASE" = "main"',
+    'test "$REPO" = "$GITHUB_REPOSITORY"',
+    '[[ "$HEAD" =~ ^[a-f0-9]{40}$ ]]',
+    'needs: [discover]',
+    "needs.discover.result == 'success' && needs.discover.outputs.open == 'true'",
+    'inputs.expected_sha || needs.discover.outputs.head',
+    'inputs.pr_number || needs.discover.outputs.pr_number',
+    "if: github.event_name != 'workflow_dispatch'",
+    "pull-requests: read",
+  ])assert.ok(workflow.includes(token),token);
+  // Scheduled checks may never bypass the exact-commit CI gate or deployment
+  // restrictions simply because they were launched by a cron.
+  assert.ok(workflow.indexOf('Require every exact-SHA CI gate before automatic Council review')
+    <workflow.indexOf('Full multi-batch independent Council verdict'));
+  assert.ok(!workflow.includes('pull_request_target:'));
+  assert.ok(!workflow.includes('contents: write'));
+  assert.ok(!workflow.includes('wrangler deploy'));
+  assert.ok(!workflow.includes('git push'));
+});
+
 test('automatic Council is scoped to trusted CI completion, exact PR head and all green gates',()=>{
   const workflow=file('../.github/workflows/mel-pr-council-review.yml');
   for(const expected of [
