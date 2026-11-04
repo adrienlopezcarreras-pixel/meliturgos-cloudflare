@@ -470,6 +470,7 @@ export class AutonomySupervisor {
     if (!this.onlyJobId) {
       const blocked = current.active.find(job => {
         if (job.requested_by !== 'mel-autonomy'
+            || isSecondPassQueued(job)
             || !['QUEUED', 'TEACHER_APPROVED'].includes(String(job.status || '').toUpperCase())) return false;
         const item = this.roadmap.find(row => row.id === roadmapIdFromJob(job));
         return item && (BLOCKED_ROADMAP.has(String(item.status || '').toUpperCase())
@@ -620,24 +621,28 @@ export class AutonomySupervisor {
           && Number(job.result_json?.autonomy_queue_pass?.round) === 2)
         .sort((a,b) => Number(a.result_json.autonomy_queue_pass.deferred_at||0)
           - Number(b.result_json.autonomy_queue_pass.deferred_at||0)
-          || String(a.id).localeCompare(String(b.id)))[0];
-      if (deferredSecondPass) {
-        const item = this.roadmap.find(row => row.id === roadmapIdFromJob(deferredSecondPass));
-        const waitingPrerequisites = item
-          ? unmetSoftwarePrerequisites(item, this.roadmap, current.verifiedDependencyIds) : [];
-        if (item && (BLOCKED_ROADMAP.has(String(item.status).toUpperCase()) || waitingPrerequisites.length)) {
-          return { created: false, job: null, next: null, complete: false,
-            external_progress: {job_id: deferredSecondPass.id, status: 'SECOND_PASS_PREREQUISITES_PENDING'} };
-        }
+          || String(a.id).localeCompare(String(b.id)));
+      // The oldest revision is not necessarily eligible today. Keep its D1
+      // status and pass marker intact, and try the next passive candidate.
+      // Otherwise one missing prerequisite starves every other second turn.
+      const eligibleSecondPass = deferredSecondPass.find(job => {
+        const item = this.roadmap.find(row => row.id === roadmapIdFromJob(job));
+        return !item || (!BLOCKED_ROADMAP.has(String(item.status || '').toUpperCase())
+          && unmetSoftwarePrerequisites(item, this.roadmap, current.verifiedDependencyIds).length === 0);
+      });
+      if (eligibleSecondPass) {
         if (typeof this.repository.resumeSecondPassQueued !== 'function') {
           return { created: false, job: null, next: null, complete: false,
-            external_progress: { job_id: deferredSecondPass.id, status: 'SECOND_PASS_ATOMIC_CLAIM_UNAVAILABLE' } };
+            external_progress: { job_id: eligibleSecondPass.id, status: 'SECOND_PASS_ATOMIC_CLAIM_UNAVAILABLE' } };
         }
-        const resumed = await this.repository.resumeSecondPassQueued(deferredSecondPass.id, {expected: deferredSecondPass});
+        const resumed = await this.repository.resumeSecondPassQueued(eligibleSecondPass.id, {expected: eligibleSecondPass});
         if (!resumed) return { created: false, job: null, next: null, complete: false,
-          external_progress: {job_id: deferredSecondPass.id, status: 'SECOND_PASS_SLOT_BUSY'} };
+          external_progress: {job_id: eligibleSecondPass.id, status: 'SECOND_PASS_SLOT_BUSY'} };
         return { created: false, job: resumed, next: null, complete: false };
       }
+      if (deferredSecondPass.length) return { created: false, job: null, next: null,
+        complete: false, external_progress: {job_id: deferredSecondPass[0].id,
+          status: 'SECOND_PASS_PREREQUISITES_PENDING', blocked_count: deferredSecondPass.length} };
       const passiveOwner = current.active
         .filter(isSupervisedAutonomyJob)
         .filter((job) => isPassiveRuntimeJob(job) && !isRotatableProviderExhaustion(job) && !isSecondPassQueued(job))
