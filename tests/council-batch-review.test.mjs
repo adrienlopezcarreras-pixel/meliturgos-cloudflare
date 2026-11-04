@@ -133,6 +133,27 @@ test('the independent final integration vote cannot approve without two distinct
   }finally{db.close();}
 });
 
+test('malformed null review rows never crash otherwise valid independent Council votes',async()=>{
+  const db=sqliteD1({maintenanceFence:true});
+  try {
+    const vote=async()=>({decision:'APPROVED',reviews:[null,...approvals,null]});
+    for(const b of plan.batches)
+      assert.equal((await call(db,batch(b),vote)).result.batch_decision,'APPROVED');
+    const result=(await call(db,final,vote)).result;
+    assert.equal(result.decision,'APPROVED');
+    assert.equal(result.complete_review,true);
+  }finally{db.close();}
+});
+
+test('empty independent vote fails closed without throwing or persisting an approval',async()=>{
+  const db=sqliteD1({maintenanceFence:true});
+  try {
+    const result=(await call(db,batch(plan.batches[0]),async()=>undefined)).result;
+    assert.equal(result.batch_decision,'COUNCIL_BATCH_VOTE_MISSING');
+    assert.equal(result.decision,'COUNCIL_BATCH_NOT_APPROVED');
+  }finally{db.close();}
+});
+
 test('previously approved Council batch cache is not trusted when model quorum vanishes',async()=>{
   const db=sqliteD1({maintenanceFence:true});
   try{
