@@ -490,3 +490,36 @@ test('the monthly audit force-reactivates ShardVault and repairs its shards', as
   const index = await fs.readFile(new URL('../../src/index.js', import.meta.url), 'utf8');
   assert.match(index, /new Date\(\)\.getUTCDay\(\) === 1 \? runModelTournament\(env\)/);
 });
+
+test('weekly MEL-AUDIT-02 actually persists its findings through the supervisor', async () => {
+  const { sqliteD1 } = await import('../helpers/sqlite-d1.mjs');
+  const db = sqliteD1();
+  try {
+    const now = Date.UTC(2026, 9, 24, 12, 0, 0);
+    const store = new MemoryStateStore();
+    const jobs = [
+      { id: 'delivered', updated_at: now - 1000, status: 'COMPLETED', requested_by: 'mel-autonomy', optional_context: { roadmap_id: 'MEL-AUDIT-01' } },
+      ...Array.from({ length: 4 }, (_, index) => ({ id: 'retry-' + index, updated_at: now - 1000, status: 'FAILED',
+        requested_by: 'mel-autonomy', optional_context: { roadmap_id: 'MEL-RETRY' } })),
+    ];
+    const result = await runMelSelfAuditSupervisor({ DB: db }, {
+      bus: fakeBus(), stateStore: store, maxLevel: 'WEEKLY', forceLevel: 'WEEKLY', now,
+      repairEnabled: false,
+      deps: baseDeps({
+        queueErrorRepairs: async () => ({ ok: true, queued: 0 }),
+        listDevJobs: async () => jobs,
+        probeCodeModels: async () => [],
+        readCapabilityUsageEvidence: async () => ({}),
+      }),
+    });
+    assert.equal(result.report.tasks['development-audit'].status, 'DEVELOPMENT_AUDIT_FAILED');
+    const saved = await db.prepare('SELECT report_json FROM mel_development_audit_reports').all();
+    assert.equal(saved.results.length, 1);
+    const weekly = JSON.parse(saved.results[0].report_json);
+    assert.equal(weekly.summary.completed, 1);
+    assert.equal(weekly.summary.failed, 4);
+    const findings = await db.prepare('SELECT code,detail FROM mel_development_audit_findings').all();
+    assert.equal(findings.results.filter(row => row.code === 'MISSION_LOOP').length, 1);
+    assert.equal((await db.prepare('SELECT COUNT(*) AS c FROM dev_jobs').first().catch(() => ({ c: 0 }))).c, 0);
+  } finally { db.close(); }
+});
