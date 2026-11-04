@@ -5,10 +5,14 @@ import { parseVerdict, decide, runCouncilReview, orderCouncilModels, freeCouncil
 
 test('council verdicts and majority rule', async () => {
   assert.equal(parseVerdict('x {"verdict":"approve"} y').verdict, 'APPROVE');
-  const A = { verdict: 'APPROVE', summary: 'validated' }, R = { verdict: 'REJECT', summary: 'unsafe' }, N = { verdict: null };
+  const A = { model: 'model-a', verdict: 'APPROVE', summary: 'validated' }, R = { model: 'model-r', verdict: 'REJECT', summary: 'unsafe' }, N = { model: 'model-n', verdict: null };
   assert.equal(decide([A, A, R, N]), 'INSUFFICIENT_REVIEWERS');
   assert.equal(decide([A, R, R, A]), 'REJECTED');
   assert.equal(decide([A, N, N, N]), 'INSUFFICIENT_REVIEWERS');
+  assert.equal(decide([
+    { verdict: 'APPROVE', summary: 'security checked' },
+    { verdict: 'APPROVE', summary: 'tests checked' },
+  ]), 'INSUFFICIENT_REVIEWERS', 'anonymous approvals cannot form a Council quorum');
   assert.equal(decide([
     { model: '@cf/openai/gpt-oss-120b', verdict: 'APPROVE' },
     { model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', verdict: 'APPROVE' },
