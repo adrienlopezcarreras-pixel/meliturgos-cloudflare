@@ -11,6 +11,12 @@ on:
       - MEL Core durable work CI
       - mel-conn-01-public-chat-ci
       - shardvault-ci
+      - MEL external contingency monitor
+      - mel-work-free-validation
+      - hardware-lab-ci
+      - lora-runtime-pipeline-ci
+      - mel-self-audit-supervisor-ci
+      - cloudflare-api-relay
     types: [completed]
   workflow_dispatch:
     inputs:
