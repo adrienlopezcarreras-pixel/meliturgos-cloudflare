@@ -338,7 +338,16 @@ export async function markBridgePreparationAttempt(repository, jobId, { now = Da
   if (latest?.status !== 'TEACHER_APPROVED') return { job: latest, killed: 0, exhausted: false };
   const result = latest.result_json && typeof latest.result_json === 'object' ? { ...latest.result_json } : {};
   const previous = result.bridge_preparation_attempt || {};
-  const unfinished = Number(previous.started_at) > 0 && now - Number(previous.started_at) > BRIDGE_ATTEMPT_KILLED_AFTER_MS;
+  const previousStart = Number(previous.started_at);
+  // A recent persisted claim still belongs to the first Mentor invocation.
+  // Never replace its token or spend a second provider call before timeout.
+  // Even a future timestamp is treated as occupied (fail closed).
+  if (Number.isFinite(previousStart) && previousStart > 0
+      && now - previousStart <= BRIDGE_ATTEMPT_KILLED_AFTER_MS) {
+    return { job: latest, killed: Number(previous.killed || 0),
+      exhausted: false, claimed: false, in_progress: true };
+  }
+  const unfinished = previousStart > 0 && now - previousStart > BRIDGE_ATTEMPT_KILLED_AFTER_MS;
   const killed = unfinished ? Number(previous.killed || 0) + 1 : Number(previous.killed || 0);
   if (killed >= BRIDGE_ATTEMPT_MAX_KILLED) {
     delete result.bridge_preparation_attempt;
