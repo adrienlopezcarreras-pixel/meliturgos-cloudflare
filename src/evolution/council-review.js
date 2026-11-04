@@ -93,11 +93,10 @@ export function decide(reviews) {
   const seen = new Set();
   for (const review of Array.isArray(reviews) ? reviews : []) {
     const model = String(review?.model || '').trim().toLowerCase();
-    if (model) {
-      if (seen.has(model)) continue;
-      seen.add(model);
-    }
-    convened.push(review || {});
+    // An unidentified reply cannot establish an independent Council vote.
+    if (!model || seen.has(model)) continue;
+    seen.add(model);
+    convened.push(review);
   }
   const valid = convened.filter((review) => {
     if (review?.verdict !== 'APPROVE' && review?.verdict !== 'REJECT') return false;
