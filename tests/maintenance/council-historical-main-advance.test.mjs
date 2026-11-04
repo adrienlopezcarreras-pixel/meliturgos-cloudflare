@@ -25,3 +25,22 @@ test('historical receipts cannot authorize a release retroactively', () => {
   assert.match(workflow, /release_authorized:false/);
   assert.match(workflow, /POST_MERGE_AUDIT_APPROVED/);
 });
+
+test('Council keeps release gates while allowing only the pinned maintenance PR profile', () => {
+  assert.match(workflow, /github\.event\.workflow_run\.head_branch == 'fix\/council-historical-audit-main-advance-20261104'/);
+  assert.match(workflow, /MEL_COUNCIL_PR_NUMBER=\$PR_NUMBER/);
+  assert.match(workflow, /3103\) test "\$STATE" = "open"/);
+  assert.match(workflow, /COUNCIL_PR_NOT_ALLOWLISTED/);
+  assert.match(workflow, /prNumber==='3094'\?releaseMandatory:maintenanceMandatory/);
+  const release = workflow.slice(workflow.indexOf('const releaseMandatory=['),workflow.indexOf('const maintenanceMandatory='));
+  for (const name of [
+    'gen2-17-targeted', 'gen2-17-full-suite', 'monitor-contract',
+    'encrypted-backup', 'professor-audit', 'shardvault-targeted',
+    'public-chat-targeted', 'public-chat-full-suite', 'durable-work',
+    'node-validation', 'lora-runtime-contract', 'self-audit-contract',
+    'MEL WORK free validation (no Vercel, no deployment)',
+  ]) assert.ok(release.includes(name), name);
+  assert.match(workflow, /const maintenanceMandatory=\['gen2-17-targeted','gen2-17-full-suite','encrypted-backup'\]/);
+  assert.match(workflow, /const pending=mandatory\.filter\(name=>latest\.get\(name\)\?\.conclusion!=='success'\)/);
+  assert.match(workflow, /const unfinished=\[\.\.\.latest\.values\(\)\]\.filter/);
+});
