@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildReconstructionKit,
+  publicShardKit,
   currentContingency,
   judgeCandidate,
   maxStandby,
@@ -64,15 +65,19 @@ test('a document does not prove a candidate better, a failed live test neither',
   assert.equal(better.activation_allowed, false);
 });
 
-test('the live watch names the real case: Cloudflare up, PC absent', () => {
+test('offline optional Companion is not an outage; a diagnosed PC failure is', () => {
   const live = currentContingency({ cloudflareUp: true, companionOnline: false, githubUp: true });
-  assert.equal(live.kind, 'SINGLE');
-  assert.deepEqual(live.down, ['pc']);
+  assert.equal(live.kind, 'NONE');
+  assert.deepEqual(live.down, []);
+  const diagnosed = currentContingency({ cloudflareUp: true, pcUp: false, githubUp: true });
+  assert.equal(diagnosed.kind, 'SINGLE');
+  assert.deepEqual(diagnosed.down, ['pc']);
   assert.equal(live.max, 'MAX_ON_CLOUDFLARE');
-  assert.match(live.consequence, /reste sur Cloudflare/);
+  assert.match(live.consequence, /MAX reste ou elle est/);
   const both = currentContingency({ cloudflareUp: false, companionOnline: false, githubUp: true });
-  assert.equal(both.max, 'ACTIONS_RELAY_READY');
-  assert.match(both.consequence, /GitHub Actions prend le relais/);
+  assert.equal(both.max, 'ACTIONS_RELAY_UNVERIFIED');
+  assert.ok(both.verification_required.includes('GITHUB_RELAY_LIVE_TEST'));
+  assert.match(both.consequence, /relais GitHub Actions n est pas certifie/);
   assert.match(both.implication, /GitHub reste lisible/);
 });
 
@@ -92,4 +97,59 @@ test('losing both private copies leaves the memory key unavailable', () => {
   const response = respondToScenario({ down: ['gmail', 'onedrive', 'cloudflare', 'pc', 'github'] });
   assert.equal(response.rebirth, 'MEMORY_KEY_UNAVAILABLE');
   assert.match(response.consequence, /ne contiennent pas la cle/);
+});
+
+test('a missing GitHub status never proves an independent executable relay', () => {
+  const unknown = currentContingency({ cloudflareUp: false });
+  assert.equal(unknown.max, 'ACTIONS_RELAY_UNVERIFIED');
+  assert.equal(unknown.activation_performed, false);
+  const reachable = currentContingency({ cloudflareUp: false, githubUp: true });
+  assert.equal(reachable.max, 'ACTIONS_RELAY_UNVERIFIED');
+  const drilled = currentContingency({ cloudflareUp: false, githubUp: true, githubRelayReady: true });
+  assert.equal(drilled.max, 'ACTIONS_RELAY_READY');
+  assert.equal(drilled.activation_performed, false);
+});
+
+test('unverified backup provider reachability cannot certify full reconstruction', () => {
+  const down = { cloudflareUp: false, githubUp: false, pcUp: false };
+  const unverified = currentContingency(down);
+  assert.equal(unverified.max, 'NO_RUNNER');
+  assert.equal(unverified.rebirth, 'PRIVATE_KIT_UNVERIFIED');
+  assert.equal(unverified.countermeasure.includes('STOP_AND_REBUILD_FROM_PRIVATE_KIT'), false);
+  assert.ok(unverified.verification_required.includes('PRIVATE_KIT_RESTORE_DRILL'));
+  const proved = currentContingency({ ...down, gmailUp: true, gmailKitVerified: true });
+  assert.equal(proved.rebirth, 'FROM_PRIVATE_KIT');
+  assert.equal(proved.verified_private_kits.includes('gmail'), true);
+  assert.equal(proved.activation_performed, false);
+});
+
+test('stale Companion readiness cannot make an unknown PC a proven standby', () => {
+  const unknown = currentContingency({
+    cloudflareUp: false, githubUp: true, companionOnline: true,
+    localGit: true, localDb: true, localModel: true,
+  });
+  assert.notEqual(unknown.max, 'STANDBY_READY');
+  const positive = currentContingency({
+    cloudflareUp: false, githubUp: true, pcUp: true, companionOnline: true,
+    localGit: true, localDb: true, localModel: true,
+  });
+  assert.equal(positive.max, 'STANDBY_READY');
+});
+
+test('public shard copy uses an allowlist and rejects private fields in discovery map', () => {
+  const kit=buildReconstructionKit({
+    sourceSha: sha, encryptedBackup: 'ENCRYPTED', keyId: 'key-id', keyB64:'NEVER_PUBLISH_THIS', index,
+  });
+  kit.private_recovery_token='TOP_LEVEL_TOKEN';
+  kit.backup.extra_password='ADDITIONAL_PASSWORD';
+  const copy=publicShardKit(kit);
+  const json=JSON.stringify(copy);
+  assert.equal(json.includes('NEVER_PUBLISH_THIS'),false);
+  assert.equal(json.includes('TOP_LEVEL_TOKEN'),false);
+  assert.equal(json.includes('ADDITIONAL_PASSWORD'),false);
+  assert.deepEqual(Object.keys(copy.backup).sort(),['encrypted_text','key_id']);
+  assert.throws(() => buildReconstructionKit({
+    sourceSha: sha, encryptedBackup: 'ENCRYPTED', keyId:'kid', keyB64:'secret',
+    index:{format:'MEL-ShardVault-DiscoveryIndex',seed_leads:[{access_token:'SHOULD_NOT_LEAK'}]},
+  }), error => error.code === 'RECONSTRUCTION_INDEX_PRIVATE_FIELD');
 });

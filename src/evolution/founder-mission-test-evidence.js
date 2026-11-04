@@ -57,10 +57,23 @@ export async function fetchFounderMissionTestEvidence({ repository, candidateSha
   const root = 'https://api.github.com/repos/' + repository;
   const headers = { accept: 'application/vnd.github+json', 'user-agent':'mel-founder-evidence',
     ...(token ? { authorization:'Bearer ' + token } : {}) };
+  // GitHub's run metadata and artifact listing are idempotent GET requests.
+  // Retry one transient API failure; never retry signed archive redirects,
+  // parse failures, 401/403 authorization errors, or evidence mismatches.
   const read = async url => {
-    const response = await fetchImpl(url, { headers, redirect:'manual', signal:AbortSignal.timeout(20000) });
-    if (!response.ok || response.status >= 300 && response.status < 400) throw new Error('GITHUB_ARTIFACT_FETCH_FAILED');
-    return response.json();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let response;
+      try {
+        response = await fetchImpl(url, { headers, redirect:'manual', signal:AbortSignal.timeout(20000) });
+      } catch (error) {
+        if (attempt === 0 && ['TypeError', 'TimeoutError'].includes(String(error?.name || ''))) continue;
+        throw error;
+      }
+      if (response.ok && !(response.status >= 300 && response.status < 400)) return response.json();
+      if (attempt === 0 && [500, 502, 503, 504].includes(response.status)) continue;
+      throw new Error('GITHUB_ARTIFACT_FETCH_FAILED');
+    }
+    throw new Error('GITHUB_ARTIFACT_FETCH_FAILED');
   };
   let lookupStage = 'RUN_METADATA';
   try {

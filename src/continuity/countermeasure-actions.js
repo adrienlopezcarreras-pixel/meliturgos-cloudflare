@@ -1,44 +1,83 @@
 import { recoverPassiveRuntimeStates } from '../evolution/passive-state-recovery.js';
 
-async function markJob(repository, status, code) {
+/** Confirm persisted MAX state after any control mutation. Never infer success
+ * merely because setOwnerMaxAutonomy returned without throwing. */
+export function maxControlProof(control) {
+  const active = control?.max_autonomy === true && control?.paused !== true;
+  return Object.freeze({ ok: active, max_active: active, active,
+    ...(active ? {} : { code: 'MAX_CONTROL_NOT_ACTIVE' }) });
+}
+
+async function markJob(repository, status, code, expectedJobId = null) {
   if (typeof repository?.listActiveAutonomyJobs !== 'function' || typeof repository?.update !== 'function') {
     return { ok: false, code: 'REPOSITORY_REQUIRED' };
   }
   const jobs = await repository.listActiveAutonomyJobs();
-  const job = Array.isArray(jobs) ? jobs.find(row => row?.id) : null;
-  if (!job) return { ok: true, idle: true, code };
-  const result = { ...(job.result_json || {}), countermeasure: { code, at: new Date().toISOString() } };
-  await repository.update(job.id, {
+  const active = Array.isArray(jobs) ? jobs.filter(row => row?.id) : [];
+  // Never apply evidence for one tick to an unrelated active mission.
+  if (!expectedJobId && active.length > 1) return { ok: false, code: 'AMBIGUOUS_ACTIVE_JOBS' };
+  const job = expectedJobId ? active.find(row => row.id === expectedJobId) : active[0];
+  if (!job) return { ok: false, idle: true, code: 'NO_ACTIVE_JOB', requested: code };
+  const previous = job.result_json || {};
+  const entry = { code, at: new Date().toISOString() };
+  const history = Array.isArray(previous.countermeasure_history) ? previous.countermeasure_history : [];
+  // Keep each decision for audit instead of overwriting the last one.
+  const result = {
+    ...previous,
+    countermeasure: entry,
+    countermeasure_history: [...history, entry].slice(-100),
+  };
+  const updated = await repository.update(job.id, {
     status: status || job.status,
     result_json: result,
-    error: status === 'FAILED' ? code : null,
+    error: status === 'FAILED' ? code : (job.error ?? null),
   }, { expected: job });
+  // The persistent repository can refuse an update when an owner cancelled
+  // the job concurrently. Returning a valid job is not proof of a new write.
+  if (String(updated?.status || '').toUpperCase() === 'CANCELLED'
+      || updated?.result_json?.countermeasure?.code !== code
+      || updated?.result_json?.countermeasure?.at !== entry.at) {
+    return { ok: false, code: 'COUNTERMEASURE_AUDIT_NOT_PERSISTED' };
+  }
   return { ok: true, code };
 }
 
-async function requeue(repository) {
+async function requeue(repository, jobId = null, canonicalSha = null) {
   if (typeof repository?.list !== 'function' || typeof repository?.update !== 'function') {
     return { ok: false, code: 'REPOSITORY_REQUIRED' };
   }
-  const recovered = await recoverPassiveRuntimeStates(repository, { activeOnly: true });
-  return { ok: recovered?.failed?.length ? false : true, code: recovered?.failed?.[0]?.code };
+  const recovered = await recoverPassiveRuntimeStates(repository, { activeOnly: true, onlyJobId: jobId, canonicalSha });
+  const changed = Array.isArray(recovered?.recovered) ? recovered.recovered.length : 0;
+  const failure = recovered?.failed?.[0]?.code;
+  return { ok: !failure && changed > 0, code: failure || (changed ? 'MISSION_REQUEUED' : 'NO_RECOVERABLE_JOB'), recovered: changed };
 }
 
 export function bindCountermeasureActions({
   setMax,
   keepMax,
   repository = null,
+  jobId = null,
+  canonicalSha = null,
   supervisor = null,
   rollbackWorker,
   previousVersionId = null,
   openPrivateCopy,
+  rebuildFromPrivateKit,
+  // A full disaster migration can be authorized only by trusted owner control,
+  // never by a mission-provided flag or a healthy backup candidate alone.
+  ownerApprovedRecovery = false,
   restoreBackupBytes,
 } = {}) {
   const rollback = async () => {
     if (!previousVersionId) return { ok: false, code: 'PREVIOUS_VERSION_REQUIRED' };
     if (typeof rollbackWorker !== 'function') return { ok: false, code: 'ROLLBACK_NOT_CONFIGURED' };
     const result = await rollbackWorker(previousVersionId);
-    return result?.ok === true ? { ok: true } : { ok: false, code: result?.code || 'ROLLBACK_FAILED' };
+    if (result?.ok === true) {
+      const audit = await markJob(repository, null, 'ROLLBACK_WORKER', jobId);
+      if (audit.ok !== true) return { ok: false, code: audit.code || 'ROLLBACK_AUDIT_NOT_PERSISTED', rollback_performed: true };
+      return { ok: true };
+    }
+    return { ok: false, code: result?.code || 'ROLLBACK_FAILED' };
   };
   const openKit = async () => {
     if (typeof openPrivateCopy !== 'function') return { ok: false, code: 'PRIVATE_KIT_REQUIRED' };
@@ -48,36 +87,60 @@ export function bindCountermeasureActions({
   return {
     restoreMax: async () => {
       if (typeof setMax !== 'function') return { ok: false, code: 'CONTROL_REQUIRED' };
-      await setMax();
-      return { ok: true };
+      const result = await setMax();
+      return result?.ok === true && (result?.max_active === true || result?.active === true)
+        ? { ok: true }
+        : { ok: false, code: result?.code || 'MAX_REACTIVATION_NOT_PROVEN' };
     },
     keepMax: async () => {
       const fn = keepMax || setMax;
       if (typeof fn !== 'function') return { ok: false, code: 'CONTROL_REQUIRED' };
-      await fn();
-      return { ok: true };
+      const result = await fn();
+      return result?.ok === true && (result?.max_active === true || result?.active === true)
+        ? { ok: true }
+        : { ok: false, code: result?.code || 'MAX_RUNNING_NOT_PROVEN' };
     },
-    keepPrevious: () => markJob(repository, null, 'KEEP_PREVIOUS_SHA'),
-    refuseSecondRelease: () => markJob(repository, null, 'DO_NOT_START_SECOND_RELEASE'),
-    keepSource: () => markJob(repository, null, 'KEEP_SOURCE'),
-    refuseMerge: () => markJob(repository, null, 'DO_NOT_MERGE'),
-    requeue: () => requeue(repository),
-    requeueReview: () => requeue(repository),
+    keepPrevious: () => markJob(repository, null, 'KEEP_PREVIOUS_SHA', jobId),
+    refuseSecondRelease: () => markJob(repository, null, 'DO_NOT_START_SECOND_RELEASE', jobId),
+    keepSource: () => markJob(repository, null, 'KEEP_SOURCE', jobId),
+    refuseMerge: () => markJob(repository, null, 'DO_NOT_MERGE', jobId),
+    requeue: () => requeue(repository, jobId, canonicalSha),
+    requeueReview: () => requeue(repository, jobId, canonicalSha),
     ensureNextJob: async () => {
       if (typeof supervisor?.ensureNextJob !== 'function') return { ok: false, code: 'SUPERVISOR_REQUIRED' };
-      await supervisor.ensureNextJob();
-      return { ok: true };
+      const result = await supervisor.ensureNextJob();
+      // Scheduler invocation is not the same as actual admission of one job.
+      if (result?.created === true && result?.job?.id) return { ok: true, code: 'NEXT_JOB_CREATED' };
+      return { ok: false, code: String(result?.external_progress?.status || (result?.complete === true ? 'ROADMAP_COMPLETE' : 'NO_NEW_JOB_CREATED')) };
+
     },
-    reject: () => markJob(repository, 'FAILED', 'REJECT_CANDIDATE'),
-    rebuildHead: () => markJob(repository, 'QUEUED', 'REBUILD_ON_CURRENT_HEAD'),
+    reject: () => markJob(repository, 'FAILED', 'REJECT_CANDIDATE', jobId),
+    rebuildHead: () => markJob(repository, 'QUEUED', 'REBUILD_ON_CURRENT_HEAD', jobId),
     rollback,
-    rollbackToSource: () => markJob(repository, null, 'ROLLBACK_TO_SOURCE'),
-    rebuild: openKit,
+    rollbackToSource: () => markJob(repository, null, 'ROLLBACK_TO_SOURCE', jobId),
+    rebuild: async () => {
+      // A full rebuild can activate a replacement runtime, so refuse to call
+      // any executor unless an explicit, trusted owner approval is present.
+      if (ownerApprovedRecovery !== true) return { ok: false, code: 'OWNER_APPROVAL_REQUIRED' };
+      // Opening an encrypted kit is NOT a rebuild. Require a separate,
+      // explicit full-reconstruction executor with an integrity result.
+      if (typeof rebuildFromPrivateKit !== 'function') return { ok: false, code: 'FULL_REBUILD_EXECUTOR_REQUIRED' };
+      const result = await rebuildFromPrivateKit();
+      return result?.ok === true && result?.restored === true && result?.integrity_verified === true
+        ? { ok: true, code: 'FULL_REBUILD_VERIFIED', restored: true, integrity_verified: true }
+        : { ok: false, code: result?.code || 'FULL_REBUILD_NOT_VERIFIED' };
+    },
     restoreBackup: async () => {
+      // This executor may overwrite live memory. Scheduled read-only
+      // isolated drills do not use this action and remain fully automatic.
+      if (ownerApprovedRecovery !== true) return { ok: false, code: 'OWNER_APPROVAL_REQUIRED' };
       if (typeof restoreBackupBytes !== 'function') return { ok: false, code: 'BACKUP_REQUIRED' };
       const result = await restoreBackupBytes();
-      return result?.ok === true ? { ok: true } : { ok: false, code: result?.code || 'BACKUP_RESTORE_FAILED' };
+      return result?.ok === true && result?.restored === true && result?.integrity_verified === true
+        ? { ok: true, code: 'BACKUP_RESTORE_VERIFIED', restored: true, integrity_verified: true }
+        : { ok: false, code: result?.code || 'BACKUP_RESTORE_NOT_VERIFIED' };
     },
     openKit,
+    note: (code) => markJob(repository, null, String(code || 'CONTINGENCY_NOTED'), jobId),
   };
 }

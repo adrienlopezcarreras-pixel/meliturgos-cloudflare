@@ -48,6 +48,8 @@ test('restore diagnostics retain safe internal codes and stage but redact secret
  const known=Object.assign(new Error('PRIVATE_DATA'),{code:'BACKUP_DECRYPTION_FAILED'});
  assert.equal(isolatedRestoreFailure(known,'DECRYPT').code,'BACKUP_DECRYPTION_FAILED');
  assert.equal(isolatedRestoreFailure(known,'DECRYPT').stage,'DECRYPT');
+ assert.equal(isolatedRestoreFailure(Object.assign(new Error('opaque'),{code:'ISOLATED_R2_LIST_RESPONSE_INVALID'}),'DISCOVER').stage,'DISCOVER');
+ assert.equal(isolatedRestoreFailure(new Error('private details'),'UNRECOGNIZED').stage,'UNKNOWN');
  assert.equal(isolatedRestoreFailure(new RangeError('PRIVATE_DATA'),'RESTORE').error_kind,'RangeError');
  for(const error of [new Error('https://private.invalid/token'),Object.assign(new Error('PRIVATE_DATA'),{code:'BACKUP_FAILED:private/path'}),new SyntaxError('PRIVATE_JSON')]){
   const proof=isolatedRestoreFailure(error,'DECRYPT');

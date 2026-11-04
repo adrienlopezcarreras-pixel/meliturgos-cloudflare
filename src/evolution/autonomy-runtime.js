@@ -18,8 +18,12 @@ import { readActivityListEpoch } from './autonomy-activity.js';
 import { backgroundNeuronBudgetExhausted, readNeuronBonusTotal } from '../augmentio/neuron-budget.js';
 import { bindLocalPcWorkersAi, localPcModelReady } from '../models/local-pc-model.js';
 import { readSurvivalState, shouldResumeForSurvival } from '../legacy/survival-mode.js';
-import { applyLifeCountermeasure } from '../continuity/life-contingency.js';
-import { bindCountermeasureActions } from '../continuity/countermeasure-actions.js';
+import { applyLifeCountermeasure, lifeFactsFromSignals } from '../continuity/life-contingency.js';
+import { runContingencyCycle } from '../continuity/contingency-cycle.js';
+import { verifyContingencyProbeReports, freshJobContingencyProbeReports } from '../continuity/contingency-probe-auth.js';
+import { readContingencyProbeInbox, CONTINGENCY_PERSISTED_PROBE_MAX_AGE_MS } from '../continuity/contingency-probe-inbox.js';
+import { activeWorkerContingencyObserved } from '../continuity/contingency-observations.js';
+import { bindCountermeasureActions, maxControlProof } from '../continuity/countermeasure-actions.js';
 import { singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
 
 export * from './autonomy-runtime-core.js';
@@ -86,9 +90,10 @@ async function selectablePcJobs(repository, epochMs, roadmap, count, singleFligh
   // Both autonomy modes pin one objective; independent tests inside that objective may parallelize elsewhere.
   return (singleFlight ? jobs.slice(0, 1) : jobs).map(job => job.id);
 }
-const ACTIONABLE_FAILURE_STATES = new Set(['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE', 'TEACHER_APPROVED']);
+const ACTIONABLE_FAILURE_STATES = new Set(['QUEUED', 'PLANNING', 'CLAIMED', 'COUNCIL_COMPLETE', 'TEACHER_APPROVED']);
 const ACTIVE_RUNTIME_STATES = new Set([
   'QUEUED',
+  'PLANNING',
   'CLAIMED',
   'COUNCIL_COMPLETE',
   'WAITING_TEACHER',
@@ -734,6 +739,101 @@ async function autonomyProgressSnapshot(repository, roadmap = null, epochMs = 0)
   }
 }
 
+function signalsFromJob(job) {
+  const result = job?.result_json || {};
+  const tests = Array.isArray(result.dev_bridge?.tests) ? result.dev_bridge.tests : [];
+  const signals = { ...(result.life_signals || {}) };
+  if (tests.some(row => row?.error === 'RELEASE_CODE_SMOKE_FAILED' || row?.name === 'release-smoke' && row?.passed === false)) {
+    signals.smoke = { ...(signals.smoke || {}), ok: false };
+  }
+  if (tests.some(row => row?.error === 'FULL_RELEASE_CI_FAILED')) {
+    signals.release = { ...(signals.release || {}), ci: 'failure' };
+  }
+  if (result.reconstruction && result.reconstruction.key_present === false) {
+    signals.memory = { ...(signals.memory || {}), key_present: false };
+  }
+  if (result.reconstruction?.corrupt === true) {
+    signals.memory = { ...(signals.memory || {}), corrupt: true };
+  }
+  return signals;
+}
+
+function countermeasureFacts({ control, watchdog, tick, job }) {
+  const result = { ...(job?.result_json || {}), ...lifeFactsFromSignals(signalsFromJob(job)) };
+  const stamped = result.countermeasure?.code;
+  const progress = tick?.progress || {};
+  const status = String(progress.job_status || job?.status || '').toUpperCase();
+  const stalled = watchdog?.tripped === true;
+  const rollbackDone = stamped === 'ROLLBACK_WORKER';
+  return {
+    stalled: stalled && stamped !== 'REQUEUE_STALE_REVIEW',
+    jobStuck: stalled && Boolean(progress.job_id) && ['QUEUED', 'CLAIMED', 'TEACHER_APPROVED', 'WAITING_TEACHER', 'COUNCIL_COMPLETE'].includes(status) && stamped !== 'REQUEUE_ONE_JOB',
+    idle: control?.max_autonomy === true && control?.paused !== true && progress.active_jobs === 0 && progress.work_remaining === false,
+    ciRed: Boolean(result.candidate_ci_failure?.failed_candidate_sha || result.candidate_ci_failure?.run_id) && stamped !== 'DO_NOT_MERGE',
+    candidateMoved: result.candidate_moved === true && stamped !== 'REBUILD_ON_CURRENT_HEAD',
+    badPatch: result.bad_patch === true && stamped !== 'REJECT_CANDIDATE',
+    updateCiFailed: result.update_ci_failed === true && stamped !== 'KEEP_PREVIOUS_SHA',
+    deployFailed: result.deploy_failed === true && !rollbackDone,
+    smokeFailed: result.smoke_failed === true && !rollbackDone,
+    versionSplit: result.version_split === true && !rollbackDone,
+    releaseAlreadyRunning: result.release_in_progress === true && stamped !== 'DO_NOT_START_SECOND_RELEASE',
+    migrationExportFailed: result.migration_export_failed === true && stamped !== 'KEEP_SOURCE',
+    migrationImportFailed: result.migration_import_failed === true && stamped !== 'KEEP_SOURCE',
+    migrationSmokeFailed: result.migration_smoke_failed === true && stamped !== 'ROLLBACK_TO_SOURCE',
+    migrationNotBetter: result.migration_not_better === true && stamped !== 'ROLLBACK_TO_SOURCE',
+    migrationSourceDied: result.migration_source_died === true && stamped !== 'REBUILD_FROM_PRIVATE_KIT',
+    memoryCorrupt: result.memory_corrupt === true && stamped !== 'RESTORE_LAST_GOOD_BACKUP',
+    keyMissing: result.key_missing === true && stamped !== 'OPEN_PRIVATE_KIT_NOT_PUBLIC_SHARD',
+    detected: result.detected_life_events,
+  };
+}
+
+async function applyObservedCountermeasures(env, repository, control, watchdog, tick) {
+  if (!repository) return [];
+  const jobId = tick?.progress?.job_id;
+  const job = jobId && typeof repository.get === 'function' ? await repository.get(jobId).catch(() => null) : null;
+  const actions = bindCountermeasureActions({
+    repository,
+    jobId: job?.id || null,
+    canonicalSha: deployedCandidateSha(env),
+    supervisor: new AutonomySupervisor({ repository }),
+    previousVersionId: job?.result_json?.previous_version_id || null,
+    rollbackWorker: env?.MEL_ROLLBACK_WORKER,
+    openPrivateCopy: env?.MEL_OPEN_PRIVATE_KIT,
+    rebuildFromPrivateKit: env?.MEL_REBUILD_FROM_PRIVATE_KIT,
+    restoreBackupBytes: env?.MEL_RESTORE_BACKUP,
+  });
+  // Legacy job-supplied parts_up values are untrusted and intentionally ignored.
+  // The currently running Worker is known alive locally; external outages
+  // require a fresh authenticated observation before they can be diagnosed.
+  // Independent signed reports are written to D1 by the GitHub monitor.
+  // A missing or unreadable inbox contributes no outage facts.
+  const externalReports = await readContingencyProbeInbox(env?.DB).catch(() => []);
+  const now = Date.now();
+  const jobReports = freshJobContingencyProbeReports(job?.result_json?.contingency_probes, { now });
+  // The 20-minute window applies only to signed reports accepted earlier into
+  // the independent D1 inbox. Job-supplied reports keep their 3-minute limit.
+  const probes = await verifyContingencyProbeReports([...externalReports, ...jobReports], {
+    secret: env?.MEL_CONTINGENCY_PROBE_HMAC_KEY,
+    now,
+    maxAgeMs: CONTINGENCY_PERSISTED_PROBE_MAX_AGE_MS,
+  });
+  return runContingencyCycle({
+    observed: activeWorkerContingencyObserved(probes),
+    life: countermeasureFacts({ control, watchdog, tick, job }),
+    actions,
+    replacements: Array.isArray(job?.result_json?.replacement_trials) ? job.result_json.replacement_trials : [],
+    // Keep independent signed replacement verification while adding the D1 health inbox.
+    replacementAttestations: Array.isArray(job?.result_json?.replacement_probes) ? job.result_json.replacement_probes : [],
+    replacementAttestationConfig: {
+      secret: env?.MEL_REPLACEMENT_PROBE_HMAC_KEY,
+      trustedObserver: env?.MEL_REPLACEMENT_PROBE_OBSERVER,
+      expectedSourceSha: deployedCandidateSha(env),
+      now: Date.now(),
+    },
+  });
+}
+
 function augmentTickProgress(tick = {}) {
   const progress = tick?.progress && typeof tick.progress === 'object' ? { ...tick.progress } : {};
   const events = new Set(Array.isArray(progress.events) ? progress.events : []);
@@ -775,6 +875,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
           reason: 'MAX_RESTORED_AFTER_ROLLBACK',
           memoryState: options.autonomyControlState || null,
         });
+        return maxControlProof(control);
       },
     });
     const applied = await applyLifeCountermeasure('MAX_PAUSED_BY_MISTAKE', actions);
@@ -791,6 +892,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
           reason: 'owner-silent-one-year',
           memoryState: options.autonomyControlState || null,
         });
+        return maxControlProof(control);
       },
     });
     const applied = await applyLifeCountermeasure('OWNER_ABSENT', actions);
@@ -798,6 +900,9 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   }
 
   if (control.paused) {
+    if (control.reason === 'predeploy-release-safety') {
+      await applyLifeCountermeasure('MAX_PAUSED_BY_SAFETY', {}).catch(() => null);
+    }
     const watchdog = await resetAutonomyProgressWatchdog(env?.DB || null, { status: 'PAUSED' }).catch(() => null);
     return {
       status: 'PAUSED',
@@ -1006,19 +1111,21 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     const watchdog = await recordAutonomyProgressWatchdog(env?.DB || null, tick, {
       maxAutonomy: control.max_autonomy === true,
     }).catch(() => null);
+    const countermeasures = await applyObservedCountermeasures(env, repository, control, watchdog, tick).catch(() => []);
     if (watchdog?.tripped === true) {
       return {
         ...tick,
         ok: false,
         status: 'MAX_PROGRESS_STALLED',
         watchdog,
+        countermeasures,
         progress: {
           ...(tick.progress || {}),
           block_reason: watchdog.last_block_reason || tick?.progress?.block_reason || 'MAX_PROGRESS_STALLED',
         },
       };
     }
-    return { ...tick, watchdog };
+    return { ...tick, watchdog, countermeasures };
   } finally {
     stopRenewal();
     await releaseAutonomyRuntimeLease({

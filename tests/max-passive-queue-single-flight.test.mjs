@@ -117,12 +117,14 @@ for (const persisted of [false,true]) test('MAX yields QUEUED requeue to another
 
     const b=await repo.create({id:'round-b',requested_by:'mel-autonomy',goal:'B',optional_context:{roadmap_id:'MEL-B'}});
     assert.equal(b.status,'QUEUED');
-    assert.equal(singleFlightAutonomyMission([deferred,b])?.id,b.id);
+    assert.equal(singleFlightAutonomyMission([deferred,b]),null,'queued admissions must not reserve the execution lane');
+    const bClaim=await repo.claimQueuedAutonomy(b.id,{expected:b});
+    assert.equal(bClaim?.status,'PLANNING');
     assert.equal(await repo.resumeSecondPassQueued(a.id,{expected:deferred}),null,'cannot resume while B owns the slot');
     await repo.update(b.id,{status:'COMPLETED'});
     const resumed=await repo.resumeSecondPassQueued(a.id,{expected:deferred});
     assert.equal(resumed?.id,a.id);
-    assert.equal(resumed.status,'QUEUED');
+    assert.equal(resumed.status,'PLANNING');
     assert.equal(resumed.result_json.autonomy_queue_pass.passive,false);
     assert.equal(singleFlightAutonomyMission([resumed])?.id,a.id);
     assert.equal(await repo.resumeSecondPassQueued(a.id,{expected:deferred}),null,'CAS rejects a repeated resume');

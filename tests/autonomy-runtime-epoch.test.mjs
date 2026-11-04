@@ -171,12 +171,10 @@ test('a transient core failure is attributed to the current job, then resumes it
   try {
     const old = await f.oldJob('old-approved', 'CANCELLED');
     const current = await f.repository.create({ id: 'current-queued', requested_by: 'mel-autonomy', goal: 'current work', optional_context: { roadmap_id: ROADMAP[0].id } });
-    let reads = 0;
     const repository = Object.create(f.repository);
-    repository.list = async () => {
-      reads += 1;
-      if (reads === 3) throw Object.assign(new Error('TRANSIENT_STATE_READ'), { code: 'TRANSIENT_STATE_READ' });
-      return f.repository.list();
+    repository.claimQueuedAutonomy = async (...args) => {
+      await f.repository.claimQueuedAutonomy(...args);
+      throw Object.assign(new Error('TRANSIENT_STATE_READ'), { code: 'TRANSIENT_STATE_READ' });
     };
     const failed = await f.tick({ repository });
     assert.equal(failed.status, 'CORE_RETRY_PENDING');

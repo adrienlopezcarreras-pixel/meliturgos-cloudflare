@@ -32,6 +32,8 @@ test('full control surface stays bounded and free of retired Vercel controls', (
   assert.ok(source.includes('href="/revenus"'), 'reconciled MEL WORK revenue route must remain in the desktop navigation');
   assert.ok(source.includes('<a class="nav-entry" href="/revenus">'), 'MEL WORK is a main navigation entry on desktop and in the mobile bar');
   assert.ok(source.includes('href="/test/contingence"'), 'the contingency test page is in the menu');
+  assert.equal((source.match(/href="\/test\/contingence"/g) || []).length, 1, 'Contingence must appear only in the main navigation, never as a duplicate link in Plus');
+  assert.ok(source.includes('<a class="nav-entry" href="/test/contingence">'), 'Contingence keeps its canonical styled button');
   assert.ok(!/\.nav a\[href="\/revenus"\][^{]*\{display:none/.test(source), 'MEL WORK is never hidden in the mobile bar');
   for (const retired of [
     'vercelSave',

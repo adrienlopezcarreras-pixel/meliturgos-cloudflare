@@ -45,7 +45,7 @@ async function regen(seed=0){
   });
 }
 
-test('stress: 100 regeneration bundles verify and authorize unattended restore only under all emergency conditions',async()=>{
+test('stress: 100 regeneration bundles remain non-activating even in an emergency',async()=>{
   for(let i=0;i<100;i++){
     const bundle=await regen(i);
     const verified=await verifySovereignRegenerationBundle(bundle);
@@ -54,7 +54,8 @@ test('stress: 100 regeneration bundles verify and authorize unattended restore o
     const allowed=await planSovereignRegeneration({
       bundle,maxAutonomy:true,emergency:true,targetPrevalidated:true,ownerReachable:false,
     });
-    assert.equal(allowed.activation_allowed,true);
+    assert.equal(allowed.activation_allowed,false);
+    assert.equal(allowed.owner_approval_required,true);
 
     const blocked=await planSovereignRegeneration({
       bundle,maxAutonomy:true,emergency:true,targetPrevalidated:false,ownerReachable:false,

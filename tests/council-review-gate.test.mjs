@@ -79,7 +79,13 @@ test('online models first; after 10 short reviews the PC alone, then the owner',
   const pc = async () => ({ async invoke({ input }) { asked.push(input); return { text: '{"verdict":"APPROVE","summary":"relu sur le PC, correct et testé"}' }; } });
   assert.equal((await runCouncilReview(down, { diff: '+x', attempts: 0, companion: pc })).decision, 'INSUFFICIENT_REVIEWERS');
   assert.equal(asked.length, 0, 'the PC is not asked before 10 attempts');
-  const last = await runCouncilReview(down, { diff: '+x'.repeat(30_000), attempts: PC_AFTER_ATTEMPTS - 1, companion: pc });
+  const rejectedLargeDiff = await runCouncilReview(down, { diff: '+x'.repeat(30_000),
+    attempts: PC_AFTER_ATTEMPTS - 1, companion: pc });
+  assert.equal(rejectedLargeDiff.decision, 'COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT',
+    'the full >48 KB diff must be rejected, never sent truncated to the PC');
+  assert.equal(asked.length, 0, 'a rejected oversized diff must not call Companion');
+
+  const last = await runCouncilReview(down, { diff: '+x'.repeat(20_000), attempts: PC_AFTER_ATTEMPTS - 1, companion: pc });
   assert.equal(last.decision, 'OWNER_APPROVAL_REQUIRED');
   assert.ok(asked[0].length <= 12_000, 'the Companion refuses messages above 12 000 chars');
   assert.equal((await runCouncilReview(down, { diff: '+x', attempts: 20, companion: async () => null })).decision, 'COUNCIL_UNAVAILABLE');

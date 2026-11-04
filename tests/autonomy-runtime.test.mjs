@@ -603,7 +603,7 @@ test('insufficient Council responses defer the same mission without consuming ru
   const jobs = await fixture.repository.list();
   assert.equal(jobs.length, 1);
   const pending = jobs[0];
-  assert.equal(pending.status, 'QUEUED');
+  assert.equal(pending.status, 'PLANNING');
   assert.equal(pending.result_json.runtime_retry, undefined);
   assert.equal(pending.result_json.autonomy_deferral.code, 'COUNCIL_INSUFFICIENT_RESPONSES');
   assert.ok(pending.result_json.autonomy_deferral.retry_after > Date.now());
@@ -664,7 +664,7 @@ test('first QUEUED mission retains real Council failure evidence during provider
   // The Council-specific no-invocation contract is tested at its adapter
   // boundary; the persisted Council trace must stay unchanged below.
   const waiting = await fixture.repository.get(persisted.id);
-  assert.equal(waiting.status, 'QUEUED');
+  assert.equal(waiting.status, 'PLANNING');
   assert.deepEqual(waiting.result_json.council_model_attempts, failures);
   assert.equal(waiting.result_json.council_provider_cooldown.status, 'WAITING_FOR_AUTHORIZED_PROVIDERS');
   const validExpirations = [...exclusions].map(row => row.until).sort((a,b) => a-b);
@@ -744,4 +744,35 @@ test('three ticks resume the same job and step, release the lease and distinguis
   assert.deepEqual(ticks.slice(1).map(tick => [tick.progress.advanced, tick.progress.outcome]), [[false, 'WAITING_EXTERNAL'], [false, 'WAITING_EXTERNAL']]);
   assert.equal(autonomyTickOutcome({ advanced: false, waitingExternal: false }), 'NO_PROGRESS');
   assert.equal(autonomyTickOutcome({ advanced: false, workRemaining: false }), 'IDLE_COMPLETE');
+});
+
+test('three failed Council windows release a claimed PLANNING mission and run the next objective', async () => {
+  const fixture = runtimeFixture();
+  const { runAutonomyRuntimeTick: runCore } = await import('../src/evolution/autonomy-runtime-core.js');
+  const realNow = Date.now;
+  let clock = realNow();
+  const roadmap = [
+    { id:'TEST-FIRST',title:'First independent cloud objective',status:'PLANNED',priority:'P0',depends_on:[] },
+    { id:'TEST-NEXT',title:'Next independent cloud objective',status:'PLANNED',priority:'P1',depends_on:[] },
+  ];
+  fixture.env.AI.run = async () => { throw Object.assign(new Error('fixture outage'), { code:'COUNCIL_PROVIDER_TIMEOUT' }); };
+  try {
+    Date.now = () => clock;
+    let original;
+    for (let round=1;round<=3;round++) {
+      await runCore(fixture.env,{fetchImpl:fixture.fetchImpl,repository:fixture.repository,roadmap});
+      const jobs=await fixture.repository.list();
+      original=jobs.find(row=>row.optional_context.roadmap_id==='TEST-FIRST');
+      assert.ok(original);
+      assert.equal(original.result_json.autonomy_deferral.attempts,round);
+      assert.equal(original.status,round<3?'PLANNING':'QUEUED');
+      clock=Math.max(clock+30*60_000,...original.result_json.council_model_exclusions.map(row=>Number(row.until)||0))+1;
+    }
+    assert.equal(original.result_json.autonomy_queue_pass.passive,true);
+    assert.equal(original.result_json.autonomy_deferral.priority_penalty,1);
+    fixture.env.AI.run=async()=>({response:'EXISTANT: runtime; MANQUES: integration; OPTIONS: bounded; RISQUES: none; RECOMMANDATION: code; TESTS: CI'});
+    const next=await runCore(fixture.env,{fetchImpl:fixture.fetchImpl,repository:fixture.repository,roadmap});
+    assert.equal(next.job?.roadmap_id,'TEST-NEXT');
+    assert.equal((await fixture.repository.get(original.id)).status,'QUEUED');
+  } finally { Date.now=realNow; }
 });
