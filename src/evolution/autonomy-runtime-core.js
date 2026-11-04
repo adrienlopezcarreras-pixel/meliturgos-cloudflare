@@ -215,6 +215,16 @@ async function persistDiagnosticResult(repository, latest, result, field) {
     const merged = { ...fresh.result_json, [field]: result[field] };
     if (result.autonomy_deferral) merged.autonomy_deferral = result.autonomy_deferral;
     else delete merged.autonomy_deferral;
+    // A CAS collision on the diagnostic must not discard the Mentor failure
+    // history that drives provider escalation, or leave an already-finished
+    // bridge attempt marked as running. The identity guard above ensures no
+    // competing mission transition or bridge decision was overwritten.
+    if (field === 'bridge_preparation_diagnostic') {
+      for (const key of ['mentor_attempt_history', 'bridge_preparation_attempt']) {
+        if (Object.hasOwn(result, key)) merged[key] = result[key];
+        else delete merged[key];
+      }
+    }
     return repository.update(fresh.id, { result_json: merged }, { expected: fresh });
   }
 }
