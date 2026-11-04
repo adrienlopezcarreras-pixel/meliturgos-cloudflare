@@ -12,6 +12,8 @@ import { enqueueSupervisedDevelopmentRequest } from '../evolution/owner-developm
 import { prepareAutonomyTeacherRequest } from '../evolution/autonomy-runtime.js';
 import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-mirror.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
+import { isAcceptedRoadmapCodeJob } from '../roadmap/roadmap-code-acceptance.js';
+import { flattenRoadmap } from '../roadmap/master-roadmap.js';
 
 const WATCH_ID = 'ecosystem-canonical';
 const DISCOVERY_ID = 'ecosystem-discoveries-canonical';
@@ -129,7 +131,7 @@ export async function reconcileDiscoveryJobs(env, ledger, {
       .map(item => String(item?.handoff?.job_id || ''))
       .filter(Boolean)
   )];
-  if (!jobIds.length) return { changed: false, ledger, resumed: null };
+  if (!jobIds.length) return { ...reconcileEcosystemDiscoveryHandoffs(ledger, [], now), resumed: null };
   const repo = repository || new D1DevJobRepository(env?.DB);
   const jobs = [];
   for (const id of jobIds.slice(0, 50)) {
@@ -141,8 +143,16 @@ export async function reconcileDiscoveryJobs(env, ledger, {
     }
   }
 
+  const acceptedJobs = typeof repo.listAutonomyAcceptanceJobs === 'function'
+    ? await repo.listAutonomyAcceptanceJobs() : [];
+  const acceptedRevisions = new Map(acceptedJobs.filter(isAcceptedRoadmapCodeJob)
+    .filter(job => !flattenRoadmap().some(row => row.id === job.optional_context.roadmap_id && row.status === 'REGRESSED'))
+    .map(job => [job.optional_context.roadmap_id, job.optional_context.roadmap_contract_revision]));
   let resumed = null;
   const resumable = jobs
+    .filter(job => !(job.requested_by === 'mel-autonomy' && job.status === 'QUEUED'
+      && acceptedRevisions.get(job.optional_context?.roadmap_id) === job.optional_context?.roadmap_contract_revision
+      && acceptedRevisions.has(job.optional_context?.roadmap_id)))
     .filter(job => job?.requested_by === 'mel-autonomy')
     .filter(job => String(job?.optional_context?.source || '') === 'ecosystem-watch')
     .filter(job => {
@@ -197,7 +207,7 @@ export async function reconcileDiscoveryJobs(env, ledger, {
     }
   }
 
-  const reconciled = reconcileEcosystemDiscoveryHandoffs(ledger, jobs, now);
+  const reconciled = reconcileEcosystemDiscoveryHandoffs(ledger, jobs, now, { acceptedJobs });
   return { ...reconciled, resumed };
 }
 
