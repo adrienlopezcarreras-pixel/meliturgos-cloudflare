@@ -791,6 +791,13 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   globalThis.__melTickStage = 'ensure-next-job';
   const ensured = await supervisor.ensureNextJob();
   let job = ensured.job;
+  // Admission into the passive D1 queue is not permission to run a model.
+  // Losing the atomic slot race means this tick does no fresh Council work.
+  if (job?.requested_by === 'mel-autonomy' && String(job.status || '').toUpperCase() === 'QUEUED') {
+    job = typeof jobRepository.claimQueuedAutonomy === 'function'
+      ? await jobRepository.claimQueuedAutonomy(job.id,{expected:job})
+      : null;
+  }
   const initialJobId = job?.id || null;
   const initialJobStatus = String(job?.status || '').toUpperCase() || null;
   const initialCompletedCount = Array.isArray(stateBefore?.completedIds) ? stateBefore.completedIds.length : 0;
@@ -918,7 +925,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     }
   }
 
-  if (job && ['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE', 'READY_FOR_REVIEW'].includes(String(job.status || '').toUpperCase())) {
+  if (job && ['PLANNING', 'CLAIMED', 'COUNCIL_COMPLETE', 'READY_FOR_REVIEW'].includes(String(job.status || '').toUpperCase())) {
     try {
       globalThis.__melTickStage = 'council-teacher';
       teacher = await prepareAutonomyTeacherRequest({ env, repository: jobRepository, job, fetchImpl });

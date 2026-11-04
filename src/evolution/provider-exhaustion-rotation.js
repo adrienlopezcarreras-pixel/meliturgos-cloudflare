@@ -116,6 +116,25 @@ export function isLegacyRequeuedMission(job) {
     && !['WAITING_TEACHER','PENDING','REQUESTED'].includes(teacher);
 }
 
+// QUEUED is persistent metadata, not an execution lease, unless a Teacher
+// or Bridge transport is demonstrably still active. The first inference call
+// must follow an atomic QUEUED -> PLANNING claim.
+export function isPassiveQueuedAutonomyJob(job) {
+  return job?.requested_by === 'mel-autonomy'
+    && String(job?.status || '').toUpperCase() === 'QUEUED'
+    && !['RUNNING','IN_PROGRESS','CLAIMED','READY_FOR_REVIEW'].includes(
+      String(job?.result_json?.dev_bridge?.status || '').toUpperCase())
+    && !['WAITING_TEACHER','PENDING','REQUESTED'].includes(
+      String(job?.result_json?.teacher_bridge?.status || '').toUpperCase());
+}
+export const PASSIVE_QUEUED_AUTONOMY_SQL = `(
+  status='QUEUED'
+  AND UPPER(COALESCE(json_extract(result_json,'$.dev_bridge.status'),'')) NOT IN
+    ('RUNNING','IN_PROGRESS','CLAIMED','READY_FOR_REVIEW')
+  AND UPPER(COALESCE(json_extract(result_json,'$.teacher_bridge.status'),'')) NOT IN
+    ('WAITING_TEACHER','PENDING','REQUESTED')
+)`;
+
 export const SECOND_PASS_QUEUED_SQL = `(
   status='QUEUED'
   AND json_extract(result_json,'$.autonomy_queue_pass.passive')=1
@@ -130,7 +149,7 @@ export const SECOND_PASS_QUEUED_SQL = `(
 export function singleFlightAutonomyMission(jobs = []) {
   return jobs.filter(job => job?.requested_by === 'mel-autonomy'
     && !['COMPLETED','CANCELLED','FAILED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED','WAITING_DEPENDENCY'].includes(String(job.status).toUpperCase())
-    && !isRotatableProviderExhaustion(job) && !isSecondPassQueued(job))
+    && !isRotatableProviderExhaustion(job) && !isPassiveQueuedAutonomyJob(job))
     .sort((a,b)=>Number(Boolean(a.result_json?.autonomy_deferral?.exhausted && typeof a.result_json.autonomy_deferral.context === 'string' && a.result_json.autonomy_deferral.context !== providerRetryContext(a)))
       - Number(Boolean(b.result_json?.autonomy_deferral?.exhausted && typeof b.result_json.autonomy_deferral.context === 'string' && b.result_json.autonomy_deferral.context !== providerRetryContext(b)))
       || Number(a.created_at||0)-Number(b.created_at||0)||String(a.id).localeCompare(String(b.id)))[0] || null;
@@ -141,7 +160,7 @@ export const SINGLE_FLIGHT_AUTONOMY_JOB_SQL = `SELECT id FROM dev_jobs
   WHERE requested_by='mel-autonomy'
     AND status NOT IN ('COMPLETED','CANCELLED','FAILED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED','WAITING_DEPENDENCY')
     AND NOT COALESCE(${ROTATABLE_PROVIDER_EXHAUSTION_SQL},0)
-    AND NOT COALESCE(${SECOND_PASS_QUEUED_SQL},0)
+    AND NOT COALESCE(${PASSIVE_QUEUED_AUTONOMY_SQL},0)
   ORDER BY CASE WHEN json_extract(result_json,'$.autonomy_deferral.exhausted')=1
     AND json_type(result_json,'$.autonomy_deferral.context') = 'text'
     AND json_extract(result_json,'$.autonomy_deferral.context') != json_array(
