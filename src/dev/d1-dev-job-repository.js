@@ -388,9 +388,11 @@ export class D1DevJobRepository {
     const requestedQueue = String(n.status || '').toUpperCase() === 'QUEUED';
     const previousStatus = String(j.status || '').toUpperCase();
     const bridgeStatus = String(n.result_json?.dev_bridge?.status || '').toUpperCase();
+    const teacherStatus = String(n.result_json?.teacher_bridge?.status || '').toUpperCase();
     if (j.requested_by === 'mel-autonomy' && requestedQueue
         && !['QUEUED', 'WAITING_DEPENDENCY'].includes(previousStatus)
-        && !['RUNNING','IN_PROGRESS','CLAIMED','READY_FOR_REVIEW'].includes(bridgeStatus)) {
+        && !['RUNNING','IN_PROGRESS','CLAIMED','READY_FOR_REVIEW'].includes(bridgeStatus)
+        && !['WAITING_TEACHER','PENDING','REQUESTED'].includes(teacherStatus)) {
       const previousPass = Number(j.result_json?.autonomy_queue_pass?.round || 1);
       n.result_json = { ...(n.result_json || {}), autonomy_queue_pass: {
         passive: true, round: Math.max(2, previousPass + 1),

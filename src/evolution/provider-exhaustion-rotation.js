@@ -51,6 +51,8 @@ export const ROTATABLE_PROVIDER_EXHAUSTION_SQL = `(
   )
   AND UPPER(COALESCE(json_extract(result_json,'$.dev_bridge.status'),'')) NOT IN
     ('RUNNING','IN_PROGRESS','CLAIMED','READY_FOR_REVIEW')
+  AND UPPER(COALESCE(json_extract(result_json,'$.teacher_bridge.status'),'')) NOT IN
+    ('WAITING_TEACHER','PENDING','REQUESTED')
 )`;
 
 /**
@@ -88,7 +90,9 @@ export function isSecondPassQueued(job) {
     && String(job?.status || '').toUpperCase() === 'QUEUED'
     && job?.result_json?.autonomy_queue_pass?.passive === true
     && !['RUNNING','IN_PROGRESS','CLAIMED','READY_FOR_REVIEW'].includes(
-      String(job?.result_json?.dev_bridge?.status || '').toUpperCase());
+      String(job?.result_json?.dev_bridge?.status || '').toUpperCase())
+    && !['WAITING_TEACHER','PENDING','REQUESTED'].includes(
+      String(job?.result_json?.teacher_bridge?.status || '').toUpperCase());
 }
 
 // Older releases can have revisioned QUEUED rows without the new marker.

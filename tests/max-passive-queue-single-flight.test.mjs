@@ -258,3 +258,30 @@ for (const persistent of [false, true]) test('blocked oldest QUEUED revision nev
     assert.equal((await repo.get(a.id)).result_json.autonomy_queue_pass.passive,true);
   }finally{db?.close();}
 });
+
+
+for (const persisted of [false, true]) test('live Teacher transport blocks a passive-QUEUED release ('+(persisted?'D1':'memory')+')',async()=>{
+  const db=persisted?sqliteD1():null;
+  const repo=new D1DevJobRepository(db);
+  const {isSecondPassQueued,singleFlightAutonomyMission}=await import('../src/evolution/provider-exhaustion-rotation.js');
+  try{
+    const seed=await repo.create({id:'pending-teacher-a',requested_by:'mel-autonomy',goal:'Keep live review',
+      optional_context:{roadmap_id:'MEL-A'}});
+    await repo.update(seed.id,{status:'WAITING_TEACHER',
+      result_json:{teacher_bridge:{status:'WAITING_TEACHER',request:{request_id:'pending-review'}}}});
+    const queued=await repo.update(seed.id,{status:'QUEUED'});
+    assert.notEqual(queued.result_json?.autonomy_queue_pass?.passive,true,
+      'A live Teacher transport must prevent a passive requeue');
+    assert.equal(singleFlightAutonomyMission([queued])?.id,seed.id);
+    await assert.rejects(
+      repo.create({id:'pending-teacher-b',requested_by:'mel-autonomy',goal:'Other mission',
+        optional_context:{roadmap_id:'MEL-B'}}),
+      error=>error?.code==='AUTONOMY_OBJECTIVE_ALREADY_ACTIVE',
+      'A second mission must not acquire the still occupied lane'
+    );
+    const unsafe={...queued,result_json:{...queued.result_json,
+      autonomy_queue_pass:{passive:true,round:2}}};
+    assert.equal(isSecondPassQueued(unsafe),false,
+      'The read-side selector must also reject a stale passive marker while Teacher is live');
+  }finally{db?.close();}
+});
