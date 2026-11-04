@@ -60,11 +60,25 @@ jobs:
           test "$FETCHED" = "$HEAD"
           git fetch origin main
           MAIN="$(git rev-parse FETCH_HEAD)"
-          git merge-base --is-ancestor "$MAIN" "$HEAD"
+          # The Council runner itself must first reach main. The candidate
+          # under review may therefore still descend from an earlier main.
+          # Review ONLY its exact changes since the common ancestor, and
+          # reject overlapping main changes instead of reviewing a stale merge.
+          BASE="$(git merge-base "$MAIN" "$HEAD")"
+          test -n "$BASE"
+          if [ "$BASE" != "$MAIN" ]; then
+            OVERLAP="$(comm -12 <(git diff --name-only "$BASE" "$MAIN" | LC_ALL=C sort) <(git diff --name-only "$BASE" "$HEAD" | LC_ALL=C sort))"
+            if [ -n "$OVERLAP" ]; then
+              echo "::error::COUNCIL_PR_MAIN_HEAD_PATH_CONFLICT"
+              printf '%s\n' "$OVERLAP"
+              exit 1
+            fi
+          fi
           echo "MEL_COUNCIL_HEAD_SHA=$HEAD" >> "$GITHUB_ENV"
-          echo "MEL_COUNCIL_BASE_SHA=$MAIN" >> "$GITHUB_ENV"
+          echo "MEL_COUNCIL_BASE_SHA=$BASE" >> "$GITHUB_ENV"
+          echo "MEL_COUNCIL_MAIN_SHA=$MAIN" >> "$GITHUB_ENV"
           echo "MEL_COUNCIL_PR_NUMBER=$PR_NUMBER" >> "$GITHUB_ENV"
-          echo "Verified immutable PR head $HEAD and main base $MAIN"
+          echo "Verified immutable PR head $HEAD, review base $BASE and current main $MAIN"
       - name: Construct complete immutable Council diff
         shell: bash
         run: |
@@ -97,7 +111,7 @@ jobs:
           set -euo pipefail
           CURRENT_HEAD="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$MEL_COUNCIL_PR_NUMBER" --jq '.head.sha')"
           CURRENT_MAIN="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq '.sha')"
-          if [ "$CURRENT_HEAD" != "$MEL_COUNCIL_HEAD_SHA" ] || [ "$CURRENT_MAIN" != "$MEL_COUNCIL_BASE_SHA" ]; then
+          if [ "$CURRENT_HEAD" != "$MEL_COUNCIL_HEAD_SHA" ] || [ "$CURRENT_MAIN" != "$MEL_COUNCIL_MAIN_SHA" ]; then
             echo "::error::COUNCIL_PR_HEAD_OR_BASE_CHANGED_DURING_REVIEW"
             rm -f council-verdict.json
             exit 1
