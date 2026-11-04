@@ -210,6 +210,9 @@ async function persistDiagnosticResult(repository, latest, result, field) {
       job?.result_json?.teacher_bridge, job?.result_json?.implementation_proposal,
       job?.result_json?.bridge_preparation, job?.result_json?.dev_bridge,
       job?.result_json?.autonomy_deferral, job?.result_json?.[field],
+      ...(field === 'bridge_preparation_diagnostic'
+        ? [job?.result_json?.mentor_attempt_history, job?.result_json?.bridge_preparation_attempt]
+        : []),
     ]);
     if (!fresh || identity(fresh) !== identity(latest)) return fresh;
     const merged = { ...fresh.result_json, [field]: result[field] };
