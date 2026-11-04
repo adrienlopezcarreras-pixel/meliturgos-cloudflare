@@ -239,7 +239,17 @@ for CAPABILITY_WATCH_ATTEMPT in $(seq 1 3); do
     break
   fi
   echo "GEN2-42 handoff proof attempt ${CAPABILITY_WATCH_ATTEMPT}/3 returned HTTP ${CAPABILITY_WATCH_CODE}."
-  echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
+  # Never expose D1/job/Mentor/bootstrap payloads. Print only strict reason codes.
+  node - <<'NODE'
+const fs=require('node:fs');
+let d;
+try { d=JSON.parse(fs.readFileSync('production-capability-watch-proof.json','utf8')); }
+catch { console.log('GEN2-42 sanitized reason: NON_JSON_RESPONSE'); process.exit(0); }
+const safe=v=>typeof v==='string' && /^[A-Z][A-Z0-9_]{2,79}$/.test(v) ? v : null;
+const codes=['error','code','status','reason'].map(k=>safe(d?.[k])).filter(Boolean);
+console.log('GEN2-42 sanitized reason: '+(codes.length?codes.join(' / '):'UNCLASSIFIED_RESPONSE'));
+NODE
+  echo 'Production autonomy proof response withheld from CI logs; only bounded reason codes shown.'
   sleep 2
 done
 test "${CAPABILITY_WATCH_READY}" = "1"
