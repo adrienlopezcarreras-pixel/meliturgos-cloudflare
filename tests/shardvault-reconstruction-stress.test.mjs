@@ -139,6 +139,8 @@ test('external code sync is resumable and bounded to one verified RS shard per r
 test('ShardVault full regression runs daily on main; pull requests remain targeted', async () => {
   const workflow=await readFile(new URL('../.github/workflows/shardvault-ci.yml',import.meta.url),'utf8');
   assert.match(workflow,/schedule:\n\s+- cron: '41 4 \* \* \*'/);
+  assert.match(workflow,/group: shardvault-\\$\\{\\{ github\\.event\\.pull_request\\.number \\|\\| github\\.ref \\}\\}/);
+  assert.match(workflow,/cancel-in-progress: \\$\\{\\{ github\\.event_name == 'pull_request' \\}\\}/);
   assert.match(workflow,/shardvault-full-suite:\n[\s\S]*?if: \$\{\{ github\.event_name == 'workflow_dispatch' \|\| github\.event_name == 'schedule' \}\}/);
   assert.match(workflow,/shardvault-targeted:\n[\s\S]*?node --test tests\/shardvault-\*\.test\.mjs/);
   assert.doesNotMatch(workflow,/wrangler deploy|npm run deploy|curl.*\/api\/gen2\/shardvault\/code-reconstruct/);
