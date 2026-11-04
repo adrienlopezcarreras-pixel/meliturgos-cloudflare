@@ -246,7 +246,7 @@ let d;
 try { d=JSON.parse(fs.readFileSync('production-capability-watch-proof.json','utf8')); }
 catch { console.log('GEN2-42 sanitized reason: NON_JSON_RESPONSE'); process.exit(0); }
 // Uppercase-only validation is insufficient: secrets may be uppercase.
-const allowed=new Set(['GEN2_42_HANDOFF_CONFLICT','GEN2_42_TEACHER_HANDOFF_READY','GEN2_42_TEACHER_HANDOFF_PROGRESS_VERIFIED','CONFLICT','RELEASE_PAUSED','RELEASE_PROOF_CONFLICT']);
+const allowed=new Set(['GEN2_42_HANDOFF_CONFLICT','GEN2_42_TEACHER_HANDOFF_READY','GEN2_42_TEACHER_HANDOFF_PROGRESS_VERIFIED','GEN2_42_TEACHER_HANDOFF_NOT_READY','GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED','CONFLICT','RELEASE_PAUSED','RELEASE_PROOF_CONFLICT']);
 const safe=v=>typeof v==='string' && allowed.has(v) ? v : null;
 const codes=['error','code','status','reason'].map(k=>safe(d?.[k])).filter(Boolean);
 console.log('GEN2-42 sanitized reason: '+(codes.length?codes.join(' / '):'UNCLASSIFIED_RESPONSE'));

@@ -37,3 +37,7 @@ test('uppercase-looking secret is not accepted as a diagnostic reason',()=>{
 test('unknown all-uppercase codes fail closed',()=>{
   assert.equal(diagnostic(JSON.stringify({error:'UNREVIEWED_REASON_123'})),'GEN2-42 sanitized reason: UNCLASSIFIED_RESPONSE');
 });
+
+test('the actual NOT_READY release status is reported without exposing its handoff payload',()=>{
+  assert.equal(diagnostic(JSON.stringify({status:'GEN2_42_TEACHER_HANDOFF_NOT_READY',open_handoffs:[{job_id:'private'}]})),'GEN2-42 sanitized reason: GEN2_42_TEACHER_HANDOFF_NOT_READY');
+});
