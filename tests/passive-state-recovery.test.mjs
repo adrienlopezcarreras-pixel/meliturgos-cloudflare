@@ -190,3 +190,22 @@ test('clearing the list during stale Teacher recovery never reports cancelled wo
   assert.equal(result.failed.length, 0);
   assert.equal((await repository.get(job.id)).status, 'CANCELLED');
 });
+
+test('contingency recovery scope cannot requeue a second eligible mission', async () => {
+  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+  for (const id of ['contingency-target', 'unrelated-owner-review']) {
+    const job = await repository.create({ id, requested_by: 'owner-chat', goal: id });
+    await repository.update(job.id, { status: 'READY_FOR_REVIEW', result_json: {} });
+  }
+  const repaired = await recoverPassiveRuntimeStates(repository, {
+    onlyJobId: 'contingency-target', canonicalSha: NEW_SHA,
+  });
+  assert.deepEqual(repaired.recovered.map(row => row.job_id), ['contingency-target']);
+  assert.equal((await repository.get('contingency-target')).status, 'QUEUED');
+  assert.equal((await repository.get('unrelated-owner-review')).status, 'READY_FOR_REVIEW');
+  const none = await recoverPassiveRuntimeStates(repository, {
+    onlyJobId: 'nonexistent-mission', canonicalSha: NEW_SHA,
+  });
+  assert.equal(none.recovered.length, 0);
+  assert.equal((await repository.get('unrelated-owner-review')).status, 'READY_FOR_REVIEW');
+});

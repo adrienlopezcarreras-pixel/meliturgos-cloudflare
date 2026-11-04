@@ -1,6 +1,10 @@
 name: shardvault-ci
 
 on:
+  # Verify ShardVault test contracts daily on the default branch, without
+  # deploying or invoking any production reconstruction endpoints.
+  schedule:
+    - cron: '41 4 * * *'
   workflow_dispatch:
   pull_request:
     paths:
@@ -30,6 +34,13 @@ on:
       - '.github/workflows/deploy-cloudflare-release.yml'
       - '.github/workflows/shardvault-ci.yml'
 
+# Drop obsolete PR test runs when newer commits supersede them.
+# Scheduled read-only drills, manual drills and main-branch runs are never
+# cancelled, even when a pull request is updated at the same time.
+concurrency:
+  group: shardvault-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
@@ -56,9 +67,9 @@ jobs:
         run: node --test tests/shardvault-*.test.mjs tests/release-shardvault-prep.test.mjs tests/gen2/sovereign-regeneration-bundle.test.mjs
 
   shardvault-full-suite:
-    # TEMPORARY DEV-LIGHT MODE: targeted ShardVault checks remain automatic;
-    # full repository validation is manual until final closure.
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    # PRs stay on the fast targeted path; daily and manual runs execute the
+    # full regression suite without touching production infrastructure.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: shardvault-targeted

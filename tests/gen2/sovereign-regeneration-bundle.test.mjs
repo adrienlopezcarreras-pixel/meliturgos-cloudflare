@@ -27,7 +27,7 @@ async function runtimeBundle(){
   });
 }
 
-async function regeneration(){
+async function regeneration(recovery = {}){
   return createSovereignRegenerationBundle({
     sourceSha:'a'.repeat(40),
     codeReconstruction:{
@@ -42,6 +42,7 @@ async function regeneration(){
     runtimeBundle:await runtimeBundle(),
     roadmap:{version:1,status:'portable'},
     autonomy:{max_autonomy:true,status:'MAX_AUTONOMY'},
+    recovery,
     generatedAt:'2026-09-28T17:11:00.000Z',
   });
 }
@@ -50,21 +51,23 @@ test('sovereign regeneration bundle binds reconstructable code to all required p
   const bundle=await regeneration();
   const verified=await verifySovereignRegenerationBundle(bundle);
   assert.equal(verified.ok,true);
-  assert.equal(verified.unattended_emergency_ready,true);
+  assert.equal(verified.unattended_emergency_ready,false);
+  assert.equal(verified.requires_owner_approval,true);
   assert.equal(bundle.code.data_shards,4);
   assert.equal(bundle.code.total_shards,7);
   assert.equal(bundle.runtime_bundle.integrity.artifact_count,5);
 });
 
-test('unattended regeneration is allowed only for MAX + emergency + prevalidated target',async()=>{
+test('a verified emergency bundle never authorizes unattended host switching',async()=>{
   const bundle=await regeneration();
   const allowed=await planSovereignRegeneration({
     bundle,maxAutonomy:true,emergency:true,targetPrevalidated:true,ownerReachable:false,
   });
   assert.equal(allowed.ok,true);
-  assert.equal(allowed.activation_allowed,true);
-  assert.equal(allowed.owner_presence_required,false);
-  assert.equal(allowed.status,'REGEN_UNATTENDED_EMERGENCY_ALLOWED');
+  assert.equal(allowed.activation_allowed,false);
+  assert.equal(allowed.owner_presence_required,true);
+  assert.equal(allowed.owner_approval_required,true);
+  assert.equal(allowed.status,'REGEN_PREPARED');
 
   for(const options of [
     {maxAutonomy:false,emergency:true,targetPrevalidated:true},
@@ -97,4 +100,20 @@ test('provider-dependent code reconstruction cannot be certified sovereign',asyn
     }),
     error=>error?.code==='REGEN_CODE_PROVIDER_INDEPENDENCE_REQUIRED',
   );
+});
+
+test('legacy MAX emergency policy remains readable but never grants auto-activation',async()=>{
+  const bundle=await regeneration({unattended_activation_policy:'MAX_100_EMERGENCY_ONLY'});
+  // Even a correctly signed legacy artifact proves document integrity, not
+  // permission to activate another provider without owner authorization.
+  const verified=await verifySovereignRegenerationBundle(bundle);
+  assert.equal(verified.ok,true);
+  assert.equal(verified.unattended_emergency_ready,false);
+  const plan=await planSovereignRegeneration({
+    bundle,maxAutonomy:true,emergency:true,targetPrevalidated:true,ownerReachable:false,
+  });
+  assert.equal(plan.ok,true);
+  assert.equal(plan.activation_allowed,false);
+  assert.equal(plan.owner_approval_required,true);
+  assert.equal(plan.status,'REGEN_PREPARED');
 });

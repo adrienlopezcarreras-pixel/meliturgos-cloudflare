@@ -1,3 +1,5 @@
+import { judgeCandidate } from './contingency-plan.js';
+
 const EVENTS = Object.freeze([
   ['UPDATE_CI_FAILED', 'upgrade', 'La mise a jour n a pas passe ses tests.', 'KEEP_PREVIOUS_SHA'],
   ['UPDATE_DEPLOY_FAILED', 'upgrade', 'Le deploiement n a pas termine.', 'ROLLBACK_WORKER'],
@@ -26,6 +28,109 @@ function fail(code) {
   const error = new Error(code);
   error.code = code;
   throw error;
+}
+
+export async function applyDueLifeCountermeasures(facts = {}, actions = {}) {
+  const applied = [];
+  for (const id of dueLifeEvents(facts)) {
+    try {
+      applied.push(await applyLifeCountermeasure(id, actions));
+    } catch (error) {
+      applied.push(Object.freeze({
+        id,
+        applied: false,
+        activation_performed: false,
+        reason: String(error?.code || error?.message || 'EXECUTOR_FAILED'),
+      }));
+    }
+  }
+  return Object.freeze(applied);
+}
+
+const FACT_EVENTS = Object.freeze([
+  ['updateCiFailed', 'UPDATE_CI_FAILED'],
+  ['deployFailed', 'UPDATE_DEPLOY_FAILED'],
+  ['smokeFailed', 'UPDATE_SMOKE_FAILED'],
+  ['versionSplit', 'UPDATE_PARTIAL'],
+  ['releaseAlreadyRunning', 'UPDATE_STUCK'],
+  ['release_in_progress', 'UPDATE_STUCK'],
+  ['migrationExportFailed', 'MIGRATION_EXPORT_FAILED'],
+  ['migrationImportFailed', 'MIGRATION_IMPORT_FAILED'],
+  ['migrationSmokeFailed', 'MIGRATION_SMOKE_FAILED'],
+  ['migrationNotBetter', 'MIGRATION_NOT_BETTER'],
+  ['migrationSourceDied', 'MIGRATION_SOURCE_DIED'],
+  ['jobStuck', 'EVOLUTION_JOB_STUCK'],
+  ['badPatch', 'EVOLUTION_BAD_PATCH'],
+  ['ciRed', 'EVOLUTION_CI_RED'],
+  ['idle', 'EVOLUTION_IDLE'],
+  ['candidateMoved', 'CANDIDATE_MOVED'],
+  ['ownerAbsent', 'OWNER_ABSENT'],
+  ['pausedByMistake', 'MAX_PAUSED_BY_MISTAKE'],
+  ['pausedBySafety', 'MAX_PAUSED_BY_SAFETY'],
+  ['stalled', 'MAX_STALLED'],
+  ['memoryCorrupt', 'MEMORY_CORRUPT'],
+  ['keyMissing', 'KEY_MISSING'],
+]);
+
+export function dueLifeEvents(facts = {}) {
+  const known = new Set(EVENTS.map(row => row[0]));
+  const due = [];
+  for (const [fact, id] of FACT_EVENTS) {
+    const snake = fact.replace(/[A-Z]/g, character => '_' + character.toLowerCase());
+    if ((facts[fact] === true || facts[snake] === true) && !due.includes(id)) due.push(id);
+  }
+  for (const id of Array.isArray(facts.detected) ? facts.detected : []) {
+    const name = String(id || '').trim().toUpperCase();
+    if (known.has(name) && !due.includes(name)) due.push(name);
+  }
+  return Object.freeze(due);
+}
+
+export function lifeFactsFromSignals(signals = {}) {
+  const facts = {};
+  const release = signals.release || {};
+  const smoke = signals.smoke || {};
+  const memory = signals.memory || {};
+  const migration = signals.migration || {};
+  const patch = signals.patch || {};
+  if (release.ci === 'failure') facts.update_ci_failed = true;
+  if (release.conclusion === 'failure') facts.deploy_failed = true;
+  if (release.in_progress === true) facts.release_in_progress = true;
+  if (smoke.ok === false) facts.smoke_failed = true;
+  if (smoke.version_mismatch === true) facts.version_split = true;
+  if (memory.corrupt === true) facts.memory_corrupt = true;
+  if (memory.key_present === false) facts.key_missing = true;
+  if (migration.export_ok === false) facts.migration_export_failed = true;
+  if (migration.import_ok === false) facts.migration_import_failed = true;
+  if (migration.smoke_ok === false) facts.migration_smoke_failed = true;
+  if (migration.smoke_ok === true && migration.better === false) facts.migration_not_better = true;
+  if (migration.source_up === false) facts.migration_source_died = true;
+  if (patch.moved === true) facts.candidate_moved = true;
+  if (patch.breaks_repo === true) facts.bad_patch = true;
+  return Object.freeze(facts);
+}
+
+export function trialReplacement(input = {}, { independentlyVerified = false } = {}) {
+  // A malformed persisted candidate must not abort an outage repair cycle.
+  const row = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const part = row.part;
+  const research = row.research && typeof row.research === 'object' && !Array.isArray(row.research) ? row.research : {};
+  const judgement = judgeCandidate({ research });
+  // Mission-supplied benchmarks are claims, not independent evidence.
+  // Only trusted runtime verification may promote one into a ready candidate.
+  const reportedBetter = judgement.status === 'BETTER_PROVEN';
+  const ready = reportedBetter && independentlyVerified === true;
+  return Object.freeze({
+    part: String(part || '').trim().toLowerCase(),
+    judgement,
+    benchmark_reported_better: reportedBetter,
+    evidence_status: ready ? 'INDEPENDENTLY_VERIFIED' : 'INDEPENDENT_PROOF_REQUIRED',
+    replacement_ready: ready,
+    activation_allowed: false,
+    plan: CORE_BRICKS[String(part || '').trim().toLowerCase()]
+      ? planCoreMigration({ part, replacementReady: ready })
+      : null,
+  });
 }
 
 export function respondToLifeEvent(id) {
@@ -66,10 +171,17 @@ const EXECUTOR_KEYS = Object.freeze({
   OPEN_PRIVATE_KIT_NOT_PUBLIC_SHARD: 'openKit',
 });
 
+// These responses only record or preserve a decision. They do not activate
+// infrastructure or prove that the desired operational state was reached.
+const NON_ACTIVATING_COUNTERMEASURES = new Set([
+  'KEEP_PREVIOUS_SHA', 'DO_NOT_START_SECOND_RELEASE', 'KEEP_SOURCE',
+  'ROLLBACK_TO_SOURCE', 'DO_NOT_MERGE', 'OPEN_PRIVATE_KIT_NOT_PUBLIC_SHARD',
+]);
+
 export async function applyLifeCountermeasure(id, actions = {}) {
   const plan = respondToLifeEvent(id);
   if (plan.countermeasure === 'KEEP_PAUSE') {
-    return Object.freeze({ ...plan, applied: true, activation_performed: true });
+    return Object.freeze({ ...plan, applied: true, activation_performed: false });
   }
   const fn = actions[EXECUTOR_KEYS[plan.countermeasure]];
   if (typeof fn !== 'function') {
@@ -79,7 +191,7 @@ export async function applyLifeCountermeasure(id, actions = {}) {
   if (result?.ok !== true) {
     return Object.freeze({ ...plan, applied: false, activation_performed: false, reason: String(result?.code || 'EXECUTOR_FAILED') });
   }
-  return Object.freeze({ ...plan, applied: true, activation_performed: true });
+  return Object.freeze({ ...plan, applied: true, activation_performed: !NON_ACTIVATING_COUNTERMEASURES.has(plan.countermeasure) });
 }
 
 export function actionsRelayDecision({ workerUp = true, companionOnline = false } = {}) {
@@ -121,15 +233,19 @@ export function planCoreMigration({ part, replacementReady = false } = {}) {
     status: 'MIGRATION_PLANNED',
     countermeasure: 'MIGRATE_TO_PROVEN_REPLACEMENT',
     steps: Object.freeze(['EXPORT', 'IMPORT_ON_TARGET', 'SMOKE', 'ACTIVATE', 'ROLLBACK_IF_SMOKE_FAILS']),
-    automatic: true,
+    automatic: false,
     activation_performed: false,
   });
 }
 
-export async function applyCoreMigration({ part, replacementReady = false, migrate } = {}) {
+export async function applyCoreMigration({ part, replacementReady = false, ownerApproved = false, migrate } = {}) {
   const plan = planCoreMigration({ part, replacementReady });
   if (plan.status !== 'MIGRATION_PLANNED') {
-    return Object.freeze({ ...plan, applied: true, activation_performed: true });
+    return Object.freeze({ ...plan, applied: true, activation_performed: false });
+  }
+  // Readiness only permits a plan; a live switch needs separate owner approval.
+  if (ownerApproved !== true) {
+    return Object.freeze({ ...plan, applied: false, activation_performed: false, reason: 'OWNER_APPROVAL_REQUIRED' });
   }
   if (typeof migrate !== 'function') {
     return Object.freeze({ ...plan, applied: false, activation_performed: false, reason: 'NO_EXECUTOR' });
