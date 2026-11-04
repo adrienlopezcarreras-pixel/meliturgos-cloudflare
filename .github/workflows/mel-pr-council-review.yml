@@ -20,7 +20,10 @@ on:
     types: [completed]
   # Recover a CI-complete PR that predates installation of this workflow on main.
   schedule:
+    # Even-hour historical audit for merged #3094.
     - cron: '47 */2 * * *'
+    # Odd-hour maintenance review for open #3103; keep the audit slot separate.
+    - cron: '17 1-23/2 * * *'
   workflow_dispatch:
     inputs:
       pr_number:
@@ -57,14 +60,25 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          SCHEDULE_CRON: ${{ github.event.schedule }}
         run: |
           set -euo pipefail
-          META="$(gh api "repos/$GITHUB_REPOSITORY/pulls/3094" --jq '[.state,.base.ref,.head.sha,.head.repo.full_name,(.merged_at // ""),(.merge_commit_sha // "")] | @tsv')"
+          case "$SCHEDULE_CRON" in
+            '47 */2 * * *') SELECTED_PR=3094 ;;
+            '17 1-23/2 * * *') SELECTED_PR=3103 ;;
+            *) echo "::error::COUNCIL_UNRECOGNIZED_SCHEDULE"; exit 1 ;;
+          esac
+          META="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$SELECTED_PR" --jq '[.state,.base.ref,.head.sha,.head.repo.full_name,(.merged_at // ""),(.merge_commit_sha // "")] | @tsv')"
           IFS=$'\t' read -r STATE BASE HEAD REPO MERGED_AT MERGE_SHA <<< "$META"
           if [ "$STATE" = "open" ]; then
             echo "Council pre-merge review candidate is open."
           elif [ "$STATE" = "closed" ] && [ -n "$MERGED_AT" ]; then
             [[ "$MERGE_SHA" =~ ^[a-f0-9]{40}$ ]]
+            if [ "$SELECTED_PR" != 3094 ]; then
+              echo "eligible=false" >> "$GITHUB_OUTPUT"
+              echo "Maintenance PR merged; do not substitute historical release audit."
+              exit 0
+            fi
             echo "::notice title=Council post-merge audit::PR #3094 already merged. Audit historic diff, NEVER issue retroactive deployment approval."
           else
             echo "eligible=false" >> "$GITHUB_OUTPUT"
@@ -76,8 +90,8 @@ jobs:
           [[ "$HEAD" =~ ^[a-f0-9]{40}$ ]]
           echo "eligible=true" >> "$GITHUB_OUTPUT"
           echo "head=$HEAD" >> "$GITHUB_OUTPUT"
-          echo "pr_number=3094" >> "$GITHUB_OUTPUT"
-          echo "Read-only Council candidate pinned to PR #3094 head: $HEAD"
+          echo "pr_number=$SELECTED_PR" >> "$GITHUB_OUTPUT"
+          echo "Read-only Council candidate pinned to PR #$SELECTED_PR head: $HEAD"
   preflight:
     needs: [discover]
     if: >-
