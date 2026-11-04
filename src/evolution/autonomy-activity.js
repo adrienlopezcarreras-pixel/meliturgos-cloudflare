@@ -1,5 +1,6 @@
 import { isAcceptedRoadmapCodeJob } from '../roadmap/roadmap-code-acceptance.js';
 import { singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
+import { unmetSoftwarePrerequisites } from './own-roadmap-advance.js';
 import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 // Detailed, read-only view of what MEL is doing, for the « Activité » panel.
 //
@@ -333,6 +334,48 @@ export function scheduledCycles(now = Date.now()) {
   ];
 }
 
+// Read-only roadmap catalog. A declared objective is NOT a D1 job and never
+// reserves MAX's single-flight slot or triggers a model call.
+export function buildPassiveRoadmapCatalog(roadmap = flattenRoadmap(), jobs = []) {
+  const rows = Array.isArray(roadmap) ? roadmap : [];
+  const verifiedIds = new Set(rows.filter(row => isClosedRoadmapStatus(row?.status)).map(row => row.id));
+  for (const job of jobs) {
+    if (isAcceptedRoadmapCodeJob(job) && job?.optional_context?.roadmap_id) {
+      verifiedIds.add(job.optional_context.roadmap_id);
+    }
+  }
+  const latestJobs = new Map();
+  for (const job of jobs) {
+    const id = job?.optional_context?.roadmap_id || job?.roadmap_id;
+    if (!id) continue;
+    const previous = latestJobs.get(id);
+    if (!previous || Number(job.updated_at || 0) > Number(previous.updated_at || 0)) latestJobs.set(id, job);
+  }
+  const items = rows.filter(row => row?.id && !isClosedRoadmapStatus(row.status)).map(row => {
+    const mission = latestJobs.get(row.id) || null;
+    const missionStatus = mission ? String(mission.status || 'UNKNOWN').toUpperCase() : null;
+    const blockers = unmetSoftwarePrerequisites(row, rows, [...verifiedIds]);
+    const status = String(row.status || 'PLANNED').toUpperCase();
+    const external = status === 'BLOCKED_HUMAN' || status === 'BLOCKED_EXTERNAL';
+    const missionOpen = mission && !['COMPLETED','FAILED','CANCELLED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED'].includes(missionStatus);
+    const state = missionOpen ? 'MISSION_REGISTERED'
+      : external ? status
+      : blockers.length ? 'WAITING_PREREQUISITES'
+      : missionStatus === 'COMPLETED' ? 'CODE_DELIVERED_UNVERIFIED'
+      : 'ROADMAP_DEFINED';
+    return {
+      id: row.id, title: row.title || row.id, phase: row.phase || null,
+      priority: row.priority || null, status, state,
+      mission_id: mission?.id || null, mission_status: missionStatus,
+      contract_defined: Boolean(row.contract_revision && row.code_paths?.length && row.test_paths?.length),
+      depends_on: Array.isArray(row.depends_on) ? row.depends_on : [],
+      unmet_prerequisites: blockers,
+    };
+  });
+  return { total: rows.length, verified: rows.length - items.length,
+    remaining: items.length, items };
+}
+
 // The plan shown in the Code chat: the mission in progress with its steps,
 // the roadmap items that come next, and when the next cycles are scheduled.
 export function buildCodePlan(jobs = [], { roadmap = flattenRoadmap(), now = Date.now(), limit = 3 } = {}) {
@@ -434,6 +477,7 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
       by_status: uniqueByStatus,
     },
     jobs,
+    passive_roadmap: buildPassiveRoadmapCatalog(flattenRoadmap(), unique),
     plan: buildCodePlan(jobs, { now }),
     metrics: { mentor, alerts: pipelineAlerts(supervised, mentor, { now }) },
     execution_evidence: supervised.slice(0, Math.max(1, Math.min(60, limit))).map(executionEvidence).filter(Boolean),
