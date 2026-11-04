@@ -112,7 +112,7 @@ export async function handleCouncilBatchedReview(env,body,{
     'LOT '+row.index+'/'+count+' SHA256='+row.sha256+'; fichiers='+
     rebuilt.batches[row.index-1].paths.join(', ')+
     '; independent verdict='+row.decision+
-    '; reviewers='+row.reviews.map(r=>r.model+':'+r.verdict+':'+String(r.summary||'').slice(0,180)).join(' | ')
+    '; reviewers='+row.reviews.filter(r=>r&&typeof r==='object').map(r=>String(r.model||'')+':'+String(r.verdict||'')+':'+String(r.summary||'').slice(0,180)).join(' | ')
   ).join('\n');
   const finalVote=await review(env,{
     diff:'INTEGRATION REVIEW of an exact, fully reconstructed and SHA256-checked code diff.\n'
