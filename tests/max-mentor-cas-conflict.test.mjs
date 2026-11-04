@@ -60,3 +60,44 @@ test('MAX clears stale Mentor history and attempt marker on READY CAS retry', as
   assert.equal(result.bridge_preparation_attempt, undefined);
   assert.equal(result.autonomy_deferral, undefined);
 });
+
+test('MAX CAS conflict with a competing Mentor round preserves the winner history', async () => {
+  let row = {
+    id: 'mel-autonomy-founder-07', status: 'TEACHER_APPROVED',
+    requested_by: 'mel-autonomy',
+    result_json: { mentor_attempt_history: [{ name: 'initial', error: 'MENTOR_JSON_INVALID' }] },
+  };
+  let first = true;
+  const repo = {
+    async get() { return structuredClone(row); },
+    async update(id, patch) {
+      assert.equal(id, row.id);
+      if (first) {
+        first = false;
+        row = { ...row, result_json: {
+          ...row.result_json,
+          mentor_attempt_history: [
+            ...row.result_json.mentor_attempt_history,
+            { name: 'repair', error: 'MENTOR_UNINSPECTED_EDIT' },
+          ],
+        } };
+        const error = new Error('JOB_UPDATE_CONFLICT');
+        error.code = 'JOB_UPDATE_CONFLICT';
+        throw error;
+      }
+      row = { ...row, ...structuredClone(patch) };
+      return structuredClone(row);
+    },
+  };
+  await persistBridgePreparationDiagnostic(repo, row.id, {
+    status: 'NOT_READY', code: 'MENTOR_NO_VALID_CODE_PROPOSAL',
+    failures: [{ stage: 'initial', code: 'MENTOR_TEST_REQUIRED' }],
+  });
+  const latest = (await repo.get()).result_json;
+  assert.deepEqual(latest.mentor_attempt_history, [
+    { name: 'initial', error: 'MENTOR_JSON_INVALID' },
+    { name: 'repair', error: 'MENTOR_UNINSPECTED_EDIT' },
+  ], 'a competing Mentor writer must not lose its history');
+  assert.equal(latest.bridge_preparation_diagnostic, undefined,
+    'do not persist a stale decision once a competing Mentor round changed');
+});
