@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { persistBridgePreparationDiagnostic } from '../src/evolution/autonomy-runtime-core.js';
+import { persistBridgePreparationDiagnostic, markBridgePreparationAttempt } from '../src/evolution/autonomy-runtime-core.js';
 
 function collidingRepository(initial) {
   let row = structuredClone(initial);
@@ -100,4 +100,43 @@ test('MAX CAS conflict with a competing Mentor round preserves the winner histor
   ], 'a competing Mentor writer must not lose its history');
   assert.equal(latest.bridge_preparation_diagnostic, undefined,
     'do not persist a stale decision once a competing Mentor round changed');
+});
+
+test('MAX cannot resurrect a bridge attempt after a concurrent Mentor READY CAS update', async () => {
+  let row = {
+    id: 'mel-autonomy-founder-07', status: 'TEACHER_APPROVED',
+    requested_by: 'mel-autonomy', result_json: {},
+  };
+  let collision = true;
+  let successfulWrites = 0;
+  const repo = {
+    async get() { return structuredClone(row); },
+    async update(id, patch) {
+      assert.equal(id, row.id);
+      if (collision) {
+        collision = false;
+        // Another runtime worker finished preparing the bridge before our
+        // stale in-flight marker could be persisted.
+        row = { ...row, result_json: {
+          ...row.result_json,
+          bridge_preparation_diagnostic: {
+            status: 'READY', code: null, observed_at: '2026-11-04T11:00:00.000Z',
+          },
+        } };
+        const error = new Error('JOB_UPDATE_CONFLICT');
+        error.code = 'JOB_UPDATE_CONFLICT';
+        throw error;
+      }
+      successfulWrites += 1;
+      row = { ...row, ...structuredClone(patch) };
+      return structuredClone(row);
+    },
+  };
+  const response = await markBridgePreparationAttempt(repo, row.id, { now: 1793790300000 });
+  const current = await repo.get(row.id);
+  assert.equal(response.job.result_json.bridge_preparation_diagnostic.status, 'READY');
+  assert.equal(current.result_json.bridge_preparation_diagnostic.status, 'READY');
+  assert.equal(current.result_json.bridge_preparation_attempt, undefined,
+    'a completed preparation must never regain a stale in-flight marker');
+  assert.equal(successfulWrites, 0, 'a competing Mentor decision must abort stale CAS retry');
 });
