@@ -89,7 +89,8 @@ export function isMaxQuickWin(item) {
     || !Array.isArray(item.code_paths) || item.code_paths.length !== 1
     || !QUICK_WIN_CODE_PATHS.has(item.code_paths[0])
     || !Array.isArray(item.test_paths) || item.test_paths.length < 1 || item.test_paths.length > 2
-    || !item.test_paths.every(path => /^tests\\/[A-Za-z0-9_./-]+\\.test\\.mjs$/.test(path))
+    || !item.test_paths.every(path => typeof path === 'string'
+      && path.startsWith('tests/') && path.endsWith('.test.mjs') && !path.includes('..'))
     || !Array.isArray(item.acceptance) || item.acceptance.length < 1 || item.acceptance.length > 2) return false;
   return true;
 }
