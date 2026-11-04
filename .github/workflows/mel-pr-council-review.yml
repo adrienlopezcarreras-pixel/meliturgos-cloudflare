@@ -73,7 +73,7 @@ jobs:
           echo "head=$HEAD" >> "$GITHUB_OUTPUT"
           echo "pr_number=3094" >> "$GITHUB_OUTPUT"
           echo "Read-only Council review candidate pinned to current PR #3094 head: $HEAD"
-  review:
+  preflight:
     needs: [discover]
     if: >-
       always() &&
@@ -85,6 +85,76 @@ jobs:
        github.event.workflow_run.event == 'pull_request' &&
        github.event.workflow_run.head_branch == 'integration/max-contingency-release-candidate' &&
        github.event.workflow_run.pull_requests[0].number != null)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      ready: ${{ steps.ci_gate.outputs.ready }}
+    steps:
+      - name: Bind exact candidate for a read-only CI prerequisite check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || inputs.pr_number || needs.discover.outputs.pr_number }}
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || inputs.expected_sha || needs.discover.outputs.head }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[0-9]{1,6}$ ]]
+          [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]]
+          META="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '[.state,.base.ref,.head.sha,.head.repo.full_name] | @tsv')"
+          IFS=$'\t' read -r STATE TARGET HEAD REPO <<< "$META"
+          test "$STATE" = "open"
+          test "$TARGET" = "main"
+          test "$REPO" = "$GITHUB_REPOSITORY"
+          test "$HEAD" = "$EXPECTED_SHA"
+          echo "MEL_COUNCIL_HEAD_SHA=$HEAD" >> "$GITHUB_ENV"
+      - name: Require every exact-SHA CI gate before automatic Council review
+        id: ci_gate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/commits/$MEL_COUNCIL_HEAD_SHA/check-runs?per_page=100" > council-checks.json
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const response=JSON.parse(fs.readFileSync('council-checks.json','utf8'));
+          const checks=response.check_runs||[];
+          if(!Number.isSafeInteger(response.total_count)||response.total_count!==checks.length)
+            throw Error('COUNCIL_CI_INCOMPLETE_CHECK_LIST');
+          const latest=new Map();
+          for(const row of checks){
+            const current=latest.get(row.name);
+            if(!current||Number(row.id)>Number(current.id))latest.set(row.name,row);
+          }
+          const mandatory=[
+            'gen2-17-targeted','gen2-17-full-suite','monitor-contract',
+            'encrypted-backup','professor-audit','shardvault-targeted',
+            'public-chat-targeted','public-chat-full-suite','durable-work',
+            'node-validation','lora-runtime-contract','self-audit-contract',
+            'MEL WORK free validation (no Vercel, no deployment)',
+          ];
+          const pending=mandatory.filter(name=>latest.get(name)?.conclusion!=='success');
+          const unfinished=[...latest.values()].filter(row=>!['success','skipped'].includes(row.conclusion));
+          const ready=pending.length===0&&unfinished.length===0;
+          const fsOut=process.env.GITHUB_OUTPUT;
+          if(!fsOut)throw Error('COUNCIL_CI_OUTPUT_REQUIRED');
+          fs.appendFileSync(fsOut,'ready='+String(ready)+'\n');
+          if(!ready){
+            console.log('::notice title=Council pending CI::' + 'COUNCIL_CI_REQUIRED_CHECK_NOT_GREEN='
+              +pending.join(',')+'; COUNCIL_CI_NOT_ALL_COMPLETE_AND_GREEN='
+              +unfinished.map(row=>row.name).join(','));
+          }else console.log('COUNCIL_CI_ALL_GREEN_FOR_EXACT_SHA');
+          NODE
+
+  review:
+    needs: [discover, preflight]
+    # The review job cannot appear green without an actual independent vote.
+    # Pending CI produces a successful preflight plus SKIPPED review, not
+    # an apparent Council approval.
+    if: >-
+      always() &&
+      needs.preflight.result == 'success' &&
+      needs.preflight.outputs.ready == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -134,47 +204,7 @@ jobs:
           echo "MEL_COUNCIL_MAIN_SHA=$MAIN" >> "$GITHUB_ENV"
           echo "MEL_COUNCIL_PR_NUMBER=$PR_NUMBER" >> "$GITHUB_ENV"
           echo "Verified immutable PR head $HEAD, review base $BASE and current main $MAIN"
-      - name: Require every exact-SHA CI gate before automatic Council review
-        id: ci_gate
-        if: github.event_name != 'workflow_dispatch'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/commits/$MEL_COUNCIL_HEAD_SHA/check-runs?per_page=100" > council-checks.json
-          node - <<'NODE'
-          const fs=require('node:fs');
-          const response=JSON.parse(fs.readFileSync('council-checks.json','utf8'));
-          const checks=response.check_runs||[];
-          if(!Number.isSafeInteger(response.total_count)||response.total_count!==checks.length)
-            throw Error('COUNCIL_CI_INCOMPLETE_CHECK_LIST');
-          const latest=new Map();
-          for(const row of checks){
-            const current=latest.get(row.name);
-            if(!current||Number(row.id)>Number(current.id))latest.set(row.name,row);
-          }
-          const mandatory=[
-            'gen2-17-targeted','gen2-17-full-suite','monitor-contract',
-            'encrypted-backup','professor-audit','shardvault-targeted',
-            'public-chat-targeted','public-chat-full-suite','durable-work',
-            'node-validation','lora-runtime-contract','self-audit-contract',
-            'MEL WORK free validation (no Vercel, no deployment)',
-          ];
-          const pending=mandatory.filter(name=>latest.get(name)?.conclusion!=='success');
-          const unfinished=[...latest.values()].filter(row=>!['success','skipped'].includes(row.conclusion));
-          const ready=pending.length===0&&unfinished.length===0;
-          const fsOut=process.env.GITHUB_OUTPUT;
-          if(!fsOut)throw Error('COUNCIL_CI_OUTPUT_REQUIRED');
-          fs.appendFileSync(fsOut,'ready='+String(ready)+'\n');
-          if(!ready){
-            console.log('::notice title=Council pending CI::' + 'COUNCIL_CI_REQUIRED_CHECK_NOT_GREEN='
-              +pending.join(',')+'; COUNCIL_CI_NOT_ALL_COMPLETE_AND_GREEN='
-              +unfinished.map(row=>row.name).join(','));
-          }else console.log('COUNCIL_CI_ALL_GREEN_FOR_EXACT_SHA');
-          NODE
       - name: Construct complete immutable Council diff
-        if: github.event_name == 'workflow_dispatch' || steps.ci_gate.outputs.ready == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -183,7 +213,6 @@ jobs:
           git log --format=%s "$MEL_COUNCIL_BASE_SHA..$MEL_COUNCIL_HEAD_SHA" > council.log
           node scripts/prepare-council-review-batches.mjs council.diff council-review-manifest.json
       - name: Full multi-batch independent Council verdict
-        if: github.event_name == 'workflow_dispatch' || steps.ci_gate.outputs.ready == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -200,7 +229,6 @@ jobs:
             throw Error('COUNCIL_PR_FINAL_VERDICT_NOT_VERIFIED');
           NODE
       - name: Recheck immutable head and main after all independent votes
-        if: github.event_name == 'workflow_dispatch' || steps.ci_gate.outputs.ready == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
