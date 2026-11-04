@@ -16,7 +16,7 @@ const raw=readFileSync(source);
 const diff=new TextDecoder('utf-8',{fatal:true}).decode(raw);
 const log=readFileSync(logPath,'utf8').slice(0,15000);
 const planned=planCouncilDiffBatches(diff);
-if(!planned.ok||planned.batchCount<2)throw Error(planned.code||'COUNCIL_BATCH_EXPECTED');
+if(!planned.ok||planned.batchCount<1)throw Error(planned.code||'COUNCIL_BATCH_EXPECTED');
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const root=hash(raw);
 const common={head,base,root_sha256:root,batch_count:planned.batchCount,
