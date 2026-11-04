@@ -49,10 +49,13 @@ test('explicit owner-chat bridge job remains available while MAX is paused', asy
   await setAutonomyControl(db, { paused: true, max_autonomy: false, source: 'owner-ui', reason: 'owner-stop' });
   const bridge = fixture(db, 'owner-chat');
   const response = await bridge.run();
-  assert.equal(response.status, 200);
-  const job = await response.json();
-  assert.equal(job.status, 'CLAIMED');
-  assert.equal(bridge.getClaims(), 1);
+  // Local bridge authorization is a separate safeguard: a disabled local
+  // executor may still refuse with 409. Owner STOP must not be its reason.
+  const result = await response.json();
+  assert.notEqual(result.code, 'AUTONOMY_OWNER_STOP_PAUSED');
+  assert.equal(response.status, 409);
+  assert.equal(result.code, 'LOCAL_FALLBACK_NOT_AUTHORIZED_OR_CLOUD_AVAILABLE');
+  assert.equal(bridge.getClaims(), 0);
 });
 
 test('the bridge does not claim a MAX job when its pause control cannot be read', async t => {
