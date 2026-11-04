@@ -56,6 +56,43 @@ test('every real batch and distinct final Council vote are required; SHA cache p
   }finally{db.close();}
 });
 
+test('post-merge Council audits are nonauthorizing and never populate promotion approval records',async()=>{
+  const db=sqliteD1({maintenanceFence:true});
+  try {
+    assert.equal((await call(db,{...batch(plan.batches[0]),audit_only:'true'})).result.code,
+      'COUNCIL_BATCH_INPUT_INVALID');
+    for(const b of plan.batches){
+      const result=(await call(db,{...batch(b),audit_only:true})).result;
+      assert.equal(result.batch_decision,'APPROVED');
+    }
+    const audit=(await call(db,{...final,audit_only:true})).result;
+    assert.equal(audit.decision,'POST_MERGE_AUDIT_APPROVED');
+    assert.equal(audit.complete_review,true);
+    assert.equal(audit.audit_only,true);
+    assert.equal(audit.release_authorized,false);
+    const auditRecord=await db.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?')
+      .bind('council-postmerge-review:'+head).first();
+    assert.equal(JSON.parse(auditRecord.metadata_json).audit_only,true);
+    const promotion=await db.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?')
+      .bind('council-review:'+head).first();
+    assert.equal(promotion??null,null,'postmerge vote must not be visible to promotion gates');
+    const notPreapproved=(await call(db,final)).result;
+    assert.equal(notPreapproved.code,'COUNCIL_BATCH_REVIEWS_INCOMPLETE');
+    const cached=(await call(db,{...final,audit_only:true},async()=>{
+      throw Error('postmerge audit must use its separate cached proof');
+    })).result;
+    assert.equal(cached.decision,'POST_MERGE_AUDIT_APPROVED');
+    assert.equal(cached.cached,true);
+    assert.equal(cached.release_authorized,false);
+    for(const b of plan.batches)
+      assert.equal((await call(db,batch(b))).result.batch_decision,'APPROVED');
+    assert.equal((await call(db,final)).result.decision,'APPROVED');
+    const stillAudit=(await db.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?')
+      .bind('council-postmerge-review:'+head).first());
+    assert.equal(JSON.parse(stillAudit.metadata_json).audit_only,true);
+  }finally{db.close();}
+});
+
 test('forgery, tampered stored batch, altered input and stale head fail closed',async()=>{
   const db=sqliteD1({maintenanceFence:true});
   try{
@@ -266,4 +303,184 @@ test('previously approved final Council cache must re-vote after quorum or manif
       assert.equal(restored.complete_review,true);
     }finally{db.close();}
   }
+});
+
+test('authenticated endpoint and MAX promotion must fail closed',()=>{
+  const endpoint=file('../src/evolution/council-review.js');
+  const handler=endpoint.slice(endpoint.indexOf('export async function handleCouncilReviewRequest'));
+  assert.ok(handler.indexOf('authorizeGitHubActionsOidcRequest')<
+    handler.indexOf('handleCouncilBatchedReview'));
+  assert.ok(handler.includes("'mel-pr-council-review.yml'"));
+  const promotion=file('../.github/workflows/mel-candidate-promotion.yml');
+  assert.ok(promotion.includes('timeout-minutes: 45'));
+  assert.ok(promotion.includes('run-council-batch-review.mjs'));
+  assert.ok(promotion.includes('COUNCIL_BATCH_REVIEW_NOT_APPROVED'));
+  assert.ok(promotion.indexOf('run-council-batch-review.mjs')<promotion.indexOf('DECISION='));
+  const runner=file('../scripts/run-council-batch-review.mjs');
+  assert.ok(runner.includes("batch_decision!=='APPROVED'"));
+  assert.ok(runner.includes('complete_review!==true'));
+  assert.ok(!runner.includes('COUNCIL_REVIEW_OVERRIDE'));
+});
+
+test('OIDC identity is renewed for every individual review',()=>{
+  const runner=file('../scripts/run-council-batch-review.mjs');
+  for(const token of ['async function currentOidcToken()',
+    'ACTIONS_ID_TOKEN_REQUEST_URL','ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+    "issuerUrl.searchParams.set('audience','meliturgos-worker')",
+    'const freshToken=await currentOidcToken()',
+    "'x-mel-github-oidc':freshToken"])assert.ok(runner.includes(token),token);
+  assert.ok(!runner.includes("'x-mel-github-oidc':token"));
+});
+
+test('scheduled Council recovers missed CI events and merged PR history safely',()=>{
+  const workflow=file('../.github/workflows/mel-pr-council-review.yml');
+  for(const token of [
+    "schedule:\n    - cron: '47 */2 * * *'",
+    "discover:\n    if: github.event_name == 'schedule'",
+    'repos/$GITHUB_REPOSITORY/pulls/3094',
+    'if [ "$STATE" = "open" ]',
+    'test "$BASE" = "main"',
+    'test "$REPO" = "$GITHUB_REPOSITORY"',
+    '[[ "$HEAD" =~ ^[a-f0-9]{40}$ ]]',
+    'needs: [discover]',
+    "needs.discover.result == 'success' && needs.discover.outputs.eligible == 'true'",
+    'inputs.expected_sha || needs.discover.outputs.head',
+    'inputs.pr_number || needs.discover.outputs.pr_number',
+    "needs: [discover, preflight]",
+    "pull-requests: read",
+  ])assert.ok(workflow.includes(token),token);
+  // Scheduled checks may never bypass the exact-commit CI gate or deployment
+  // restrictions simply because they were launched by a cron.
+  assert.ok(workflow.indexOf('Require every exact-SHA CI gate before automatic Council review')
+    <workflow.indexOf('Full multi-batch independent Council verdict'));
+  assert.ok(!workflow.includes('pull_request_target:'));
+  assert.ok(!workflow.includes('contents: write'));
+  assert.ok(!workflow.includes('wrangler deploy'));
+  assert.ok(!workflow.includes('git push'));
+});
+
+test('automatic Council is scoped to trusted CI completion, exact PR head and all green gates',()=>{
+  const workflow=file('../.github/workflows/mel-pr-council-review.yml');
+  for(const expected of [
+    'workflow_run:', 'types: [completed]',
+    '- MEL external contingency monitor',
+    '- mel-work-free-validation',
+    '- hardware-lab-ci',
+    '- lora-runtime-pipeline-ci',
+    '- mel-self-audit-supervisor-ci',
+    '- cloudflare-api-relay',
+    "github.event.workflow_run.conclusion == 'success'",
+    "github.event.workflow_run.event == 'pull_request'",
+    "github.event.workflow_run.head_branch == 'integration/max-contingency-release-candidate'",
+    "github.event.workflow_run.pull_requests[0].number != null",
+    'github.event.workflow_run.head_sha || inputs.expected_sha',
+    'github.event.workflow_run.pull_requests[0].number || inputs.pr_number',
+    'Require every exact-SHA CI gate before automatic Council review',
+    'COUNCIL_CI_INCOMPLETE_CHECK_LIST',
+    'COUNCIL_CI_REQUIRED_CHECK_NOT_GREEN',
+    'COUNCIL_CI_NOT_ALL_COMPLETE_AND_GREEN',
+    "const pending=mandatory.filter(name=>latest.get(name)?.conclusion!=='success')",
+    "const ready=pending.length===0&&unfinished.length===0",
+    "fs.appendFileSync(fsOut,'ready='+String(ready)+'\\n')",
+    "needs.preflight.outputs.ready == 'true'",
+  ])assert.ok(workflow.includes(expected),expected);
+  assert.ok(workflow.indexOf('Require every exact-SHA CI gate before automatic Council review')
+    <workflow.indexOf('Full multi-batch independent Council verdict'));
+  assert.equal((workflow.match(/needs\.preflight\.outputs\.ready == 'true'/g)||[]).length,1);
+  assert.ok(workflow.includes('id: ci_gate'));
+  assert.ok(workflow.includes('ref: main'));
+  assert.ok(!workflow.includes('pull_request_target:'));
+  assert.ok(!workflow.includes('contents: write'));
+  assert.ok(!workflow.includes('git push'));
+});
+
+test('Council discovery shell is a complete YAML run block with no orphan lines',()=>{
+  const workflow=file('../.github/workflows/mel-pr-council-review.yml');
+  const discover=workflow.slice(workflow.indexOf('  discover:\n'),workflow.indexOf('  preflight:\n'));
+  assert.ok(discover.includes('        run: |\n          set -euo pipefail\n          META="$(gh api'));
+  assert.ok(discover.includes('          IFS='));
+  assert.ok(discover.includes('          echo "head=$HEAD" >> "$GITHUB_OUTPUT"'));
+  assert.ok(discover.includes('          echo "pr_number=3094" >> "$GITHUB_OUTPUT"'));
+  assert.ok(discover.includes('          echo "Read-only Council candidate pinned to PR #3094 head: $HEAD"'));
+  assert.ok(!discover.includes('set -euo p          META'));
+  const start=discover.indexOf('        run: |\n');
+  assert.ok(start>=0);
+  const run=discover.slice(start+'        run: |\n'.length);
+  for(const line of run.split('\n').filter(Boolean))
+    assert.match(line,/^ {10,}/,'every discovery command must remain indented in the YAML run block');
+  assert.equal(workflow.split('\n  preflight:\n').length,2);
+});
+
+test('GitHub Actions preflight boolean guard is balanced',()=>{
+  const wf=file('../.github/workflows/mel-pr-council-review.yml');
+  const preflight=wf.slice(wf.indexOf('  preflight:\n'),wf.indexOf('  review:\n'));
+  const match=preflight.match(/\n    if: >-\n([\s\S]*?)\n    runs-on:/);
+  assert.ok(match,'preflight requires a valid job-level condition');
+  const guard=match[1].replace(/'[^']*'/g,"''");
+  let depth=0;
+  for(const char of guard){
+    if(char==='(')depth++;
+    if(char===')')depth--;
+    assert.ok(depth>=0,'unexpected closing parenthesis');
+  }
+  assert.equal(depth,0,'unclosed parenthesis in GitHub Actions guard');
+  assert.match(guard,/always\(\)/);
+  assert.match(guard,/needs\.discover\.outputs\.eligible/);
+  assert.match(guard,/github\.event\.workflow_run\.pull_requests\[0\]\.number != null/);
+});
+
+test('no Council job can be reported as approved before exact-SHA CI passes, including manual dispatch',()=>{
+  const workflow=file('../.github/workflows/mel-pr-council-review.yml');
+  const preflight=workflow.slice(workflow.indexOf('  preflight:\n'),workflow.indexOf('  review:\n'));
+  const review=workflow.slice(workflow.indexOf('  review:\n'));
+  assert.ok(preflight.includes('id: ci_gate'));
+  assert.ok(preflight.includes('GITHUB_OUTPUT'));
+  assert.ok(preflight.includes("const ready=pending.length===0&&unfinished.length===0"));
+  assert.ok(review.includes('needs: [discover, preflight]'));
+  assert.ok(review.includes("needs.preflight.result == 'success'"));
+  assert.ok(review.includes("needs.preflight.outputs.ready == 'true'"));
+  assert.ok(!review.includes('id: ci_gate'),'CI gate must run in a separate preflight job');
+  assert.ok(!review.includes("if: github.event_name == 'workflow_dispatch'"),
+    'manual dispatch cannot bypass the mandatory CI proof');
+  assert.ok(!review.includes('steps.ci_gate.outputs.ready'));
+  assert.ok(review.indexOf('Full multi-batch independent Council verdict')
+    <review.indexOf('Recheck immutable head and main'));
+});
+
+test('merged PR Council review uses exact original merge-parent diff and cannot authorize a release retroactively',()=>{
+  const wf=file('../.github/workflows/mel-pr-council-review.yml');
+  for(const required of [
+    "elif [ \"$STATE\" = \"closed\" ] && [ -n \"$MERGED_AT\" ]",
+    "REVIEW_KIND=\"POST_MERGE_AUDIT_ONLY\"",
+    'git merge-base --is-ancestor "$MERGE_SHA" "$MAIN"',
+    'git rev-list --parents -n 1 "$MERGE_SHA"',
+    'test "${#PARENTS[@]}" -eq 3',
+    'test "${PARENTS[2]}" = "$HEAD"',
+    'BASE="${PARENTS[1]}"',
+    'git diff "$MEL_COUNCIL_BASE_SHA" "$MEL_COUNCIL_HEAD_SHA"',
+    "retroactive_premerge_approval:false",
+    "release_authorized:false",
+    "council-review-provenance.json",
+  ])assert.ok(wf.includes(required),required);
+  assert.ok(wf.includes('eligible=true'));
+  assert.ok(wf.includes('eligible=false'));
+  const postMerge=wf.slice(wf.indexOf('REVIEW_KIND="POST_MERGE_AUDIT_ONLY"'),wf.indexOf('MEL_COUNCIL_HEAD_SHA=$HEAD'));
+  assert.ok(!postMerge.includes('git push'));
+  assert.ok(!postMerge.includes('wrangler deploy'));
+  assert.ok(!wf.includes('pull_request_target:'));
+});
+
+test('read-only PR review binds immutable head and base without mistaking moved main for base',()=>{
+  const workflow=file('../.github/workflows/mel-pr-council-review.yml');
+  for(const token of ['workflow_dispatch:','ref: main','test "$HEAD" = "$EXPECTED_SHA"',
+    'test "$REPO" = "$GITHUB_REPOSITORY"',
+    'BASE="$(git merge-base "$MAIN" "$HEAD")"',
+    'COUNCIL_PR_MAIN_HEAD_PATH_CONFLICT','MEL_COUNCIL_MAIN_SHA=$MAIN',
+    'CURRENT_MAIN" != "$MEL_COUNCIL_MAIN_SHA',
+    'run-council-batch-review.mjs council.diff council.log',
+    'COUNCIL_PR_HEAD_OR_BASE_CHANGED_DURING_REVIEW',
+    'result.root_sha256!==manifest.sha256','id-token: write',
+    'contents: read','council-pr-review-receipt'])assert.ok(workflow.includes(token),token);
+  for(const forbidden of ['contents: write','git push','wrangler deploy',
+    'npm run deploy','DEPLOY_APPROVED'])assert.ok(!workflow.includes(forbidden),forbidden);
 });
