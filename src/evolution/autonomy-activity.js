@@ -336,10 +336,10 @@ export function scheduledCycles(now = Date.now()) {
 
 // Read-only roadmap catalog. A declared objective is NOT a D1 job and never
 // reserves MAX's single-flight slot or triggers a model call.
-export function buildPassiveRoadmapCatalog(roadmap = flattenRoadmap(), jobs = []) {
+export function buildPassiveRoadmapCatalog(roadmap = flattenRoadmap(), jobs = [], { acceptanceJobs = [] } = {}) {
   const rows = Array.isArray(roadmap) ? roadmap : [];
   const verifiedIds = new Set(rows.filter(row => isClosedRoadmapStatus(row?.status)).map(row => row.id));
-  for (const job of jobs) {
+  for (const job of [...jobs, ...acceptanceJobs]) {
     const acceptedId = job?.optional_context?.roadmap_id;
     if (acceptedId && isAcceptedRoadmapCodeJob(job)
         && !rows.some(row => row.id === acceptedId && String(row.status || '').toUpperCase() === 'REGRESSED')) {
@@ -384,14 +384,15 @@ export function buildPassiveRoadmapCatalog(roadmap = flattenRoadmap(), jobs = []
 
 // The plan shown in the Code chat: the mission in progress with its steps,
 // the roadmap items that come next, and when the next cycles are scheduled.
-export function buildCodePlan(jobs = [], { roadmap = flattenRoadmap(), now = Date.now(), limit = 3 } = {}) {
+export function buildCodePlan(jobs = [], { roadmap = flattenRoadmap(), now = Date.now(), limit = 3, verifiedIds = [] } = {}) {
   const terminal = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
-  const active = jobs.filter(job => job?.roadmap_id && !terminal.has(String(job.status || '').toUpperCase()));
+  const acceptedIds = verifiedIds.filter(id => !roadmap.some(row => row.id === id && String(row.status || '').toUpperCase() === 'REGRESSED'));
+  const active = jobs.filter(job => job?.roadmap_id && !acceptedIds.includes(job.roadmap_id) && !terminal.has(String(job.status || '').toUpperCase()));
   const current = active.find(job => String(job.status || '').toUpperCase() !== 'WAITING_DEPENDENCY') || null;
   const excluded = active.map(job => job.roadmap_id);
   const next = [];
   while (next.length < limit) {
-    const item = selectNextAutonomyItem({ roadmap, blockedIds: [...excluded, ...next.map(row => row.id)], quickWinsFirst: true });
+    const item = selectNextAutonomyItem({ roadmap, completedIds: acceptedIds, verifiedIds: acceptedIds, blockedIds: [...excluded, ...next.map(row => row.id)], quickWinsFirst: true });
     if (!item) break;
     next.push({ id: item.id, title: clip(item.title, 140), status: item.status });
   }
@@ -491,8 +492,8 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
       by_status: uniqueByStatus,
     },
     jobs,
-    passive_roadmap: buildPassiveRoadmapCatalog(flattenRoadmap(), unique),
-    plan: buildCodePlan(jobs, { now }),
+    passive_roadmap: buildPassiveRoadmapCatalog(flattenRoadmap(), unique, { acceptanceJobs: allJobs }),
+    plan: buildCodePlan(jobs, { now, verifiedIds: allJobs.filter(isAcceptedRoadmapCodeJob).map(job => job.optional_context.roadmap_id) }),
     metrics: { mentor, alerts: pipelineAlerts(supervised, mentor, { now }) },
     execution_evidence: supervised.slice(0, Math.max(1, Math.min(60, limit))).map(executionEvidence).filter(Boolean),
     timeline: foldLedger(recentLedger.filter(event => atOrAfter(event?.occurred_at, epoch)), 40),

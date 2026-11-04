@@ -82,3 +82,17 @@ test('compact history never coerces forged numeric/string trust flags or accepts
   assert.equal(isAcceptedRoadmapCodeJob((await f.repo.listAutonomyAcceptanceJobs())[0]),false);
  }finally{f.DB.close();}
 });
+
+test('activity reset hides the old mission card while retaining truthful catalog and next-mission eligibility',async()=>{
+ const f=await fixture();try{
+  const {buildAutonomyActivity}=await import('../src/evolution/autonomy-activity.js');
+  await f.DB.prepare('INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?)').bind('activity-list-epoch',2000,'RESET','{}').run();
+  const activity=await buildAutonomyActivity({DB:f.DB},{repository:f.repo});
+  assert.ok(!activity.jobs.some(job=>job.id==='old-accepted-parent'));
+  assert.ok(!activity.passive_roadmap.items.some(item=>item.id===f.parent.id));
+  const child=activity.passive_roadmap.items.find(item=>item.id===f.child.id);
+  assert.ok(!child.unmet_prerequisites.includes(f.parent.id));
+  assert.ok(!activity.plan.next.some(item=>item.id===f.parent.id));
+  assert.equal(activity.counts.active,0);
+ }finally{f.DB.close();}
+});
