@@ -31,3 +31,14 @@ const handoffs=await read(`SELECT json_extract(i.value,'$.handoff.status') AS ha
  LEFT JOIN dev_jobs j ON j.id=json_extract(i.value,'$.handoff.job_id')
  WHERE s.id='ecosystem-discoveries-canonical' AND json_type(i.value,'$.handoff')='object' LIMIT 50`);
 console.log(JSON.stringify({schema:'mel.handoff-diagnostic-readonly/v1',rows_written:0,handoffs:handoffs.map(row=>({...row,accepted_equivalent:accepted.some(job=>job.optional_context.roadmap_id===row.roadmap_id && job.optional_context.roadmap_contract_revision===row.contract_revision)}))}));
+const council=await read(`SELECT s.status AS decision,json_extract(s.metadata_json,'$.attempts') AS attempts,
+ CASE WHEN json_extract(r.value,'$.model') IN ('@cf/openai/gpt-oss-120b','@cf/meta/llama-3.3-70b-instruct-fp8-fast','@cf/google/gemma-4-26b-a4b-it','@cf/nvidia/nemotron-3-120b-a12b') THEN json_extract(r.value,'$.model') ELSE 'OTHER_MODEL' END AS model,
+ json_extract(r.value,'$.verdict') AS verdict,
+ CASE WHEN json_extract(r.value,'$.error') IS NULL THEN 'NONE'
+ WHEN lower(json_extract(r.value,'$.error')) LIKE '%quota%' OR lower(json_extract(r.value,'$.error')) LIKE '%neuron%' THEN 'QUOTA_RELATED'
+ WHEN lower(json_extract(r.value,'$.error')) LIKE '%timeout%' OR lower(json_extract(r.value,'$.error')) LIKE '%deadline%' THEN 'TIMEOUT_RELATED'
+ WHEN lower(json_extract(r.value,'$.error')) LIKE '%unparseable%' THEN 'UNPARSEABLE_REVIEW'
+ ELSE 'OTHER_ERROR' END AS failure_class
+ FROM dev_bridge_state s,json_each(s.metadata_json,'$.reviews') r
+ WHERE s.bridge_id='council-review:3c1fb505f1b753dcfd2844698ce9b402064a44e6' LIMIT 10`);
+console.log(JSON.stringify({schema:'mel.council-review-readonly/v1',rows_written:0,council}));
