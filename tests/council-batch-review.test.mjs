@@ -398,11 +398,11 @@ test('automatic Council is scoped to trusted CI completion, exact PR head and al
 test('Council discovery shell is a complete YAML run block with no orphan lines',()=>{
   const workflow=file('../.github/workflows/mel-pr-council-review.yml');
   const discover=workflow.slice(workflow.indexOf('  discover:\n'),workflow.indexOf('  preflight:\n'));
-  assert.ok(discover.includes('        run: |\n          set -euo pipefail\n          META="$(gh api'));
+  assert.ok(discover.includes('        run: |\n          set -euo pipefail\n          case "$SCHEDULE_CRON" in'));
   assert.ok(discover.includes('          IFS='));
   assert.ok(discover.includes('          echo "head=$HEAD" >> "$GITHUB_OUTPUT"'));
-  assert.ok(discover.includes('          echo "pr_number=3094" >> "$GITHUB_OUTPUT"'));
-  assert.ok(discover.includes('          echo "Read-only Council candidate pinned to PR #3094 head: $HEAD"'));
+  assert.ok(discover.includes('          echo "pr_number=$SELECTED_PR" >> "$GITHUB_OUTPUT"'));
+  assert.ok(discover.includes('          echo "Read-only Council candidate pinned to PR #$SELECTED_PR head: $HEAD"'));
   assert.ok(!discover.includes('set -euo p          META'));
   const start=discover.indexOf('        run: |\n');
   assert.ok(start>=0);
