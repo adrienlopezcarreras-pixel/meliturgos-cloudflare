@@ -32,6 +32,35 @@ test('authentication redirects and missing markers stay unknown, not a diagnosed
   assert.equal(result.status,'UNKNOWN');
   assert.equal((await probeExternalHealth(url,{fetchImpl:fake([200]),expectedText:'NOT_IN_BODY'})).status,'UNKNOWN');
 });
+test('oversized external health bodies fail safely instead of being fully buffered',async()=>{
+  const response=await probeExternalHealth(url,{
+    fetchImpl:async()=>new Response('MEL OK'+'x'.repeat(65*1024),{status:200}),
+    expectedText:'MEL OK',
+  });
+  assert.equal(response.status,'UNKNOWN');
+  assert.equal(response.code,'HEALTH_BODY_TOO_LARGE');
+});
+test('split UTF-8 markers are recognized within the bounded streaming body',async()=>{
+  const marker='MEL santé prêt';
+  const data=new TextEncoder().encode(marker);
+  const stream=new ReadableStream({start(controller){
+    for(let i=0;i<data.length;i+=2)controller.enqueue(data.subarray(i,i+2));
+    controller.close();
+  }});
+  const response=await probeExternalHealth(url,{
+    fetchImpl:async()=>new Response(stream,{status:200}),expectedText:marker,
+  });
+  assert.equal(response.status,'UP');
+});
+test('malformed UTF-8 in the health body remains UNKNOWN, never an outage vote',async()=>{
+  const response=await probeExternalHealth(url,{
+    fetchImpl:async()=>new Response(Uint8Array.from([0xc3,0x28]),{status:200}),
+    expectedText:'MEL OK',
+  });
+  assert.equal(response.status,'UNKNOWN');
+  assert.equal(response.code,'HEALTH_BODY_UNREADABLE');
+});
+
 test('no configured URL is never marked green',async()=>{
   const result=await monitorExternalHealth({url:''});
   assert.equal(result.status,'UNKNOWN');
