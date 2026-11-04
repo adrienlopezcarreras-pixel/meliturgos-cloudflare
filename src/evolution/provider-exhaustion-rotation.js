@@ -81,12 +81,31 @@ export function boundedCouncilDeferral({ job, deferred, retryAt, freshAttempts =
     retry_after: stillInWindow ? previousRetryAt : retryAt };
 }
 
+// Re-queued revisions remain durable in D1, but do not own an execution slot.
+// Initial QUEUED admissions lack this marker and still get their first pass.
+export function isSecondPassQueued(job) {
+  return job?.requested_by === 'mel-autonomy'
+    && String(job?.status || '').toUpperCase() === 'QUEUED'
+    && job?.result_json?.autonomy_queue_pass?.passive === true
+    && !['RUNNING','IN_PROGRESS','CLAIMED','READY_FOR_REVIEW'].includes(
+      String(job?.result_json?.dev_bridge?.status || '').toUpperCase());
+}
+
+export const SECOND_PASS_QUEUED_SQL = `(
+  status='QUEUED'
+  AND json_extract(result_json,'$.autonomy_queue_pass.passive')=1
+  AND UPPER(COALESCE(json_extract(result_json,'$.dev_bridge.status'),'')) NOT IN
+    ('RUNNING','IN_PROGRESS','CLAIMED','READY_FOR_REVIEW')
+)`;
+
+// No D1 row is deleted: queue entries are resumed by an atomic CAS only once
+// the ordinary first-pass roadmap is exhausted.
 // One persisted mission owns the whole Council -> Teacher -> Bridge -> delivery
 // lifecycle. Every executor and the activity feed use this same ordering.
 export function singleFlightAutonomyMission(jobs = []) {
   return jobs.filter(job => job?.requested_by === 'mel-autonomy'
     && !['COMPLETED','CANCELLED','FAILED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED','WAITING_DEPENDENCY'].includes(String(job.status).toUpperCase())
-    && !isRotatableProviderExhaustion(job))
+    && !isRotatableProviderExhaustion(job) && !isSecondPassQueued(job))
     .sort((a,b)=>Number(Boolean(a.result_json?.autonomy_deferral?.exhausted && typeof a.result_json.autonomy_deferral.context === 'string' && a.result_json.autonomy_deferral.context !== providerRetryContext(a)))
       - Number(Boolean(b.result_json?.autonomy_deferral?.exhausted && typeof b.result_json.autonomy_deferral.context === 'string' && b.result_json.autonomy_deferral.context !== providerRetryContext(b)))
       || Number(a.created_at||0)-Number(b.created_at||0)||String(a.id).localeCompare(String(b.id)))[0] || null;
@@ -97,6 +116,7 @@ export const SINGLE_FLIGHT_AUTONOMY_JOB_SQL = `SELECT id FROM dev_jobs
   WHERE requested_by='mel-autonomy'
     AND status NOT IN ('COMPLETED','CANCELLED','FAILED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED','WAITING_DEPENDENCY')
     AND NOT COALESCE(${ROTATABLE_PROVIDER_EXHAUSTION_SQL},0)
+    AND NOT COALESCE(${SECOND_PASS_QUEUED_SQL},0)
   ORDER BY CASE WHEN json_extract(result_json,'$.autonomy_deferral.exhausted')=1
     AND json_type(result_json,'$.autonomy_deferral.context') = 'text'
     AND json_extract(result_json,'$.autonomy_deferral.context') != json_array(
