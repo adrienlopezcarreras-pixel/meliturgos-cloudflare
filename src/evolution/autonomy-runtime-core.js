@@ -352,9 +352,15 @@ export async function markBridgePreparationAttempt(repository, jobId, { now = Da
     const job = await persistDiagnosticResult(repository, latest, result, 'bridge_preparation_diagnostic');
     return { job, killed, exhausted: true };
   }
-  result.bridge_preparation_attempt = { started_at: now, killed };
+  // Only the invocation that persisted this unique marker may spend Mentor
+  // tokens preparing the bridge. A CAS conflict may return a newer row without
+  // persisting our attempt; that is NOT permission to run another preparation.
+  const attemptId = crypto.randomUUID();
+  result.bridge_preparation_attempt = { started_at: now, killed, attempt_id: attemptId };
   const job = await persistDiagnosticResult(repository, latest, result, 'bridge_preparation_attempt');
-  return { job, killed, exhausted: false };
+  const claimed = job?.status === 'TEACHER_APPROVED'
+    && job?.result_json?.bridge_preparation_attempt?.attempt_id === attemptId;
+  return { job, killed, exhausted: false, claimed };
 }
 
 export async function persistBridgePreparationDiagnostic(repository, jobId, diagnostic) {
@@ -1116,7 +1122,11 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     }
     if (attempt?.exhausted) {
       bridgePreparation = { status: 'NOT_READY', code: 'BRIDGE_PREPARATION_KILLED', failures: [] };
-    } else if (implementation?.status === 'READY' && job && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED') {
+    } else if (implementation?.status === 'READY' && job && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED' && !attempt?.claimed) {
+      // An exception or a losing CAS must never launch a second expensive
+      // Mentor/Bridge call on a stale job. Retry with the next scheduled tick.
+      bridgePreparation = { status: 'NOT_READY', code: 'BRIDGE_PREPARATION_CLAIM_NOT_PERSISTED', failures: [] };
+    } else if (implementation?.status === 'READY' && job && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED' && attempt?.claimed) {
       try {
         globalThis.__melTickStage = 'bridge-package';
         bridgePreparation = await prepareApprovedBridgePackage({
