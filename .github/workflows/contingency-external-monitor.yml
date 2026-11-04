@@ -32,7 +32,9 @@ permissions:
   contents: read
 concurrency:
   group: mel-contingency-monitor-${{ github.ref }}
-  cancel-in-progress: false
+  # Only obsolete PR CI may be cancelled. The scheduled external monitor and
+  # source-rescue workflow must always complete and preserve incident evidence.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   monitor-contract:
     runs-on: ubuntu-latest
