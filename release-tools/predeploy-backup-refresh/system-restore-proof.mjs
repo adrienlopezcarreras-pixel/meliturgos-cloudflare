@@ -57,7 +57,7 @@ export async function proveSystemSnapshotRestore(snapshot, source, {maxBytes=MAX
 
 // Only internal identifiers, never provider messages, paths, object keys or data.
 export function isolatedRestoreFailure(error, stage) {
-  const stages=['CONFIGURATION','DOWNLOAD','DECRYPT','FRESHNESS','RESTORE'];
+  const stages=['CONFIGURATION','DISCOVER','DOWNLOAD','DECRYPT','FRESHNESS','RESTORE'];
   const candidate=String(error?.code || error?.message || '');
   const code=/^(?:ISOLATED|BACKUP|SNAPSHOT|RESTORE)_[A-Z0-9_]{1,80}$/.test(candidate)
     ? candidate : ['ERR_STRING_TOO_LONG','ERR_OUT_OF_RANGE'].includes(candidate)
