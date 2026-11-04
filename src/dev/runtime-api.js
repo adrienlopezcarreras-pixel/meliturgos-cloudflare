@@ -6,6 +6,7 @@ import { D1DevJobRepository } from './d1-dev-job-repository.js';
 import { D1BridgeRepository } from './d1-bridge-repository.js';
 import { AutonomySupervisor } from '../evolution/autonomy-supervisor.js';
 import { runAutonomyRuntimeTick } from '../evolution/autonomy-runtime.js';
+import { getAutonomyControl, isLegacyOwnerMaxStop } from '../evolution/autonomy-control.js';
 import { prepareDevelopmentRequest } from '../evolution/development-preflight.js';
 import { createTeacherReviewRequest } from '../teachers/teacher-request.js';
 import { queueRuntimeTeacherRequest, applyRuntimeTeacherReply } from '../teachers/runtime-teacher-bridge.js';
@@ -318,6 +319,21 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
 
     if (path === '/api/dev-bridge/claim' && request.method === 'POST') {
       const requestedJobId = String(body?.job_id || '').trim();
+      // A claimed cloud job can mutate the candidate after MAX was stopped.
+      // Read the persisted owner control BEFORE any claim side effect. Owner
+      // chat jobs with an exact id may still run independently; an unscoped
+      // claim fails closed while MAX is stopped.
+      if (env?.DB) {
+        const candidateJob = requestedJobId ? await repo.get(requestedJobId) : null;
+        if (!requestedJobId || candidateJob?.requested_by === 'mel-autonomy') {
+          let control;
+          try { control = await getAutonomyControl(env.DB); }
+          catch { return Response.json({ job: null, code: 'AUTONOMY_PAUSE_CHECK_FAILED' }, { status: 503 }); }
+          if (control?.paused === true || isLegacyOwnerMaxStop(control)) {
+            return Response.json({ job: null, code: 'AUTONOMY_OWNER_STOP_PAUSED' }, { status: 409 });
+          }
+        }
+      }
       // CODEX: local bearer authentication is not autonomous execution consent.
       // Keep cloud OIDC and the shared atomic claim unchanged. A PC may only
       // claim an exact package after a scoped cloud failure and owner opt-in.
