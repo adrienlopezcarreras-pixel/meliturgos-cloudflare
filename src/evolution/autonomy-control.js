@@ -38,6 +38,17 @@ export function isOwnerAutonomyStop(control) {
     || control?.reason === 'owner-pause';
 }
 
+// Before the owner-stop API fixed its semantics, disabling MAX stored
+// max_autonomy=false while leaving paused=false. A legacy owner-ui off
+// switch is still an explicit owner stop, not permission to keep ticking.
+export function isLegacyOwnerMaxStop(control) {
+  return control?.paused !== true
+    && control?.source === 'owner-ui'
+    && control?.max_autonomy === false
+    && control?.max_remembered !== true
+    && (control?.reason === null || control?.reason === undefined || control?.reason === 'owner-stop');
+}
+
 export function shouldResumeAfterRollback(control) {
   return isRollbackAutonomyPause(control) && control?.max_remembered === true;
 }
