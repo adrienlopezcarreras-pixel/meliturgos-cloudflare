@@ -182,3 +182,36 @@ test('stopping MAX persists the off state and does not run a cycle', async () =>
   assert.equal(tick.status, 'PAUSED');
   assert.equal(tick.advanced, false);
 });
+
+test('owner MAX STOP persists a runtime PAUSE across D1 reload and blocks future ticks', async () => {
+  const { sqliteD1 } = await import('./helpers/sqlite-d1.mjs');
+  const { getAutonomyControl, setOwnerMaxAutonomy, isOwnerAutonomyStop, shouldRestoreOwnerMax } =
+    await import('../src/evolution/autonomy-control.js');
+  const { runAutonomyRuntimeTick } = await import('../src/evolution/autonomy-runtime.js');
+  const db = sqliteD1();
+  try {
+    const enabled = await setOwnerMaxAutonomy(db, {
+      enabled: true, paused: false, source: 'owner-ui-launch-gate', reason: 'owner-max-autonomy',
+    });
+    assert.equal(enabled.status, 'MAX_AUTONOMY');
+    const stopped = await setOwnerMaxAutonomy(db, {
+      enabled: false, paused: true, source: 'owner-ui', reason: 'owner-stop',
+    });
+    assert.equal(stopped.status, 'PAUSED');
+    assert.equal(stopped.paused, true);
+    assert.equal(stopped.max_autonomy, false);
+    assert.equal(stopped.max_remembered, false);
+    assert.equal(stopped.owner_control_version, stopped.updated_at);
+    const persisted = await getAutonomyControl(db);
+    assert.equal(persisted.paused, true);
+    assert.equal(persisted.reason, 'owner-stop');
+    assert.equal(isOwnerAutonomyStop(persisted), true);
+    assert.equal(shouldRestoreOwnerMax(persisted), false, 'a technical heartbeat must not undo owner STOP');
+    const tick = await runAutonomyRuntimeTick({ DB: db });
+    assert.equal(tick.status, 'PAUSED');
+    assert.equal(tick.advanced, false);
+    assert.equal((await getAutonomyControl(db)).paused, true);
+  } finally {
+    db.close();
+  }
+});
