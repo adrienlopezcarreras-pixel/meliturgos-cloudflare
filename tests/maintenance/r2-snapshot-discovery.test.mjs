@@ -126,6 +126,6 @@ test('auto restore checks decrypted snapshot age, not just the R2 object modific
   const {readFileSync}=await import('node:fs');
   const runner=readFileSync(new URL('../../release-tools/predeploy-backup-refresh/isolated-restore-runner.mjs',import.meta.url),'utf8');
   assert.match(runner,/const autoSelected=!key/);
-  assert.match(runner,/if\\(autoSelected\\)requireFreshDecryptedSnapshot\\(snapshot\\)/);
+  assert.match(runner,/if\(autoSelected\)requireFreshDecryptedSnapshot\(snapshot\)/);
   assert.ok(runner.indexOf('requireFreshDecryptedSnapshot(snapshot)')<runner.indexOf("stage='RESTORE'"));
 });
