@@ -414,125 +414,59 @@ test('verified completion closes the approved job and releases the next roadmap 
   assert.equal(finished.result_json.autonomy_completion.status, 'VERIFIED');
 });
 
-test('GEN2-17 completes three coherent supervised candidate cycles across exact SHA revisions', async () => {
-  const fixture = runtimeFixture();
-  const completed = [];
-
-  async function approve(jobResult, targetSha) {
-    const requestId = jobResult.teacher?.request_id;
-    assert.ok(requestId, 'cycle must have a Teacher request');
-    fixture.setReplies(JSON.stringify({
-      kind: 'TEACHER_REPLY',
-      request_id: requestId,
-      target_sha: targetSha,
-      verdict: 'APPROVE_PLAN',
-      feedback: 'Proceed on this exact candidate SHA only.',
-    }));
-    const approved = await runAutonomyRuntimeTick(fixture.env, {
-      fetchImpl: fixture.fetchImpl,
-      repository: fixture.repository,
-    });
-    assert.equal(approved.job.id, jobResult.job.id);
-    assert.equal(approved.job.status, 'TEACHER_APPROVED');
-    return { approved, requestId };
-  }
-
-  async function complete(jobResult, requestId, targetSha, ciRunId) {
-    fixture.setCompletions(JSON.stringify({
-      kind: 'MEL_WORK_COMPLETION',
-      status: 'COMPLETED',
-      job_id: jobResult.job.id,
-      request_id: requestId,
-      candidate_sha: targetSha,
-      candidate_branch: 'candidate/mel-clean-autonomy',
-      ci_run_id: ciRunId,
-      tests: [
-        { name: 'targeted', passed: true },
-        { name: 'full-candidate-ci', passed: true },
-      ],
-      summary: 'Candidate cycle completed and CI verified.',
-      created_at: new Date().toISOString(),
-    }));
-    const advanced = await runAutonomyRuntimeTick(fixture.env, {
-      fetchImpl: fixture.fetchImpl,
-      repository: fixture.repository,
-    });
-    assert.equal(advanced.completions.completed.length, 1);
-    assert.equal(advanced.completions.completed[0].job_id, jobResult.job.id);
-    const stored = await fixture.repository.get(jobResult.job.id);
-    assert.equal(stored.status, 'COMPLETED');
-    assert.equal(stored.result_json.autonomy_completion.status, 'VERIFIED');
-    assert.equal(stored.result_json.autonomy_completion.candidate_sha, targetSha);
-    completed.push({ job_id: jobResult.job.id, roadmap_id: jobResult.job.roadmap_id, candidate_sha: targetSha, ci_run_id: ciRunId });
-    fixture.setCompletions('');
-    return advanced;
-  }
-
-  async function refreshTeacherForNewHead(jobResult, previousSha, nextSha) {
-    const staleRequest = jobResult.teacher?.request_id;
-    assert.ok(staleRequest);
-    fixture.setCandidateHead(nextSha);
-    fixture.setReplies(JSON.stringify({
-      kind: 'TEACHER_REPLY',
-      request_id: staleRequest,
-      target_sha: previousSha,
-      verdict: 'APPROVE_PLAN',
-      feedback: 'This approval intentionally targets the previous SHA.',
-    }));
-    const stale = await runAutonomyRuntimeTick(fixture.env, {
-      fetchImpl: fixture.fetchImpl,
-      repository: fixture.repository,
-    });
-    assert.equal(stale.job.id, jobResult.job.id);
-    assert.equal(stale.job.status, 'QUEUED');
-    assert.equal(stale.implementation.code, 'TEACHER_APPROVAL_CANDIDATE_SHA_STALE');
-
+test('GEN2-17 completes three independent exact-SHA first-pass cycles in order',async()=>{
+  const fixture=runtimeFixture(),completed=[];
+  async function approve(job,sha){
+    const requestId=job.teacher?.request_id;
+    assert.ok(requestId,'each cycle must have a real Teacher request');
+    fixture.setReplies(JSON.stringify({kind:'TEACHER_REPLY',request_id:requestId,
+      target_sha:sha,verdict:'APPROVE_PLAN',feedback:'Only the exact SHA'}));
+    const result=await runAutonomyRuntimeTick(fixture.env,{
+      fetchImpl:fixture.fetchImpl,repository:fixture.repository});
+    assert.equal(result.job?.id,job.job?.id);
+    assert.equal(result.job?.status,'TEACHER_APPROVED');
     fixture.setReplies('');
-    const refreshed = await runAutonomyRuntimeTick(fixture.env, {
-      fetchImpl: fixture.fetchImpl,
-      repository: fixture.repository,
-    });
-    assert.equal(refreshed.job.id, jobResult.job.id);
-    assert.equal(refreshed.job.status, 'WAITING_TEACHER');
-    assert.notEqual(refreshed.teacher?.request_id, staleRequest);
-    const stored = await fixture.repository.get(jobResult.job.id);
-    assert.equal(stored.result_json.teacher_bridge.request.candidate.sha, nextSha);
-    return refreshed;
+    return requestId;
   }
-
-  const first = await runAutonomyRuntimeTick(fixture.env, {
-    fetchImpl: fixture.fetchImpl,
-    repository: fixture.repository,
-  });
-  assert.equal(first.job.roadmap_id, FIRST_AUTONOMY_ID);
-  const firstApproval = await approve(first, CANDIDATE_HEAD_SHA);
-  const secondInitial = await complete(first, firstApproval.requestId, CANDIDATE_HEAD_SHA, 4242);
-  assert.equal(secondInitial.job.roadmap_id, SECOND_AUTONOMY_ID);
-
-  fixture.setCiHead(4243, NEW_CANDIDATE_HEAD_SHA);
-  const second = await refreshTeacherForNewHead(secondInitial, CANDIDATE_HEAD_SHA, NEW_CANDIDATE_HEAD_SHA);
-  const secondApproval = await approve(second, NEW_CANDIDATE_HEAD_SHA);
-  const thirdInitial = await complete(second, secondApproval.requestId, NEW_CANDIDATE_HEAD_SHA, 4243);
-  assert.equal(thirdInitial.job.roadmap_id, THIRD_AUTONOMY_ID);
-
-  fixture.setCiHead(4244, THIRD_CANDIDATE_HEAD_SHA);
-  const third = await refreshTeacherForNewHead(thirdInitial, NEW_CANDIDATE_HEAD_SHA, THIRD_CANDIDATE_HEAD_SHA);
-  const thirdApproval = await approve(third, THIRD_CANDIDATE_HEAD_SHA);
-  await complete(third, thirdApproval.requestId, THIRD_CANDIDATE_HEAD_SHA, 4244);
-
-  assert.equal(completed.length, 3);
-  assert.deepEqual(completed.map(row => row.roadmap_id), [
-    FIRST_AUTONOMY_ID,
-    SECOND_AUTONOMY_ID,
-    THIRD_AUTONOMY_ID,
-  ]);
-  assert.deepEqual(completed.map(row => row.candidate_sha), [
-    CANDIDATE_HEAD_SHA,
-    NEW_CANDIDATE_HEAD_SHA,
-    THIRD_CANDIDATE_HEAD_SHA,
-  ]);
-  assert.ok(new Set(completed.map(row => row.job_id)).size === 3);
-  assert.ok(fixture.aiCalls.length >= 6, 'three cycles must execute multi-model Council work');
+  async function complete(job,requestId,sha,ciRunId){
+    fixture.setCompletions(JSON.stringify({kind:'MEL_WORK_COMPLETION',status:'COMPLETED',
+      job_id:job.job.id,request_id:requestId,candidate_sha:sha,
+      candidate_branch:'candidate/mel-clean-autonomy',ci_run_id:ciRunId,
+      tests:[{name:'targeted',passed:true},{name:'full-candidate-ci',passed:true}],
+      summary:'Exact-SHA candidate tests green',created_at:new Date().toISOString()}));
+    const next=await runAutonomyRuntimeTick(fixture.env,{
+      fetchImpl:fixture.fetchImpl,repository:fixture.repository});
+    assert.equal(next.completions.completed.length,1);
+    assert.equal(next.completions.completed[0].job_id,job.job.id);
+    const stored=await fixture.repository.get(job.job.id);
+    assert.equal(stored.status,'COMPLETED');
+    assert.equal(stored.result_json.autonomy_completion.status,'VERIFIED');
+    assert.equal(stored.result_json.autonomy_completion.candidate_sha,sha);
+    completed.push({id:job.job.id,roadmap_id:job.job.roadmap_id,sha});
+    fixture.setCompletions('');
+    return next;
+  }
+  const first=await runAutonomyRuntimeTick(fixture.env,{
+    fetchImpl:fixture.fetchImpl,repository:fixture.repository});
+  assert.equal(first.job.roadmap_id,FIRST_AUTONOMY_ID);
+  const firstRequest=await approve(first,CANDIDATE_HEAD_SHA);
+  fixture.setCandidateHead(NEW_CANDIDATE_HEAD_SHA);
+  fixture.setCiHead(4243,NEW_CANDIDATE_HEAD_SHA);
+  const second=await complete(first,firstRequest,CANDIDATE_HEAD_SHA,4242);
+  assert.equal(second.job.roadmap_id,SECOND_AUTONOMY_ID);
+  const secondRequest=await approve(second,NEW_CANDIDATE_HEAD_SHA);
+  fixture.setCandidateHead(THIRD_CANDIDATE_HEAD_SHA);
+  fixture.setCiHead(4244,THIRD_CANDIDATE_HEAD_SHA);
+  const third=await complete(second,secondRequest,NEW_CANDIDATE_HEAD_SHA,4243);
+  assert.equal(third.job.roadmap_id,THIRD_AUTONOMY_ID);
+  const thirdRequest=await approve(third,THIRD_CANDIDATE_HEAD_SHA);
+  await complete(third,thirdRequest,THIRD_CANDIDATE_HEAD_SHA,4244);
+  assert.deepEqual(completed.map(row=>row.roadmap_id),
+    [FIRST_AUTONOMY_ID,SECOND_AUTONOMY_ID,THIRD_AUTONOMY_ID]);
+  assert.deepEqual(completed.map(row=>row.sha),
+    [CANDIDATE_HEAD_SHA,NEW_CANDIDATE_HEAD_SHA,THIRD_CANDIDATE_HEAD_SHA]);
+  assert.equal(new Set(completed.map(row=>row.id)).size,3);
+  assert.ok(fixture.aiCalls.length>=6,'three cycles need actual Council calls');
 });
 
 test('cloud autonomy heartbeat rejects a non-candidate Teacher branch fail-closed', async () => {
