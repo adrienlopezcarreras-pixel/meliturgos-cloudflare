@@ -968,6 +968,9 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
           ? Math.max(now + 1_000, Math.min(now + 30 * 60_000, requestedRetry))
           : deferred.retry_after;
         await jobRepository.update(job.id, {
+          // A failed Council round goes passive; a cooldown never owns MAX's
+          // execution slot while unrelated first-pass objectives can run.
+          status: 'QUEUED',
           result_json: {
             ...latest.result_json,
             ...(staleCouncilDeferral(latest) ? { council_previous_policy_failure: { deferral: latest.result_json?.autonomy_deferral, attempts: latest.result_json?.council_model_attempts || [], exclusions: latest.result_json?.council_model_exclusions || [] } } : {}),
