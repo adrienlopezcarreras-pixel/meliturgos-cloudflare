@@ -80,7 +80,7 @@ export async function createSovereignRegenerationBundle({
       verified_backup_required:true,
       post_restore_smoke_required:true,
       rollback_if_source_reachable:true,
-      unattended_activation_policy:'MAX_100_EMERGENCY_ONLY',
+      unattended_activation_policy:'OWNER_VERIFIED_APPROVAL_REQUIRED',
       ...recovery,
     },
   };
@@ -118,8 +118,10 @@ export async function verifySovereignRegenerationBundle(bundle){
     issues:Object.freeze(issues),
     source_sha:bundle?.source_sha||null,
     required_runtime_contracts:Object.freeze([...REQUIRED_RUNTIME_CONTRACTS]),
-    unattended_emergency_ready:issues.length===0
-      && bundle?.recovery?.unattended_activation_policy==='MAX_100_EMERGENCY_ONLY',
+    // Legacy signed bundles may contain a former unattended policy. An
+    // integrity hash proves bytes, not owner authorization to switch hosts.
+    unattended_emergency_ready:false,
+    requires_owner_approval:true,
   });
 }
 
@@ -135,15 +137,16 @@ export async function planSovereignRegeneration({
     return {ok:false,status:'REGEN_BUNDLE_INVALID',verification,activation_allowed:false};
   }
 
-  const unattended=maxAutonomy===true
-    && emergency===true
-    && targetPrevalidated===true;
+  // A disaster may justify preparing a new host, but it never provides owner
+  // authorization to activate a replacement on its own. MAX is not a bypass.
+  const unattended=false;
 
   return Object.freeze({
     ok:true,
-    status:unattended?'REGEN_UNATTENDED_EMERGENCY_ALLOWED':'REGEN_PREPARED',
-    activation_allowed:unattended,
-    owner_presence_required:unattended?false:true,
+    status:'REGEN_PREPARED',
+    activation_allowed:false,
+    owner_presence_required:true,
+    owner_approval_required:true,
     owner_reachable:ownerReachable===true,
     max_autonomy:maxAutonomy===true,
     emergency:emergency===true,

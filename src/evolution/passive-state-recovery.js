@@ -138,7 +138,7 @@ async function requeueOrphanReview(repository, job, now = Date.now()) {
   return { job_id: updated.id, from: 'READY_FOR_REVIEW', to: 'QUEUED', reason: result.passive_state_recovery.reason };
 }
 
-export async function recoverPassiveRuntimeStates(repository, { canonicalSha = null, limit = 100, now = Date.now(), activeOnly = false } = {}) {
+export async function recoverPassiveRuntimeStates(repository, { canonicalSha = null, limit = 100, now = Date.now(), activeOnly = false, onlyJobId = null } = {}) {
   if (!repository || typeof repository.list !== 'function' || typeof repository.update !== 'function') {
     throw Object.assign(new Error('PASSIVE_RECOVERY_REPOSITORY_REQUIRED'), { code: 'PASSIVE_RECOVERY_REPOSITORY_REQUIRED' });
   }
@@ -157,6 +157,7 @@ export async function recoverPassiveRuntimeStates(repository, { canonicalSha = n
   const failed = [];
   // Prioritize relevant states before applying the maintenance limit.
   const candidates = [...allJobs.values()].filter(job =>
+    (!onlyJobId || job?.id === onlyJobId) &&
     ['READY_FOR_REVIEW', 'WAITING_TEACHER', 'TEACHER_APPROVED'].includes(upper(job?.status)));
   for (const job of candidates.slice(0, Math.max(1, Math.min(500, Number(limit) || 100)))) {
     try {

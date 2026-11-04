@@ -139,3 +139,29 @@ test('a Council-verified existing implementation is accepted without an artifici
   const {verification,...plainReceipt}=receipt;
   assert.equal(isAcceptedRoadmapCodeJob({...accepted,result_json:{...accepted.result_json,roadmap_code_acceptance:plainReceipt}}),false);
 });
+
+
+test('passive roadmap hides exact-SHA accepted objectives but reopens regressed ones', async()=>{
+  const {buildPassiveRoadmapCatalog}=await import('../src/evolution/autonomy-activity.js');
+  const {createRoadmapCodeAcceptance,isAcceptedRoadmapCodeJob}=await import('../src/roadmap/roadmap-code-acceptance.js');
+  const {ROADMAP_CODE_CONTRACT_REVISION}=await import('../src/roadmap/roadmap-code-contracts.js');
+  const id='MEL-FOUNDER-01',sha='a'.repeat(40),branch='candidate/mel-clean-autonomy';
+  const job={id:'accepted-work',requested_by:'mel-autonomy',status:'COMPLETED',files_json:[],
+    optional_context:{roadmap_id:id,roadmap_contract_revision:ROADMAP_CODE_CONTRACT_REVISION}};
+  const ci={verified:true,workflow:'full-candidate-ci',head_sha:sha,head_branch:branch,run_id:56,conclusion:'success'};
+  const receipt=createRoadmapCodeAcceptance(job,{candidate_sha:sha,candidate_branch:branch,ci_run_id:56},ci,{verifiedExisting:true});
+  const accepted={...job,result_json:{roadmap_code_acceptance:receipt,
+    autonomy_completion:{status:'VERIFIED',candidate_sha:sha,candidate_branch:branch,ci,mel_implementation:{verified:true,providers_attempted:2}},
+    verify_existing:{status:'VERIFIED',candidate_sha:sha}}};
+  assert.equal(isAcceptedRoadmapCodeJob(accepted),true);
+  const rows=[{id,title:'Prepared',status:'IN_PROGRESS',depends_on:[]},{id:'CHILD',status:'PLANNED',depends_on:[id]}];
+  const initial=buildPassiveRoadmapCatalog(rows,[accepted]);
+  assert.equal(initial.verified,1);
+  assert.deepEqual(initial.items.map(x=>x.id),['CHILD']);
+  assert.deepEqual(initial.items[0].unmet_prerequisites,[]);
+  const regressed=buildPassiveRoadmapCatalog([{...rows[0],status:'REGRESSED'},rows[1]],[accepted]);
+  assert.equal(regressed.verified,0);
+  assert.deepEqual(regressed.items.map(x=>x.id),[id,'CHILD']);
+  assert.deepEqual(regressed.items.find(x=>x.id==='CHILD').unmet_prerequisites,[id]);
+  assert.equal(accepted.result_json.roadmap_code_acceptance.status,'VERIFIED','no D1 proof changed');
+});

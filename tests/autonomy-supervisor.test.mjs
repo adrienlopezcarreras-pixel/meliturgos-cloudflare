@@ -321,15 +321,11 @@ test('a retryable failed roadmap item receives the next deterministic attempt id
   const first = await supervisor.ensureNextJob();
   await repo.update(first.job.id, { status: 'FAILED', error: 'TRANSIENT_TEST_FAILURE' });
 
-  const fresh = await supervisor.ensureNextJob();
-  assert.equal(fresh.created, true);
-  assert.equal(fresh.job.optional_context.roadmap_id,'GEN2-17');
-  await repo.update(fresh.job.id,{status:'COMPLETED'});
   const retry = await supervisor.ensureNextJob();
-  assert.equal(retry.created,true);
-  assert.equal(retry.job.optional_context.roadmap_id,'MEL-WORK-01');
-  assert.equal(retry.job.optional_context.attempt,2);
-  assert.equal(retry.job.id,'mel-autonomy-mel-work-01-2');
+  assert.equal(retry.created, true);
+  assert.equal(retry.job.optional_context.roadmap_id, 'MEL-WORK-01');
+  assert.equal(retry.job.optional_context.attempt, 2);
+  assert.equal(retry.job.id, 'mel-autonomy-mel-work-01-2');
 });
 
 test('an explicitly autonomy-blocked failure is skipped and the supervisor advances safely', async () => {
@@ -394,27 +390,23 @@ test('autonomy supervisor skips roadmap items blocked by a real human dependency
 });
 
 
-test('three failed attempts exhaust only their objective after fresh work has had a first pass',async()=>{
-  const repo=isolatedRepo(),supervisor=new AutonomySupervisor({repository:repo,roadmap});
-  const first=await supervisor.ensureNextJob();
-  assert.equal(first.job.optional_context.roadmap_id,'MEL-WORK-01');
-  await repo.update(first.job.id,{status:'FAILED',error:'TRANSIENT_FAILURE'});
-  const fresh=await supervisor.ensureNextJob();
-  assert.equal(fresh.job.optional_context.roadmap_id,'GEN2-17');
-  await repo.update(fresh.job.id,{status:'COMPLETED'});
-  for(let attempt=2;attempt<=3;attempt++){
-    const retry=await supervisor.ensureNextJob();
-    assert.equal(retry.job.optional_context.roadmap_id,'MEL-WORK-01');
-    assert.equal(retry.job.optional_context.attempt,attempt);
-    await repo.update(retry.job.id,{status:'FAILED',error:'TRANSIENT_FAILURE'});
+test('three failed attempts quarantine one roadmap item and advance safely', async () => {
+  const repo = isolatedRepo();
+  const supervisor = new AutonomySupervisor({ repository: repo, roadmap });
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const created = await supervisor.ensureNextJob();
+    assert.equal(created.job.optional_context.roadmap_id, 'MEL-WORK-01');
+    assert.equal(created.job.optional_context.attempt, attempt);
+    await repo.update(created.job.id, { status: 'FAILED', error: 'TRANSIENT_FAILURE' });
   }
-  const state=await supervisor.state();
+  const state = await supervisor.state();
   assert.ok(state.retryExhaustedIds.includes('MEL-WORK-01'));
-  assert.equal(state.failedAttemptsByRoadmap['MEL-WORK-01'],3);
-  const pending=await supervisor.ensureNextJob();
-  assert.equal(pending.job,null);
-  assert.equal(pending.complete,false,'retry exhaustion cannot certify roadmap completion');
+  assert.equal(state.failedAttemptsByRoadmap['MEL-WORK-01'], 3);
+  const next = await supervisor.ensureNextJob();
+  assert.notEqual(next.job.optional_context.roadmap_id, 'MEL-WORK-01');
+  assert.equal(next.job.optional_context.roadmap_id, 'GEN2-17');
 });
+
 
 test('MAX never reprioritizes accepted DONE_VERIFIED roadmap work or its stale queued job', async () => {
   const repo = isolatedRepo();
@@ -594,11 +586,9 @@ test('repository atomically admits only one autonomous objective across competin
     repo.createIfAbsent({ id: 'mel-autonomy-work-race', requested_by: 'mel-autonomy', goal: 'Work', optional_context: { roadmap_id: 'MEL-WORK-01' } }),
     repo.createIfAbsent({ id: 'mel-autonomy-gen-race', requested_by: 'mel-autonomy', goal: 'Evolution', optional_context: { roadmap_id: 'GEN2-17' } }),
   ]);
-  assert.equal(results.filter(row=>row.created).length,2);
-  assert.equal((await repo.list()).length,2);
-  const claims=await Promise.all(results.map(row=>repo.claimQueuedAutonomy(row.job.id)));
-  assert.equal(claims.filter(Boolean).length,1);
-  assert.equal((await repo.list()).filter(row=>row.status==='PLANNING').length,1);
+  assert.equal(results.filter(row => row.created).length, 1);
+  assert.equal(results[0].job.id, results[1].job.id);
+  assert.equal((await repo.list()).length, 1);
 });
 
 
@@ -774,16 +764,12 @@ test('the next attempt ID cannot reuse a terminal job hidden by the 100-row D1 w
   }
   const fullList = repo.list.bind(repo);
   repo.list = async () => (await fullList()).slice(-100);
-  const supervisor=new AutonomySupervisor({repository:repo,roadmap});
-  const fresh=await supervisor.ensureNextJob();
-  assert.equal(fresh.job.optional_context.roadmap_id,'GEN2-17');
-  await repo.update(fresh.job.id,{status:'COMPLETED'});
-  const result=await supervisor.ensureNextJob();
-  assert.equal(result.created,true);
-  assert.equal(result.job.id,'mel-autonomy-mel-work-01-2');
-  assert.equal(result.job.optional_context.attempt,2);
-  assert.equal((await repo.get(previous.id)).status,'CANCELLED');
-  assert.equal(await repo.countAutonomyObjectiveAttempts('MEL-WORK-01'),2);
+  const result = await new AutonomySupervisor({ repository: repo, roadmap }).ensureNextJob();
+  assert.equal(result.created, true);
+  assert.equal(result.job.id, 'mel-autonomy-mel-work-01-2');
+  assert.equal(result.job.optional_context.attempt, 2);
+  assert.equal((await repo.get(previous.id)).status, 'CANCELLED');
+  assert.equal(await repo.countAutonomyObjectiveAttempts('MEL-WORK-01'), 2);
 });
 
 

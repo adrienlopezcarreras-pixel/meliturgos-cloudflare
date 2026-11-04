@@ -3,12 +3,10 @@ import { MAINTENANCE_FENCE_ID } from '../maintenance/maintenance-gate.js';
 import { migrate } from '../persistence/migrations.js';
 import { createDevJobCheckpoint, verifyDevJobCheckpoint } from './dev-job-checkpoint.js';
 import { D1EvolutionLedger } from '../evolution/evolution-ledger.js';
-import { isRotatableProviderExhaustion, ROTATABLE_PROVIDER_EXHAUSTION_SQL, singleFlightAutonomyMission, SINGLE_FLIGHT_AUTONOMY_JOB_SQL } from '../evolution/provider-exhaustion-rotation.js';
+import { isRotatableProviderExhaustion, ROTATABLE_PROVIDER_EXHAUSTION_SQL, PASSIVE_QUEUED_AUTONOMY_SQL, isPassiveQueuedAutonomyJob, isSecondPassQueued, singleFlightAutonomyMission, SINGLE_FLIGHT_AUTONOMY_JOB_SQL } from '../evolution/provider-exhaustion-rotation.js';
 
 // Durable prerequisite waits own no execution slot; admission remains atomic.
 const ACTIVE_JOB_SQL = "status NOT IN ('CANCELLED','FAILED','COMPLETED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED','WAITING_DEPENDENCY')";
-// QUEUED is persisted but consumes no execution slot; only an atomic claim may enter PLANNING.
-const ACTIVE_EXECUTION_SQL = ACTIVE_JOB_SQL + " AND status <> 'QUEUED'";
 const objectiveId = job => job?.requested_by === 'mel-autonomy' ? String(job?.optional_context?.roadmap_id || '').trim() : '';
 // Error-ledger repairs do not have roadmap_id, but still share the single
 // autonomous Council/Teacher execution slot with roadmap missions.
@@ -21,7 +19,7 @@ function memoryAdmission(memory, job) {
   const duplicate = objective && [...memory.values()].find(row => (activeJob(row) || row.status === 'WAITING_DEPENDENCY') && objectiveId(row) === objective);
   if (duplicate) throw Object.assign(new Error('AUTONOMY_OBJECTIVE_ALREADY_ACTIVE'), {code:'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE',job_id:duplicate.id});
   if (exclusiveAutonomyAdmission(job)) {
-    const inFlight = [...memory.values()].find(row => row.requested_by === 'mel-autonomy' && activeJob(row) && row.status !== 'QUEUED' && !isRotatableProviderExhaustion(row));
+    const inFlight = [...memory.values()].find(row => row.requested_by === 'mel-autonomy' && activeJob(row) && !isRotatableProviderExhaustion(row) && !isPassiveQueuedAutonomyJob(row));
     if (inFlight) throw Object.assign(new Error('AUTONOMY_OBJECTIVE_ALREADY_ACTIVE'), {code:'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE',job_id:inFlight.id});
   }
   if (job?.optional_context?.source === 'revenue-watch' && [...memory.values()].filter(row=>activeJob(row)&&row?.optional_context?.source==='revenue-watch').length >= MAX_ACTIVE_REVENUE_JOBS) {
@@ -174,7 +172,7 @@ export class D1DevJobRepository {
     return j;
     }
     // Same SQL statement as the insertion: a preflight read cannot close this race.
-    const admission = await this.db.prepare("INSERT INTO dev_jobs(id,created_at,updated_at,status,requested_by,goal,optional_context,plan_json,files_json,patch_json,tests_json,result_json,candidate_branch,approval_status,error) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED') AND (?='' OR NOT EXISTS (SELECT 1 FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + "(" + ACTIVE_JOB_SQL + " OR status='WAITING_DEPENDENCY') AND json_extract(optional_context,'$.roadmap_id')=?)) AND (?=0 OR NOT EXISTS (SELECT 1 FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + ACTIVE_EXECUTION_SQL + " AND NOT COALESCE(" + ROTATABLE_PROVIDER_EXHAUSTION_SQL + ",0))) AND (?<> 'revenue-watch' OR (SELECT COUNT(*) FROM dev_jobs WHERE " + "(" + ACTIVE_JOB_SQL + " OR status='WAITING_DEPENDENCY') AND json_extract(optional_context,'$.source')='revenue-watch') < " + MAX_ACTIVE_REVENUE_JOBS + ")")
+    const admission = await this.db.prepare("INSERT INTO dev_jobs(id,created_at,updated_at,status,requested_by,goal,optional_context,plan_json,files_json,patch_json,tests_json,result_json,candidate_branch,approval_status,error) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED') AND (?='' OR NOT EXISTS (SELECT 1 FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + "(" + ACTIVE_JOB_SQL + " OR status='WAITING_DEPENDENCY') AND json_extract(optional_context,'$.roadmap_id')=?)) AND (?=0 OR NOT EXISTS (SELECT 1 FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + ACTIVE_JOB_SQL + " AND NOT COALESCE(" + ROTATABLE_PROVIDER_EXHAUSTION_SQL + ",0) AND NOT COALESCE(" + PASSIVE_QUEUED_AUTONOMY_SQL + ",0))) AND (?<> 'revenue-watch' OR (SELECT COUNT(*) FROM dev_jobs WHERE " + "(" + ACTIVE_JOB_SQL + " OR status='WAITING_DEPENDENCY') AND json_extract(optional_context,'$.source')='revenue-watch') < " + MAX_ACTIVE_REVENUE_JOBS + ")")
       .bind(j.id, j.created_at, j.updated_at, j.status, j.requested_by, j.goal, JSON.stringify(j.optional_context), null, '[]', null, '[]', null, null, j.approval_status, null, MAINTENANCE_FENCE_ID, objectiveId(j), objectiveId(j), exclusiveAutonomyAdmission(j) ? 1 : 0, j.optional_context?.source || '')
       .run();
     if (Number(admission?.meta?.changes) !== 1) {
@@ -183,7 +181,7 @@ export class D1DevJobRepository {
         if (existing) throw Object.assign(new Error('AUTONOMY_OBJECTIVE_ALREADY_ACTIVE'), {code:'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE',job_id:existing.id});
       }
       if (exclusiveAutonomyAdmission(j)) {
-        const inFlight = await this.db.prepare("SELECT id FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + ACTIVE_EXECUTION_SQL + " AND NOT COALESCE(" + ROTATABLE_PROVIDER_EXHAUSTION_SQL + ",0) ORDER BY created_at ASC, id ASC LIMIT 1").first();
+        const inFlight = await this.db.prepare("SELECT id FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + ACTIVE_JOB_SQL + " AND NOT COALESCE(" + ROTATABLE_PROVIDER_EXHAUSTION_SQL + ",0) AND NOT COALESCE(" + PASSIVE_QUEUED_AUTONOMY_SQL + ",0) ORDER BY created_at ASC, id ASC LIMIT 1").first();
         if (inFlight) throw Object.assign(new Error('AUTONOMY_OBJECTIVE_ALREADY_ACTIVE'), {code:'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE',job_id:inFlight.id});
       }
       if (j.optional_context?.source === 'revenue-watch') {
@@ -328,20 +326,6 @@ export class D1DevJobRepository {
       : [...this.memory.values()].filter(job => job.requested_by === 'mel-autonomy' && (activeJob(job) || job.status === 'WAITING_DEPENDENCY'));
   }
 
-  // First-pass scheduling must consider old attempts beyond the UI's 100 rows.
-  // Distinct IDs, not payloads, keep this read-only query bounded in memory.
-  async attemptedAutonomyRoadmapIds() {
-    await this.init();
-    if (!this.db) return [...new Set([...this.memory.values()]
-      .filter(row => row.requested_by === 'mel-autonomy')
-      .map(row => objectiveId(row)).filter(Boolean))];
-    const result=await this.db.prepare(
-      "SELECT DISTINCT json_extract(optional_context,'$.roadmap_id') AS id FROM dev_jobs "
-      + "WHERE requested_by='mel-autonomy' AND json_extract(optional_context,'$.roadmap_id') IS NOT NULL"
-    ).all();
-    return (result.results||[]).map(row=>row.id).filter(Boolean);
-  }
-
   // A completed/cancelled attempt can fall outside the 100-row UI list.
   // Counting it in D1 prevents the next deterministic job ID from colliding
   // with historical records and silently reusing a terminal job.
@@ -398,17 +382,23 @@ export class D1DevJobRepository {
         || JSON.stringify(snapshot.result_json) !== JSON.stringify(j.result_json)
         || JSON.stringify(snapshot.plan_json) !== JSON.stringify(j.plan_json)) throw conflict();
     const n = { ...j, ...patch, updated_at: Math.max(Date.now(), Number(j.updated_at || 0) + 1) };
-    // A retry that moves back to QUEUED is a second-pass candidate, never
-    // a live lease. Preserve all previous Council/Teacher/CI evidence in D1.
-    if (j.requested_by === 'mel-autonomy' && String(j.status).toUpperCase() !== 'QUEUED'
-        && String(n.status).toUpperCase() === 'QUEUED') {
-      const previous = n.result_json && typeof n.result_json === 'object' ? n.result_json : {};
-      const oldRound = Math.max(1, Number(j.result_json?.autonomy_queue?.round) || 1);
-      n.result_json = { ...previous, autonomy_queue: {
-        ...previous.autonomy_queue, round: oldRound + 1, requeued_at: n.updated_at,
+    // A previously attempted autonomous mission re-entering QUEUED yields
+    // the only execution slot. The queue marker is durable, not a retry timer.
+    // Never passivize a Bridge-claimed or externally executing package.
+    const requestedQueue = String(n.status || '').toUpperCase() === 'QUEUED';
+    const previousStatus = String(j.status || '').toUpperCase();
+    const bridgeStatus = String(n.result_json?.dev_bridge?.status || '').toUpperCase();
+    const teacherStatus = String(n.result_json?.teacher_bridge?.status || '').toUpperCase();
+    if (j.requested_by === 'mel-autonomy' && requestedQueue
+        && !['QUEUED', 'WAITING_DEPENDENCY'].includes(previousStatus)
+        && !['RUNNING','IN_PROGRESS','CLAIMED','READY_FOR_REVIEW'].includes(bridgeStatus)
+        && !['WAITING_TEACHER','PENDING','REQUESTED'].includes(teacherStatus)) {
+      const previousPass = Number(j.result_json?.autonomy_queue_pass?.round || 1);
+      n.result_json = { ...(n.result_json || {}), autonomy_queue_pass: {
+        passive: true, round: Math.max(2, previousPass + 1),
+        deferred_at: n.updated_at, previous_status: previousStatus,
       } };
     }
-
     if (!this.db) {
       this.memory.set(id, n);
       return n;
@@ -434,6 +424,116 @@ export class D1DevJobRepository {
     return updated;
   }
 
+  // Second pass: claim exactly one inert QUEUED row after the first sweep.
+  // This is a D1 compare-and-swap with the same execution/maintenance fence
+  // as normal admission, not a blanket activation of the waiting queue.
+  async resumeSecondPassQueued(id, { expected = null } = {}) {
+    await this.init();
+    const job = await this.get(id);
+    if (!isSecondPassQueued(job) || Number(job.result_json?.autonomy_queue_pass?.round) !== 2) return null;
+    if (expected && (expected.updated_at !== job.updated_at
+        || expected.status !== job.status
+        || JSON.stringify(expected.result_json) !== JSON.stringify(job.result_json))) return null;
+    const result = { ...job.result_json,
+      autonomy_queue_pass: { ...job.result_json.autonomy_queue_pass,
+        passive: false, resumed_at: Date.now() } };
+    if (!this.db) {
+      // No await between the final check and the map write: two concurrent
+      // resume calls must not each observe a free slot and both become active.
+      const observed = this.memory.get(id);
+      if (!isSecondPassQueued(observed) || observed.updated_at !== job.updated_at
+          || JSON.stringify(observed.result_json) !== JSON.stringify(job.result_json)) return null;
+      const busy = [...this.memory.values()].some(row => row.id !== id
+        && row.requested_by === 'mel-autonomy' && activeJob(row)
+        && !isRotatableProviderExhaustion(row) && !isPassiveQueuedAutonomyJob(row));
+      if (busy) return null;
+      const updated = { ...observed, status: 'PLANNING', result_json: result,
+        updated_at: Math.max(Date.now(), Number(observed.updated_at || 0) + 1) };
+      this.memory.set(id, updated);
+      await this.recordEvolution(updated, 'JOB_UPDATED', {
+        previous_status: 'QUEUED', next_status: 'PLANNING',
+        changed_fields: ['result_json','status'], queue_pass: 'SECOND_ROUND_RESUMED',
+      });
+      return updated;
+    }
+    const updatedAt = Math.max(Date.now(), Number(job.updated_at || 0) + 1);
+    const raw = await this.db.prepare('SELECT result_json,plan_json FROM dev_jobs WHERE id=?').bind(id).first();
+    const observed = this._row({ ...raw });
+    if (!raw || JSON.stringify(observed.result_json ?? null) !== JSON.stringify(job.result_json ?? null)
+        || JSON.stringify(observed.plan_json ?? null) !== JSON.stringify(job.plan_json ?? null)) return null;
+    const statement = "UPDATE dev_jobs SET status='PLANNING',updated_at=?,result_json=? WHERE id=? AND status='QUEUED' AND updated_at=?"
+      + " AND COALESCE(result_json,'null')=? AND COALESCE(plan_json,'null')=?"
+      + " AND NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED')"
+      + " AND NOT EXISTS (SELECT 1 FROM dev_jobs WHERE id<>? AND requested_by='mel-autonomy' AND "
+      + ACTIVE_JOB_SQL + " AND NOT COALESCE(" + ROTATABLE_PROVIDER_EXHAUSTION_SQL + ",0)"
+      + " AND NOT COALESCE(" + PASSIVE_QUEUED_AUTONOMY_SQL + ",0))";
+    const write = await this.db.prepare(statement).bind(
+      updatedAt, JSON.stringify(result), id, job.updated_at,
+      raw?.result_json ?? 'null', raw?.plan_json ?? 'null', MAINTENANCE_FENCE_ID, id).run();
+    if (Number(write?.meta?.changes) !== 1) return null;
+    const resumed = await this.get(id);
+    await this.recordEvolution(resumed, 'JOB_UPDATED', {
+      previous_status: 'QUEUED', next_status: 'PLANNING',
+      changed_fields: ['result_json','status'], queue_pass: 'SECOND_ROUND_RESUMED',
+    });
+    return resumed;
+  }
+
+  /** Atomically reserve the only execution lane for one first-pass QUEUED.
+   * No Council, Teacher or model call is permitted until this CAS succeeds.
+   * Second-pass rows must use resumeSecondPassQueued after the first sweep. */
+  async claimQueuedAutonomy(id, { expected = null } = {}) {
+    await this.init();
+    const job = await this.get(id);
+    if (!isPassiveQueuedAutonomyJob(job)
+        || Number(job?.result_json?.autonomy_queue_pass?.round || 1) >= 2) return null;
+    if (expected && (expected.updated_at !== job.updated_at
+        || expected.status !== job.status
+        || JSON.stringify(expected.result_json) !== JSON.stringify(job.result_json)
+        || JSON.stringify(expected.plan_json) !== JSON.stringify(job.plan_json))) return null;
+    if (!this.db) {
+      // Final read/slot check/write have no await between them.
+      const row = this.memory.get(id);
+      if (!isPassiveQueuedAutonomyJob(row)
+          || row.updated_at !== job.updated_at
+          || JSON.stringify(row.result_json) !== JSON.stringify(job.result_json)
+          || JSON.stringify(row.plan_json) !== JSON.stringify(job.plan_json)) return null;
+      if ([...this.memory.values()].some(other => other.id !== id
+          && other.requested_by === 'mel-autonomy' && activeJob(other)
+          && !isRotatableProviderExhaustion(other) && !isPassiveQueuedAutonomyJob(other))) return null;
+      const claimed = { ...row, status:'PLANNING',
+        updated_at:Math.max(Date.now(),Number(row.updated_at || 0)+1) };
+      this.memory.set(id,claimed);
+      await this.recordEvolution(claimed,'JOB_UPDATED',{
+        previous_status:'QUEUED',next_status:'PLANNING',changed_fields:['status']
+      });
+      return claimed;
+    }
+    const raw = await this.db.prepare('SELECT result_json,plan_json FROM dev_jobs WHERE id=?').bind(id).first();
+    const observed = this._row({ ...raw });
+    // Freeze the snapshot validated above. A fresh SELECT must not silently
+    // authorize a Teacher/Bridge mutation which arrived between the reads.
+    if (!raw || JSON.stringify(observed.result_json ?? null) !== JSON.stringify(job.result_json ?? null)
+        || JSON.stringify(observed.plan_json ?? null) !== JSON.stringify(job.plan_json ?? null)) return null;
+    const updatedAt=Math.max(Date.now(),Number(job.updated_at || 0)+1);
+    const sql="UPDATE dev_jobs SET status='PLANNING',updated_at=?"
+      +" WHERE id=? AND requested_by='mel-autonomy' AND status='QUEUED' AND updated_at=?"
+      +" AND COALESCE(result_json,'null')=? AND COALESCE(plan_json,'null')=?"
+      +" AND NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED')"
+      +" AND NOT EXISTS (SELECT 1 FROM dev_jobs WHERE id<>? AND requested_by='mel-autonomy' AND "
+      +ACTIVE_JOB_SQL+" AND NOT COALESCE("+ROTATABLE_PROVIDER_EXHAUSTION_SQL+",0)"
+      +" AND NOT COALESCE("+PASSIVE_QUEUED_AUTONOMY_SQL+",0))";
+    const written=await this.db.prepare(sql).bind(
+      updatedAt,id,job.updated_at,raw?.result_json??'null',raw?.plan_json??'null',
+      MAINTENANCE_FENCE_ID,id).run();
+    if(Number(written?.meta?.changes)!==1)return null;
+    const claimed=await this.get(id);
+    await this.recordEvolution(claimed,'JOB_UPDATED',{
+      previous_status:'QUEUED',next_status:'PLANNING',changed_fields:['status']
+    });
+    return claimed;
+  }
+
   /**
    * Restore a paused job only when no other internal mission owns the D1
    * single-flight slot. The caller must already have verified its prerequisites.
@@ -449,7 +549,7 @@ export class D1DevJobRepository {
     delete result.dependency_wait;
     if (!this.db) {
       if ([...this.memory.values()].some(row => row.id !== id && row.requested_by === 'mel-autonomy'
-          && activeJob(row) && !isRotatableProviderExhaustion(row))) return null;
+          && activeJob(row) && !isRotatableProviderExhaustion(row) && !isPassiveQueuedAutonomyJob(row))) return null;
       return this.update(id, { status: prior, result_json: result }, { expected: job });
     }
     const updatedAt = Math.max(Date.now(), Number(job.updated_at || 0) + 1);
@@ -457,7 +557,7 @@ export class D1DevJobRepository {
       "UPDATE dev_jobs SET status=?,updated_at=?,result_json=? WHERE id=? AND status='WAITING_DEPENDENCY' AND updated_at=?"
       + " AND NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED')"
       + " AND NOT EXISTS (SELECT 1 FROM dev_jobs WHERE id<>? AND requested_by='mel-autonomy' AND "
-      + ACTIVE_JOB_SQL + " AND NOT COALESCE(" + ROTATABLE_PROVIDER_EXHAUSTION_SQL + ",0))";
+      + ACTIVE_JOB_SQL + " AND NOT COALESCE(" + ROTATABLE_PROVIDER_EXHAUSTION_SQL + ",0) AND NOT COALESCE(" + PASSIVE_QUEUED_AUTONOMY_SQL + ",0))";
     const write = await this.db.prepare(statement).bind(prior, updatedAt, JSON.stringify(result), id,
       job.updated_at, MAINTENANCE_FENCE_ID, id).run();
     if (Number(write?.meta?.changes) !== 1) return null;
@@ -492,44 +592,6 @@ export class D1DevJobRepository {
       throw Object.assign(new Error('CHECKPOINT_BRANCH_MISMATCH'), { code: 'CHECKPOINT_BRANCH_MISMATCH' });
     }
     return { job, checkpoint };
-  }
-
-  /** Claim a passive QUEUED mission before any AI call. Competing workers
-   * cannot claim two jobs: the NOT EXISTS fence is inside the same SQL UPDATE.
-   * No new job, table, lease, or candidate branch is created. */
-  async claimQueuedAutonomy(id, { expected = null } = {}) {
-    await this.init();
-    const job = await this.get(id);
-    if (!job || job.requested_by !== 'mel-autonomy' || job.status !== 'QUEUED') return null;
-    if (expected && (expected.updated_at !== job.updated_at || expected.status !== job.status
-        || JSON.stringify(expected.result_json) !== JSON.stringify(job.result_json))) return null;
-    const contenders = [...(this.db ? [] : this.memory.values())];
-    const executable = row => row.id !== id && row.requested_by === 'mel-autonomy'
-      && activeJob(row) && row.status !== 'QUEUED' && !isRotatableProviderExhaustion(row);
-    if (!this.db) {
-      if (contenders.some(executable)) return null;
-      const claimed = { ...job, status:'PLANNING',
-        updated_at:Math.max(Date.now(), Number(job.updated_at || 0)+1) };
-      this.memory.set(id, claimed);
-      await this.recordEvolution(claimed, 'JOB_UPDATED', {
-        previous_status:'QUEUED', next_status:'PLANNING', changed_fields:['status'] });
-      return claimed;
-    }
-    const now = Math.max(Date.now(), Number(job.updated_at || 0)+1);
-    const write = await this.db.prepare(
-      "UPDATE dev_jobs SET status='PLANNING', updated_at=?"
-      + " WHERE id=? AND requested_by='mel-autonomy' AND status='QUEUED' AND updated_at=?"
-      + " AND COALESCE(result_json,'null')=? AND COALESCE(plan_json,'null')=?"
-      + " AND NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED')"
-      + " AND NOT EXISTS (SELECT 1 FROM dev_jobs WHERE id<>? AND requested_by='mel-autonomy' AND "
-      + ACTIVE_EXECUTION_SQL + " AND NOT COALESCE(" + ROTATABLE_PROVIDER_EXHAUSTION_SQL + ",0))"
-    ).bind(now,id,job.updated_at,JSON.stringify(job.result_json),JSON.stringify(job.plan_json),
-      MAINTENANCE_FENCE_ID,id).run();
-    if (Number(write.meta?.changes)!==1) return null;
-    const claimed = await this.get(id);
-    await this.recordEvolution(claimed, 'JOB_UPDATED', {
-      previous_status:'QUEUED', next_status:'PLANNING', changed_fields:['status'] });
-    return claimed;
   }
 
   /**

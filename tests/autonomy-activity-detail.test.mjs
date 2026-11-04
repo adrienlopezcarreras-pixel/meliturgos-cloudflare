@@ -357,3 +357,79 @@ test('a verified roadmap acceptance receipt marks the objective proven in the pi
   const unproven = { ...job, result_json: { ...job.result_json, roadmap_code_acceptance: undefined } };
   assert.equal(pipeline(unproven).find(step => step.key === 'objective').done, false);
 });
+
+
+test('MAX passive catalog includes every unresolved roadmap point without creating D1 jobs', async()=>{
+  const { buildPassiveRoadmapCatalog }=await import('../src/evolution/autonomy-activity.js');
+  const roadmap=[
+    {id:'MEL-A',title:'A préparé',status:'PLANNED',priority:'P0',depends_on:[],contract_revision:'v1',code_paths:['src/a.js'],test_paths:['tests/a.test.mjs']},
+    {id:'MEL-B',title:'B dépendant',status:'PLANNED',depends_on:['MEL-A']},
+    {id:'MEL-C',title:'Attente externe',status:'BLOCKED_EXTERNAL',depends_on:[]},
+    {id:'MEL-D',title:'Déjà certifié',status:'DONE_VERIFIED',depends_on:[]},
+    {id:'MEL-E',title:'Code livré mais non prouvé',status:'IN_PROGRESS',depends_on:[]},
+  ];
+  const jobs=[
+    {id:'job-a',optional_context:{roadmap_id:'MEL-A'},status:'QUEUED',updated_at:12,result_json:{}},
+    {id:'job-e',optional_context:{roadmap_id:'MEL-E'},status:'COMPLETED',updated_at:13,result_json:{}},
+  ];
+  const before=JSON.stringify({roadmap,jobs});
+  const catalog=buildPassiveRoadmapCatalog(roadmap,jobs);
+  assert.deepEqual([catalog.total,catalog.verified,catalog.remaining],[5,1,4]);
+  assert.deepEqual(catalog.items.map(x=>x.id),['MEL-A','MEL-B','MEL-C','MEL-E']);
+  assert.deepEqual(catalog.items.map(x=>x.state),['MISSION_REGISTERED','WAITING_PREREQUISITES','BLOCKED_EXTERNAL','CODE_DELIVERED_UNVERIFIED']);
+  assert.equal(catalog.items[0].mission_status,'QUEUED');
+  assert.equal(catalog.items[0].contract_defined,true);
+  assert.equal(catalog.items[1].mission_id,null);
+  assert.deepEqual(catalog.items[1].unmet_prerequisites,['MEL-A']);
+  assert.equal(JSON.stringify({roadmap,jobs}),before,'read-only catalog must preserve inputs');
+});
+
+test('MAX passive catalog never truncates roadmap to 3, 30, 60 or 100 items',async()=>{
+  const { buildPassiveRoadmapCatalog,buildAutonomyActivity }=await import('../src/evolution/autonomy-activity.js');
+  const { flattenRoadmap,isClosedRoadmapStatus }=await import('../src/roadmap/master-roadmap.js');
+  const full=flattenRoadmap(),open=full.filter(x=>!isClosedRoadmapStatus(x.status));
+  const catalog=buildPassiveRoadmapCatalog(full,[]);
+  assert.equal(catalog.items.length,open.length);
+  assert.deepEqual(catalog.items.map(x=>x.id),open.map(x=>x.id));
+  const generated=Array.from({length:220},(_,i)=>({id:'TEST-'+i,title:'Objective '+i,status:'PLANNED',depends_on:[]}));
+  assert.equal(buildPassiveRoadmapCatalog(generated,[]).items.length,220);
+  const db={prepare(){const st={bind(){return st;},async run(){return{};},async all(){return{results:[]};},async first(){return null;}};return st;}};
+  const a=await buildAutonomyActivity({DB:db},{now,repository:{list:async()=>[]}});
+  assert.equal(a.counts.waiting,0);
+  assert.equal(a.counts.active,0);
+  assert.equal(a.scheduler_slot.reserved,false);
+  assert.equal(a.passive_roadmap.remaining,open.length);
+  assert.equal(a.passive_roadmap.items.length,open.length);
+});
+
+test('MAX passive UI shows catalog separate from true D1 QUEUED missions',async()=>{
+  const {readFile}=await import('node:fs/promises');
+  const ui=await readFile(new URL('../src/pages/full-interface-v2.js',import.meta.url),'utf8');
+  assert.ok(ui.includes('a.passive_roadmap?.items'));
+  assert.ok(ui.includes('passiveRoadmap.map(item=>'));
+  assert.ok(ui.includes('+passiveRoadmapPanel+'));
+  assert.ok(ui.includes('pas de mission D1'));
+  assert.ok(ui.includes('aucun appel IA, aucune réservation de créneau'));
+  assert.ok(ui.includes("const awaiting=(a.jobs||[]).filter(j=>j.queue_state==='WAITING');"));
+});
+
+
+test('QUEUED reserves MAX internal lane but does not masquerade as running',async()=>{
+  const first={id:'queued-old',requested_by:'mel-autonomy',status:'QUEUED',created_at:now-2000,updated_at:now-2000,
+    optional_context:{roadmap_id:'MEL-FOUNDER-05'},result_json:{}};
+  const second={...first,id:'queued-new',created_at:now-1000,updated_at:now-1000,
+    optional_context:{roadmap_id:'MEL-FOUNDER-06'}};
+  const db={prepare(){const st={bind(){return st;},async run(){return{};},async all(){return{results:[]};},async first(){return null;}};return st;}};
+  const rows=[first,second],before=JSON.stringify(rows);
+  const activity=await buildAutonomyActivity({DB:db},{now,repository:{list:async()=>rows}});
+  assert.equal(activity.counts.active,0);
+  assert.equal(activity.counts.waiting,2);
+  assert.equal(activity.scheduler_slot.reserved,true);
+  assert.equal(activity.scheduler_slot.executing,false);
+  assert.equal(activity.scheduler_slot.mission_id,'queued-old');
+  assert.equal(activity.scheduler_slot.reason,'QUEUED_RESERVES_SINGLE_FLIGHT');
+  assert.equal(JSON.stringify(rows),before);
+  const ui=await (await import('node:fs/promises')).readFile(new URL('../src/pages/full-interface-v2.js',import.meta.url),'utf8');
+  assert.ok(ui.includes('a.scheduler_slot?.reserved===true'));
+  assert.ok(ui.includes('Créneau MAX réservé par'));
+});

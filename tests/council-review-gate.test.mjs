@@ -5,10 +5,27 @@ import { parseVerdict, decide, runCouncilReview, orderCouncilModels, freeCouncil
 
 test('council verdicts and majority rule', async () => {
   assert.equal(parseVerdict('x {"verdict":"approve"} y').verdict, 'APPROVE');
-  const A = { verdict: 'APPROVE' }, R = { verdict: 'REJECT' }, N = { verdict: null };
+  const A = { model: 'model-a', verdict: 'APPROVE', summary: 'validated' }, R = { model: 'model-r', verdict: 'REJECT', summary: 'unsafe' }, N = { model: 'model-n', verdict: null };
   assert.equal(decide([A, A, R, N]), 'INSUFFICIENT_REVIEWERS');
   assert.equal(decide([A, R, R, A]), 'REJECTED');
   assert.equal(decide([A, N, N, N]), 'INSUFFICIENT_REVIEWERS');
+  assert.equal(decide([
+    { verdict: 'APPROVE', summary: 'security checked' },
+    { verdict: 'APPROVE', summary: 'tests checked' },
+  ]), 'INSUFFICIENT_REVIEWERS', 'anonymous approvals cannot form a Council quorum');
+  assert.equal(decide([
+    { model: 'reviewer-a', verdict: 'APPROVE', summary: 'security checked' },
+    { model: 'reviewer-b', verdict: 'APPROVE', summary: 'tests checked' },
+    { verdict: null, error: 'ANONYMOUS_TIMEOUT' },
+    { verdict: null, error: 'ANONYMOUS_TIMEOUT' },
+  ]), 'INSUFFICIENT_REVIEWERS',
+    'two approving models are not a majority of four attempted reviewers');
+  assert.equal(decide([
+    { model: 'reviewer-a', verdict: 'APPROVE', summary: 'security checked' },
+    { model: 'reviewer-b', verdict: 'APPROVE', summary: 'tests checked' },
+    { model: 'reviewer-c', verdict: 'APPROVE', summary: 'integration checked' },
+    { verdict: null, error: 'ANONYMOUS_TIMEOUT' },
+  ]), 'APPROVED','three reasoned independent votes meet quorum despite one silent seat');
   assert.equal(decide([
     { model: '@cf/openai/gpt-oss-120b', verdict: 'APPROVE' },
     { model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', verdict: 'APPROVE' },
@@ -25,10 +42,19 @@ test('council verdicts and majority rule', async () => {
     { model: '@cf/openai/gpt-oss-120b', verdict: 'APPROVE' },
     { model: '@cf/openai/gpt-oss-120b', verdict: 'APPROVE' },
   ]), 'INSUFFICIENT_REVIEWERS');
+  // Different models cannot approve without an actual reason.
   assert.equal(decide([
     { model: '@cf/openai/gpt-oss-120b', verdict: 'APPROVE' },
     { model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', verdict: 'APPROVE' },
+  ]), 'INSUFFICIENT_REVIEWERS');
+  assert.equal(decide([
+    { model: '@cf/openai/gpt-oss-120b', verdict: 'APPROVE', summary: 'security checked' },
+    { model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', verdict: 'APPROVE', summary: 'tests checked' },
   ]), 'APPROVED');
+  assert.equal(decide([
+    { model: '@cf/openai/gpt-oss-120b', verdict: 'APPROVE', summary: 'security checked' },
+    { model: '@CF/OPENAI/GPT-OSS-120B', verdict: 'APPROVE', summary: 'same model, another case' },
+  ]), 'INSUFFICIENT_REVIEWERS');
   assert.equal(decide([
     { model: 'a', verdict: 'APPROVE', summary: '' },
     { model: 'b', verdict: 'APPROVE', summary: '   ' },
@@ -45,6 +71,19 @@ test('council verdicts and majority rule', async () => {
   const early = wf.indexOf('"$CAND:refs/heads/main"');
   assert.ok(early === wf.lastIndexOf('"$CAND:refs/heads/main"') || wf.lastIndexOf('git diff --quiet "$MAIN" "$CAND"', early) > wf.lastIndexOf('fi', early - 200));
   assert.match(wf, /DECISION" != "APPROVED"/);
+});
+
+test('two-model fast Council approval refuses case-aliased duplicate providers',async()=>{
+  const calls=[];
+  const env={AI:{async run(model){
+    calls.push(model);
+    return {response:'{"verdict":"APPROVE","summary":"review complete"}'};
+  }}};
+  const result=await runCouncilReview(env,{diff:'diff --git a/src/safe.js b/src/safe.js\n+safe\n',
+    models:['@cf/example/model-a','@CF/EXAMPLE/MODEL-A']});
+  assert.equal(result.decision,'INSUFFICIENT_REVIEWERS');
+  assert.deepEqual(calls,['@cf/example/model-a']);
+  assert.equal(result.reviews.length,1);
 });
 
 test('a recent failure is asked again only after the models that still answer', () => {
@@ -79,7 +118,7 @@ test('online models first; after 10 short reviews the PC alone, then the owner',
   const pc = async () => ({ async invoke({ input }) { asked.push(input); return { text: '{"verdict":"APPROVE","summary":"relu sur le PC, correct et testé"}' }; } });
   assert.equal((await runCouncilReview(down, { diff: '+x', attempts: 0, companion: pc })).decision, 'INSUFFICIENT_REVIEWERS');
   assert.equal(asked.length, 0, 'the PC is not asked before 10 attempts');
-  const last = await runCouncilReview(down, { diff: '+x'.repeat(30_000), attempts: PC_AFTER_ATTEMPTS - 1, companion: pc });
+  const last = await runCouncilReview(down, { diff: '+x'.repeat(6_500), attempts: PC_AFTER_ATTEMPTS - 1, companion: pc });
   assert.equal(last.decision, 'OWNER_APPROVAL_REQUIRED');
   assert.ok(asked[0].length <= 12_000, 'the Companion refuses messages above 12 000 chars');
   assert.equal((await runCouncilReview(down, { diff: '+x', attempts: 20, companion: async () => null })).decision, 'COUNCIL_UNAVAILABLE');
@@ -213,4 +252,27 @@ test('a Council rejection reverts only the culprit jobs files, never innocent wo
   assert.deepEqual(culpritRevertPaths(new Set(['job-ui']), packages), ['src/pages/a.js', 'tests/a.test.mjs']);
   assert.deepEqual(culpritRevertPaths(new Set(), packages), [], 'unknown culprits: the workflow reverts everything');
   assert.deepEqual(culpritRevertPaths(new Set(['job-x']), { 'job-x': [{ path: '../escape.js' }, { path: '/etc/passwd' }] }), []);
+});
+
+test('oversized review never reaches cache or AI',async()=>{
+  const source=await readFile(new URL('../src/evolution/council-review.js',import.meta.url),'utf8');
+  const h=source.slice(source.indexOf('export async function handleCouncilReviewRequest'));
+  assert.ok(h.indexOf('COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT')<
+    h.indexOf("const key = 'council-review:' + head"));
+  let calls=0;
+  const env={AI:{async run(){calls++;return {response:'{"verdict":"APPROVE","summary":"ok"}'};}}};
+  const result=await runCouncilReview(env,{diff:'diff --git a/x b/x\n'+'+'.repeat(48_100)});
+  assert.equal(result.decision,'COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT');
+  assert.deepEqual(result.reviews,[]);
+  assert.equal(calls,0);
+});
+test('cached reviews bind SHA, exact base, entire diff and review mode',async()=>{
+  const source=await readFile(new URL('../src/evolution/council-review.js',import.meta.url),'utf8');
+  const h=source.slice(source.indexOf('export async function handleCouncilReviewRequest'));
+  for(const marker of ['prior.base !== base || prior.diff_sha256 !== diffSha256',
+    'COUNCIL_CACHED_DIFF_MISMATCH','diff_sha256: diffSha256',
+    "prior.mode === 'COMPLETE_INDEPENDENT_MULTI_BATCH_REVIEW'"])
+    assert.ok(h.includes(marker),marker);
+  assert.ok(h.indexOf('COUNCIL_CACHED_DIFF_MISMATCH')<
+    h.indexOf('if (!RETRYABLE.has(prior.decision))'));
 });

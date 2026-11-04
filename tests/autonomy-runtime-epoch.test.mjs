@@ -180,10 +180,8 @@ test('a transient core failure is attributed to the current job, then resumes it
     };
     const failed = await f.tick({ repository });
     assert.equal(failed.status, 'CORE_RETRY_PENDING');
-    // No QUEUED job is executing yet, so a pre-claim failure may not
-    // consume this job's runtime retry budget or impersonate an active task.
-    assert.equal(failed.retry.job_id, null);
-    assert.equal((await f.repository.get(current.id)).status, 'QUEUED');
+    assert.equal(failed.retry.job_id, current.id);
+    assert.equal(failed.retry.attempts, 1);
     assert.deepEqual(await f.repository.get(old.id), old);
     const resumed = await f.tick();
     assert.equal(resumed.job.id, current.id);
