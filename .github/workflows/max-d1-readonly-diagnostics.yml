@@ -75,3 +75,16 @@ jobs:
             AND COALESCE(json_extract(attempt.value,'$.status'),'') <> 'OK'
           GROUP BY failure_class ORDER BY attempts DESC LIMIT 20;"
           npx wrangler d1 execute DB --remote --config wrangler.jsonc --env="" --command "$FAILURE_SQL"
+
+          HANDOFF_SQL="SELECT UPPER(COALESCE(json_extract(item.value,'$.handoff.status'),'NONE')) AS handoff_status,
+            COALESCE(json_extract(item.value,'$.handoff.retryable'),0) AS retryable,
+            CASE WHEN LENGTH(COALESCE(json_extract(item.value,'$.handoff.teacher_request_id'),''))>0 THEN 1 ELSE 0 END AS has_teacher_request,
+            COALESCE(job.status,'MISSING_JOB') AS canonical_status,
+            CASE WHEN LENGTH(COALESCE(json_extract(job.result_json,'$.teacher_bridge.request.request_id'),''))>0 THEN 1 ELSE 0 END AS canonical_teacher_request,
+            COUNT(*) AS count
+            FROM capability_watch_state state, json_each(state.state_json,'$.items') item
+            LEFT JOIN dev_jobs job ON job.id=json_extract(item.value,'$.handoff.job_id')
+            WHERE state.id='ecosystem-discoveries-canonical' AND json_extract(item.value,'$.handoff') IS NOT NULL
+              AND COALESCE(json_extract(item.value,'$.handoff.closed'),0)<>1
+            GROUP BY handoff_status,retryable,has_teacher_request,canonical_status,canonical_teacher_request LIMIT 30;"
+          npx wrangler d1 execute DB --remote --config wrangler.jsonc --env="" --command "$HANDOFF_SQL"
