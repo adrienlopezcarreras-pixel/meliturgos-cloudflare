@@ -225,3 +225,36 @@ for(const persistent of [false,true]) test('concurrent second pass claims cannot
     assert.equal(singleFlightAutonomyMission(all)?.id,answers.find(Boolean).id);
   }finally{db?.close();}
 });
+
+
+for (const persistent of [false, true]) test('blocked oldest QUEUED revision never starves eligible second-pass work ('+(persistent?'D1':'memory')+')', async()=>{
+  const db=persistent?sqliteD1():null;
+  const repo=new D1DevJobRepository(db);
+  try{
+    const roadmap=[
+      {id:'A',title:'A blocked by cycle',status:'IN_PROGRESS',priority:'P0',depends_on:['X']},
+      {id:'X',title:'X blocked by A',status:'IN_PROGRESS',priority:'P1',depends_on:['A']},
+      {id:'B',title:'B ready',status:'IN_PROGRESS',priority:'P2',depends_on:[]},
+    ];
+    const defer=async (id)=>{
+      await repo.create({id:'second-'+id,requested_by:'mel-autonomy',goal:id,optional_context:{roadmap_id:id}});
+      await repo.update('second-'+id,{status:'WAITING_TEACHER'});
+      return repo.update('second-'+id,{status:'QUEUED'});
+    };
+    const a=await defer('A'),b=await defer('B');
+    const supervisor=new AutonomySupervisor({repository:repo,roadmap});
+    const selected=await supervisor.ensureNextJob();
+    assert.equal(selected.job?.id,b.id,'a blocked older revision must not starve an eligible one');
+    assert.equal(selected.job?.result_json?.autonomy_queue_pass?.passive,false);
+    const stillBlocked=await repo.get(a.id);
+    assert.equal(stillBlocked.status,'QUEUED','a blocked passive job must not be parked to WAITING_DEPENDENCY');
+    assert.equal(stillBlocked.result_json.autonomy_queue_pass.passive,true);
+    assert.equal(stillBlocked.updated_at,a.updated_at,'no retry or mutation while blocked');
+    await repo.update(b.id,{status:'COMPLETED'});
+    const next=await supervisor.ensureNextJob();
+    assert.equal(next.job,null);
+    assert.equal(next.external_progress?.status,'SECOND_PASS_PREREQUISITES_PENDING');
+    assert.equal(next.external_progress?.blocked_count,1);
+    assert.equal((await repo.get(a.id)).result_json.autonomy_queue_pass.passive,true);
+  }finally{db?.close();}
+});
