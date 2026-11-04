@@ -351,7 +351,11 @@ export function buildPassiveRoadmapCatalog(roadmap = flattenRoadmap(), jobs = []
     const previous = latestJobs.get(id);
     if (!previous || Number(job.updated_at || 0) > Number(previous.updated_at || 0)) latestJobs.set(id, job);
   }
-  const items = rows.filter(row => row?.id && !isClosedRoadmapStatus(row.status)).map(row => {
+  // A code-delivered objective is closed only by a verified acceptance receipt,
+  // not by merely completing a job. Explicitly REGRESSED objectives reopen.
+  const isProven = row => row?.id && String(row.status || '').toUpperCase() !== 'REGRESSED'
+    && verifiedIds.has(row.id);
+  const items = rows.filter(row => row?.id && !isProven(row)).map(row => {
     const mission = latestJobs.get(row.id) || null;
     const missionStatus = mission ? String(mission.status || 'UNKNOWN').toUpperCase() : null;
     const blockers = unmetSoftwarePrerequisites(row, rows, [...verifiedIds]);
@@ -372,7 +376,7 @@ export function buildPassiveRoadmapCatalog(roadmap = flattenRoadmap(), jobs = []
       unmet_prerequisites: blockers,
     };
   });
-  return { total: rows.length, verified: rows.length - items.length,
+  return { total: rows.length, verified: rows.filter(isProven).length,
     remaining: items.length, items };
 }
 
