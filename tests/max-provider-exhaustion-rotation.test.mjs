@@ -210,6 +210,9 @@ for (const storage of ['memory', 'sqlite']) test(`bounded cloud policy reopens a
   const repository = new D1DevJobRepository(DB, { memoryStore: new Map() });
   const original = await repository.create({ id: 'old-unbounded-council', requested_by: 'mel-autonomy',
     goal: '[MEL-MANIFEST-01] Recover bounded Cloud review', optional_context: { roadmap_id: 'MEL-MANIFEST-01' } });
+  // A passive QUEUED row is not an active lease: acquire PLANNING before
+  // asserting that another autonomous objective cannot take the lane.
+  assert.equal((await repository.claimQueuedAutonomy(original.id, { expected: original }))?.status, 'PLANNING');
   const old = { code: 'COUNCIL_INSUFFICIENT_RESPONSES', phase: 'council', context: providerRetryContext(original),
     attempts: 3, max_attempts: 3, exhausted: true, retry_after: Date.now() + 600_000 };
   await repository.update(original.id, { result_json: { autonomy_deferral: old } });
