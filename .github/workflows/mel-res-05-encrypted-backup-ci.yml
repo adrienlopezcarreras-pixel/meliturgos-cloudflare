@@ -1,6 +1,10 @@
 name: MEL-RES-05 encrypted backup CI
 
 on:
+  # Autonomous, read-only recovery drill on the default branch. The job
+  # decrypts and restores into isolated temporary storage, never production.
+  schedule:
+    - cron: '23 3 * * *'
   pull_request:
     paths:
       - "src/backup/**"
@@ -8,6 +12,7 @@ on:
       - "tests/maintenance/**"
       - "release-tools/predeploy-backup-refresh/**"
       - "tests/maintenance/system-restore-proof.test.mjs"
+      - "tests/maintenance/r2-snapshot-discovery.test.mjs"
       - "src/resilience/**"
       - "tests/encrypted-backup-storage.test.mjs"
       - "tests/backup-system-runtime.test.mjs"
@@ -17,9 +22,16 @@ on:
   workflow_dispatch:
     inputs:
       snapshot_key:
-        description: 'Optional exact encrypted R2 snapshot key; isolated read-only restore on main only'
+        description: 'Optional encrypted snapshot key. Empty = discover newest R2 snapshot; read-only restore on main only'
         required: false
         type: string
+
+# Drop obsolete PR test runs when newer commits supersede them.
+# Scheduled read-only drills, manual drills and main-branch runs are never
+# cancelled, even when a pull request is updated at the same time.
+concurrency:
+  group: mel-res-05-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -39,19 +51,19 @@ jobs:
       - name: Repository syntax
         run: npm run check
       - name: Encrypted backup and restore tests
-        run: node --test tests/encrypted-backup-storage.test.mjs tests/backup-system-runtime.test.mjs tests/backup-verified-snapshot.test.mjs tests/restore-service.test.mjs tests/gen2/recovery-drill.test.mjs tests/maintenance/system-restore-proof.test.mjs
+        run: node --test tests/encrypted-backup-storage.test.mjs tests/backup-system-runtime.test.mjs tests/backup-verified-snapshot.test.mjs tests/restore-service.test.mjs tests/gen2/recovery-drill.test.mjs tests/maintenance/system-restore-proof.test.mjs tests/maintenance/r2-snapshot-discovery.test.mjs
       - name: Normalize branch for candidate-only integration tests
         run: git checkout -B candidate/mel-res-05-encrypted-backup-ci "$(git rev-parse HEAD)"
       - name: Full regression suite
-        # A manual read-only drill runs targeted restore tests, syntax and the
-        # security gate. PR validation retains the complete regression suite.
-        if: github.event_name != 'workflow_dispatch' || inputs.snapshot_key == ''
+        # Both scheduled and manually initiated isolated drills run bounded
+        # targeted tests and the security gate. PR validation stays exhaustive.
+        if: github.event_name == 'pull_request'
         run: npm test
       - name: Runtime dependency security gate
         run: node scripts/runtime-security-gate.mjs
 
   isolated-snapshot-restore:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.snapshot_key != ''
+    if: (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && github.ref == 'refs/heads/main'
     needs: encrypted-backup
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -67,7 +79,7 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - name: Restore existing encrypted snapshot into isolated runner storage
+      - name: Restore latest or explicitly selected encrypted snapshot in isolated storage
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -82,4 +94,5 @@ jobs:
           name: isolated-restore-proof
           path: isolated-restore-proof.json
           if-no-files-found: error
-          retention-days: 1
+          # Keep two weeks of daily immutable drill receipts for external audit.
+          retention-days: 14

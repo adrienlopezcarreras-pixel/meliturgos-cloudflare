@@ -139,3 +139,48 @@ test('artifact listing transport error identifies the failing stage', async () =
  assert.equal(out.code,'MISSION_TEST_GITHUB_LOOKUP_FAILED');
  assert.equal(out.lookup_stage,'ARTIFACT_LIST');
 });
+
+test('temporary GitHub 503 while listing proof artifacts is retried once, without skipping subsequent provenance checks', async () => {
+  let listingAttempts = 0;
+  const run = {id:123,name:'full-candidate-ci',head_branch:'candidate/mel-clean-autonomy',head_sha:SHA,status:'completed',conclusion:'success'};
+  const out = await fetchFounderMissionTestEvidence({...request,fetchImpl:async url => {
+    if (String(url).includes('/artifacts?')) {
+      listingAttempts++;
+      return listingAttempts === 1 ? new Response(null,{status:503}) : reply({artifacts:[
+        {id:456,name:'founder-mission-test-evidence',expired:false,workflow_run:{id:123,head_sha:SHA}},
+      ]});
+    }
+    if (String(url).endsWith('/zip')) return new Response(null,{status:200});
+    return reply(run);
+  }});
+  assert.equal(listingAttempts,2);
+  assert.equal(out.code,'MISSION_TEST_ARCHIVE_REDIRECT_INVALID');
+  assert.equal(out.ok,false);
+});
+
+test('authorization denial on GitHub proof lookup is not retried or treated as evidence', async () => {
+  let requests=0;
+  const out=await fetchFounderMissionTestEvidence({...request,fetchImpl:async()=> {
+    requests++;
+    return new Response(null,{status:403});
+  }});
+  assert.equal(requests,1);
+  assert.equal(out.code,'MISSION_TEST_GITHUB_LOOKUP_FAILED');
+  assert.equal(out.lookup_stage,'RUN_METADATA');
+  assert.equal(out.ok,false);
+});
+
+test('temporary GitHub HTTP 500 during run metadata lookup is retried once', async () => {
+  let attempts = 0;
+  const out = await fetchFounderMissionTestEvidence({...request,fetchImpl:async url => {
+    if (String(url).includes('/actions/runs/123') && !String(url).includes('/artifacts?')) {
+      attempts++;
+      if (attempts === 1) return new Response(null,{status:500});
+      return reply({id:123,name:'full-candidate-ci',head_branch:'candidate/mel-clean-autonomy',head_sha:SHA,status:'completed',conclusion:'success'});
+    }
+    return reply({artifacts:[]});
+  }});
+  assert.equal(attempts,2);
+  assert.equal(out.code,'MISSION_TEST_ARTIFACT_MISSING_OR_AMBIGUOUS');
+  assert.equal(out.ok,false);
+});

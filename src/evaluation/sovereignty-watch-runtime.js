@@ -3,7 +3,7 @@ import { createGen2Runtime } from '../core/orchestrator/gen2-runtime.js';
 import { getSovereigntyWatchCatalog, SOVEREIGNTY_WATCH_INTERVAL_MS } from './sovereignty-watch-catalog.js';
 import { SovereigntyCandidateStore } from '../portability/sovereignty-candidate-store.js';
 import { contingencyPrinciples, judgeCandidate } from '../continuity/contingency-plan.js';
-import { allLifeEvents } from '../continuity/life-contingency.js';
+import { allLifeEvents, trialReplacement } from '../continuity/life-contingency.js';
 
 const STATE_ID='sovereignty-replacement-watch';
 const CURRENT_PROVIDER_DOMAINS=Object.freeze({
@@ -63,6 +63,7 @@ function normalizeResearch(target,research={}){
       prevalidated:false,
       activation_allowed:false,
       comparison:judgeCandidate({ research:{ kind:'DOCUMENTARY', sources:[{ url:source.url, title:source.title }] } }),
+      trial:trialReplacement({ part:target.layer, research:{ kind:'DOCUMENTARY', sources:[{ url:source.url, title:source.title }] } }),
     });
   }
 
