@@ -143,7 +143,7 @@ export async function recordAutonomyProgressWatchdog(db = null, tick = {}, {
     // Planning, Teacher and package events keep MAX from being called stalled,
     // but only a completed job or roadmap item is a delivery.
     last_delivered_at: delivered ? new Date(now).toISOString() : previous.last_delivered_at || null,
-    last_block_reason: advanced ? null : explicitBlock,
+    last_block_reason: advanced ? null : (explicitBlock || (shouldStall ? 'MAX_STALL_REASON_UNREPORTED' : null)),
     last_job_id: progress.job_id || null,
     last_job_status: progress.job_status || null,
     work_remaining: workRemaining,
