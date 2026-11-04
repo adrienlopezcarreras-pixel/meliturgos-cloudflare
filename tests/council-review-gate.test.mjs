@@ -215,27 +215,25 @@ test('a Council rejection reverts only the culprit jobs files, never innocent wo
   assert.deepEqual(culpritRevertPaths(new Set(['job-x']), { 'job-x': [{ path: '../escape.js' }, { path: '/etc/passwd' }] }), []);
 });
 
-test('oversized Council requests fail closed before SHA cache or truncated AI approval', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const source = await readFile(new URL('../src/evolution/council-review.js',import.meta.url),'utf8');
-  const handler = source.slice(source.indexOf('export async function handleCouncilReviewRequest'));
-  assert.ok(handler.indexOf('COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT') < handler.indexOf("const key = 'council-review:' + head"));
-  const called=[];
-  const env={ AI: { async run(model){ called.push(model); return { response:'{"verdict":"APPROVE","summary":"ok"}' }; } } };
+test('oversized review never reaches cache or AI',async()=>{
+  const source=await readFile(new URL('../src/evolution/council-review.js',import.meta.url),'utf8');
+  const h=source.slice(source.indexOf('export async function handleCouncilReviewRequest'));
+  assert.ok(h.indexOf('COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT')<
+    h.indexOf("const key = 'council-review:' + head"));
+  let calls=0;
+  const env={AI:{async run(){calls++;return {response:'{"verdict":"APPROVE","summary":"ok"}'};}}};
   const result=await runCouncilReview(env,{diff:'diff --git a/x b/x\n'+'+'.repeat(48_100)});
   assert.equal(result.decision,'COUNCIL_DIFF_EXCEEDS_REVIEW_LIMIT');
   assert.deepEqual(result.reviews,[]);
-  assert.equal(called.length,0);
+  assert.equal(calls,0);
 });
-
-test('a Council approval cache must be bound to exact base and diff bytes, not only SHA', async()=>{
-  const {readFileSync}=await import('node:fs');
-  const council=readFileSync(new URL('../src/evolution/council-review.js',import.meta.url),'utf8');
-  const handler=council.slice(council.indexOf('export async function handleCouncilReviewRequest'));
-  assert.match(handler,/prior\.base !== base \|\| prior\.diff_sha256 !== diffSha256/);
-  assert.match(handler,/COUNCIL_CACHED_DIFF_MISMATCH/);
-  assert.ok(handler.indexOf('COUNCIL_CACHED_DIFF_MISMATCH') <
-    handler.indexOf('if (!RETRYABLE.has(prior.decision))'));
-  assert.match(handler,/diff_sha256: diffSha256/);
-  assert.match(handler,/prior\.mode === 'COMPLETE_INDEPENDENT_MULTI_BATCH_REVIEW'/);
+test('cached reviews bind SHA, exact base, entire diff and review mode',async()=>{
+  const source=await readFile(new URL('../src/evolution/council-review.js',import.meta.url),'utf8');
+  const h=source.slice(source.indexOf('export async function handleCouncilReviewRequest'));
+  for(const marker of ['prior.base !== base || prior.diff_sha256 !== diffSha256',
+    'COUNCIL_CACHED_DIFF_MISMATCH','diff_sha256: diffSha256',
+    "prior.mode === 'COMPLETE_INDEPENDENT_MULTI_BATCH_REVIEW'"])
+    assert.ok(h.includes(marker),marker);
+  assert.ok(h.indexOf('COUNCIL_CACHED_DIFF_MISMATCH')<
+    h.indexOf('if (!RETRYABLE.has(prior.decision))'));
 });
