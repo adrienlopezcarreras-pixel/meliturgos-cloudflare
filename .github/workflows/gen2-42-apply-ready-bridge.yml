@@ -378,9 +378,33 @@ jobs:
             echo "tests_passed=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Recheck owner STOP before publishing the claimed package
+        id: owner_stop_gate
+        if: steps.claim.outputs.claimed == 'true' && steps.reconcile.outputs.already_satisfied != 'true' && steps.tests.outputs.tests_passed == 'true'
+        shell: bash
+        env:
+          JOB_ID: ${{ inputs.job_id }}
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          JOB_ID="$JOB_ID" node -e "process.stdout.write(JSON.stringify({job_id:process.env.JOB_ID}))" > precommit-request.json
+          CODE="$(curl --silent --show-error --max-time 45 --request POST \
+            --header "x-mel-github-oidc: $("$MEL_OIDC_HELPER")" \
+            --header "Content-Type: application/json" \
+            --data-binary @precommit-request.json \
+            --output precommit-response.json --write-out '%{http_code}' \
+            "$BASE_URL/api/dev-bridge/precommit" || true)"
+          if [ "$CODE" != "200" ]; then
+            echo "OWNER_STOP_PRECOMMIT_DENIED HTTP=$CODE"
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          node -e "const r=require('./precommit-response.json');if(r.ok!==true||r.code!=='PRECOMMIT_ALLOWED')process.exit(1)"
+          echo "allowed=true" >> "$GITHUB_OUTPUT"
+
       - name: Commit and push exact candidate change
         id: commit
-        if: steps.claim.outputs.claimed == 'true' && steps.reconcile.outputs.already_satisfied != 'true' && steps.tests.outputs.tests_passed == 'true'
+        if: steps.claim.outputs.claimed == 'true' && steps.reconcile.outputs.already_satisfied != 'true' && steps.tests.outputs.tests_passed == 'true' && steps.owner_stop_gate.outputs.allowed == 'true'
         shell: bash
         env:
           JOB_ID: ${{ inputs.job_id }}
