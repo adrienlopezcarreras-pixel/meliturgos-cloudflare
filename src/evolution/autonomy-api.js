@@ -441,9 +441,11 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
     }
     const control = await setOwnerMaxAutonomy(env.DB, {
       enabled,
-      paused: enabled ? false : undefined,
+      // The owner STOP must pause execution, not merely leave MAX mode:
+      // regular runtime ticks can otherwise keep advancing pending jobs.
+      paused: enabled ? false : true,
       source: enabled ? 'owner-ui-launch-gate' : 'owner-ui',
-      reason: enabled ? 'owner-max-autonomy' : null,
+      reason: enabled ? 'owner-max-autonomy' : 'owner-stop',
       launch_approved_sha: prepared?.readiness?.candidate_sha,
       launch_approved_at: prepared?.readiness?.evaluated_at,
       launch_gate_digest: prepared?.readiness?.gate_digest,
