@@ -1,0 +1,16 @@
+import {unstable_readConfig} from 'wrangler';
+import {isAcceptedRoadmapCodeJob} from '../src/roadmap/roadmap-code-acceptance.js';
+const config=unstable_readConfig({config:'wrangler.jsonc'});
+const db=config.d1_databases.find(row=>row.binding==='DB').database_id;
+async function read(sql){
+ const r=await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/d1/database/${db}/query`,{method:'POST',redirect:'error',headers:{authorization:'Bearer '+process.env.CLOUDFLARE_API_TOKEN,'content-type':'application/json'},body:JSON.stringify({sql,params:[]})});
+ const b=await r.json(),v=b.result?.[0];
+ if(!r.ok||b.success!==true||v?.success!==true||v.meta?.rows_written!==0)throw Error('READ_ONLY_PROOF_UNAVAILABLE');
+ return v.results;
+}
+const sql="SELECT id,created_at,updated_at,status,requested_by,\n      json_object('roadmap_id',json_extract(optional_context,'$.roadmap_id'),\n        'roadmap_contract_revision',json_extract(optional_context,'$.roadmap_contract_revision'),\n        'source',json_extract(optional_context,'$.source')) AS optional_context,\n      (SELECT json_group_array(json_object('path',json_extract(f.value,'$.path')))\n        FROM json_each(CASE WHEN json_valid(dev_jobs.files_json) THEN dev_jobs.files_json ELSE '[]' END) f) AS files_json,\n      json_object('roadmap_code_acceptance',json_extract(result_json,'$.roadmap_code_acceptance'),\n        'verify_existing',json_object('status',json_extract(result_json,'$.verify_existing.status'),\n          'candidate_sha',json_extract(result_json,'$.verify_existing.candidate_sha')),\n        'autonomy_completion',json_object('status',json_extract(result_json,'$.autonomy_completion.status'),\n          'candidate_sha',json_extract(result_json,'$.autonomy_completion.candidate_sha'),\n          'candidate_branch',json_extract(result_json,'$.autonomy_completion.candidate_branch'),\n          'ci',json_extract(result_json,'$.autonomy_completion.ci'),\n          'mel_implementation',json_object(\n            'verified',json(COALESCE(result_json -> '$.autonomy_completion.mel_implementation.verified','null')),\n            'providers_attempted',json_extract(result_json,'$.autonomy_completion.mel_implementation.providers_attempted')))) AS result_json\n      FROM dev_jobs WHERE requested_by='mel-autonomy' AND status='COMPLETED'\n        AND json_valid(optional_context)\n        AND CASE WHEN json_valid(result_json) THEN json_type(result_json,'$.roadmap_code_acceptance')='object' ELSE 0 END\n      ORDER BY created_at ASC,id ASC";
+const raw=await read(sql);
+const epoch=Number((await read("SELECT last_seen FROM dev_bridge_state WHERE bridge_id='activity-list-epoch' LIMIT 1"))[0]?.last_seen||0);
+const rows=raw.map(row=>{for(const key of ['optional_context','files_json','result_json'])row[key]=JSON.parse(row[key]);return row;});
+const accepted=rows.filter(isAcceptedRoadmapCodeJob);
+console.log(JSON.stringify({rows_written:0,receipt_count:rows.length,accepted_count:accepted.length,accepted_before_activity_reset:accepted.filter(row=>row.created_at<epoch).map(row=>row.optional_context.roadmap_id),accepted_after_activity_reset:accepted.filter(row=>row.created_at>=epoch).map(row=>row.optional_context.roadmap_id)}));
