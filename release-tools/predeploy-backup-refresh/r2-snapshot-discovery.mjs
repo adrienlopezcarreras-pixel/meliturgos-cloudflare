@@ -25,8 +25,12 @@ async function boundedListJson(response) {
   try { value = JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(
     Buffer.concat(parts.map(part => Buffer.from(part)), total))); }
   catch { fail('ISOLATED_R2_LIST_RESPONSE_INVALID'); }
+  // A missing or non-boolean truncation marker is not a complete listing.
+  // Selecting a snapshot from such a response could silently skip pages.
   if (value?.success !== true || !Array.isArray(value?.result)
-    || !value?.result_info || typeof value.result_info !== 'object')
+    || !value?.result_info || typeof value.result_info !== 'object'
+    || Array.isArray(value.result_info)
+    || typeof value.result_info.is_truncated !== 'boolean')
     fail('ISOLATED_R2_LIST_RESPONSE_INVALID');
   return value;
 }
