@@ -335,9 +335,10 @@ test('OIDC identity is renewed for every individual review',()=>{
 test('scheduled Council recovers missed CI events and merged PR history safely',()=>{
   const workflow=file('../.github/workflows/mel-pr-council-review.yml');
   for(const token of [
-    "schedule:\n    - cron: '47 */2 * * *'",
+    "- cron: '47 */2 * * *'",
+    "- cron: '17 1-23/2 * * *'",
     "discover:\n    if: github.event_name == 'schedule'",
-    'repos/$GITHUB_REPOSITORY/pulls/3094',
+    'repos/$GITHUB_REPOSITORY/pulls/$SELECTED_PR',
     'if [ "$STATE" = "open" ]',
     'test "$BASE" = "main"',
     'test "$REPO" = "$GITHUB_REPOSITORY"',
