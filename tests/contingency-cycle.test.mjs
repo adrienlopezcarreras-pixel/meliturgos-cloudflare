@@ -199,6 +199,51 @@ test('all private backup providers unknown means disaster rebuild cannot start',
   assert.equal(cycle.activation_performed, false);
 });
 
+test('a verified private kit is still not permission to rebuild without owner approval', async () => {
+  const observed = {
+    cloudflareUp: false, githubUp: false, pcUp: false,
+    gmailUp: true, gmailKitVerified: true,
+  };
+  let calls = 0;
+  const actions = {
+    rebuild: async () => {
+      calls++;
+      return { ok: true, restored: true, integrity_verified: true, code: 'FULL_REBUILD_VERIFIED' };
+    },
+    note: async () => ({ ok: true }),
+  };
+  const blocked = await runContingencyCycle({ observed, actions });
+  const denied = blocked.ran.find(row => row.code === 'STOP_AND_REBUILD_FROM_PRIVATE_KIT');
+  assert.equal(blocked.scenario.rebirth, 'FROM_PRIVATE_KIT');
+  assert.equal(denied.reason, 'OWNER_APPROVAL_REQUIRED');
+  assert.equal(denied.activation_performed, false);
+  assert.equal(calls, 0);
+  const permitted = await runContingencyCycle({ observed, actions, ownerApprovedRecovery: true });
+  assert.equal(permitted.ran.find(row => row.code === 'STOP_AND_REBUILD_FROM_PRIVATE_KIT').applied, true);
+  assert.equal(permitted.activation_performed, true);
+  assert.equal(calls, 1);
+});
+
+test('an owner-approved rebuild still needs an actual integrity-verified restoration', async () => {
+  const observed = {
+    cloudflareUp: false, githubUp: false, pcUp: false,
+    onedriveUp: true, onedriveKitVerified: true,
+  };
+  for (const outcome of [
+    { ok: true }, { ok: true, restored: true },
+    { ok: true, restored: true, integrity_verified: false },
+  ]) {
+    const cycle = await runContingencyCycle({
+      observed, ownerApprovedRecovery: true,
+      actions: { rebuild: async () => outcome, note: async () => ({ok:true}) },
+    });
+    const rebuilt = cycle.ran.find(row => row.code === 'STOP_AND_REBUILD_FROM_PRIVATE_KIT');
+    assert.equal(rebuilt.applied, false);
+    assert.equal(rebuilt.activation_performed, false);
+    assert.equal(cycle.activation_performed, false);
+  }
+});
+
 test('signed independent model evidence is visible but never triggers model switch', async () => {
   const secret = 'test-independent-signature-secret-0123456789';
   const sourceSha = 'c'.repeat(40), now = Date.parse('2026-11-03T20:00:00Z');
