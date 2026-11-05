@@ -68,7 +68,7 @@ test('scoped preview GitHub token is passed only to the fixed Contents API as an
   assert.deepEqual(Array.from(result),[0,1,2]);
   assert.ok(request.startsWith('https://api.github.com/repos/adrienlopezcarreras-pixel/meliturgos-cloudflare/contents/'));
   assert.ok(!request.includes(secret));
-  assert.equal(options.redirect,'error');
+  assert.equal(options.redirect,'manual');
   assert.equal(options.method,'GET');
   assert.equal(options.headers.authorization,'Bearer '+secret);
   assert.equal(options.headers['cache-control'],'no-cache');
@@ -94,7 +94,7 @@ test('realistic GitHub Content-Length with escaped wrapped base64 is accepted fo
     fetchImpl:async (requested,opts)=>{
       requests++;
       assert.ok(requested.startsWith('https://api.github.com/repos/'));
-      assert.equal(opts.redirect,'error');
+      assert.equal(opts.redirect,'manual');
       return new Response(body,{status:200,headers:{'content-type':'application/json','content-length':String(Buffer.byteLength(body))}});
     },
   });
@@ -114,4 +114,101 @@ test('body still fails closed when GitHub JSON is too large or decoded content e
     maxBytes:99,fetchImpl:async()=>Response.json({type:'file',encoding:'base64',size:100,content:Buffer.from(data).toString('base64')}),
   });
   assert.equal(oversizedBytes,null);
+});
+
+
+test('Workers-compatible fetch reads the authoritative mirror without unsupported redirect modes',async()=>{
+  let calls=0;
+  const result=await readAuthoritativeGitHubMirror(url,{
+    maxBytes:3,readToken:'private-fixture',
+    fetchImpl:async(request,init,timeoutMs)=>{
+      if(init.redirect==='error')throw new TypeError('Invalid redirect value, must be follow or manual');
+      assert.equal(init.redirect,'manual');
+      assert.equal(timeoutMs,12000,'keep the caller timeout contract');
+      calls++;
+      return Response.json({type:'file',encoding:'base64',size:3,content:'AAEC'});
+    },
+  });
+  assert.equal(calls,1);
+  assert.deepEqual(Array.from(result||[]),[0,1,2]);
+});
+
+for(const status of [301,302,303,307,308])test(`authoritative mirror HTTP ${status} never follows a token-bearing redirect`,async()=>{
+  const secret='mirror-private-token-never-forward';
+  const calls=[];
+  const result=await readAuthoritativeGitHubMirror(url,{
+    maxBytes:3,readToken:secret,
+    fetchImpl:async(request,init)=>{
+      if(init.redirect==='error')throw new TypeError('Invalid redirect value');
+      assert.equal(init.redirect,'manual');
+      calls.push({request,authorization:init.headers.authorization});
+      return new Response(null,{status,headers:{location:'https://foreign.example/collect'}});
+    },
+  });
+  assert.equal(result,null);
+  assert.equal(calls.length,1);
+  assert.equal(new URL(calls[0].request).origin,'https://api.github.com');
+  assert.ok(!calls[0].request.includes(secret));
+});
+
+test('the authoritative mirror decoder runs inside workerd with only one local GitHub response',async()=>{
+  const {Miniflare,convertV4MiniflareOptions}=await import('miniflare');
+  const source=await readFile(new URL('../src/continuity/github-mirror-authoritative.js',import.meta.url),'utf8');
+  const calls=[];
+  const secret='mirror-local-read-only-token';
+  const options={modules:true,compatibilityDate:'2026-09-04',cf:false,
+    script:source+'\nexport default {async fetch(){const bytes=await readAuthoritativeGitHubMirror('+JSON.stringify(url)+',{maxBytes:3,readToken:'+JSON.stringify(secret)+'});return Response.json({bytes:bytes?Array.from(bytes):null});}}',
+    outboundService:async(request)=>{
+      calls.push({url:request.url,authorization:request.headers.get('authorization')});
+      assert.equal(request.url,githubMirrorContentsApiUrl(url));
+      return Response.json({type:'file',encoding:'base64',size:3,content:'AAEC'});
+    },
+  };
+  const runtime=new Miniflare(typeof convertV4MiniflareOptions==='function'?convertV4MiniflareOptions(options):options);
+  try{
+    const response=await runtime.dispatchFetch('http://localhost/read');
+    assert.deepEqual(await response.json(),{bytes:[0,1,2]});
+    assert.equal(calls.length,1);
+    assert.equal(calls[0].authorization,'Bearer '+secret);
+    assert.ok(!calls[0].url.includes(secret));
+  }finally{await runtime.dispose();}
+});
+
+async function actualRuntimeFetchTimed(nativeFetch){
+  const source=await readFile(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
+  const start=source.indexOf('function isPrivate4('),end=source.indexOf('async function fetchRateAware(');
+  assert.ok(start>=0&&end>start);
+  // Execute the existing private transport and URL guard, rather than a
+  // second imitation of its redirect loop. No real outbound network is used.
+  return new Function('fetch',source.slice(start,end)+'\nreturn fetchTimed;')(nativeFetch);
+}
+
+test('actual ShardVault fetchTimed preserves explicit manual mode and never forwards the mirror token',async()=>{
+  const calls=[];
+  const secret='mirror-runtime-private-token';
+  const transport=await actualRuntimeFetchTimed(async(request,init)=>{
+    calls.push({request:String(request),authorization:init.headers?.authorization});
+    if(calls.length===1)return new Response(null,{status:302,headers:{location:'https://foreign.example/token-collector'}});
+    return Response.json({type:'file',encoding:'base64',size:3,content:'AAEC'});
+  });
+  const result=await readAuthoritativeGitHubMirror(url,{maxBytes:3,readToken:secret,fetchImpl:transport});
+  assert.equal(result,null);
+  assert.equal(calls.length,1,'the runtime wrapper itself must not follow the redirect');
+  assert.equal(new URL(calls[0].request).origin,'https://api.github.com');
+  assert.equal(calls[0].authorization,'Bearer '+secret);
+});
+
+test('ordinary ShardVault GET redirects keep their existing bounded follow behavior',async()=>{
+  const calls=[];
+  const transport=await actualRuntimeFetchTimed(async(request,init)=>{
+    assert.equal(init.redirect,'manual','each native request remains observable to the URL guard');
+    assert.ok(init.signal instanceof AbortSignal);
+    calls.push(String(request));
+    return calls.length===1
+      ?new Response(null,{status:302,headers:{location:'https://storage.example/final'}})
+      :new Response('ordinary shard');
+  });
+  const response=await transport('https://storage.example/initial',{method:'GET'},12000);
+  assert.equal(await response.text(),'ordinary shard');
+  assert.deepEqual(calls,['https://storage.example/initial','https://storage.example/final']);
 });

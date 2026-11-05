@@ -28,6 +28,9 @@ async function fetchTimed(url,options={},ms=12000){
     for(let hop=0;hop<4;hop++){
       const method=String(opts.method||'GET').toUpperCase();
       const r=await fetch(current,{...opts,redirect:'manual',signal:c.signal});
+      // Authenticated GitHub readbacks must inspect and refuse redirects
+      // before any token can be forwarded by this generic transport.
+      if(opts.redirect==='manual')return r;
       if(![301,302,303,307,308].includes(r.status))return r;
       if(method!=='GET'&&method!=='HEAD')return r;
       const location=r.headers.get('location');
