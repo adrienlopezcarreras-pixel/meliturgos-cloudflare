@@ -310,7 +310,8 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
 
   // This phase never accepts a launch bearer alone. Only the exact canonical
   // release OIDC plus independently read successful health jobs can release a
-  // repair hold. It cannot activate an owner-stopped MAX.
+  // repair hold. Starting a stopped MAX requires a separate fresh owner
+  // command, explicit manual opt-in and the acknowledged owner version.
   if (phase === 'verified-repair-complete') {
     const oidc = await authorizeOidc(request, env, {
       allowedWorkflows: ['deploy-cloudflare-release.yml'],
@@ -318,6 +319,22 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       allowedEvents: ['push', 'workflow_dispatch'],
     });
     if (oidc.ok !== true) return Response.json({ok:false,code:'REPAIR_RELEASE_OIDC_REQUIRED'}, {status:401});
+    const body=await request.clone().json().catch(()=>({}));
+    if (body.owner_start !== undefined && typeof body.owner_start !== 'boolean')
+      return Response.json({ok:false,code:'OWNER_START_INPUT_INVALID'},{status:400});
+    const ownerStart=body.owner_start===true;
+    const expectedOwnerVersion=body.expected_owner_control_version;
+    const preserveOwnerCommand=()=>Response.json({ok:true,status:'RELEASE_OWNER_CONTROL_PRESERVED',
+      owner_command:'SUPERSEDED',owner_started:false,resumed:false,autonomy_started:false},
+      {headers:{'cache-control':'no-store'}});
+    if (ownerStart) {
+      const identity=oidc.identity;
+      const repositoryOwner=String(identity?.repository||'').split('/')[0];
+      if (identity?.event_name!=='workflow_dispatch' || !repositoryOwner || identity?.actor!==repositoryOwner)
+        return Response.json({ok:false,code:'OWNER_START_MANUAL_OWNER_REQUIRED'},{status:403});
+      if (!Number.isSafeInteger(expectedOwnerVersion) || expectedOwnerVersion<=0)
+        return Response.json({ok:false,code:'OWNER_START_VERSION_INVALID'},{status:400});
+    }
     const sha=exactDeployedSha(env);
     if (url.searchParams.get('expected_sha')!==sha || oidc.identity?.sha!==sha)
       return Response.json({ok:false,code:'REPAIR_RELEASE_SHA_MISMATCH'}, {status:409});
@@ -327,6 +344,36 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     try {
       const repository=new D1DevJobRepository(env.DB);
       const control=await getAutonomyControl(env.DB);
+      if (ownerStart) {
+        // A new explicit owner command may replace only the exact owner intent
+        // acknowledged at dispatch. It never inherits automatic restore rights.
+        if (ownerControlVersion(control)>expectedOwnerVersion)return preserveOwnerCommand();
+        if (ownerControlVersion(control)!==expectedOwnerVersion)
+          return Response.json({ok:false,status:'OWNER_START_VERSION_MISMATCH',resumed:false},{status:409});
+        if (control.repair_invalid || control.repair)
+          return Response.json({ok:false,status:'OWNER_START_REPAIR_HOLD_UNRESOLVED',resumed:false},{status:409});
+        if (control.paused!==true && control.max_autonomy===true && control.launch_approved_sha===sha)
+          return Response.json({ok:true,status:'OWNER_MAX_ALREADY_ACTIVE',owner_command:'ALREADY_ACTIVE',
+            owner_started:false,resumed:false,autonomy_started:false,paused:false,max_autonomy:true},
+            {headers:{'cache-control':'no-store'}});
+        const prepared=await prepare(env);
+        const readiness=safeReadiness(prepared?.readiness);
+        const approvedSha=String(prepared?.readiness?.candidate_sha||readiness.candidate_sha||'').trim().toLowerCase();
+        if (prepared?.ok!==true || readiness.launch_ready!==true || approvedSha!==sha)
+          return Response.json({ok:false,status:'OWNER_START_LAUNCH_GATE_BLOCKED',resumed:false},{status:409});
+        const started=await setControl(env.DB,{
+          paused:false,max_autonomy:true,source:'owner-release-command',reason:'owner-start-after-verified-release',
+          repair:null,expected_updated_at:control.updated_at,
+          launch_approved_sha:sha,
+          launch_approved_at:prepared?.readiness?.evaluated_at||new Date().toISOString(),
+          launch_gate_digest:preparednessDigest(prepared?.readiness)||readiness.gate_digest||null,
+        });
+        if (started?.paused===true || started?.max_autonomy!==true)
+          return Response.json({ok:false,status:'OWNER_START_NOT_PERSISTED',resumed:false},{status:409});
+        return Response.json({ok:true,status:'OWNER_MAX_STARTED_AFTER_VERIFIED_RELEASE',owner_started:true,resumed:true,
+          paused:false,max_autonomy:true,owner_control_version:ownerControlVersion(started),autonomy_started:false},
+          {headers:{'cache-control':'no-store'}});
+      }
       const lane=repairLane(control);
       if (lane && !control.paused && control.max_autonomy===true
           && !isAcceptedRoadmapCodeJob(await repository.get(lane.job_id)))
@@ -334,7 +381,15 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       const result=await completeVerifiedRepair(env.DB,repository,{deployedSha:sha,releaseVerified:true});
       return Response.json({ok:result.ok,status:result.status,resumed:result.resumed},
         {status:result.ok?200:409,headers:{'cache-control':'no-store'}});
-    }catch{return Response.json({ok:false,status:'REPAIR_COMPLETION_CONTROL_CHANGED',resumed:false},{status:409});}
+    }catch(error){
+      if (ownerStart && error?.code==='AUTONOMY_CONTROL_CHANGED') {
+        try {
+          const latest=await getAutonomyControl(env.DB);
+          if (ownerControlVersion(latest)>expectedOwnerVersion)return preserveOwnerCommand();
+        }catch{}
+      }
+      return Response.json({ok:false,status:ownerStart?'OWNER_START_CONTROL_CHANGED':'REPAIR_COMPLETION_CONTROL_CHANGED',resumed:false},{status:409});
+    }
   }
 
   const expected = String(env?.MEL_LAUNCH_BOOTSTRAP_TOKEN || '');
