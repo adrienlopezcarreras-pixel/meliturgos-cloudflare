@@ -149,3 +149,28 @@ test('rollback restoration cannot replace a newer owner STOP, and retains the re
  const stopped=await setAutonomyControl(db,{paused:false,max_autonomy:true,source:'release-rollback-restore',reason:'restore-predeploy-autonomy-state'});
  assert.equal(stopped.paused,true);assert.equal(stopped.max_autonomy,false);assert.equal(stopped.source,'owner-ui');
 });
+
+test('full candidate CI failure reserves repair before any next mission selection or model invocation',async t=>{
+ const db=sqliteD1();t.after(()=>db.close());const repository=new D1DevJobRepository(db);
+ await repository.create({id:'published',requested_by:'mel-autonomy',goal:'published code'});
+ await repository.update('published',{status:'READY_FOR_REVIEW',result_json:{
+  teacher_bridge:{status:'ANSWERED',request:{request_id:'request'},review:{request_id:'request',verdict:'APPROVE_PLAN',development_allowed:true}},
+  bridge_preparation:{status:'READY',teacher_request_id:'request',candidate_branch:'candidate/mel-clean-autonomy',candidate_sha:'b'.repeat(40)},
+  dev_bridge:{status:'READY_FOR_REVIEW',candidate_sha:sha,tests:[{passed:true}]},
+ }});
+ const other=await repository.create({id:'next-mission',requested_by:'mel-autonomy',goal:'next'});
+ const before=await repository.get(other.id);
+ await setAutonomyControl(db,{paused:false,max_autonomy:true,source:'owner-ui-launch-gate'});
+ const {runAutonomyRuntimeTick:core}=await import('../src/evolution/autonomy-runtime-core.js');
+ const result=await core({DB:db,MEL_GITHUB_REPOSITORY:repoName,MEL_TEACHER_BRANCH:'candidate/mel-clean-autonomy'},
+  {repository,roadmap:[],maxAutonomy:true,fetchImpl:async url=>{
+   const text=String(url);
+   if(text.includes('teacher-bridge/'))return new Response('');
+   if(text.includes('/commits/'))return Response.json({sha});
+   return Response.json({workflow_runs:[{id:11,name:'full-candidate-ci',head_sha:sha,head_branch:'candidate/mel-clean-autonomy',status:'completed',conclusion:'failure'}]});
+  }});
+ assert.equal(result.status,'REPAIR_RESERVED');
+ assert.equal((await getAutonomyControl(db)).repair.job_id,'published');
+ assert.equal((await repository.get('published')).status,'REPAIR_REQUIRED');
+ assert.deepEqual(await repository.get(other.id),before);
+});

@@ -1,3 +1,5 @@
+import {beginAutomaticRepair} from './autonomy-repair.js';
+import {getAutonomyControl} from './autonomy-control.js';
 import { MAX_AUTONOMOUS_REPAIR_ATTEMPTS as MAX_OWNER_MAX_REPAIR_ATTEMPTS } from './autonomy-repair-policy.js';
 import { fetchFounderMissionTestEvidence } from './founder-mission-test-evidence.js';
 import { staleCouncilDeferral } from '../teachers/council-inference-policy.js';
@@ -781,6 +783,19 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
 
   globalThis.__melTickStage = 'candidate-ci';
   const candidateCI = focused && !repairOnly ? { ok: true, repaired: [], skipped: 'FOCUSED_JOB' } : await reconcileFailedCandidateRuns({ repository: currentRepository, env, fetchImpl });
+
+  // A full-CI failure is discovered here, rather than through the Bridge's
+  // result API. Reserve the same repair lane before the supervisor can rotate
+  // or select another objective in this tick.
+  if (maxAutonomy && !repairOnly && env?.DB && candidateCI.repaired?.length) {
+    const failed = await jobRepository.get(candidateCI.repaired[0].job_id);
+    if (failed?.requested_by === 'mel-autonomy' && failed.status === 'REPAIR_REQUIRED') {
+      const control=await beginAutomaticRepair(env.DB,failed,await getAutonomyControl(env.DB));
+      return {status:'REPAIR_RESERVED',repairing:true,control,job:failed,candidate_ci:candidateCI,
+        progress:{advanced:false,events:[],work_remaining:true,waiting_external:true,active_jobs:1,
+          job_id:failed.id,job_status:failed.status,block_reason:'REPAIR_RESERVED'}};
+    }
+  }
 
   const evolutionLoader = !roadmap ? createRuntimeEvolutionLoader(env) : null;
   const supervisor = new AutonomySupervisor({

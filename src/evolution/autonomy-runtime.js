@@ -524,6 +524,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
   };
   const first = preservePreEnsureCreation(await runCoreResilient(env, coreOptions, repository), preEnsure);
   const passiveRecovery = first?.passive_recovery || null;
+  if (first?.status==='REPAIR_RESERVED') return first;
 
   let internalTeacherMirror = null;
   try {
@@ -1157,7 +1158,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     const watchdog = await recordAutonomyProgressWatchdog(env?.DB || null, tick, {
       maxAutonomy: control.max_autonomy === true,
     }).catch(() => null);
-    const countermeasures = repair ? [] : await applyObservedCountermeasures(env, repository, control, watchdog, tick).catch(() => []);
+    const countermeasures = repair || tick.repairing ? [] : await applyObservedCountermeasures(env, repository, control, watchdog, tick).catch(() => []);
     if (watchdog?.tripped === true) {
       return {
         ...tick,
