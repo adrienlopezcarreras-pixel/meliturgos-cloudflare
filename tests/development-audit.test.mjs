@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { auditDevelopment, excludedCodeModels, probeCodeModels } from '../src/diagnostics/development-audit.js';
+import { auditDevelopment, excludedCodeModels, probeCodeModels, persistWeeklyDevelopmentAudit } from '../src/diagnostics/development-audit.js';
 import { standardRegistry } from '../src/models/ModelRegistry.js';
 import { createDefaultAugmentioPool } from '../src/augmentio/default-pool.js';
 
@@ -103,4 +103,34 @@ test('a timed-out code-model probe fails and clears its timer', async t => {
   assert.equal(result[0].error, 'PROBE_TIMEOUT');
   assert.equal(handles.length, 1);
   assert.equal(handles[0].cleared, true);
+});
+
+test('MEL-AUDIT-02 records a durable weekly report and deduplicated findings without dispatching a repair', async t => {
+  const { sqliteD1 } = await import('./helpers/sqlite-d1.mjs');
+  const db = sqliteD1();
+  t.after(() => db.close());
+  const rows = [
+    job({ id: 'delivered', status: 'COMPLETED', optional_context: { roadmap_id: 'MEL-A' } }),
+    job({ id: 'blocked', status: 'WAITING_DEPENDENCY', optional_context: { roadmap_id: 'MEL-B' } }),
+    ...Array.from({ length: 4 }, (_, i) => job({ id: 'retry-' + i, status: 'FAILED', optional_context: { roadmap_id: 'MEL-C' } })),
+  ];
+  const report = auditDevelopment({ now: NOW, jobs: [...rows, rows[0]] });
+  assert.equal(report.summary.jobs, 6, 'a duplicated snapshot must not count as another attempt');
+  assert.equal(report.summary.completed, 1);
+  assert.equal(report.summary.blocked, 1);
+  assert.equal(report.summary.repeated_objectives, 1);
+  assert.ok(report.findings.some(f => f.code === 'MISSION_LOOP'));
+  assert.equal(report.findings.some(f => f.code === 'NO_DELIVERY_THIS_WEEK'), false);
+  const repeat = { ...report, findings: [...report.findings, report.findings[0]] };
+  const first = await persistWeeklyDevelopmentAudit(db, repeat, { now: NOW });
+  const second = await persistWeeklyDevelopmentAudit(db, repeat, { now: NOW + 3000 });
+  assert.equal(first.persisted, true);
+  assert.equal(first.week_start, second.week_start);
+  const saved = await db.prepare('SELECT report_json FROM mel_development_audit_reports').all();
+  assert.equal(saved.results.length, 1);
+  assert.equal(JSON.parse(saved.results[0].report_json).summary.blocked, 1);
+  const findings = await db.prepare('SELECT code,detail FROM mel_development_audit_findings').all();
+  assert.equal(findings.results.length, new Set(report.findings.map(f => JSON.stringify([f.code, f.detail]))).size);
+  const jobs = await db.prepare('SELECT COUNT(*) AS total FROM dev_jobs').first().catch(() => ({ total: 0 }));
+  assert.equal(Number(jobs?.total || 0), 0, 'recording audit evidence must not enqueue jobs');
 });
