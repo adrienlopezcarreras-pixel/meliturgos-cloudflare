@@ -33,7 +33,7 @@ test('Council keeps release gates while allowing only the pinned maintenance PR 
   assert.match(workflow, /COUNCIL_PR_NOT_ALLOWLISTED/);
   assert.match(workflow, /prNumber==='3094'\?releaseMandatory/);
   assert.match(workflow, /prNumber==='3103'\?maintenanceMandatory/);
-  assert.match(workflow, /prNumber==='3112'\?audit02Mandatory:ownerStopMandatory/);
+  assert.match(workflow, /prNumber==='3112'\?audit02Mandatory:prNumber==='3113'\?ownerStopMandatory:ownerManualMandatory/);
   assert.match(workflow, /3112\|3113\) test "\$STATE" = "open"/);
   assert.match(workflow, /'3094','3103','3112','3113'/);
   const release = workflow.slice(workflow.indexOf('const releaseMandatory=['),workflow.indexOf('const maintenanceMandatory='));
