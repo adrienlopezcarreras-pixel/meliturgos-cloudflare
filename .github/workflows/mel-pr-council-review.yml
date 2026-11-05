@@ -43,6 +43,15 @@ on:
         type: string
         required: true
 
+      owner_manual_review:
+        description: Owner-only read-only review of an open internal PR; never merges or deploys
+        type: boolean
+        default: false
+      successful_release_base:
+        description: Optional successful deployed SHA for reviewing the complete release delta
+        type: string
+        default: ''
+
 permissions:
   contents: read
   actions: read
@@ -128,6 +137,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || inputs.pr_number || needs.discover.outputs.pr_number }}
           EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || inputs.expected_sha || needs.discover.outputs.head }}
+          OWNER_MANUAL_REVIEW: ${{ github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && inputs.owner_manual_review == true && 'true' || 'false' }}
+          REVIEW_BASE_OVERRIDE: ${{ inputs.successful_release_base || '' }}
         run: |
           set -euo pipefail
           [[ "$PR_NUMBER" =~ ^[0-9]{1,6}$ ]]
@@ -146,11 +157,21 @@ jobs:
             echo "::error::COUNCIL_PR_NOT_OPEN_OR_MERGED"
             exit 1
           fi
+          echo "MEL_COUNCIL_OWNER_MANUAL_PROFILE=false" >> "$GITHUB_ENV"
+          if [ -n "$REVIEW_BASE_OVERRIDE" ]; then
+            test "$OWNER_MANUAL_REVIEW" = true
+            [[ "$REVIEW_BASE_OVERRIDE" =~ ^[a-f0-9]{40}$ ]]
+            case "$PR_NUMBER" in 3094|3103|3112|3113) echo "::error::COUNCIL_LEGACY_PROFILE_BASE_OVERRIDE_DENIED"; exit 1 ;; esac
+          fi
           case "$PR_NUMBER" in
             3094) test "$STATE" = "closed" || test "$STATE" = "open" ;;
             3103) test "$STATE" = "open" ;;
             3112|3113) test "$STATE" = "open" ;;
-            *) echo "::error::COUNCIL_PR_NOT_ALLOWLISTED"; exit 1 ;;
+            *)
+              if [ "$OWNER_MANUAL_REVIEW" != true ]; then echo "::error::COUNCIL_PR_NOT_ALLOWLISTED"; exit 1; fi
+              test "$STATE" = open
+              echo "MEL_COUNCIL_OWNER_MANUAL_PROFILE=true" >> "$GITHUB_ENV"
+              ;;
           esac
           echo "MEL_COUNCIL_PR_NUMBER=$PR_NUMBER" >> "$GITHUB_ENV"
           echo "MEL_COUNCIL_HEAD_SHA=$HEAD" >> "$GITHUB_ENV"
@@ -162,6 +183,9 @@ jobs:
         run: |
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/commits/$MEL_COUNCIL_HEAD_SHA/check-runs?per_page=100" > council-checks.json
+          if [ "$MEL_COUNCIL_OWNER_MANUAL_PROFILE" = true ]; then
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/full-candidate-ci.yml/runs?head_sha=$MEL_COUNCIL_HEAD_SHA&per_page=100" > council-exact-full-ci.json
+          fi
           node - <<'NODE'
           const fs=require('node:fs');
           const response=JSON.parse(fs.readFileSync('council-checks.json','utf8'));
@@ -192,10 +216,19 @@ jobs:
             'evolution-ledger-targeted','evolution-ledger-full-suite','max-cloud-scheduler',
           ];
           const prNumber=process.env.MEL_COUNCIL_PR_NUMBER;
-          if(!['3094','3103','3112','3113'].includes(prNumber))throw Error('COUNCIL_PR_NOT_ALLOWLISTED');
+          const ownerManual=process.env.MEL_COUNCIL_OWNER_MANUAL_PROFILE==='true';
+          if(!['3094','3103','3112','3113'].includes(prNumber)&&!ownerManual)throw Error('COUNCIL_PR_NOT_ALLOWLISTED');
+          const ownerManualMandatory=['full-suite'];
+          if(ownerManual){
+            const runs=JSON.parse(fs.readFileSync('council-exact-full-ci.json','utf8')).workflow_runs;
+            if(!Array.isArray(runs)||!runs.some(run=>run.head_sha===process.env.MEL_COUNCIL_HEAD_SHA
+              &&run.name==='full-candidate-ci'&&run.status==='completed'&&run.conclusion==='success'
+              &&run.head_repository?.full_name===process.env.GITHUB_REPOSITORY))
+              throw Error('COUNCIL_OWNER_MANUAL_EXACT_FULL_CI_REQUIRED');
+          }
           const mandatory=prNumber==='3094'?releaseMandatory
             :prNumber==='3103'?maintenanceMandatory
-            :prNumber==='3112'?audit02Mandatory:ownerStopMandatory;
+            :prNumber==='3112'?audit02Mandatory:prNumber==='3113'?ownerStopMandatory:ownerManualMandatory;
           const pending=mandatory.filter(name=>latest.get(name)?.conclusion!=='success');
           const unfinished=[...latest.values()].filter(row=>!['success','skipped'].includes(row.conclusion));
           const ready=pending.length===0&&unfinished.length===0;
@@ -237,6 +270,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || inputs.pr_number || needs.discover.outputs.pr_number }}
           EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || inputs.expected_sha || needs.discover.outputs.head }}
+          OWNER_MANUAL_REVIEW: ${{ github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && inputs.owner_manual_review == true && 'true' || 'false' }}
+          REVIEW_BASE_OVERRIDE: ${{ inputs.successful_release_base || '' }}
         run: |
           set -euo pipefail
           [[ "$PR_NUMBER" =~ ^[0-9]{1,6}$ ]]
@@ -279,6 +314,23 @@ jobs:
           else
             echo "::error::COUNCIL_PR_NOT_OPEN_OR_MERGED"
             exit 1
+          fi
+          if [ -n "$REVIEW_BASE_OVERRIDE" ]; then
+            # An owner may ask for MORE reviewed history, never an arbitrary
+            # unverified baseline, merged-PR approval, or deployment authority.
+            test "$OWNER_MANUAL_REVIEW" = true
+            test "$STATE" = open
+            [[ "$REVIEW_BASE_OVERRIDE" =~ ^[a-f0-9]{40}$ ]]
+            git merge-base --is-ancestor "$REVIEW_BASE_OVERRIDE" "$MAIN"
+            git merge-base --is-ancestor "$REVIEW_BASE_OVERRIDE" "$HEAD"
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/deploy-cloudflare-release.yml/runs?status=success&head_sha=$REVIEW_BASE_OVERRIDE&per_page=5" > council-release-base.json
+            REVIEW_BASE_OVERRIDE="$REVIEW_BASE_OVERRIDE" node - <<'NODE'
+            const d=require('./council-release-base.json');
+            if(!d.workflow_runs?.some(run=>run.head_sha===process.env.REVIEW_BASE_OVERRIDE
+              &&run.conclusion==='success'&&run.status==='completed'))
+              throw Error('COUNCIL_BASE_SUCCESSFUL_RELEASE_REQUIRED');
+          NODE
+            BASE="$REVIEW_BASE_OVERRIDE"
           fi
           echo "MEL_COUNCIL_REVIEW_KIND=$REVIEW_KIND" >> "$GITHUB_ENV"
           echo "MEL_COUNCIL_MERGE_SHA=${MERGE_SHA:-}" >> "$GITHUB_ENV"
