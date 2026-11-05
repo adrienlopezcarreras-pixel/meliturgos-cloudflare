@@ -107,6 +107,16 @@ test('post-deployment verification reads the actual run and all health jobs; inc
   assert.ok(!JSON.stringify(result).includes('private-fixture'));
  }
 });
+test('release verification explains only safe failure classes and never reveals GitHub tokens',async()=>{
+ const f=releaseFixture();
+ for(const [response,reason] of [[new Response('',{status:403}),'GITHUB_READ_HTTP_403'],[new Response('',{status:502}),'GITHUB_READ_HTTP_502']]){
+  const result=await verifyRepairRelease({oidc:f.oidc,deployedSha:sha,token:'private-fixture',fetchImpl:async()=>response});
+  assert.equal(result.ok,false);assert.equal(result.reason,reason);
+  assert.ok(!JSON.stringify(result).includes('private-fixture'));
+ }
+ const mismatch=await verifyRepairRelease({oidc:f.oidc,deployedSha:'b'.repeat(40),token:'private-fixture',fetchImpl:async()=>{throw new Error('must not fetch')}});
+ assert.equal(mismatch.reason,'IDENTITY_OR_TOKEN_INVALID');
+});
 test('repair completion endpoint rejects launch-bearer impersonation and SHA mismatches before any release read',async()=>{
  const request=()=>new Request('https://mel.test/api/internal/release-launch-bootstrap?expected_sha='+sha,{method:'POST',headers:{'x-mel-launch-bootstrap':'x'.repeat(32)},body:JSON.stringify({phase:'verified-repair-complete'})});
  const env={MEL_LAUNCH_BOOTSTRAP_TOKEN:'x'.repeat(32),MEL_DEPLOYED_GIT_SHA:sha};
