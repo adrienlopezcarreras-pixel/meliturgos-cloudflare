@@ -21,3 +21,7 @@ réparation ou callback de release ne réactive MAX après cet arrêt. Une ancie
 pause globale de réparation reste également fermée ; elle n'est pas convertie
 silencieusement en autorisation nouvelle. Un état invalide, un budget épuisé ou
 une preuve absente garde les autres missions bloquées avec un diagnostic.
+
+Le lecteur des preuves GitHub utilise `redirect: manual` et refuse les réponses
+3xx sans suivre leur destination. Ce contrat est testé dans workerd : le mode
+`error`, accepté par Node, est rejeté par Workers avant tout envoi réseau.
