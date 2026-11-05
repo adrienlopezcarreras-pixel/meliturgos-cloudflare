@@ -85,6 +85,7 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
       "scripts/workers-ai-catalog-diff.mjs"
     ],
     "test_paths": [
+      "tests/development-audit.test.mjs",
       "tests/workers-ai-catalog-proposals.test.mjs"
     ],
     "acceptance": [
