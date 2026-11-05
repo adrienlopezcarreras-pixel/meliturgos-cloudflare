@@ -43,9 +43,15 @@ async function post(data){
   const freshToken=await currentOidcToken();
   const response=await fetch(url,{method:'POST',redirect:'manual',
     headers:{'x-mel-github-oidc':freshToken,'content-type':'application/json'},
-    body:JSON.stringify(data),signal:AbortSignal.timeout(300000)});
-  if(response.status!==200)throw Error('COUNCIL_BATCH_HTTP_'+response.status);
-  return response.json();
+    body:JSON.stringify({...data,heartbeat:true}),signal:AbortSignal.timeout(300000)});
+  let result;
+  try { result=await response.json(); }
+  catch { throw Error('COUNCIL_BATCH_RESPONSE_INVALID_'+response.status); }
+  if(response.status!==200||result?.ok!==true){
+    const code=String(result?.code||'');
+    throw Error(/^[A-Z0-9_]{1,80}$/.test(code)?code:'COUNCIL_BATCH_HTTP_'+response.status);
+  }
+  return result;
 }
 for(const batch of planned.batches){
   const data=await post({...common,mode:'batch',batch_index:batch.number,

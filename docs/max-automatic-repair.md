@@ -55,3 +55,7 @@ Les objections Council sont conservées dans un artefact de diagnostic lié au h
 Le rapport cloud READY_FOR_REVIEW conserve les chemins du paquet figé au claim. Les revues et annulations utilisent cette liste publiée avant files_json, qui peut déjà contenir une nouvelle proposition. Le test orphelin du rejet AUDIT-05 est remis à l’état main approuvé; la régression demandée reste dans prepared/MEL-AUDIT-05.json pour accompagner sa future implémentation corrigée. Cela ne termine ni ne certifie AUDIT-05.
 
 Le Council reçoit aussi les fichiers de code complets de petite taille au SHA exact : jusqu’à12 lectures parallèles,16000 octets par fichier et32000 octets au total. Les plus gros fichiers sont explicitement omis, sans troncature silencieuse ni affirmation de lecture complète. Ce contexte complète le diff sans relever sa limite48000 octets, sans compter une absence du hunk comme une absence du module et sans remplacer les votes indépendants.
+
+Le transport heartbeat est aussi demandé par les clients Council : l’authentification précède le flux, un seul chemin exécute la revue, et les clients exigent encore ok:true et le véritable verdict. Un200 de transport ou une erreur JSON ne vaut jamais approbation.
+
+Le paquet AUDIT-05 révisé conserve le code existant chat/audit, la régression à horloge injectée et les seuils. Il normalise aussi les timestamps millisecondes sérialisés pour éviter trois fausses alertes sur un état sain. Ce paquet proposé est testé isolément et doit encore suivre le Bridge, la CI complète et le Council avant toute clôture de mission.

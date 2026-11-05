@@ -1,4 +1,5 @@
 import { resolveCouncilReviewContext } from './council-file-context.js';
+import { jsonHeartbeatResponse } from '../core/json-heartbeat-response.js';
 // Council review gate: no autonomous change reaches main without a majority of
 // independent AI reviewers approving its diff (owner rule 18/10/2026: "tout
 // doit être validé par le Council"). Called by mel-candidate-promotion.yml with
@@ -434,6 +435,13 @@ export async function handleCouncilReviewRequest(request, env, { now = Date.now(
   });
   if (!oidc.ok) return Response.json({ ok: false, code: oidc.code }, { status: oidc.status || 401 });
   const body = await request.json().catch(() => ({}));
+  const response = executeCouncilReviewBody(body, env, {now, review, contextLoader});
+  if (body?.heartbeat === true) return jsonHeartbeatResponse(response.then(value => value.json())
+    .catch(() => ({ok:false,code:'COUNCIL_REVIEW_EXECUTION_FAILED'})));
+  return response;
+}
+
+async function executeCouncilReviewBody(body, env, {now, review, contextLoader}) {
   if (body?.mode === 'batch' || body?.mode === 'final') {
     const batchResponse = await handleCouncilBatchedReview(env, body, { review, now, contextLoader });
     return Response.json(batchResponse.result, { status: batchResponse.status });
