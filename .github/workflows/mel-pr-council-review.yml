@@ -17,6 +17,10 @@ on:
       - lora-runtime-pipeline-ci
       - mel-self-audit-supervisor-ci
       - cloudflare-api-relay
+      - reconciled-development-audit-ci
+      - max-cloud-readiness-ci
+      - cloud-bridge-auth-ci
+      - evolution-ledger-ci
     types: [completed]
   # Recover a CI-complete PR that predates installation of this workflow on main.
   schedule:
@@ -24,6 +28,10 @@ on:
     - cron: '47 */2 * * *'
     # Odd-hour maintenance review for open #3103; keep the audit slot separate.
     - cron: '17 1-23/2 * * *'
+    # Independent MAX repair reviews: daily fallback, distinct from legacy slots.
+    # Open PRs only; merged repairs are never reviewed retroactively as release approvals.
+    - cron: '07 2 * * *'
+    - cron: '37 2 * * *'
   workflow_dispatch:
     inputs:
       pr_number:
@@ -66,6 +74,8 @@ jobs:
           case "$SCHEDULE_CRON" in
             '47 */2 * * *') SELECTED_PR=3094 ;;
             '17 1-23/2 * * *') SELECTED_PR=3103 ;;
+            '07 2 * * *') SELECTED_PR=3112 ;;
+            '37 2 * * *') SELECTED_PR=3113 ;;
             *) echo "::error::COUNCIL_UNRECOGNIZED_SCHEDULE"; exit 1 ;;
           esac
           META="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$SELECTED_PR" --jq '[.state,.base.ref,.head.sha,.head.repo.full_name,(.merged_at // ""),(.merge_commit_sha // "")] | @tsv')"
@@ -103,7 +113,9 @@ jobs:
        github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'pull_request' &&
        (github.event.workflow_run.head_branch == 'integration/max-contingency-release-candidate' ||
-        github.event.workflow_run.head_branch == 'fix/council-historical-audit-main-advance-20261104') &&
+        github.event.workflow_run.head_branch == 'fix/council-historical-audit-main-advance-20261104' ||
+        github.event.workflow_run.head_branch == 'fix/max-audit02-manual-recovery-20261104' ||
+        github.event.workflow_run.head_branch == 'fix/max-owner-stop-pauses-runtime-20261104') &&
        github.event.workflow_run.pull_requests[0].number != null))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -137,6 +149,7 @@ jobs:
           case "$PR_NUMBER" in
             3094) test "$STATE" = "closed" || test "$STATE" = "open" ;;
             3103) test "$STATE" = "open" ;;
+            3112|3113) test "$STATE" = "open" ;;
             *) echo "::error::COUNCIL_PR_NOT_ALLOWLISTED"; exit 1 ;;
           esac
           echo "MEL_COUNCIL_PR_NUMBER=$PR_NUMBER" >> "$GITHUB_ENV"
@@ -170,9 +183,19 @@ jobs:
           // Maintenance PR #3103 changes only Council review wiring and tests.
           // Never relax the 13-gate release profile for #3094.
           const maintenanceMandatory=['gen2-17-targeted','gen2-17-full-suite','encrypted-backup'];
+          // MAX audit repair: explicit PR allowlist and exact per-PR CI profile.
+          // Never reduce #3094's full 13-gate release profile or #3103's gates.
+          const audit02Mandatory=['test','self-audit-contract','contract','max-cloud-scheduler'];
+          const ownerStopMandatory=[
+            'gen2-17-targeted','gen2-17-full-suite','mentor-fallback-isolated',
+            'predeploy-contract','targeted','encrypted-backup',
+            'evolution-ledger-targeted','evolution-ledger-full-suite','max-cloud-scheduler',
+          ];
           const prNumber=process.env.MEL_COUNCIL_PR_NUMBER;
-          if(!['3094','3103'].includes(prNumber))throw Error('COUNCIL_PR_NOT_ALLOWLISTED');
-          const mandatory=prNumber==='3094'?releaseMandatory:maintenanceMandatory;
+          if(!['3094','3103','3112','3113'].includes(prNumber))throw Error('COUNCIL_PR_NOT_ALLOWLISTED');
+          const mandatory=prNumber==='3094'?releaseMandatory
+            :prNumber==='3103'?maintenanceMandatory
+            :prNumber==='3112'?audit02Mandatory:ownerStopMandatory;
           const pending=mandatory.filter(name=>latest.get(name)?.conclusion!=='success');
           const unfinished=[...latest.values()].filter(row=>!['success','skipped'].includes(row.conclusion));
           const ready=pending.length===0&&unfinished.length===0;

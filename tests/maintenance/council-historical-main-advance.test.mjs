@@ -31,7 +31,11 @@ test('Council keeps release gates while allowing only the pinned maintenance PR 
   assert.match(workflow, /MEL_COUNCIL_PR_NUMBER=\$PR_NUMBER/);
   assert.match(workflow, /3103\) test "\$STATE" = "open"/);
   assert.match(workflow, /COUNCIL_PR_NOT_ALLOWLISTED/);
-  assert.match(workflow, /prNumber==='3094'\?releaseMandatory:maintenanceMandatory/);
+  assert.match(workflow, /prNumber==='3094'\?releaseMandatory/);
+  assert.match(workflow, /prNumber==='3103'\?maintenanceMandatory/);
+  assert.match(workflow, /prNumber==='3112'\?audit02Mandatory:ownerStopMandatory/);
+  assert.match(workflow, /3112\|3113\) test "\$STATE" = "open"/);
+  assert.match(workflow, /'3094','3103','3112','3113'/);
   const release = workflow.slice(workflow.indexOf('const releaseMandatory=['),workflow.indexOf('const maintenanceMandatory='));
   for (const name of [
     'gen2-17-targeted', 'gen2-17-full-suite', 'monitor-contract',
@@ -55,4 +59,42 @@ test('scheduled Council audit and maintenance review have disjoint slots and exa
   assert.match(workflow, /echo "pr_number=\$SELECTED_PR" >> "\$GITHUB_OUTPUT"/);
   assert.match(workflow, /if \[ "\$SELECTED_PR" != 3094 \]; then/);
   assert.match(workflow, /Maintenance PR merged; do not substitute historical release audit/);
+});
+
+test('MAX Council review remains narrowly scoped and SHA-pinned without weakening historic release gates', () => {
+  const pr3112 = workflow.slice(workflow.indexOf('const audit02Mandatory=['),workflow.indexOf('const ownerStopMandatory=['));
+  const pr3113 = workflow.slice(workflow.indexOf('const ownerStopMandatory=['),workflow.indexOf('const prNumber='));
+  for (const name of ['test','self-audit-contract','contract','max-cloud-scheduler'])
+    assert.ok(pr3112.includes("'" + name + "'"), 'AUDIT-02 requires '+name);
+  for (const name of [
+    'gen2-17-targeted','gen2-17-full-suite','mentor-fallback-isolated',
+    'predeploy-contract','targeted','encrypted-backup','evolution-ledger-targeted',
+    'evolution-ledger-full-suite','max-cloud-scheduler',
+  ]) assert.ok(pr3113.includes("'" + name + "'"), 'owner STOP requires '+name);
+  assert.match(workflow, /fix\/max-audit02-manual-recovery-20261104/);
+  assert.match(workflow, /fix\/max-owner-stop-pauses-runtime-20261104/);
+  assert.match(workflow, /test "\$HEAD" = "\$EXPECTED_SHA"/);
+  assert.match(workflow, /COUNCIL_CI_INCOMPLETE_CHECK_LIST/);
+  assert.match(workflow, /COUNCIL_CI_NOT_ALL_COMPLETE_AND_GREEN/);
+  assert.match(workflow, /release_authorized:false/);
+  assert.match(workflow, /Full multi-batch independent Council verdict/);
+});
+
+test('Council retries the two MAX correction reviews automatically after CI and once daily', () => {
+  for (const name of [
+    'reconciled-development-audit-ci',
+    'max-cloud-readiness-ci',
+    'cloud-bridge-auth-ci',
+    'evolution-ledger-ci',
+  ]) assert.ok(workflow.includes("      - " + name), name);
+  assert.match(workflow, /- cron: '07 2 \* \* \*'/);
+  assert.match(workflow, /- cron: '37 2 \* \* \*'/);
+  assert.match(workflow, /'07 2 \* \* \*'\) SELECTED_PR=3112/);
+  assert.match(workflow, /'37 2 \* \* \*'\) SELECTED_PR=3113/);
+  // The scheduled selector and preflight must pin the actual live PR head,
+  // forbid merged MAX PRs, and preserve the content-free Council receipt.
+  assert.match(workflow, /test "\$HEAD" = "\$EXPECTED_SHA"/);
+  assert.match(workflow, /if \[ "\$SELECTED_PR" != 3094 \]; then/);
+  assert.match(workflow, /if \[ "\$STATE" = "open" \]; then/);
+  assert.match(workflow, /release_authorized:false/);
 });
