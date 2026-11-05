@@ -8,7 +8,10 @@ test('cloud bridge uses GitHub OIDC instead of installing a Worker secret', asyn
   const source = await readFile(new URL('../../.github/workflows/gen2-42-apply-ready-bridge.yml', import.meta.url), 'utf8');
   assert.match(source, /id-token: write/);
   assert.match(source, /audience=meliturgos-worker/);
-  assert.equal(source.split('x-mel-github-oidc: $("$MEL_OIDC_HELPER")').length - 1, 5);
+  // One claim, one precommit and two result paths (normal + emergency).
+  // The old fifth OIDC request belonged to the removed cancellation reporter,
+  // which repeatedly requeued already-satisfied MEL-AUDIT-02.
+  assert.equal(source.split('x-mel-github-oidc: $("$MEL_OIDC_HELPER")').length - 1, 4);
   assert.doesNotMatch(source, /MEL_CLOUD_BRIDGE_TOKEN|cf-worker-secret|secret (put|delete)/);
 });
 
