@@ -18,6 +18,14 @@ const list = (value, max) => (Array.isArray(value) ? value.slice(0, max) : []);
 
 export async function storeArchitectureReport(db, report, { sha = '', now = Date.now() } = {}) {
   if (report?.schema !== 'mel.architecture-audit/v1') throw Object.assign(new Error('ARCHITECTURE_REPORT_SCHEMA_INVALID'), { status: 400 });
+  // MEL-AUDIT-04: a report is bound to the exact signed commit; without a
+  // valid 40-hex identity it is refused, and a replay of the same commit is
+  // recorded once (no refreshed date, no extra finding).
+  const sourceSha = String(sha || '').toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(sourceSha)) throw Object.assign(new Error('ARCHITECTURE_REPORT_IDENTITY_INVALID'), { status: 401 });
+  await ensureSchema(db);
+  const existing = await db.prepare('SELECT source_sha FROM mel_architecture_audit WHERE id = ?').bind(KEY).first().catch(() => null);
+  if (existing?.source_sha === sourceSha) return { ok: true, status: 'ARCHITECTURE_REPORT_ALREADY_STORED' };
   // Bounded copy: a report never grows D1 beyond a few kilobytes.
   const bounded = {
     schema: report.schema,
@@ -36,10 +44,9 @@ export async function storeArchitectureReport(db, report, { sha = '', now = Date
       findings: list(report.ui.findings, 40).map(row => ({ code: String(row?.code || '').slice(0, 60), detail: String(row?.detail || '').slice(0, 300) })),
     } } : {}),
   };
-  await ensureSchema(db);
   await db.prepare(`INSERT INTO mel_architecture_audit (id, report_json, source_sha, received_at) VALUES (?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET report_json = excluded.report_json, source_sha = excluded.source_sha, received_at = excluded.received_at`)
-    .bind(KEY, JSON.stringify(bounded), String(sha).slice(0, 40), now).run();
+    .bind(KEY, JSON.stringify(bounded), sourceSha, now).run();
   return { ok: true, status: 'ARCHITECTURE_REPORT_STORED' };
 }
 

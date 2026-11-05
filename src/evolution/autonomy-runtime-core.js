@@ -1214,8 +1214,16 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   }
   const activeCount = activeAutonomyMission(Array.isArray(state?.active) ? state.active : []) ? 1 : 0;
   const workRemaining = autonomyWorkRemaining(state);
+  // A Bridge-accepted job awaiting its exact-SHA candidate CI and Council
+  // decision is not idle. Keep it visible and resumable, but stop spending
+  // follow-up autonomy cycles while the external review owns the next step.
+  // Never hide an actual Bridge repair (needs_repair) behind this wait.
+  const awaitingCandidateReview = finalJobStatus === 'READY_FOR_REVIEW'
+    && String(job?.result_json?.dev_bridge?.status || '').toUpperCase() === 'READY_FOR_REVIEW'
+    && job?.result_json?.dev_bridge?.needs_repair !== true;
   const waitingExternal = (teacher?.status === 'NOT_READY' && Boolean(providerDeferral(teacher.code)))
     || finalJobStatus === 'WAITING_TEACHER'
+    || awaitingCandidateReview
     || bridgePreparation?.status === 'AWAITING_LIVE_EVIDENCE'
     || String(ensured?.external_progress?.status || '').length > 0;
   const blockReason = teacher?.status === 'NOT_READY' ? teacher.code : bridgePreparation?.status === 'NOT_READY'
@@ -1225,7 +1233,9 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       : runtimeProof?.status === 'NOT_VERIFIED'
         ? (runtimeProof.code || 'RUNTIME_WORK_DAG_PROOF_NOT_VERIFIED')
         : waitingExternal
-          ? (bridgePreparation?.status === 'AWAITING_LIVE_EVIDENCE' ? bridgePreparation.code : (ensured?.external_progress?.status || 'WAITING_EXTERNAL_PROGRESS'))
+          ? (awaitingCandidateReview ? 'CANDIDATE_CI_COUNCIL_REVIEW_PENDING'
+            : bridgePreparation?.status === 'AWAITING_LIVE_EVIDENCE' ? bridgePreparation.code
+              : (ensured?.external_progress?.status || 'WAITING_EXTERNAL_PROGRESS'))
           : autonomyQueueReadBlocker(state);
   const advanced = autonomyTickAdvanced(progressEvents);
 

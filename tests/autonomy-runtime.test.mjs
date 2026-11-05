@@ -753,3 +753,31 @@ test('three ticks resume the same job and step, release the lease and distinguis
   assert.equal(autonomyTickOutcome({ advanced: false, waitingExternal: false }), 'NO_PROGRESS');
   assert.equal(autonomyTickOutcome({ advanced: false, workRemaining: false }), 'IDLE_COMPLETE');
 });
+
+test('READY_FOR_REVIEW with accepted Bridge receipt waits for exact-SHA CI and Council instead of spinning MAX', async () => {
+  const fixture = runtimeFixture();
+  const job = await fixture.repository.create({
+    id: 'mel-autonomy-mel-audit-04-reviewed',
+    requested_by: 'mel-autonomy',
+    goal: '[TEST-AUTONOMY-01] Candidate implementation pending Council',
+    optional_context: { roadmap_id: FIRST_AUTONOMY_ID, priority: 'P0', source: 'autonomy-supervisor' },
+  });
+  await fixture.repository.update(job.id, {
+    status: 'READY_FOR_REVIEW',
+    candidate_branch: 'candidate/mel-clean-autonomy',
+    result_json: {
+      teacher_bridge: { status: 'ANSWERED', request: { request_id: 'reviewed-1' }, review: { verdict: 'APPROVE_PLAN', development_allowed: true } },
+      dev_bridge: { status: 'READY_FOR_REVIEW', needs_repair: false, candidate_sha: CANDIDATE_HEAD_SHA },
+    },
+  });
+  const tick = await runAutonomyRuntimeTick(fixture.env, { repository: fixture.repository, fetchImpl: fixture.fetchImpl });
+  assert.equal(tick.ok, true);
+  assert.equal(tick.progress.job_id, job.id);
+  assert.equal(tick.progress.job_status, 'READY_FOR_REVIEW');
+  assert.equal(tick.progress.advanced, false);
+  assert.equal(tick.progress.work_remaining, true);
+  assert.equal(tick.progress.waiting_external, true);
+  assert.equal(tick.progress.block_reason, 'CANDIDATE_CI_COUNCIL_REVIEW_PENDING');
+  assert.equal((await fixture.repository.list()).length, 1, 'pending review cannot admit a different mission');
+  assert.equal((await fixture.repository.get(job.id)).status, 'READY_FOR_REVIEW', 'waiting cannot fabricate completion');
+});

@@ -21,7 +21,7 @@ test('UI audit: server errors, JS errors and stuck panels are findings; 401/403 
 test('the UI section rides the weekly report into MEL findings', async () => {
   const db = sqliteD1();
   const now = Date.now();
-  await storeArchitectureReport(db, { schema: 'mel.architecture-audit/v1', ui: { schema: 'mel.ui-production-audit/v1', pages: 12, findings: [{ code: 'UI_JS_ERROR', detail: '/professor#lora : boom' }, { code: 'NOT_UI', detail: 'x' }] } }, { now });
+  await storeArchitectureReport(db, { schema: 'mel.architecture-audit/v1', ui: { schema: 'mel.ui-production-audit/v1', pages: 12, findings: [{ code: 'UI_JS_ERROR', detail: '/professor#lora : boom' }, { code: 'NOT_UI', detail: 'x' }] } }, { sha: 'e'.repeat(40), now });
   assert.deepEqual(architectureFindings(await readArchitectureReport(db), { now }).map(f => f.code), ['UI_JS_ERROR']);
 });
 
