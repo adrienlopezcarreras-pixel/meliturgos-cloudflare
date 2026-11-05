@@ -212,3 +212,16 @@ test('Bridge follow-up tick dispatch JSON remains outside the git worktree', asy
   assert.match(followup,/\$RUNNER_TEMP\/mel-autonomy-next-dispatch\.json/);
   assert.doesNotMatch(followup,/> autonomy-next-dispatch\.json/);
 });
+
+test('a 422 from the release wrapper uses existing protected exact-SHA dispatcher without bypassing owner stop', async () => {
+  const source = await read('.github/workflows/mel-candidate-promotion.yml');
+  const helper = source.slice(source.indexOf('dispatch_release() {'),source.indexOf('# Recheck owner control at the last possible point'));
+  assert.match(helper, /--fail-with-body/);
+  assert.match(helper, /\[ "\$code" = "422" \]/);
+  assert.match(helper, /RELEASE_WRAPPER_DISPATCH_422_SAFE_FALLBACK_TO_PROTECTED_DISPATCHER/);
+  assert.ok(helper.indexOf('owner_max_still_authorizes_promotion') < helper.indexOf('node scripts/mel-autonomous-release-dispatch.mjs'));
+  assert.match(helper, /MEL_REQUIRE_PROTECTED_REFS=true MEL_RELEASE_BATCH_WINDOW_MS=0 GH_TOKEN="\$GH_TOKEN"/);
+  assert.match(helper, /\[ "\$curl_exit" -ne 0 \]/);
+  assert.match(helper, /\[ "\$code" != "204" \]/);
+  assert.doesNotMatch(helper, /\|\| true/);
+});

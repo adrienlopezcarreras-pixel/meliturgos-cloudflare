@@ -73,14 +73,30 @@ jobs:
             echo "$code"
           }
           dispatch_release() {
-            local code
+            local code curl_exit=0
+            # A 422 from GitHub's *wrapper* workflow must not strand the already
+            # promoted SHA. Reuse the existing canonical release dispatcher,
+            # which checks the protected refs, live deployment lane and exact
+            # main SHA again before touching the release pointer.
             code="$(curl --fail-with-body --silent --show-error --max-time 30 --request POST \
               --header "Authorization: Bearer $GH_TOKEN" --header "Accept: application/vnd.github+json" \
-              --data '{"ref":"main"}' --output /dev/null --write-out '%{http_code}' \
-              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/mel-autonomous-production-release.yml/dispatches")" || {
-              echo "::error title=MEL release::PRODUCTION_RELEASE_DISPATCH_FAILED" >&2
+              --data '{"ref":"main"}' --output "$RUNNER_TEMP/mel-release-trigger-response.json" --write-out '%{http_code}' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/mel-autonomous-production-release.yml/dispatches")" || curl_exit=$?
+            if [ "$code" = "422" ]; then
+              echo "::warning title=MEL release::RELEASE_WRAPPER_DISPATCH_422_SAFE_FALLBACK_TO_PROTECTED_DISPATCHER"
+              # The owner's STOP remains authoritative after Council+main push.
+              if ! owner_max_still_authorizes_promotion; then
+                echo "::notice title=MEL release::OWNER_STOP_BEFORE_RECOVERY - no production dispatch"
+                return 0
+              fi
+              MEL_REQUIRE_PROTECTED_REFS=true MEL_RELEASE_BATCH_WINDOW_MS=0 GH_TOKEN="$GH_TOKEN" \
+                node scripts/mel-autonomous-release-dispatch.mjs
+              return
+            fi
+            if [ "$curl_exit" -ne 0 ]; then
+              echo "::error title=MEL release::PRODUCTION_RELEASE_DISPATCH_FAILED http=$code" >&2
               return 1
-            }
+            fi
             if [ "$code" != "204" ]; then
               echo "::error title=MEL release::PRODUCTION_RELEASE_DISPATCH_UNACKNOWLEDGED http=$code" >&2
               return 1
