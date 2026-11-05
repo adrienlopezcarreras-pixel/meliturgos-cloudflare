@@ -197,6 +197,12 @@ jobs:
           ONLY_JOB_ID: ${{ inputs.only_job_id || '' }}
         run: |
           set -euo pipefail
+          # Manual per-mission passes must never dispatch a new untargeted tick.
+          # The Cloud Bridge step above has the same guard; this is independent.
+          if [ -n "$ONLY_JOB_ID" ]; then
+            echo "FOCUSED_TICK_NO_AUTOMATIC_CHAIN"
+            exit 0
+          fi
           ADVANCED="$(node -p "JSON.parse(require('fs').readFileSync('gen2-42-runtime-tick-proof.json','utf8')).advanced===true?'true':'false'")"
           PAUSED="$(node -p "JSON.parse(require('fs').readFileSync('gen2-42-runtime-tick-proof.json','utf8')).paused===true?'true':'false'")"
           MAX="$(node -p "JSON.parse(require('fs').readFileSync('gen2-42-runtime-tick-proof.json','utf8')).max_autonomy===true?'true':'false'")"
