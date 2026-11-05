@@ -48,22 +48,33 @@ test('[GPT6] long full-suite timeout is larger than individual suite timeout',()
  assert.match(workflow,/timeout:args\[1\]==='test'\?600000:180000/);
 });
 
-test('[GPT6] already-satisfied reconciliation requires full regression and accurate execution evidence',()=>{
+test('[GPT6] exact-main equality is not a completion signal and cannot cancel a roadmap objective',()=>{
  const start=workflow.indexOf('      - name: Reconcile package already satisfied on main');
- const end=workflow.indexOf('      - name: Report already-satisfied reconciliation',start);
+ const end=workflow.indexOf('      - name: Checkout exact approved candidate',start);
  const stage=workflow.slice(start,end);
+ assert.ok(start>=0&&end>start);
+ assert.match(stage,/ALREADY_SATISFIED_ON_MAIN_AWAITING_EXACT_SHA_CI/);
+ assert.match(stage,/echo "already_satisfied=false"/);
+ assert.doesNotMatch(stage,/status:'CANCELLED'|status:"CANCELLED"/);
+ assert.doesNotMatch(workflow,/Report already-satisfied reconciliation|report_satisfied/);
+ assert.ok(workflow.indexOf('      - name: Run exact bounded requested tests')>end);
+ assert.ok(workflow.indexOf('      - name: Commit and push exact candidate change')>end);
+ assert.match(workflow,/steps\.report_result\.outcome == 'success'/);
+});
+
+test('[GPT6] exact-main reconciliation uses normal syntax, full regression and exact candidate CI rather than bypassing proof',()=>{
+ const start=workflow.indexOf('      - name: Run exact bounded requested tests');
+ const end=workflow.indexOf('      - name: Recheck owner STOP before publishing',start);
+ const stage=workflow.slice(start,end);
+ assert.ok(start>=0&&end>start);
+ assert.match(stage,/commandEvidence\(\['npm','run','check'\]\)/);
  assert.match(stage,/if\(!requested\.some\(spec=>spec\.command==='test'\)\) requested\.unshift/);
- assert.match(stage,/executed:!r\.error/);
+ assert.match(stage,/timeout:args\[1\]==='test'\?600000:180000/);
+ assert.match(stage,/passed:r\.status===0,executed:r\.executed/);
+ const report=workflow.slice(workflow.indexOf('      - name: Report cloud bridge result to production D1'));
+ assert.match(report,/status,\s*\n\s*candidate_branch/);
+ assert.match(workflow,/FULL_CANDIDATE_CI_DISPATCH http=\$code sha=\$NEW_SHA/);
 });
-
-test('[GPT6] exact-main reconciliation enforces check and bounded commands',()=>{
- const start=workflow.indexOf('      - name: Reconcile package already satisfied on main');
- const end=workflow.indexOf('      - name: Report already-satisfied reconciliation',start);
- const stage=workflow.slice(start,end);
- assert.match(stage,/spawnSync\('npm',\['run','check'\]/);
- assert.match(stage,/timeout:name==='test'\?600000:180000/);
-});
-
 test('[GPT6] candidate without dispatched full CI cannot enter ready-for-review',()=>{
  const start=workflow.indexOf('      - name: Commit and push exact candidate change');
  const end=workflow.indexOf('      - name: Report cloud bridge result to production D1',start);
