@@ -319,7 +319,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     });
     if (oidc.ok !== true) return Response.json({ok:false,code:'REPAIR_RELEASE_OIDC_REQUIRED'}, {status:401});
     const sha=exactDeployedSha(env);
-    if (url.searchParams.get('expected_sha')!==sha || oidc.sha!==sha)
+    if (url.searchParams.get('expected_sha')!==sha || oidc.identity?.sha!==sha)
       return Response.json({ok:false,code:'REPAIR_RELEASE_SHA_MISMATCH'}, {status:409});
     const verified=await verifyRepairRelease({oidc,deployedSha:sha,
       token:request.headers.get('x-mel-github-read-token')});

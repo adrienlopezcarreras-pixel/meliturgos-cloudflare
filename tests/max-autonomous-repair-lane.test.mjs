@@ -111,7 +111,9 @@ test('repair completion endpoint rejects launch-bearer impersonation and SHA mis
  const request=()=>new Request('https://mel.test/api/internal/release-launch-bootstrap?expected_sha='+sha,{method:'POST',headers:{'x-mel-launch-bootstrap':'x'.repeat(32)},body:JSON.stringify({phase:'verified-repair-complete'})});
  const env={MEL_LAUNCH_BOOTSTRAP_TOKEN:'x'.repeat(32),MEL_DEPLOYED_GIT_SHA:sha};
  assert.equal((await maybeHandleReleaseLaunchBootstrap(request(),env,{authorizeOidc:async()=>({ok:false})})).status,401);
- assert.equal((await maybeHandleReleaseLaunchBootstrap(request(),env,{authorizeOidc:async()=>({...releaseFixture().oidc,sha:'b'.repeat(40)})})).status,409);
+ assert.equal((await maybeHandleReleaseLaunchBootstrap(request(),env,{authorizeOidc:async()=>({ok:true,identity:{...releaseFixture().oidc,sha:'b'.repeat(40)}})})).status,409);
+ const validIdentity=await maybeHandleReleaseLaunchBootstrap(request(),env,{authorizeOidc:async()=>({ok:true,identity:releaseFixture().oidc})});
+ assert.notEqual((await validIdentity.json()).code,'REPAIR_RELEASE_SHA_MISMATCH','a verified matching OIDC identity must pass the exact-SHA guard');
 });
 
 test('the real runtime holds completed but unproven repair without selecting the queued successor or calling AI',async t=>{
