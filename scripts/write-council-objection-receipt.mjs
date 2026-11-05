@@ -14,6 +14,7 @@ export function councilObjectionReceipt(body, expectedHead, expectedBase) {
     reviews: valid ? (Array.isArray(body.reviews) ? body.reviews : []).slice(0, 8).map(row => ({
       model: String(row?.model || '').slice(0, 160),
       verdict: ['APPROVE', 'REJECT'].includes(row?.verdict) ? row.verdict : null,
+      error_code: /^[A-Z0-9_]{1,80}$/.test(String(row?.error || '')) ? row.error : null,
       blocking: (Array.isArray(row?.blocking) ? row.blocking : [])
         .filter(value => typeof value === 'string').slice(0, 8).map(value => value.slice(0, 300)),
     })) : [],

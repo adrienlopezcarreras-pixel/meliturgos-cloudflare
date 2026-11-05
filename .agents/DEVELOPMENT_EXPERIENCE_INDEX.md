@@ -220,5 +220,3 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 - `codex-council-revert-uses-published-package-paths-20261105` — annuler source et tests à partir du paquet publié figé, pas de la proposition mutable; une restauration ne valide pas la mission.
 
 - `codex-council-review-needs-unchanged-file-context-20261105` — fournir les petits fichiers complets au SHA exact pour vérifier le code inchangé autour du diff; contexte borné, omissions explicites et lectures parallèles, sans modifier le quorum.
-
-- `codex-temporal-audit-normalizes-serialized-milliseconds-20261105` — un timestamp millisecondes sérialisé conserve la même valeur temporelle et ne crée pas de fausse réparation; garder les seuils et tester les frontières. Paquet testé localement, pas encore livré.

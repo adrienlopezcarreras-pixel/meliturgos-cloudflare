@@ -1825,30 +1825,4 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1793901044600
   },
-  {
-    "id": "codex-temporal-audit-normalizes-serialized-milliseconds-20261105",
-    "source": "codex",
-    "domain": "temporal-input-contract",
-    "task": "Préserver un état sain lorsque des timestamps millisecondes sont sérialisés en texte.",
-    "input": "Le paquet préparé AUDIT-05 traite des timestamps courants en chaînes comme zéro et invente un backlog mémoire, une session expirée et une sauvegarde absente.",
-    "before": "Date.parse est appelé directement sur une chaîne numérique millisecondes, alors que sa version numérique fonctionne.",
-    "after": "Normaliser explicitement les nombres finis et leurs représentations textuelles avant les comparaisons temporelles, tout en conservant le parsing ISO et les seuils existants. Tester le même état sain avec des timestamps numériques et sérialisés, ainsi que les frontières exactes des cas anciens ou expirés.",
-    "rationale": "Le type de transport ne doit pas transformer des données saines en missions de réparation.",
-    "tests": [
-      "ancien paquet: le nouveau test échoue avec trois faux constats; logs locaux max-audit05-string-red.log",
-      "paquet révisé appliqué dans un worktree jetable:8 tests audit réussis;27 tests chat/audit/paquets réussis",
-      "tests/prepared-audit05-temporal-contract.test.mjs: exécution du véritable audit proposé, état sain sérialisé et frontières; aucune livraison production revendiquée"
-    ],
-    "tags": [
-      "timestamp",
-      "serialization",
-      "clock",
-      "audit",
-      "false-positive",
-      "prepared-package"
-    ],
-    "validated": true,
-    "quality": 1,
-    "created_at": 1793902642672
-  },
 ]);

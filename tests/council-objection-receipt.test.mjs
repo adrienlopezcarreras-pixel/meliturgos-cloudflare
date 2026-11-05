@@ -24,6 +24,17 @@ test('a stale or missing identity never produces an approval receipt', () => {
   assert.equal(receipt.release_authorized, false);
 });
 
+test('model timeouts remain diagnosable without exposing arbitrary provider exceptions', () => {
+  const head='a'.repeat(40),base='b'.repeat(40);
+  const receipt=councilObjectionReceipt({head,base,decision:'INSUFFICIENT_REVIEWERS',reviews:[
+    {model:'slow',verdict:null,error:'REVIEW_TIMEOUT'},
+    {model:'unsafe',verdict:null,error:'provider-private-message token=fixture'},
+  ]},head,base);
+  assert.equal(receipt.reviews[0].error_code,'REVIEW_TIMEOUT');
+  assert.equal(receipt.reviews[1].error_code,null);
+  assert.doesNotMatch(JSON.stringify(receipt),/provider-private-message|token=/);
+});
+
 test('the workflow artifact stays outside candidate git add -A and is never an approval input', () => {
   const workflow = readFileSync('.github/workflows/mel-candidate-promotion.yml', 'utf8');
   assert.match(workflow, /write-council-objection-receipt\.mjs "\$CAND" "\$MAIN" "\$RUNNER_TEMP\/council-review-objections\.json"/);
