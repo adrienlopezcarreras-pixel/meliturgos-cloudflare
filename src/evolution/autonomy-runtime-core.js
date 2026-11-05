@@ -82,6 +82,21 @@ const INSPECTION_FILES = [
 
 export { MAX_AUTONOMOUS_REPAIR_ATTEMPTS as MAX_OWNER_MAX_REPAIR_ATTEMPTS } from './autonomy-repair-policy.js';
 
+// A moving candidate branch or a rejected GitHub dispatch is an execution
+// problem after tests passed, not a failed implementation. Preserve the exact
+// Council/Teacher-approved package and let the existing bounded retry
+// inspect the new candidate SHA and fail closed on overlapping files.
+const BRIDGE_PUBLICATION_FAILURES = Object.freeze({
+  'git.push': 'CANDIDATE_PUSH_NOT_FAST_FORWARD',
+  'git.ls-remote': 'CANDIDATE_HEAD_MOVED_BEFORE_CI_DISPATCH',
+  'github.actions.workflow_dispatch': 'FULL_CANDIDATE_CI_DISPATCH_FAILED',
+});
+export function bridgePublicationFailureOnly(failedTests = []) {
+  return Array.isArray(failedTests) && failedTests.length > 0
+    && failedTests.every(row => row?.passed !== true
+      && BRIDGE_PUBLICATION_FAILURES[String(row?.command || '')] === String(row?.error || ''));
+}
+
 export function failureSignature(tests = []) {
   return (Array.isArray(tests) ? tests : [])
     .filter((row) => row && row.passed !== true)
@@ -920,7 +935,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         presentedSignatures: result.repair_cycle?.presented_signatures || [],
       });
       const nextAttempt = maxAutonomy === true ? decision.attempts : previousAttempts + 1;
-      const executorFailure = jobStatus === 'REPAIR_REQUIRED' && failedTests.length === 0;
+      const executorFailure = jobStatus === 'REPAIR_REQUIRED' && (failedTests.length === 0 || bridgePublicationFailureOnly(failedTests));
       const failureSource = executorFailure ? 'DEV_BRIDGE_EXECUTOR_FAILURE' : 'DEV_BRIDGE_TEST_FAILURE';
 
       if (maxAutonomy === true && decision.action === 'EXHAUST') {
