@@ -19,7 +19,7 @@ test('cloud bridge resumes autonomy chain after execution', async () => {
   assert.match(source, /actions:\s*write/);
   assert.match(source, /Continue autonomy after persisted bridge result/);
   assert.match(source, /AUTONOMY_CHAIN_CONTINUED_AFTER_BRIDGE/);
-  assert.match(source, /steps\.report_satisfied\.outcome == 'success'.*steps\.report_result\.outcome == 'success'/);
+  assert.match(source, /steps\.report_result\.outcome == 'success'.*steps\.report_emergency\.outcome == 'success'/);
   assert.match(source, /gen2-42-runtime-tick\.yml\/dispatches/);
 });
 

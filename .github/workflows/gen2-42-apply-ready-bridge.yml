@@ -134,85 +134,16 @@ jobs:
           }
           fs.writeFileSync('bridge-main-exact.txt',exact?'true':'false');
           NODE
-          if [ "$(cat bridge-main-exact.txt)" != "true" ]; then
-            echo "already_satisfied=false" >> "$GITHUB_OUTPUT"
-            exit 0
+          # Exact equality proves only that the approved files already exist.
+          # It does not verify the roadmap objective or authorize cancelling
+          # its job: CANCELLED caused a fresh MEL-AUDIT-02 admission on each tick.
+          # Reuse the normal no-diff candidate path below. It runs syntax and
+          # full regression, dispatches exact-SHA full-candidate-ci, and leaves
+          # Council/Teacher completion evidence to the existing reconciler.
+          if [ "$(cat bridge-main-exact.txt)" = "true" ]; then
+            echo "ALREADY_SATISFIED_ON_MAIN_AWAITING_EXACT_SHA_CI"
           fi
-
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          import { spawnSync } from 'node:child_process';
-          const allowed=new Set(['test','test:mel','test:integration','test:acceptance','test:smoke','test:mvp','test:routes']);
-          const job=JSON.parse(fs.readFileSync(process.env.BRIDGE_JOB_FILE,'utf8'));
-          const results=[];
-          let failed=false;
-          // [GPT6] Exact-main reconciliation must apply the same syntax/import gate.
-          const check=spawnSync('npm',['run','check'],{stdio:'inherit',shell:false,timeout:180000});
-          results.push({name:'syntax-and-imports',command:'check',passed:check.status===0,executed:!check.error,exit_code:check.status??1,error_code:check.error?.code||null,signal:check.signal||null});
-          if(check.status!==0) failed=true;
-          // [GPT6] The exact-on-main branch must apply the same mandatory full-regression gate.
-          const requested=[...(job.tests_json||[])];
-          if(!requested.some(spec=>spec.command==='test')) requested.unshift({name:'full-regression',command:'test'});
-          for(const spec of requested){
-            const name=String(spec?.command||'').trim();
-            if(!allowed.has(name)){
-              results.push({name:String(spec?.name||name||'unnamed'),command:name,passed:false,executed:false,error:'TEST_NOT_EXECUTED'});
-              failed=true;
-              continue;
-            }
-            const args=name==='test'?['test']:['run',name];
-            const r=spawnSync('npm',args,{stdio:'inherit',shell:false,timeout:name==='test'?600000:180000});
-            const row={name:String(spec?.name||name),command:name,passed:r.status===0,executed:!r.error,exit_code:r.status??1,error_code:r.error?.code||null,signal:r.signal||null};
-            results.push(row); if(r.status!==0) failed=true;
-          }
-          fs.writeFileSync('bridge-main-tests.json',JSON.stringify(results,null,2));
-          if(failed) process.exit(3);
-          NODE
-
-          MAIN_SHA="$MAIN_SHA" node - <<'NODE'
-          const fs=require('fs');
-          const tests=JSON.parse(fs.readFileSync('bridge-main-tests.json','utf8'));
-          fs.writeFileSync('bridge-apply-result.json',JSON.stringify({
-            status:'CANCELLED',
-            needs_repair:false,
-            mode:'ALREADY_SATISFIED_ON_MAIN',
-            deployed_sha:process.env.MAIN_SHA,
-            tests
-          },null,2));
-          NODE
-          echo "already_satisfied=true" >> "$GITHUB_OUTPUT"
-
-      - name: Report already-satisfied reconciliation
-        id: report_satisfied
-        if: steps.claim.outputs.claimed == 'true' && steps.reconcile.outputs.already_satisfied == 'true'
-        shell: bash
-        env:
-          JOB_ID: ${{ inputs.job_id }}
-        run: |
-          set -euo pipefail
-          node - <<'NODE'
-          const fs=require('fs');
-          const job=JSON.parse(fs.readFileSync(process.env.BRIDGE_JOB_FILE,'utf8'));
-          const result=JSON.parse(fs.readFileSync('bridge-apply-result.json','utf8'));
-          fs.writeFileSync('bridge-result-request.json',JSON.stringify({
-            job_id:job.id,
-            status:'CANCELLED',
-            candidate_branch:job?.result_json?.bridge_preparation?.candidate_branch||null,
-            tests_json:result.tests||[],
-            diff_summary:'ALREADY_SATISFIED_ON_MAIN:'+String(result.deployed_sha||''),
-            needs_repair:false,
-            result_json:result
-          }));
-          NODE
-          REPORT_READY=0
-          for ATTEMPT in $(seq 1 12); do
-            CODE="$(curl --silent --show-error --max-time 45               --request POST               --header "x-mel-github-oidc: $("$MEL_OIDC_HELPER")"               --header "Content-Type: application/json"               --data-binary @bridge-result-request.json               --output bridge-result-response.json               --write-out '%{http_code}'               "https://meliturgos.adrien-lopezcarreras.workers.dev/api/dev-bridge/result" || true)"
-            if [ "$CODE" = "200" ]; then REPORT_READY=1; break; fi
-            echo "Cloud bridge result propagation attempt $ATTEMPT/12 returned HTTP $CODE."
-            test ! -s bridge-result-response.json || cat bridge-result-response.json
-            sleep 2
-          done
-          test "$REPORT_READY" = "1"
+          echo "already_satisfied=false" >> "$GITHUB_OUTPUT"
 
       - name: Checkout exact approved candidate
         if: steps.claim.outputs.claimed == 'true' && steps.reconcile.outputs.already_satisfied != 'true'
@@ -606,7 +537,7 @@ jobs:
 
       - name: Persist claimed bridge failure before exit
         id: report_emergency
-        if: always() && steps.claim.outputs.claimed == 'true' && steps.report_satisfied.outcome != 'success' && steps.report_result.outcome != 'success'
+        if: always() && steps.claim.outputs.claimed == 'true' && steps.report_result.outcome != 'success'
         shell: bash
         run: |
           set -euo pipefail
@@ -646,7 +577,7 @@ jobs:
           test "$REPORT_READY" = "1"
 
       - name: Continue autonomy after persisted bridge result
-        if: always() && steps.claim.outputs.claimed == 'true' && (steps.report_satisfied.outcome == 'success' || steps.report_result.outcome == 'success' || steps.report_emergency.outcome == 'success')
+        if: always() && steps.claim.outputs.claimed == 'true' && (steps.report_result.outcome == 'success' || steps.report_emergency.outcome == 'success')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
