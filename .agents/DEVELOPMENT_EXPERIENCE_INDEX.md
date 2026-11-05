@@ -209,5 +209,3 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 - `claude-reduced-identity-audit-validated-before-missions-20261026` — un audit qui crée des missions est validé en production avant branchement ; l'inobservable est BLOCKED.
 
 - `codex-workers-fetch-option-runtime-parity-20261105` — tester les options fetch critiques sous workerd ; mode supporté, refus des 3xx, timeout et URL fixe conservés. Preuve locale réelle, sans certification production.
-
-- `codex-council-negative-proof-survives-cache-invalidation-20261105` — conserver l’empreinte des contenus rejetés à travers les caches et la vérifier jusqu’au precommit ; les révisions corrigées gardent le chemin de preuve normal. Preuve locale, sans certification production.

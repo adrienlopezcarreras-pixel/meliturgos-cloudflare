@@ -1676,31 +1676,4 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1793874661699
   },
-  {
-    "id": "codex-council-negative-proof-survives-cache-invalidation-20261105",
-    "source": "codex",
-    "domain": "autonomous-repair-governance",
-    "task": "Empêcher le rejeu exact d’une implémentation rejetée malgré une invalidation de cache ou une nouvelle provenance.",
-    "input": "Le Council refuse un paquet ; supprimer le cache laisse le chargeur préparé ou un modèle reproduire les mêmes fichiers sous de nouvelles métadonnées.",
-    "before": "Le cache est vidé mais la décision négative disparaît avec lui, ou seule la provenance du dernier paquet protège contre son rechargement.",
-    "after": "Conserver une empreinte bornée des chemins et contenus réellement rejetés avant de retirer le cache ; contrôler cette preuve négative lors du chargement préparé, de la régénération et juste avant publication. Une révision corrigée reste soumise aux tests et au Council ; ne pas changer l’objectif ni élargir les limites de réparation.",
-    "rationale": "Invalider un cache ne révoque pas les octets qu’il contenait. Une preuve négative durable, indépendante du nom du modèle et du résumé, ferme le rejeu entre les chemins de génération.",
-    "tests": [
-      "tests/council-rejected-package-replay.test.mjs: cinq régressions échouent sur main2c0cc626 puis passent avec le correctif",
-      "tests/council-rejected-package-replay.test.mjs: transition réelle du runtime, paquet préparé corrigé, claim et precommit sous OIDC RSA signé",
-      "validation locale élargie:69 tests réussis, aucun échec; aucune certification production déclarée"
-    ],
-    "tags": [
-      "council",
-      "negative-proof",
-      "cache-invalidation",
-      "content-hash",
-      "prepared-package",
-      "publication-fence",
-      "local-proof"
-    ],
-    "validated": true,
-    "quality": 1,
-    "created_at": 1793894141368
-  },
 ]);

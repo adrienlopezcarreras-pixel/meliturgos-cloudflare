@@ -1,4 +1,3 @@
-import { rememberCouncilRejectedPackage } from './council-rejected-package.js';
 import {beginAutomaticRepair} from './autonomy-repair.js';
 import {getAutonomyControl} from './autonomy-control.js';
 import { MAX_AUTONOMOUS_REPAIR_ATTEMPTS as MAX_OWNER_MAX_REPAIR_ATTEMPTS } from './autonomy-repair-policy.js';
@@ -1001,31 +1000,6 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         };
 
         if (!executorFailure) {
-          if (councilRejected) {
-            let rejectedFiles=job.files_json;
-            const rejectedHead=String(job.result_json?.council_review?.head||'');
-            if (/^[a-f0-9]{40}$/.test(rejectedHead) && env?.MEL_GITHUB_REPOSITORY) {
-              // D1 may already contain a newer generated proposal. Bind the
-              // negative proof to the actual reviewed commit, not that new code.
-              const published=job.result_json?.dev_bridge?.applied_files;
-              const paths=[...new Set((Array.isArray(published)&&published.length?published:job.files_json||[])
-                .map(file=>typeof file==='string'?file:file?.path).filter(Boolean))].slice(0,10);
-              try {
-                globalThis.__melTickStage='council-rejected-content';
-                const rejectedReader=createGitHubCodeReader({repository:env.MEL_GITHUB_REPOSITORY,
-                  branch:env.MEL_GITHUB_BRANCH||'candidate/mel-clean-autonomy',
-                  pinnedSha:rejectedHead,token:String(env.MEL_GITHUB_TOKEN||''),
-                  fetchImpl:(url,init={})=>fetchImpl(url,{...init,redirect:'manual',signal:init.signal||AbortSignal.timeout(15000)})});
-                if (!paths.length) throw new Error('COUNCIL_REJECTED_CONTENT_PATHS_MISSING');
-                rejectedFiles=await Promise.all(paths.map(async path=>({path,content:(await rejectedReader.read(path)).content})));
-              } catch {
-                return {ok:true,status:'COUNCIL_REJECTED_CONTENT_UNAVAILABLE',job,
-                  progress:{advanced:false,events:[],work_remaining:true,waiting_external:true,
-                    active_jobs:1,job_id:job.id,job_status:job.status,block_reason:'COUNCIL_REJECTED_CONTENT_UNAVAILABLE'}};
-              }
-            }
-            result.council_rejected_packages = await rememberCouncilRejectedPackage({...job,files_json:rejectedFiles}, requestedAt);
-          }
           // A failed test OR a Council veto invalidates the generated package.
           // Keep the vetted goal and bounded repair budget, but never reuse
           // identical code that a later independent reviewer rejected.
