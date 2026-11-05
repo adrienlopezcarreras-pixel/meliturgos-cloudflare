@@ -23,7 +23,7 @@ test('Kaggle CLI installs and imports the explicit six runtime dependency before
   const publishStart=source.indexOf('      - name: Publish private offline cycle payload');
   assert.ok(authStart >= 0 && authEnd > authStart && publishStart > authEnd);
   const auth=source.slice(authStart,authEnd);
-  assert.match(auth,/python -m pip install -q -U kaggle "six>=1\\.16,<2"/);
+  assert.match(auth,/python -m pip install -q -U kaggle "six>=1\.16,<2"/);
   assert.match(auth,/python -c 'import six; import kaggle'/);
   assert.ok(source.indexOf('python -c \'import six; import kaggle\'') < publishStart);
 });
