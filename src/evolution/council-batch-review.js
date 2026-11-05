@@ -48,7 +48,7 @@ const isValid = b => b && SHA.test(b.head||'') && SHA.test(b.base||'')
   && Number.isInteger(b.file_count) && b.file_count>=b.batch_count && b.file_count<=256;
 
 export async function handleCouncilBatchedReview(env,body,{
-  review,now=Date.now(),cryptoImpl=globalThis.crypto,
+  review,now=Date.now(),cryptoImpl=globalThis.crypto,contextLoader=null,
 }={}) {
   if (!env?.DB?.prepare || typeof review!=='function' || !cryptoImpl?.subtle
       || !isValid(body) || (body.mode!=='batch'&&body.mode!=='final')
@@ -80,7 +80,10 @@ export async function handleCouncilBatchedReview(env,body,{
     if(prior?.decision==='REJECTED')return {status:409,result:{
       ok:false,decision:'COUNCIL_BATCH_NOT_APPROVED',batch_decision:'REJECTED',
       batch_index:i,head,root_sha256:root}};
-    const vote=await review(env,{diff:body.diff,goal:'Independent Council review of complete file batch '
+    let dependencyContext;
+    try { if(contextLoader)dependencyContext=await contextLoader(env,{head,diff:body.diff}); }
+    catch(error){ return reject(error?.code||'COUNCIL_FILE_CONTEXT_UNAVAILABLE',409); }
+    const vote=await review(env,{diff:body.diff,dependencyContext,goal:'Independent Council review of complete file batch '
       +i+'/'+count+' for '+head+'; each batch and the final integration need separate real approvals.',
       attempts:Math.max(0,Number(prior?.attempts||0))});
     const verifiedDecision=vote?.decision==='APPROVED'&&!independentQuorum(vote?.reviews)

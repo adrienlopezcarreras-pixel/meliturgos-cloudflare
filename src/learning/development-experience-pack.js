@@ -1799,4 +1799,30 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1793900235275
   },
+  {
+    "id": "codex-council-review-needs-unchanged-file-context-20261105",
+    "source": "codex",
+    "domain": "review-evidence",
+    "task": "Éviter les refus fondés sur du code inchangé absent du diff.",
+    "input": "AUDIT-05 passe la CI, mais les relecteurs disent time et WEEK_MS non définis et les findings absents alors que ces éléments existent hors des hunks.",
+    "before": "Le Council reçoit seulement le patch et une preuve d’existence des imports, puis assimile une absence dans le patch à une absence dans le module.",
+    "after": "Fournir les petits fichiers complets lus au même SHA immuable, en plus du diff et des imports. Borner le nombre de lectures, les octets par fichier et le total; marquer explicitement les omissions sans troncature présentée comme complète. Paralléliser les lectures pour ne pas cumuler les délais. Maintenir les vrais votes et le refus si une lecture nécessaire est indisponible.",
+    "rationale": "Un diff n’est pas un fichier complet et une existence d’import ne prouve pas les définitions autour du hunk. La preuve doit couvrir le contexte que le verdict utilise.",
+    "tests": [
+      "tests/council-file-context.test.mjs: helpers et findings inchangés transmis au prompt réel, head immuable, lectures parallèles, limites par fichier et totales, indisponibilité fail-closed",
+      "tests/council-import-context.test.mjs, tests/council-review-gate.test.mjs et tests/council-batch-review.test.mjs:48 succès locaux",
+      "CI42073258720 réussie et refus2ebfc65a comportant ces objections; aucun nouveau vote production encore revendiqué"
+    ],
+    "tags": [
+      "council",
+      "full-file-context",
+      "immutable-sha",
+      "diff",
+      "evidence",
+      "bounded-parallel-reads"
+    ],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1793901044600
+  },
 ]);

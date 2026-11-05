@@ -218,3 +218,5 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 - `codex-long-json-proof-preserves-live-transport-20261105` — heartbeat JSON opt-in contre les timeouts d’inactivité; exiger le vrai résultat final, nettoyer les timers et ne pas rejouer aveuglément les POST. Preuve locale, validation Cloudflare encore requise.
 
 - `codex-council-revert-uses-published-package-paths-20261105` — annuler source et tests à partir du paquet publié figé, pas de la proposition mutable; une restauration ne valide pas la mission.
+
+- `codex-council-review-needs-unchanged-file-context-20261105` — fournir les petits fichiers complets au SHA exact pour vérifier le code inchangé autour du diff; contexte borné, omissions explicites et lectures parallèles, sans modifier le quorum.
