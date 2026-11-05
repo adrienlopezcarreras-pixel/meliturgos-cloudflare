@@ -1,3 +1,7 @@
+import { reconcileRuntimeCompletions } from '../teachers/github-completion-reconciler.js';
+import { completeVerifiedRepair, repairLane, scopeRepairRepository } from './autonomy-repair.js';
+import { verifyRepairRelease } from './verified-repair-release.js';
+import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import {
   evaluateRestoreReadiness,
   getAutonomyLaunchReadiness,
@@ -36,7 +40,7 @@ import { runMelMedia02LiveProof } from '../media/media-roadmap-proof.js';
 import { readSurvivalState, releaseAutonomyPatch } from '../legacy/survival-mode.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
-const PHASES = new Set(['all', 'identity', 'pause', 'backup', 'code-sync', 'readiness', 'sovereignty-proof', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'connection-proof', 'media-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max', 'release-rollback-restore']);
+const PHASES = new Set(['all', 'identity', 'pause', 'backup', 'code-sync', 'readiness', 'sovereignty-proof', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'connection-proof', 'media-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max', 'release-rollback-restore', 'verified-repair-complete']);
 
 function exactDeployedSha(env = {}) {
   const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
@@ -301,6 +305,34 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   const phase = await requestPhase(request.clone());
   if (!phase) {
     return Response.json({ ok: false, code: 'BOOTSTRAP_PHASE_INVALID' }, { status: 400, headers: { 'cache-control': 'no-store' } });
+  }
+
+  // This phase never accepts a launch bearer alone. Only the exact canonical
+  // release OIDC plus independently read successful health jobs can release a
+  // repair hold. It cannot activate an owner-stopped MAX.
+  if (phase === 'verified-repair-complete') {
+    const oidc = await authorizeOidc(request, env, {
+      allowedWorkflows: ['deploy-cloudflare-release.yml'],
+      allowedWorkflowBranches: [...new Set(['main', exactDeployedBranch(env)].filter(Boolean))],
+      allowedEvents: ['push', 'workflow_dispatch'],
+    });
+    if (oidc.ok !== true) return Response.json({ok:false,code:'REPAIR_RELEASE_OIDC_REQUIRED'}, {status:401});
+    const sha=exactDeployedSha(env);
+    if (url.searchParams.get('expected_sha')!==sha || oidc.sha!==sha)
+      return Response.json({ok:false,code:'REPAIR_RELEASE_SHA_MISMATCH'}, {status:409});
+    const verified=await verifyRepairRelease({oidc,deployedSha:sha,
+      token:request.headers.get('x-mel-github-read-token')});
+    if (!verified.ok) return Response.json(verified,{status:409});
+    try {
+      const repository=new D1DevJobRepository(env.DB);
+      const control=await getAutonomyControl(env.DB);
+      const lane=repairLane(control);
+      if (lane && !control.paused && control.max_autonomy===true)
+        await reconcileRuntimeCompletions({repository:scopeRepairRepository(repository,lane.job_id),env});
+      const result=await completeVerifiedRepair(env.DB,repository,{deployedSha:sha,releaseVerified:true});
+      return Response.json({ok:result.ok,status:result.status,resumed:result.resumed},
+        {status:result.ok?200:409,headers:{'cache-control':'no-store'}});
+    }catch{return Response.json({ok:false,status:'REPAIR_COMPLETION_CONTROL_CHANGED',resumed:false},{status:409});}
   }
 
   const expected = String(env?.MEL_LAUNCH_BOOTSTRAP_TOKEN || '');
@@ -866,7 +898,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     const control = await setControl(env?.DB, {
       paused: false,
       max_autonomy: true,
-      source: 'owner-authorized-bootstrap',
+      source: releaseRestore ? 'verified-release-restore' : 'owner-authorized-bootstrap',
       reason: 'owner-max-autonomy',
       ...(releaseRestore ? { expected_updated_at: beforeRestore.updated_at } : {}),
       launch_approved_sha: approvedSha,

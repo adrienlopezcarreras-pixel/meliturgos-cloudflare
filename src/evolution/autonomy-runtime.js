@@ -1,3 +1,5 @@
+import { beginAutomaticRepair, repairLane, scopeRepairRepository } from './autonomy-repair.js';
+import {isAcceptedRoadmapCodeJob} from '../roadmap/roadmap-code-acceptance.js';
 import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { runAutonomyRuntimeTick as runCoreAutonomyRuntimeTick, autonomyTickAdvanced, currentAutonomyRepository } from './autonomy-runtime-core.js';
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
@@ -874,7 +876,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
         block_reason: String(error?.code || 'OWNER_STOP_RECONCILE_FAILED'), control };
     }
   }
-  const repository = options.repository || (env?.DB ? new D1DevJobRepository(env.DB) : null);
+  let repository = options.repository || (env?.DB ? new D1DevJobRepository(env.DB) : null);
   const survival = await readSurvivalState(env?.DB).catch(() => ({ active: false }));
   // A rollback stopped MAX to swap the Worker code safely. Once that is done
   // and MAX was the owner's live choice, MEL starts again by itself: leaving
@@ -966,6 +968,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   if (local?.ok) bindLocalPcWorkersAi(env, options.runLocalPcModel);
 
   const epochMs = await readActivityListEpoch(env?.DB, { strict: true });
+  if (repairLane(control) && repository) repository=scopeRepairRepository(repository,repairLane(control).job_id);
   let launchApproval = launchApprovalValid(env, control, options);
   // A missing approval is not a stale one. MAX was already the owner's choice
   // and nobody stopped it: bind the commit that is actually deployed, then work.
@@ -1053,6 +1056,32 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
 
   validateCandidateBranches(env);
 
+  let repair = repairLane(control);
+  if (control.repair_invalid || (control.repair && !repair)) return {
+    status:'REPAIR_STATE_UNPROVEN',paused:false,advanced:false,control,
+    progress:{advanced:false,events:[],work_remaining:true,waiting_external:true,block_reason:'REPAIR_STATE_UNPROVEN'},
+  };
+  if (!repair && control.max_autonomy===true && repository) {
+    const held = (await listAutonomySchedulerJobs(repository)).find(job=>job.requested_by==='mel-autonomy'
+      && jobActivityTimestamp(job)>=epochMs && job.status==='REPAIR_REQUIRED');
+    if (held) { control=await beginAutomaticRepair(env.DB,held,control,{memoryState:options.autonomyControlState||null});repair=repairLane(control); }
+  }
+  if (repair) {
+    const held = await repository.get(repair.job_id);
+    if (!held || jobActivityTimestamp(held)<epochMs || ['FAILED','CANCELLED','COMPLETED'].includes(held.status)) {
+      const waiting = isAcceptedRoadmapCodeJob(held) ? 'REPAIR_AWAITING_VERIFIED_DEPLOYMENT' : 'REPAIR_NEEDS_VALID_PACKAGE';
+      return {status:waiting,paused:false,advanced:false,repairing:true,control,
+        progress:{advanced:false,events:[],work_remaining:true,waiting_external:true,active_jobs:1,job_id:repair.job_id,job_status:held?.status||null,block_reason:waiting}};
+    }
+    if (held.status==='QUEUED') {
+      const claimed=await repository.claimQueuedRepair(held.id,{expected:held});
+      if (!claimed) return {status:'REPAIR_CLAIM_NOT_AUTHORIZED',paused:false,advanced:false,repairing:true,control,
+        progress:{advanced:false,events:[],work_remaining:true,waiting_external:true,block_reason:'REPAIR_CLAIM_NOT_AUTHORIZED'}};
+    }
+    repository=scopeRepairRepository(repository,repair.job_id);
+    options={...options,repository,onlyJobId:repair.job_id,repairOnly:true};
+  }
+
   const owner = String(options.runtimeLeaseOwner || crypto.randomUUID());
   const runtimeLeaseStore = options.runtimeLeaseStore ?? (!env?.DB ? new Map() : null);
   const leaseArgs = {
@@ -1128,7 +1157,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     const watchdog = await recordAutonomyProgressWatchdog(env?.DB || null, tick, {
       maxAutonomy: control.max_autonomy === true,
     }).catch(() => null);
-    const countermeasures = await applyObservedCountermeasures(env, repository, control, watchdog, tick).catch(() => []);
+    const countermeasures = repair ? [] : await applyObservedCountermeasures(env, repository, control, watchdog, tick).catch(() => []);
     if (watchdog?.tripped === true) {
       return {
         ...tick,
@@ -1142,7 +1171,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
         },
       };
     }
-    return { ...tick, watchdog, countermeasures };
+    return { ...tick, watchdog, countermeasures, ...(repair?{repairing:true,repair_job_id:repair.job_id}: {}) };
   } finally {
     stopRenewal();
     await releaseAutonomyRuntimeLease({

@@ -976,6 +976,7 @@ function renderAutonomy(state){
   if(awaitingOwnerLaunch){badgeText='À ACTIVER';modeText='Release terminée. Active MAX ou reprends MEL.'}
   else if(releasePause){badgeText='MISE EN PROD';modeText='Pause de release · validation requise'+(autonomyControl.max_remembered?' · choix MAX conservé':'')}
   else if(autonomyControl.paused===true){badgeText='PAUSE';modeText='En pause'+(autonomyControl.reason?' · '+autonomyControl.reason:'')}
+  else if(maxEnabled&&autonomyControl.repairing){badgeText='MAX RÉPARE';modeText='Réparation automatique · autres missions en pause'}
   else if(maxEnabled&&tripped){badgeText='MAX BLOQUÉ';badgeKind='bad';modeText='MAX 100 % bloqué'}
   else if(maxEnabled&&wdStatus==='ADVANCING'){badgeText='MAX AVANCE';badgeKind='good';modeText='MAX 100 % · progression mesurée'}
   else if(maxEnabled&&wdStatus==='WAITING_EXTERNAL'){badgeText='MAX ATTENTE';modeText='MAX 100 % · attente externe'}

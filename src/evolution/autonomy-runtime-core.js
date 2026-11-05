@@ -1,3 +1,4 @@
+import { MAX_AUTONOMOUS_REPAIR_ATTEMPTS as MAX_OWNER_MAX_REPAIR_ATTEMPTS } from './autonomy-repair-policy.js';
 import { fetchFounderMissionTestEvidence } from './founder-mission-test-evidence.js';
 import { staleCouncilDeferral } from '../teachers/council-inference-policy.js';
 import { jobActivityTimestamp } from './autonomy-job-epoch.js';
@@ -77,7 +78,7 @@ const INSPECTION_FILES = [
   'src/teachers/github-completion-reconciler.js',
 ];
 
-export const MAX_OWNER_MAX_REPAIR_ATTEMPTS = 8;
+export { MAX_AUTONOMOUS_REPAIR_ATTEMPTS as MAX_OWNER_MAX_REPAIR_ATTEMPTS } from './autonomy-repair-policy.js';
 
 export function failureSignature(tests = []) {
   return (Array.isArray(tests) ? tests : [])
@@ -758,20 +759,20 @@ export function autonomyQueueReadBlocker(state) {
     : null;
 }
 
-export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repository = null, benchmarkEvaluator = null, benchmarkModelId = '', roadmap = null, maxAutonomy = false, epochMs = null, onlyJobId = null } = {}) {
+export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repository = null, benchmarkEvaluator = null, benchmarkModelId = '', roadmap = null, maxAutonomy = false, epochMs = null, onlyJobId = null, repairOnly = false } = {}) {
   const jobRepository = repository || new D1DevJobRepository(env.DB);
   const activityEpoch = epochMs ?? await readActivityListEpoch(env?.DB, { strict: true });
   const currentRepository = currentAutonomyRepository(jobRepository, activityEpoch, { singleFlight: true });
   const focused = Boolean(onlyJobId);
   globalThis.__melTickStage = 'teacher-replies';
-  const reconciliation = focused ? { ok: true, applied: [], skipped: 'FOCUSED_JOB' } : await reconcileRuntimeTeacherReplies({ repository: currentRepository, env, fetchImpl }).catch((error) => ({
+  const reconciliation = focused && !repairOnly ? { ok: true, applied: [], skipped: 'FOCUSED_JOB' } : await reconcileRuntimeTeacherReplies({ repository: currentRepository, env, fetchImpl }).catch((error) => ({
     ok: false,
     error: error?.code || error?.message || 'TEACHER_RECONCILE_FAILED',
     applied: [],
   }));
 
   globalThis.__melTickStage = 'completions';
-  const completions = focused ? { ok: true, completed: [], rejected: [], skipped: 'FOCUSED_JOB' } : await reconcileRuntimeCompletions({ repository: currentRepository, env, fetchImpl, benchmarkEvaluator, benchmarkModelId }).catch((error) => ({
+  const completions = focused && !repairOnly ? { ok: true, completed: [], rejected: [], skipped: 'FOCUSED_JOB' } : await reconcileRuntimeCompletions({ repository: currentRepository, env, fetchImpl, benchmarkEvaluator, benchmarkModelId }).catch((error) => ({
     ok: false,
     error: error?.code || error?.message || 'COMPLETION_RECONCILE_FAILED',
     completed: [],
@@ -779,7 +780,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   }));
 
   globalThis.__melTickStage = 'candidate-ci';
-  const candidateCI = focused ? { ok: true, repaired: [], skipped: 'FOCUSED_JOB' } : await reconcileFailedCandidateRuns({ repository: currentRepository, env, fetchImpl });
+  const candidateCI = focused && !repairOnly ? { ok: true, repaired: [], skipped: 'FOCUSED_JOB' } : await reconcileFailedCandidateRuns({ repository: currentRepository, env, fetchImpl });
 
   const evolutionLoader = !roadmap ? createRuntimeEvolutionLoader(env) : null;
   const supervisor = new AutonomySupervisor({

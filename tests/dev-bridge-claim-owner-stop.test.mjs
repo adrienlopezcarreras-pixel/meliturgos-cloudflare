@@ -112,7 +112,7 @@ async function reportBridgeFailure(db, requester = 'mel-autonomy') {
   return { response, job };
 }
 
-test('failed autonomous Bridge result pauses D1 before admitting another mission', async t => {
+test('failed autonomous Bridge holds the mission stream and authorizes only its own repair', async t => {
   const { getAutonomyControl } = await import('../src/evolution/autonomy-control.js');
   const db = sqliteD1(); t.after(() => db.close());
   await setOwnerMaxAutonomy(db, {
@@ -123,13 +123,15 @@ test('failed autonomous Bridge result pauses D1 before admitting another mission
   const result = await response.json();
   assert.equal(result.status, 'REPAIR_REQUIRED');
   assert.equal(result.autonomy_pause?.confirmed, true);
-  assert.equal(result.autonomy_pause?.status, 'PAUSED');
+  assert.equal(result.autonomy_pause?.status, 'REPAIR_ONLY');
+  assert.equal(result.autonomy_pause?.scope, 'MISSION_STREAM');
   assert.equal(job.status, 'REPAIR_REQUIRED');
   const control = await getAutonomyControl(db);
-  assert.equal(control.paused, true);
-  assert.equal(control.max_autonomy, false);
-  assert.equal(control.source, 'bridge-repair-pause');
-  assert.match(control.reason, /^bridge-repair-required:/);
+  assert.equal(control.paused, false);
+  assert.equal(control.max_autonomy, true);
+  assert.equal(control.source, 'bridge-repair-lane');
+  assert.equal(control.repair.job_id, job.id);
+  assert.equal(control.repair.owner_control_version, control.owner_control_version);
 });
 
 test('an existing owner STOP remains the owner STOP after Bridge failure', async t => {

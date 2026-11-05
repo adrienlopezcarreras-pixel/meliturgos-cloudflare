@@ -186,6 +186,8 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
       owner_control_version: control.owner_control_version,
       max_remembered: control.max_remembered === true,
       owner_stopped: isOwnerAutonomyStop(control),
+      repairing: Boolean(control.repair) && !control.repair_invalid,
+      repair_state_invalid: control.repair_invalid === true,
       // Fixed release and rollback labels are public. Owner-written pause text stays private.
       source: (isReleaseAutonomyPause(control) || isRollbackAutonomyPause(control)) ? control.source : null,
       reason: (isReleaseAutonomyPause(control) || isRollbackAutonomyPause(control)) ? control.reason : null,
