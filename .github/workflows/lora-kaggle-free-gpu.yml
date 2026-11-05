@@ -234,7 +234,10 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${KAGGLE_API_TOKEN:-}" || { echo "KAGGLE_API_TOKEN_REQUIRED"; exit 1; }
-          python -m pip install -q -U kaggle
+          # Kaggle's dataset CLI uses six at runtime; missing six prevented
+          # publishing the immutable payload and led to three pointless retries.
+          python -m pip install -q -U kaggle "six>=1.16,<2"
+          python -c 'import six; import kaggle'
           KAGGLE_OWNER="$(python - <<'PY'
           import os
           from kagglesdk.kaggle_client import KaggleClient
