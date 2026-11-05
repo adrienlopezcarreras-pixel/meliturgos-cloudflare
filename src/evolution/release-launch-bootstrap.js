@@ -965,7 +965,13 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     const idle = status === 'GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED'
       && proof?.idle_verified === true
       && Number(proof?.open_handoff_count || 0) === 0;
-    const ok = proof?.ok === true && (ready || progress || idle);
+    const stopped = status === 'GEN2_42_TEACHER_HANDOFF_PAUSE_VERIFIED'
+      && proof?.pause_verified === true && proof.paused === true && proof.max_autonomy === false
+      && ['OWNER_STOP', 'REPAIR_REQUIRED'].includes(proof.pause_kind)
+      && Number.isSafeInteger(proof.control_version) && proof.control_version > 0
+      && proof.no_execution_attempted === true && !proof.job_id && !proof.teacher_request_id
+      && proof.production_activation_allowed === false && proof.auto_approval_allowed === false;
+    const ok = proof?.ok === true && (ready || progress || idle || stopped);
     return Response.json({
       ...proof,
       ok,
