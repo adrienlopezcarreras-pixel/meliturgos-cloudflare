@@ -276,3 +276,19 @@ test('cached reviews bind SHA, exact base, entire diff and review mode',async()=
   assert.ok(h.indexOf('COUNCIL_CACHED_DIFF_MISMATCH')<
     h.indexOf('if (!RETRYABLE.has(prior.decision))'));
 });
+
+
+test('review scope excludes a reverted historical package without dropping a surviving partial mission', async () => {
+  const { resolveCouncilReviewScope } = await import('../src/evolution/council-review.js');
+  const audit = { goal: 'MEL-AUDIT-05 memory sessions backups', files_json: JSON.stringify([{path:'src/diagnostics/domain-audit.js'},{path:'tests/domain-audit.test.mjs'}]) };
+  const load = async id => id === 'audit' ? audit : {goal:'Keep missing provenance fail closed'};
+  const log = 'apply approved bridge package audit\napply approved bridge package audit';
+  const infrastructure = 'diff --git a/src/evolution/council-review.js b/src/evolution/council-review.js\n';
+  const independent = await resolveCouncilReviewScope(infrastructure, log, load);
+  assert.deepEqual(independent.jobs, []);
+  assert.equal(independent.goal, '', 'old audit goal must not contaminate unrelated repair review');
+  const partial = await resolveCouncilReviewScope('diff --git a/src/diagnostics/domain-audit.js b/src/diagnostics/domain-audit.js\n', log, load);
+  assert.deepEqual(partial.jobs, ['audit']);
+  assert.match(partial.goal, /MEL-AUDIT-05/, 'missing required test file remains reviewable against the full goal');
+  assert.deepEqual((await resolveCouncilReviewScope(infrastructure, 'apply approved bridge package unknown', load)).jobs, ['unknown']);
+});

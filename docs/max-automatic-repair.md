@@ -34,3 +34,14 @@ au lancement. Une version plus récente, notamment un nouvel arrêt pendant les
 contrôles, annule la commande sans rallumer MAX. La préparation de lancement
 complète et le contrôle atomique final restent obligatoires. Cette commande
 n'exécute pas de mission ; le heartbeat ou le workflow de tick existant le fait.
+
+Un veto attribué par le Council conserve aussi une empreinte des chemins et
+contenus rejetés, avant la suppression des caches. Cette preuve négative est
+bornée à la limite de réparation existante. Le même paquet ne devient pas neuf
+par un autre résumé, un changement de fournisseur ou un ordre de fichiers
+modifié : chargement préparé, génération, claim et precommit le refusent.
+Une modification réelle du contenu reste admissible, avec tests et nouvelle
+revue Council. Le nettoyage d’un test orphelin d’une candidate rejetée ne clôture
+pas son objectif ; sa régression doit accompagner l’implémentation corrigée.
+
+La revue ne transforme pas tous les commits historiques en missions du diff courant : les paquets annulés dont aucun fichier ne participe au diff sont exclus de ses critères et de ses mutations D1. Une mission partielle garde tous ses critères, et une provenance inconnue reste incluse par précaution. Cela ne termine aucune mission exclue.

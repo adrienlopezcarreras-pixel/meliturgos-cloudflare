@@ -400,6 +400,26 @@ export function councilRejectionCulprits(diff, packages = {}) {
   return culprits;
 }
 
+// Commit history also contains packages subsequently reverted. Their goals
+// must not become acceptance criteria for an unrelated surviving code diff.
+export async function resolveCouncilReviewScope(diff, log, loadJob) {
+  const paths = new Set([...String(diff || '').matchAll(/^diff --git a\/(\S+) b\//gm)].map(match => match[1]));
+  const candidates = [...new Set([...String(log || '').matchAll(/apply approved bridge package ([A-Za-z0-9_.:-]+)/g)].map(match => match[1]))].slice(0, 10);
+  const jobs = [], packages = {};
+  let goal = '';
+  for (const id of candidates) {
+    const row = await loadJob(id);
+    let files;
+    try { files = Array.isArray(row?.files_json) ? row.files_json : JSON.parse(row?.files_json || 'null'); } catch {}
+    // Unknown provenance retains the goal rather than silently waiving it.
+    if (Array.isArray(files) && files.length && !files.some(file => paths.has(String(file?.path || '')))) continue;
+    jobs.push(id);
+    packages[id] = Array.isArray(files) ? files : [];
+    if (row?.goal) goal += (goal ? '\n' : '') + id + ' : ' + row.goal;
+  }
+  return { jobs, packages, goal };
+}
+
 export async function handleCouncilReviewRequest(request, env, { now = Date.now(), review = runCouncilReview, contextLoader = resolveCouncilImportContext } = {}) {
   const oidc = await authorizeGitHubActionsOidcRequest(request, env, {
     allowedWorkflows: ['mel-candidate-promotion.yml', 'mel-pr-council-review.yml'],
@@ -438,12 +458,8 @@ export async function handleCouncilReviewRequest(request, env, { now = Date.now(
       attempts = priorAttempts(prior);
     } catch {}
   }
-  const jobs = [...String(body.log || '').matchAll(/apply approved bridge package ([A-Za-z0-9_.:-]+)/g)].map(m => m[1]).slice(0, 10);
-  let goal = '';
-  for (const id of jobs) {
-    const row = await env.DB.prepare('SELECT goal FROM dev_jobs WHERE id=?').bind(id).first().catch(() => null);
-    if (row?.goal) goal += (goal ? '\n' : '') + id + ' : ' + row.goal;
-  }
+  const { jobs, packages, goal } = await resolveCouncilReviewScope(body.diff, body.log,
+    id => env.DB.prepare('SELECT goal, files_json FROM dev_jobs WHERE id=?').bind(id).first().catch(() => null));
   let dependencyContext;
   try { dependencyContext = await contextLoader(env, { head, diff: body.diff }); }
   catch (error) { return Response.json({ ok:false, code:error?.code || 'COUNCIL_IMPORT_CONTEXT_UNAVAILABLE' }, { status:409 }); }
@@ -459,11 +475,6 @@ export async function handleCouncilReviewRequest(request, env, { now = Date.now(
     // The log lists every bridge package since main, including ones a later
     // commit already reverted. Only a job whose files are in the reviewed diff
     // caused the objections; the others only record the review.
-    const packages = {};
-    for (const id of jobs) {
-      const row = await env.DB.prepare('SELECT files_json FROM dev_jobs WHERE id=?').bind(id).first().catch(() => null);
-      try { packages[id] = JSON.parse(row?.files_json || '[]'); } catch { packages[id] = []; }
-    }
     const roadmapIds = {};
     for (const id of jobs) {
       const row = await env.DB.prepare("SELECT json_extract(optional_context,'$.roadmap_id') AS roadmap_id FROM dev_jobs WHERE id=?").bind(id).first().catch(() => null);
