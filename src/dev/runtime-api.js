@@ -6,6 +6,7 @@ import { D1DevJobRepository } from './d1-dev-job-repository.js';
 import { D1BridgeRepository } from './d1-bridge-repository.js';
 import { AutonomySupervisor } from '../evolution/autonomy-supervisor.js';
 import { runAutonomyRuntimeTick } from '../evolution/autonomy-runtime.js';
+import { getAutonomyControl, setAutonomyControl, isLegacyOwnerMaxStop } from '../evolution/autonomy-control.js';
 import { prepareDevelopmentRequest } from '../evolution/development-preflight.js';
 import { createTeacherReviewRequest } from '../teachers/teacher-request.js';
 import { queueRuntimeTeacherRequest, applyRuntimeTeacherReply } from '../teachers/runtime-teacher-bridge.js';
@@ -318,6 +319,27 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
 
     if (path === '/api/dev-bridge/claim' && request.method === 'POST') {
       const requestedJobId = String(body?.job_id || '').trim();
+      // A claimed cloud job can mutate the candidate after MAX was stopped.
+      // Read the persisted owner control BEFORE any claim side effect. Owner
+      // chat jobs with an exact id may still run independently; an unscoped
+      // claim fails closed while MAX is stopped.
+      if (env?.DB) {
+        const candidateJob = requestedJobId ? await repo.get(requestedJobId) : null;
+        if (!requestedJobId || candidateJob?.requested_by === 'mel-autonomy') {
+          let control;
+          try { control = await getAutonomyControl(env.DB); }
+          catch { return Response.json({ job: null, code: 'AUTONOMY_PAUSE_CHECK_FAILED' }, { status: 503 }); }
+          // An uninitialized D1 falls back to default-d1-fail-closed.
+          // This is not an owner STOP: retain the independently authorized
+          // local fallback contract for a scoped cloud outage. All actual
+          // owner/technical runtime pauses still prevent new MAX claims.
+          const activePause = control?.paused === true
+            && control?.source !== 'default-d1-fail-closed';
+          if (activePause || isLegacyOwnerMaxStop(control)) {
+            return Response.json({ job: null, code: 'AUTONOMY_OWNER_STOP_PAUSED' }, { status: 409 });
+          }
+        }
+      }
       // CODEX: local bearer authentication is not autonomous execution consent.
       // Keep cloud OIDC and the shared atomic claim unchanged. A PC may only
       // claim an exact package after a scoped cloud failure and owner opt-in.
@@ -345,6 +367,27 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
       const diagnosis = await agent.diagnose({ goal: job.goal });
       const existingPlan = objectOrEmpty(job.plan_json);
       return Response.json(await repo.update(job.id, { plan_json: { ...existingPlan, legacy_dev_agent: await agent.plan(diagnosis) }, status: 'CLAIMED' }));
+    }
+
+    if (path === '/api/dev-bridge/precommit' && request.method === 'POST') {
+      // The cloud Bridge may hold a CLAIM across an explicit owner STOP.
+      // Revalidate the persisted stop immediately before its candidate push.
+      // A failure is a veto, never permission to continue writing.
+      if (!oidcBridge) return Response.json({ ok: false, code: 'PRECOMMIT_OIDC_REQUIRED' }, { status: 403 });
+      const jobId = String(body?.job_id || '').trim();
+      if (!jobId) return Response.json({ ok: false, code: 'PRECOMMIT_JOB_ID_REQUIRED' }, { status: 422 });
+      const job = await repo.get(jobId);
+      if (!job || job.status !== 'CLAIMED' || job?.result_json?.bridge_preparation?.status !== 'READY')
+        return Response.json({ ok: false, code: 'PRECOMMIT_JOB_NOT_CLAIMED_READY' }, { status: 409 });
+      if (job.requested_by === 'mel-autonomy') {
+        let control;
+        try { control = await getAutonomyControl(env.DB); }
+        catch { return Response.json({ ok: false, code: 'AUTONOMY_PAUSE_CHECK_FAILED' }, { status: 503 }); }
+        const actualPause = control?.paused === true && control?.source !== 'default-d1-fail-closed';
+        if (actualPause || isLegacyOwnerMaxStop(control))
+          return Response.json({ ok: false, code: 'AUTONOMY_OWNER_STOP_PAUSED' }, { status: 409 });
+      }
+      return Response.json({ ok: true, code: 'PRECOMMIT_ALLOWED', job_id: jobId }, { headers: { 'cache-control': 'no-store' } });
     }
 
     if (path === '/api/dev-bridge/result' && request.method === 'POST') {
@@ -375,6 +418,40 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
         error: body.error ? String(body.error).slice(0, 500) : null,
       };
       const updated = await repo.update(job.id, patch);
+      // The owner wants ONE roadmap mission at a time. A failed autonomous
+      // Bridge must pause the runtime before any further mission is admitted.
+      // Do not override an owner STOP or a concurrent owner resume: CAS binds
+      // the pause to the precise control version observed before the write.
+      if (job.requested_by === 'mel-autonomy'
+          && (effectiveStatus === 'REPAIR_REQUIRED' || mergedResult.dev_bridge?.needs_repair === true)) {
+        let control;
+        try {
+          control = await getAutonomyControl(env.DB);
+          if (control.paused !== true) {
+            const ownerStopped = isLegacyOwnerMaxStop(control);
+            control = await setAutonomyControl(env.DB, {
+              paused: true, max_autonomy: false,
+              source: ownerStopped ? 'owner-ui' : 'bridge-repair-pause',
+              reason: ownerStopped ? 'owner-stop' : ('bridge-repair-required:' + job.id).slice(0, 500),
+              expected_updated_at: control.updated_at,
+            });
+          }
+        } catch (error) {
+          // Tests were recorded, but PAUSE was not proven. The reporting
+          // workflow must fail shut rather than chain into another mission.
+          return Response.json({
+            ...updated, autonomy_pause: {
+              confirmed: false, code: error?.code || 'AUTONOMY_REPAIR_PAUSE_UNVERIFIED',
+            },
+          }, { status: 503 });
+        }
+        return Response.json({
+          ...updated, autonomy_pause: {
+            confirmed: control.paused === true,
+            status: control.status, reason: control.reason,
+          },
+        });
+      }
       if (effectiveStatus !== 'READY_FOR_REVIEW' || mergedResult.dev_bridge?.needs_repair === true) {
         return Response.json(updated);
       }

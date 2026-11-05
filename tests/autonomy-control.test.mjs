@@ -196,3 +196,68 @@ test('MAX repart seul après un retour arrière, jamais après un arrêt propri�
     owner_control_version: 200, updated_at: 200,
   }), false, 'le propriétaire a écrit cette pause');
 });
+
+test('legacy MAX disabled by owner is reconciled into a durable pause before any tick', async () => {
+  const { isLegacyOwnerMaxStop } = await import('../src/evolution/autonomy-control.js');
+  const db = sqliteD1();
+  try {
+    // Reproduce the pre-fix /max {enabled:false} metadata written in production.
+    await setOwnerMaxAutonomy(db, { enabled: true, paused: false, source: 'owner-ui-launch-gate', reason: 'owner-max-autonomy' });
+    const legacy = await setOwnerMaxAutonomy(db, { enabled: false, source: 'owner-ui', reason: null });
+    assert.equal(legacy.paused, false);
+    assert.equal(legacy.max_autonomy, false);
+    assert.equal(isLegacyOwnerMaxStop(legacy), true);
+    const tick = await runAutonomyRuntimeTick({ DB: db });
+    assert.equal(tick.status, 'PAUSED');
+    assert.equal(tick.advanced, false);
+    const control = await getAutonomyControl(db);
+    assert.equal(control.paused, true);
+    assert.equal(control.reason, 'owner-stop');
+    assert.equal(control.source, 'owner-ui');
+    assert.equal(control.max_remembered, false);
+    assert.equal(isLegacyOwnerMaxStop(control), false);
+    const second = await runAutonomyRuntimeTick({ DB: db });
+    assert.equal(second.status, 'PAUSED');
+    assert.equal(second.advanced, false);
+    assert.equal((await getAutonomyControl(db)).owner_control_version, control.owner_control_version);
+  } finally { db.close(); }
+});
+
+test('legacy owner-stop detection excludes normal owner resume, release pause and MAX', async () => {
+  const { isLegacyOwnerMaxStop } = await import('../src/evolution/autonomy-control.js');
+  assert.equal(isLegacyOwnerMaxStop({ paused: false, max_autonomy: false, source: 'owner-ui-launch-gate', reason: null }), false);
+  assert.equal(isLegacyOwnerMaxStop({ paused: true, max_autonomy: false, source: 'owner-ui', reason: 'owner-stop' }), false);
+  assert.equal(isLegacyOwnerMaxStop({ paused: false, max_autonomy: true, source: 'owner-ui' }), false);
+});
+
+test('failed mission repair PAUSE cannot be overwritten or auto-resumed by a release', async () => {
+  const {
+    isMissionRepairAutonomyPause, shouldRestoreOwnerMax, isTechnicalAutonomyPause,
+  } = await import('../src/evolution/autonomy-control.js');
+  const db=sqliteD1();
+  try {
+    await setOwnerMaxAutonomy(db, {
+      enabled:true, paused:false, source:'owner-ui-launch-gate', reason:'owner-max-autonomy',
+    });
+    const repair=await setAutonomyControl(db, {
+      paused:true, max_autonomy:false, source:'bridge-repair-pause',
+      reason:'bridge-repair-required:mel-autonomy-mel-audit-02',
+    });
+    assert.equal(isMissionRepairAutonomyPause(repair),true);
+    assert.equal(shouldRestoreOwnerMax(repair),false);
+    assert.equal(isTechnicalAutonomyPause(repair),false);
+    const release=await setAutonomyControl(db, {
+      paused:true, max_autonomy:false,
+      source:'release-predeploy-binder', reason:'predeploy-release-safety',
+      expected_updated_at:repair.updated_at,
+    });
+    const persisted=await getAutonomyControl(db);
+    assert.equal(release.paused,true);
+    assert.equal(persisted.source,'bridge-repair-pause');
+    assert.equal(persisted.reason,repair.reason);
+    assert.equal(persisted.max_autonomy,false);
+    assert.equal(persisted.max_remembered,false);
+    assert.equal(shouldRestoreOwnerMax(persisted),false);
+    assert.equal(isMissionRepairAutonomyPause(persisted),true);
+  } finally { db.close(); }
+});

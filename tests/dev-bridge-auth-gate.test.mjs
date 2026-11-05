@@ -70,6 +70,7 @@ test('cloud bridge OIDC claim/result pass every synchronous gate of the deployed
   const oidc = (path, extra = {}) => new Request('https://mel.example' + path, { method: 'POST', headers: { 'x-mel-github-oidc': 'tok', ...extra } });
   assert.equal(isOidcBridgeCall(oidc('/api/dev-bridge/claim')), true);
   assert.equal(isOidcBridgeCall(oidc('/api/dev-bridge/result')), true);
+  assert.equal(isOidcBridgeCall(oidc('/api/dev-bridge/precommit')), true);
   assert.equal(isOidcBridgeCall(oidc('/api/dev-bridge/heartbeat')), false);
   assert.equal(isOidcBridgeCall(oidc('/api/dev-bridge/claim', { authorization: 'Bearer x' })), false);
 

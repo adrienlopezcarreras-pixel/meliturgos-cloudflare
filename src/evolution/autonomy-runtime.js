@@ -1,7 +1,7 @@
 import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { runAutonomyRuntimeTick as runCoreAutonomyRuntimeTick, autonomyTickAdvanced, currentAutonomyRepository } from './autonomy-runtime-core.js';
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
-import { getAutonomyControl, setOwnerMaxAutonomy, shouldRestoreOwnerMax } from './autonomy-control.js';
+import { getAutonomyControl, setAutonomyControl, setOwnerMaxAutonomy, isLegacyOwnerMaxStop, shouldRestoreOwnerMax } from './autonomy-control.js';
 import { AutonomySupervisor, selectActionableAutonomyJob, selectActionableAutonomyJobs, setRuntimeRoadmapRegressions, listAutonomySchedulerJobs } from './autonomy-supervisor.js';
 import { activeRoadmapRegressions } from '../roadmap/roadmap-regressions.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
@@ -857,6 +857,23 @@ function augmentTickProgress(tick = {}) {
 export async function runAutonomyRuntimeTick(env, options = {}) {
   setRuntimeRoadmapRegressions(await activeRoadmapRegressions(env?.DB).catch(() => []));
   let control = await getAutonomyControl(env?.DB, { memoryState: options.autonomyControlState || null });
+  if (isLegacyOwnerMaxStop(control)) {
+    // Reconcile historical owner stops before selecting or admitting a job.
+    // Use CAS so an explicit owner resume racing this tick is never overwritten.
+    try {
+      control = await setAutonomyControl(env?.DB, {
+        paused: true, max_autonomy: false,
+        source: 'owner-ui', reason: 'owner-stop',
+        expected_updated_at: control.updated_at,
+        memoryState: options.autonomyControlState || null,
+      });
+    } catch (error) {
+      // Fail closed even when the DB/lease changed: never treat an unverified
+      // owner stop as permission for this tick to dispatch AI or code.
+      return { status: 'PAUSED', paused: true, advanced: false,
+        block_reason: String(error?.code || 'OWNER_STOP_RECONCILE_FAILED'), control };
+    }
+  }
   const repository = options.repository || (env?.DB ? new D1DevJobRepository(env.DB) : null);
   const survival = await readSurvivalState(env?.DB).catch(() => ({ active: false }));
   // A rollback stopped MAX to swap the Worker code safely. Once that is done

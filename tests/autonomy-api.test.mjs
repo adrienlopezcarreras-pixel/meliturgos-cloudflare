@@ -171,6 +171,80 @@ test('stopping MAX persists the off state and does not run a cycle', async () =>
   const body = await response.json();
   assert.equal(body.persisted, true);
   assert.equal(body.control.max_autonomy, false);
+  assert.equal(body.control.paused, true, 'STOP must suspend the runtime, not only MAX mode');
+  assert.equal(body.control.status, 'PAUSED');
+  assert.equal(body.control.reason, 'owner-stop');
   assert.equal(body.tick.status, 'NOT_STARTED');
   assert.equal(memory.control.max_autonomy, false);
+  assert.equal(memory.control.paused, true);
+  const { runAutonomyRuntimeTick } = await import('../src/evolution/autonomy-runtime.js');
+  const tick = await runAutonomyRuntimeTick({}, { autonomyControlState: memory });
+  assert.equal(tick.status, 'PAUSED');
+  assert.equal(tick.advanced, false);
+});
+
+test('owner MAX STOP persists a runtime PAUSE across D1 reload and blocks future ticks', async () => {
+  const { sqliteD1 } = await import('./helpers/sqlite-d1.mjs');
+  const { getAutonomyControl, setOwnerMaxAutonomy, isOwnerAutonomyStop, shouldRestoreOwnerMax } =
+    await import('../src/evolution/autonomy-control.js');
+  const { runAutonomyRuntimeTick } = await import('../src/evolution/autonomy-runtime.js');
+  const db = sqliteD1();
+  try {
+    const enabled = await setOwnerMaxAutonomy(db, {
+      enabled: true, paused: false, source: 'owner-ui-launch-gate', reason: 'owner-max-autonomy',
+    });
+    assert.equal(enabled.status, 'MAX_AUTONOMY');
+    const stopped = await setOwnerMaxAutonomy(db, {
+      enabled: false, paused: true, source: 'owner-ui', reason: 'owner-stop',
+    });
+    assert.equal(stopped.status, 'PAUSED');
+    assert.equal(stopped.paused, true);
+    assert.equal(stopped.max_autonomy, false);
+    assert.equal(stopped.max_remembered, false);
+    assert.equal(stopped.owner_control_version, stopped.updated_at);
+    const persisted = await getAutonomyControl(db);
+    assert.equal(persisted.paused, true);
+    assert.equal(persisted.reason, 'owner-stop');
+    assert.equal(isOwnerAutonomyStop(persisted), true);
+    assert.equal(shouldRestoreOwnerMax(persisted), false, 'a technical heartbeat must not undo owner STOP');
+    const tick = await runAutonomyRuntimeTick({ DB: db });
+    assert.equal(tick.status, 'PAUSED');
+    assert.equal(tick.advanced, false);
+    assert.equal((await getAutonomyControl(db)).paused, true);
+  } finally {
+    db.close();
+  }
+});
+
+test('release binder cannot override a persisted owner STOP or restore MAX', async () => {
+  const { sqliteD1 } = await import('./helpers/sqlite-d1.mjs');
+  const { getAutonomyControl, setOwnerMaxAutonomy, setAutonomyControl, shouldRestoreOwnerMax } =
+    await import('../src/evolution/autonomy-control.js');
+  const db = sqliteD1();
+  try {
+    await setOwnerMaxAutonomy(db, { enabled: true, paused: false, source: 'owner-ui', reason: 'owner-max-autonomy' });
+    const stop = await setOwnerMaxAutonomy(db, { enabled: false, paused: true, source: 'owner-ui', reason: 'owner-stop' });
+    const release = await setAutonomyControl(db, {
+      paused: true, max_autonomy: false, source: 'release-predeploy-binder', reason: 'predeploy-release-safety',
+      expected_updated_at: stop.updated_at,
+    });
+    assert.equal(release.paused, true);
+    assert.equal(release.source, 'owner-ui');
+    assert.equal(release.reason, 'owner-stop');
+    assert.equal(release.owner_control_version, stop.owner_control_version);
+    const persisted = await getAutonomyControl(db);
+    assert.equal(persisted.paused, true);
+    assert.equal(persisted.max_remembered, false);
+    assert.equal(shouldRestoreOwnerMax(persisted), false);
+    await assert.rejects(
+      setAutonomyControl(db, {
+        paused: false, max_autonomy: true, source: 'release-launch-bootstrap',
+        expected_updated_at: stop.updated_at,
+      }),
+      error => error?.code === 'AUTONOMY_CONTROL_CHANGED',
+      'a stale release must not overwrite the owner stop',
+    );
+  } finally {
+    db.close();
+  }
 });

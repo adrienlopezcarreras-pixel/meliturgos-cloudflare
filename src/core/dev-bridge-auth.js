@@ -24,7 +24,7 @@ function jsonError(code, status) {
 }
 
 /**
- * The cloud bridge workflow's claim/result calls carry a GitHub Actions OIDC
+ * The cloud bridge workflow's claim/result/precommit calls carry a GitHub Actions OIDC
  * token instead of a bearer secret; the dev-bridge route verifies that token
  * (asynchronously) before doing anything. Every synchronous gate in front of
  * the route must let exactly these calls through.
@@ -32,7 +32,7 @@ function jsonError(code, status) {
 export function isOidcBridgeCall(request) {
   let path = '';
   try { path = new URL(request.url).pathname; } catch { return false; }
-  return (path === '/api/dev-bridge/claim' || path === '/api/dev-bridge/result')
+  return (path === '/api/dev-bridge/claim' || path === '/api/dev-bridge/result' || path === '/api/dev-bridge/precommit')
     && !request.headers.get('authorization')
     && String(request.headers.get('x-mel-github-oidc') || '').trim() !== '';
 }

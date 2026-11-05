@@ -6,6 +6,7 @@ import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { maybeDispatchCloudBridge } from '../src/evolution/cloud-bridge-dispatch.js';
 import { runCouncilReview, PC_AFTER_ATTEMPTS } from '../src/evolution/council-review.js';
 import { devRuntime } from '../src/dev/runtime-api.js';
+import { setAutonomyControl, setOwnerMaxAutonomy } from '../src/evolution/autonomy-control.js';
 import { AutonomySupervisor } from '../src/evolution/autonomy-supervisor.js';
 import { D1GitHubActionRelayStore } from '../src/platform/github-action-relay.js';
 import { runAutonomyRuntimeTick } from '../src/evolution/autonomy-runtime-core.js';
@@ -282,4 +283,39 @@ test('a second approved MAX job is dispatched while the first awaits its cloud r
   assert.equal(queued.results.length, 2);
   const ids = queued.results.map(row => JSON.parse(row.inputs_json).job_id).sort();
   assert.deepEqual(ids, [job.id, independent.id].sort());
+});
+
+test('atomic D1 prepared-Bridge claim refuses a persisted explicit owner pause', async t => {
+  const { DB, repository, job } = await fixture(t);
+  await setAutonomyControl(DB, { paused: true, max_autonomy: false, source: 'owner-ui', reason: 'owner-stop' });
+  assert.equal(await repository.claimPrepared(job.id), null, 'owner STOP cannot race the HTTP preflight');
+  assert.equal((await repository.get(job.id)).status, 'TEACHER_APPROVED');
+});
+
+test('atomic D1 prepared-Bridge claim refuses a legacy owner MAX-off state', async t => {
+  const { DB, repository, job } = await fixture(t);
+  await setOwnerMaxAutonomy(DB, { enabled: true, paused: false, source: 'owner-ui-launch-gate', reason: 'owner-max-autonomy' });
+  await setOwnerMaxAutonomy(DB, { enabled: false, source: 'owner-ui', reason: null });
+  assert.equal(await repository.claimPrepared(job.id), null);
+  assert.equal((await repository.get(job.id)).status, 'TEACHER_APPROVED');
+  await setOwnerMaxAutonomy(DB, { enabled: true, paused: false, source: 'owner-ui-launch-gate', reason: 'owner-max-autonomy' });
+  assert.equal((await repository.claimPrepared(job.id))?.status, 'CLAIMED', 'explicit owner resume may admit the same prepared job');
+});
+
+test('atomic MAX fence does not steal independently approved owner-chat package', async t => {
+  const { DB, repository } = await fixture(t);
+  // Keep exactly one autonomy slot occupied; owner-chat runs a separate lane.
+  const owner = await repository.create({ id: 'owner-manual-package', requested_by: 'owner-chat-work', goal: 'Owner approved work' });
+  const prepared = await repository.update(owner.id, {
+    status: 'TEACHER_APPROVED',
+    files_json: [{ path: 'src/owner.js', content: 'export const owner=true;' }],
+    tests_json: [{ command: 'test:smoke' }],
+    result_json: {
+      teacher_bridge: { status: 'ANSWERED', request: { request_id: 'owner-1' }, review: { request_id: 'owner-1', verdict: 'APPROVE_PLAN', development_allowed: true } },
+      implementation_proposal: { status: 'READY' },
+      bridge_preparation: { status: 'READY', teacher_request_id: 'owner-1', candidate_branch: 'candidate/mel-clean-autonomy', candidate_sha: 'a'.repeat(40) },
+    },
+  });
+  await setAutonomyControl(DB, { paused: true, max_autonomy: false, source: 'owner-ui', reason: 'owner-stop' });
+  assert.equal((await repository.claimPrepared(prepared.id))?.status, 'CLAIMED');
 });

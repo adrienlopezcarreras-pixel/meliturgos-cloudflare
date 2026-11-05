@@ -87,6 +87,22 @@ jobs:
             fi
             echo "PRODUCTION_RELEASE_DISPATCH_ACKNOWLEDGED http=$code"
           }
+          # Recheck owner control at the last possible point before each
+          # main write and each release dispatch. The Council can take minutes;
+          # earlier MAX=true is never permission after the owner presses Pause.
+          # A missing/unreadable control is a veto, not implicit authorization.
+          owner_max_still_authorizes_promotion() {
+            local fresh max
+            fresh="$(curl --fail --silent --show-error --max-time 20 "$CONTROL_URL")" || {
+              echo "::warning title=MEL candidate::OWNER_CONTROL_RECHECK_UNAVAILABLE - promotion blocked" >&2
+              return 1
+            }
+            max="$(printf '%s' "$fresh" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)}catch{};process.stdout.write(j.max_autonomy===true&&j.paused===false?"true":"false")})')" || return 1
+            if [ "$max" != "true" ]; then
+              echo "::notice title=MEL candidate::OWNER_STOP_BEFORE_PROMOTION - no main write or release" >&2
+              return 1
+            fi
+          }
           if [ "$MAIN" = "$CAND" ]; then echo "IN_SYNC $MAIN"; exit 0; fi
           if git merge-base --is-ancestor "$CAND" "$MAIN"; then
             git push --force-with-lease="refs/heads/$CANDIDATE:$CAND" origin "$MAIN:refs/heads/$CANDIDATE"
@@ -120,9 +136,14 @@ jobs:
           # refuses an empty diff (COUNCIL_REVIEW_INPUT_INVALID), which used to
           # freeze promotion forever. Fast-forward main; no code changes.
           if git diff --quiet "$MAIN" "$CAND"; then
-            git -c http.https://github.com/.extraheader= push "https://x-access-token:${MEL_WORKFLOW_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$CAND:refs/heads/main"
+            if ! owner_max_still_authorizes_promotion; then exit 0; fi
+          git -c http.https://github.com/.extraheader= push "https://x-access-token:${MEL_WORKFLOW_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$CAND:refs/heads/main"
             echo "::notice title=MEL candidate::EMPTY_NET_DIFF_FAST_FORWARD main $MAIN -> $CAND (no content change)"
-                      dispatch_release
+                      if owner_max_still_authorizes_promotion; then
+                        dispatch_release
+                      else
+                        echo "::notice title=MEL release::Dispatch held by owner pause or unreadable control"
+                      fi
             exit 0
           fi
           TOKEN="$(curl -fsSL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=meliturgos-worker" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).value||""))')"
@@ -176,9 +197,14 @@ jobs:
             exit 0
           fi
                     if [ "$DECISION" != "APPROVED" ]; then echo "::warning title=MEL candidate::Council $DECISION for $CAND - not promoted."; exit 0; fi
+          if ! owner_max_still_authorizes_promotion; then exit 0; fi
           git -c http.https://github.com/.extraheader= push "https://x-access-token:${MEL_WORKFLOW_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$CAND:refs/heads/main"
           echo "::notice title=MEL promoted::main $MAIN -> $CAND ($AHEAD commit(s), full-candidate-ci green). Production release follows within the hour."
-          dispatch_release
+          if owner_max_still_authorizes_promotion; then
+            dispatch_release
+          else
+            echo "::notice title=MEL release::Dispatch held by owner pause or unreadable control"
+          fi
 
       - name: Preserve content-free Council batch preflight without granting approval
         if: always()

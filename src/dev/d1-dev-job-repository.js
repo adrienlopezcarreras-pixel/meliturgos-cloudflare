@@ -6,6 +6,31 @@ import { D1EvolutionLedger } from '../evolution/evolution-ledger.js';
 import { isRotatableProviderExhaustion, ROTATABLE_PROVIDER_EXHAUSTION_SQL, PASSIVE_QUEUED_AUTONOMY_SQL, isPassiveQueuedAutonomyJob, isSecondPassQueued, singleFlightAutonomyMission, SINGLE_FLIGHT_AUTONOMY_JOB_SQL } from '../evolution/provider-exhaustion-rotation.js';
 
 // Durable prerequisite waits own no execution slot; admission remains atomic.
+// The Bridge's CLAIM is a single D1 UPDATE, so its owner-stop check must
+// live in the UPDATE as well as in the HTTP guard. A missing control row is
+// not an explicit owner stop (a scoped local fallback has its own consent
+// gate), but a paused or legacy owner-off row blocks MAX atomically.
+const OWNER_MAX_BRIDGE_CLAIM_FENCE_SQL = `NOT EXISTS (
+  SELECT 1 FROM dev_bridge_state AS owner
+  WHERE owner.bridge_id='mel-autonomy-control'
+    AND (
+      owner.status='PAUSED'
+      OR CASE WHEN json_valid(owner.metadata_json) THEN (
+        COALESCE(json_extract(owner.metadata_json,'$.paused'),0)=1
+        OR (
+          json_extract(owner.metadata_json,'$.source')='owner-ui'
+          AND COALESCE(json_extract(owner.metadata_json,'$.max_autonomy'),0)=0
+          AND COALESCE(json_extract(owner.metadata_json,'$.max_remembered'),0)=0
+          AND COALESCE(json_extract(owner.metadata_json,'$.paused'),0)=0
+          AND (
+            json_extract(owner.metadata_json,'$.reason') IS NULL
+            OR json_extract(owner.metadata_json,'$.reason')='owner-stop'
+          )
+        )
+      ) ELSE 0 END
+    )
+)`;
+
 const ACTIVE_JOB_SQL = "status NOT IN ('CANCELLED','FAILED','COMPLETED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED','WAITING_DEPENDENCY')";
 const objectiveId = job => job?.requested_by === 'mel-autonomy' ? String(job?.optional_context?.roadmap_id || '').trim() : '';
 // Error-ledger repairs do not have roadmap_id, but still share the single
@@ -649,7 +674,7 @@ export class D1DevJobRepository {
 
     const r = await this.db.prepare(
       'UPDATE dev_jobs SET status=?,updated_at=? WHERE id=? AND status=? AND NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status=\'PAUSED\')'
-        + " AND (requested_by <> 'mel-autonomy' OR id=(" + SINGLE_FLIGHT_AUTONOMY_JOB_SQL + '))'
+        + " AND (requested_by <> 'mel-autonomy' OR (" + OWNER_MAX_BRIDGE_CLAIM_FENCE_SQL + " AND id=(" + SINGLE_FLIGHT_AUTONOMY_JOB_SQL + ')))'
     ).bind('CLAIMED', Date.now(), id, expected, MAINTENANCE_FENCE_ID).run();
     return r.meta?.changes === 1 ? this.get(id) : null;
   }

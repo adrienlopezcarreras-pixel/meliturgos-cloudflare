@@ -38,6 +38,24 @@ export function isOwnerAutonomyStop(control) {
     || control?.reason === 'owner-pause';
 }
 
+// Before the owner-stop API fixed its semantics, disabling MAX stored
+// max_autonomy=false while leaving paused=false. A legacy owner-ui off
+// switch is still an explicit owner stop, not permission to keep ticking.
+// A failed autonomous mission requires a repair/review cycle. A release
+// must not silently turn this fail-closed pause into a resumable technical
+// pause; only an explicit owner action after a verified repair may resume.
+export function isMissionRepairAutonomyPause(control) {
+  return control?.paused === true && control?.source === 'bridge-repair-pause';
+}
+
+export function isLegacyOwnerMaxStop(control) {
+  return control?.paused !== true
+    && control?.source === 'owner-ui'
+    && control?.max_autonomy === false
+    && control?.max_remembered !== true
+    && (control?.reason === null || control?.reason === undefined || control?.reason === 'owner-stop');
+}
+
 export function shouldResumeAfterRollback(control) {
   return isRollbackAutonomyPause(control) && control?.max_remembered === true;
 }
@@ -51,7 +69,7 @@ export function shouldResumeAfterRollback(control) {
 export function shouldRestoreOwnerMax(control) {
   if (control?.paused !== true) return false;
   if (control?.reason === 'predeploy-release-safety') return false;
-  if (isOwnerAutonomyStop(control)) return false;
+  if (isOwnerAutonomyStop(control) || isMissionRepairAutonomyPause(control)) return false;
   if (control?.max_remembered === true) return true;
   return isRollbackAutonomyPause(control);
 }
@@ -62,7 +80,7 @@ export function shouldRestoreOwnerMax(control) {
 // reports owner_stopped is never treated as a technical pause.
 export function isTechnicalAutonomyPause(control) {
   if (control?.paused !== true || control?.owner_stopped === true) return false;
-  if (isOwnerAutonomyStop(control)) return false;
+  if (isOwnerAutonomyStop(control) || isMissionRepairAutonomyPause(control)) return false;
   const ownerVersion = Number(control?.owner_control_version);
   const updated = Number(control?.updated_at);
   return Number.isSafeInteger(ownerVersion) && ownerVersion > 0
@@ -178,7 +196,8 @@ export async function setAutonomyControl(db, {
   const rollbackPause = paused === true && source === ROLLBACK_PAUSE_SOURCE;
   // A release must not overwrite an owner stop. A previous rollback is not one:
   // treating it as protected cleared max_remembered on 02/11.
-  const protectedPause = releasePause && current.paused === true && isOwnerAutonomyStop(current);
+  const protectedPause = releasePause && current.paused === true
+    && (isOwnerAutonomyStop(current) || isMissionRepairAutonomyPause(current));
   const nextPaused = typeof paused === 'boolean' ? paused : current.paused === true;
   const requestedMax = typeof max_autonomy === 'boolean'
     ? max_autonomy
