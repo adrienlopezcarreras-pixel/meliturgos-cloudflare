@@ -472,7 +472,7 @@ export async function handleCouncilReviewRequest(request, env, { now = Date.now(
     const culprits = objectiveCulprits(objections, roadmapIds) || councilRejectionCulprits(body.diff, packages);
     for (const id of jobs) {
       const repair = rejected && (!culprits.size || culprits.has(id));
-      const reviewJson = JSON.stringify({ decision: result.decision, head, objections, unavailable, reviewed_at: now });
+      const reviewJson = JSON.stringify({ decision: result.decision, head, objections, unavailable, repair_required: repair, reviewed_at: now });
       const sql = repair
         ? `UPDATE dev_jobs SET result_json=json_set(json_set(COALESCE(result_json,'{}'),'$.council_review',json(?)),'$.dev_bridge.needs_repair',json('true')), error=?, status=CASE WHEN status IN ('READY_FOR_REVIEW','CLAIMED','TEACHER_APPROVED') THEN 'REPAIR_REQUIRED' ELSE status END, updated_at=? WHERE id=?`
         : `UPDATE dev_jobs SET result_json=json_set(COALESCE(result_json,'{}'),'$.council_review',json(?)), updated_at=? WHERE id=?`;

@@ -97,6 +97,18 @@ export function bridgePublicationFailureOnly(failedTests = []) {
       && BRIDGE_PUBLICATION_FAILURES[String(row?.command || '')] === String(row?.error || ''));
 }
 
+// The same reviewed file bytes must never be re-applied after Council
+// explicitly rejected the implementation. A bridge CAS race is retryable;
+// an attributed Council rejection is not. Legacy rows recorded the
+// attributable needs_repair bit but lacked repair_required in council_review.
+export function councilRejectedApprovedPackage(job) {
+  const review = job?.result_json?.council_review;
+  if (review?.decision !== 'REJECTED' || review?.addressed_in_repair_at) return false;
+  if (review?.repair_required === false) return false;
+  return review?.repair_required === true
+    || (review?.repair_required == null && job?.result_json?.dev_bridge?.needs_repair === true);
+}
+
 export function failureSignature(tests = []) {
   return (Array.isArray(tests) ? tests : [])
     .filter((row) => row && row.passed !== true)
@@ -935,7 +947,9 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         presentedSignatures: result.repair_cycle?.presented_signatures || [],
       });
       const nextAttempt = maxAutonomy === true ? decision.attempts : previousAttempts + 1;
-      const executorFailure = jobStatus === 'REPAIR_REQUIRED' && (failedTests.length === 0 || bridgePublicationFailureOnly(failedTests));
+      const councilRejected = councilRejectedApprovedPackage(job);
+      const executorFailure = jobStatus === 'REPAIR_REQUIRED' && !councilRejected
+        && (failedTests.length === 0 || bridgePublicationFailureOnly(failedTests));
       const failureSource = executorFailure ? 'DEV_BRIDGE_EXECUTOR_FAILURE' : 'DEV_BRIDGE_TEST_FAILURE';
 
       if (maxAutonomy === true && decision.action === 'EXHAUST') {
@@ -986,10 +1000,16 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         };
 
         if (!executorFailure) {
-          // A failed test invalidates the generated implementation/package.
+          // A failed test OR a Council veto invalidates the generated package.
+          // Keep the vetted goal and bounded repair budget, but never reuse
+          // identical code that a later independent reviewer rejected.
           delete result.implementation_proposal;
           delete result.bridge_package;
           delete result.bridge_preparation;
+          if (councilRejected) result.council_review = {
+            ...result.council_review,
+            addressed_in_repair_at: requestedAt,
+          };
         }
         // An executor-only failure keeps the exact approved package intact so
         // the corrected bridge can retry it atomically on the next heartbeat.
