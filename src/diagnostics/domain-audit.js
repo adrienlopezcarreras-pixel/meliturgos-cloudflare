@@ -11,7 +11,12 @@ const obj = value => {
   if (value && typeof value === 'object') return value;
   try { return JSON.parse(value || '{}') || {}; } catch { return {}; }
 };
-const time = value => (typeof value === 'number' ? value : Date.parse(String(value || ''))) || 0;
+const time = value => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const text = String(value ?? '').trim();
+  const parsed = /^-?\d+(?:\.\d+)?$/.test(text) ? Number(text) : Date.parse(text);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
 
 /** Chat: high-severity quality issues and tool calls leaked to the owner. */
 export function auditChat(events = [], { now = Date.now() } = {}) {
@@ -62,6 +67,13 @@ export function auditWork(cycles = [], { now = Date.now() } = {}) {
  * unconsolidated memory, expired sessions still stored, stale backups. */
 export function auditCore({ errors = [], memory = {}, sessions = {}, lastBackupAt } = {}, { now = Date.now() } = {}) {
   const findings = [];
+  // MEL-AUDIT-05: raw rows are measured against the injected clock, so a test
+  // (or a replay) decides exactly what is old or expired, never the wall clock.
+  if (Array.isArray(memory.candidates)) {
+    const pending = memory.candidates.filter(row => String(row?.status || 'PENDING').toUpperCase() === 'PENDING');
+    memory = { pending: pending.length, pending_old: pending.filter(row => time(row?.created_at) < now - WEEK_MS).length };
+  }
+  if (Array.isArray(sessions.rows)) sessions = { expired: sessions.rows.filter(row => time(row?.expires_at) < now).length };
   for (const row of errors) {
     if (Number(row?.n) >= 10) findings.push({ code: 'CORE_RECURRING_ERROR', detail: row.n + ' fois cette semaine : ' + String(row.path || '—') + ' ' + String(row.error || row.status || '').slice(0, 120) });
   }

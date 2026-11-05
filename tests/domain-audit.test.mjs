@@ -62,3 +62,30 @@ test('core audit (MEL-AUDIT-05) flags recurring errors, unconsolidated memory, e
   assert.deepEqual(auditCore({ memory: { pending_old: 5 }, sessions: { expired: 0 }, lastBackupAt: NOW - H }, { now: NOW }), []);
   assert.deepEqual(auditCore({}, { now: NOW }), [], 'an unmeasured backup table is not a finding');
 });
+
+// MEL-AUDIT-05: injected clock, exact boundaries, no repair when healthy.
+test('an injected clock detects exactly old memory, expired sessions and a missing backup; a healthy state yields nothing', async () => {
+  const { auditCore } = await import('../src/diagnostics/domain-audit.js');
+  const WEEK = 7 * 24 * H;
+  const candidates = [
+    ...Array.from({ length: 101 }, (_, i) => ({ status: 'PENDING', created_at: NOW - WEEK - 1 - i })),
+    { status: 'PENDING', created_at: NOW - WEEK },
+    { status: 'CONSOLIDATED', created_at: NOW - 10 * WEEK },
+  ];
+  const sessions = { rows: [{ expires_at: NOW - 1 }, { expires_at: NOW }, { expires_at: NOW + H }] };
+  const findings = auditCore({ memory: { candidates }, sessions, lastBackupAt: null }, { now: NOW });
+  assert.deepEqual(findings.map(f => f.code), ['MEMORY_UNCONSOLIDATED', 'SECURITY_EXPIRED_SESSIONS_KEPT', 'BACKUP_STALE']);
+  assert.match(findings[0].detail, /^101 souvenirs/, 'exactly the candidates older than seven days');
+  assert.match(findings[1].detail, /^1 sessions/, 'a session expiring at this instant is not yet expired');
+  assert.match(findings[2].detail, /aucune sauvegarde/);
+  const healthy = auditCore({ memory: { candidates: candidates.slice(100) }, sessions: { rows: [{ expires_at: NOW + H }] }, lastBackupAt: NOW - 3 * 24 * H }, { now: NOW });
+  assert.deepEqual(healthy, [], 'a healthy state produces no finding, hence no repair');
+});
+
+
+test('healthy millisecond timestamps serialized as strings never generate repair findings', async () => {
+  const { auditCore } = await import('../src/diagnostics/domain-audit.js');
+  const candidates = Array.from({length:101}, () => ({status:'PENDING',created_at:String(NOW-H)}));
+  const findings = auditCore({memory:{candidates},sessions:{rows:[{expires_at:String(NOW+H)}]},lastBackupAt:String(NOW-H)}, {now:NOW});
+  assert.deepEqual(findings, [], 'valid current data stays healthy after JSON/SQL string serialization');
+});
