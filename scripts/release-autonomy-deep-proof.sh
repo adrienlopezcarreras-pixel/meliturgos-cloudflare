@@ -277,9 +277,15 @@ const idle=d?.status==='GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED'
   && Number(d?.active_teacher_handoff_count||0)===0
   && !d?.job_id
   && !d?.teacher_request_id;
-if(d?.ok!==true || (!active && !progressed && !idle)) throw new Error('GEN2_42_TEACHER_HANDOFF_PROOF_FAILED');
+const stopped=d?.status==='GEN2_42_TEACHER_HANDOFF_PAUSE_VERIFIED'
+  && d.pause_verified===true && d.paused===true && d.max_autonomy===false
+  && ['OWNER_STOP','REPAIR_REQUIRED'].includes(d.pause_kind)
+  && Number.isSafeInteger(d.control_version) && d.control_version>0
+  && d.no_execution_attempted===true && !d.job_id && !d.teacher_request_id;
+if(d?.ok!==true || (!active && !progressed && !idle && !stopped)) throw new Error('GEN2_42_TEACHER_HANDOFF_PROOF_FAILED');
 if(d?.production_activation_allowed!==false || d?.auto_approval_allowed!==false) throw new Error('GEN2_42_PROOF_ESCALATED_PRIVILEGES');
-console.log('GEN2-42 production Teacher handoff proof passed: '+String(d.status)+' teacher_proven='+teacherProvenCount+' blocked='+blockedCount+' open='+openCount);
+if(stopped) console.log('GEN2-42 production Teacher pause verified: '+d.pause_kind+'; no execution attempted.');
+else console.log('GEN2-42 production Teacher handoff proof passed: '+String(d.status)+' teacher_proven='+teacherProvenCount+' blocked='+blockedCount+' open='+openCount);
 NODE
 
 
