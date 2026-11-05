@@ -20,6 +20,8 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '22'
+      - name: Install exact lockfile for the real Workers transport test
+        run: npm ci
       - name: Verify bounded GET retries and cryptographic reconstruction gates
         run: node --test tests/shardvault-code-read-retry.test.mjs tests/shardvault-github-authoritative-readback.test.mjs
       - name: Runtime syntax
