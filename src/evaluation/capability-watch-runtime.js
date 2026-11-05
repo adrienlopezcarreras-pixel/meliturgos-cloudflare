@@ -14,6 +14,7 @@ import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { isAcceptedRoadmapCodeJob } from '../roadmap/roadmap-code-acceptance.js';
 import { flattenRoadmap } from '../roadmap/master-roadmap.js';
+import { getAutonomyControl, isOwnerAutonomyStop, isMissionRepairAutonomyPause } from '../evolution/autonomy-control.js';
 
 const WATCH_ID = 'ecosystem-canonical';
 const DISCOVERY_ID = 'ecosystem-discoveries-canonical';
@@ -401,6 +402,22 @@ export async function proveEcosystemTeacherHandoff(
 ) {
   const discoveryStore = await ensureStore(env, DISCOVERY_ID);
   let ledger = await discoveryStore.load();
+  const control = await getAutonomyControl(env.DB);
+  if (control.paused === true && control.max_autonomy === false
+      && (isOwnerAutonomyStop(control) || isMissionRepairAutonomyPause(control))) {
+    // A stopped owner/repair workflow must not manufacture a fresh Teacher
+    // request just to deploy its repair. Prove the stop itself, not liveness.
+    const verified = Number.isSafeInteger(control.updated_at) && control.updated_at > 0;
+    return {
+      ok: verified, status: verified ? 'GEN2_42_TEACHER_HANDOFF_PAUSE_VERIFIED' : 'GEN2_42_TEACHER_HANDOFF_NOT_READY',
+      pause_verified: verified, paused: true, max_autonomy: false,
+      pause_kind: isOwnerAutonomyStop(control) ? 'OWNER_STOP' : 'REPAIR_REQUIRED',
+      control_version: control.updated_at,
+      no_execution_attempted: true,
+      observed_handoff_count: (Array.isArray(ledger?.items) ? ledger.items : []).filter(item => item?.handoff).length,
+      production_activation_allowed: false, auto_approval_allowed: false,
+    };
+  }
   const reconciled = await reconcileDiscoveryJobs(env, ledger, {
     repository: developmentRepository,
     now,
