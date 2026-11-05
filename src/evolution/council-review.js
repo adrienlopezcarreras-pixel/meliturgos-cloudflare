@@ -409,8 +409,14 @@ export async function resolveCouncilReviewScope(diff, log, loadJob) {
   let goal = '';
   for (const id of candidates) {
     const row = await loadJob(id);
-    let files;
-    try { files = Array.isArray(row?.files_json) ? row.files_json : JSON.parse(row?.files_json || 'null'); } catch {}
+    const parseFiles = value => {
+      try { const files = Array.isArray(value) ? value : JSON.parse(value || 'null');
+        return Array.isArray(files) && files.length ? files.map(file => typeof file === 'string' ? {path:file} : file) : null;
+      } catch { return null; }
+    };
+    // A repair may already have replaced files_json. The rollback must cover
+    // the entire packet that was actually published, including its tests.
+    const files = parseFiles(row?.applied_files_json) || parseFiles(row?.files_json);
     // Unknown provenance retains the goal rather than silently waiving it.
     if (Array.isArray(files) && files.length && !files.some(file => paths.has(String(file?.path || '')))) continue;
     jobs.push(id);
@@ -459,7 +465,7 @@ export async function handleCouncilReviewRequest(request, env, { now = Date.now(
     } catch {}
   }
   const { jobs, packages, goal } = await resolveCouncilReviewScope(body.diff, body.log,
-    id => env.DB.prepare('SELECT goal, files_json FROM dev_jobs WHERE id=?').bind(id).first().catch(() => null));
+    id => env.DB.prepare("SELECT goal, files_json, json_extract(result_json,'$.dev_bridge.applied_files') AS applied_files_json FROM dev_jobs WHERE id=?").bind(id).first().catch(() => null));
   let dependencyContext;
   try { dependencyContext = await contextLoader(env, { head, diff: body.diff }); }
   catch (error) { return Response.json({ ok:false, code:error?.code || 'COUNCIL_IMPORT_CONTEXT_UNAVAILABLE' }, { status:409 }); }

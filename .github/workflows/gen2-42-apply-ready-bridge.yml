@@ -509,6 +509,9 @@ jobs:
             ...base,
             status,
             mode:'GITHUB_CLOUD_BRIDGE',
+            applied_files:status==='READY_FOR_REVIEW'
+              ? (Array.isArray(job.files_json)?job.files_json:[]).map(file=>String(file?.path||'')).filter(Boolean)
+              : [],
             candidate_sha:/^[a-f0-9]{40}$/i.test(sha)?sha:null,
             github_run_id:Number(process.env.GITHUB_RUN_ID||0),
             github_run_attempt:Number(process.env.GITHUB_RUN_ATTEMPT||0)

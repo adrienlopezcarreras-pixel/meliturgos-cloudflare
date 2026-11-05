@@ -292,3 +292,13 @@ test('review scope excludes a reverted historical package without dropping a sur
   assert.match(partial.goal, /MEL-AUDIT-05/, 'missing required test file remains reviewable against the full goal');
   assert.deepEqual((await resolveCouncilReviewScope(infrastructure, 'apply approved bridge package unknown', load)).jobs, ['unknown']);
 });
+
+test('a rejection restores published source and test together after the next proposal mutates files_json', async () => {
+  const { resolveCouncilReviewScope, culpritRevertPaths } = await import('../src/evolution/council-review.js');
+  const row = { goal: 'MEL-AUDIT-05', files_json: JSON.stringify([{path:'src/diagnostics/domain-audit.js'}]),
+    applied_files_json: JSON.stringify(['src/diagnostics/domain-audit.js', 'tests/domain-audit.test.mjs']) };
+  const scope = await resolveCouncilReviewScope('diff --git a/src/diagnostics/domain-audit.js b/src/diagnostics/domain-audit.js\n',
+    'apply approved bridge package audit', async () => row);
+  assert.deepEqual(culpritRevertPaths(new Set(scope.jobs), scope.packages),
+    ['src/diagnostics/domain-audit.js', 'tests/domain-audit.test.mjs']);
+});

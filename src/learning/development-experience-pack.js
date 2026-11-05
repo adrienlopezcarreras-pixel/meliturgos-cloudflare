@@ -1774,4 +1774,29 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1793898889714
   },
+  {
+    "id": "codex-council-revert-uses-published-package-paths-20261105",
+    "source": "codex",
+    "domain": "rollback-provenance",
+    "task": "Restaurer tout un paquet rejeté même si sa proposition courante a changé.",
+    "input": "Le rejet du paquet2ebfc65a restaure seulement domain-audit.js; le test ajouté reste dans la candidate2a22986d et fait échouer sa CI.",
+    "before": "Les chemins à restaurer sont lus dans files_json, que la réparation peut déjà avoir modifié.",
+    "after": "Capturer les chemins du paquet figé au claim dans le rapport de publication réussie. Pour attribuer le diff et restaurer un paquet rejeté, préférer cette provenance publiée à la proposition courante mutable, afin de garder code et tests cohérents. Une restauration ne valide jamais l’objectif rejeté.",
+    "rationale": "Une annulation partielle laisse des régressions orphelines et bloque les corrections indépendantes. La liste des fichiers publiée doit survivre aux nouvelles propositions.",
+    "tests": [
+      "CI42074515373 échoue sur le test orphelin après restauration partielle2a22986d; commit2a retire seulementlecode",
+      "tests/council-review-gate.test.mjs: proposition courante limitée au source, provenance publiée source+test, restauration des deux",
+      "validation ciblée élargie:71 succès locaux; nouvelle publication Cloudflare encore à vérifier"
+    ],
+    "tags": [
+      "council",
+      "rollback",
+      "published-provenance",
+      "atomic-package",
+      "regression-tests"
+    ],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1793900235275
+  },
 ]);
