@@ -1,3 +1,4 @@
+import { rememberCouncilRejectedPackage } from './council-rejected-package.js';
 import {beginAutomaticRepair} from './autonomy-repair.js';
 import {getAutonomyControl} from './autonomy-control.js';
 import { MAX_AUTONOMOUS_REPAIR_ATTEMPTS as MAX_OWNER_MAX_REPAIR_ATTEMPTS } from './autonomy-repair-policy.js';
@@ -1000,6 +1001,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         };
 
         if (!executorFailure) {
+          if (councilRejected) result.council_rejected_packages = await rememberCouncilRejectedPackage(job, requestedAt);
           // A failed test OR a Council veto invalidates the generated package.
           // Keep the vetted goal and bounded repair budget, but never reuse
           // identical code that a later independent reviewer rejected.

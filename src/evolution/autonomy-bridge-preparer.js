@@ -1,3 +1,4 @@
+import { isCouncilRejectedPackage } from './council-rejected-package.js';
 import { assertRoadmapCodeChanges, ROADMAP_CODE_CONTRACTS } from '../roadmap/roadmap-code-contracts.js';
 import { createGitHubCodeReader } from '../capabilities/github-code-capabilities.js';
 import { assertMentorCodeContract } from '../learning/mentor-code-contract.js';
@@ -201,7 +202,7 @@ export async function prepareApprovedBridgePackage({
   const implementation = requireImplementationProposal(current, teacher);
   const code = await inspectSources(env, implementation, { fetchImpl });
   const reused = reusablePackage(current, implementation);
-  if (reused) {
+  if (reused && !(await isCouncilRejectedPackage(current, current.files_json))) {
     assertRoadmapCodeChanges(current, current.files_json);
     for (const file of current.files_json) {
       const inspected = code.files.find(source => source.path === file.path);
@@ -312,6 +313,12 @@ export async function prepareApprovedBridgePackage({
     content: String(change.content || ''),
     reason: String(change.reason || '').slice(0, 1200),
   }));
+  if (await isCouncilRejectedPackage(current, files)) {
+    throw Object.assign(new Error('MENTOR_NO_VALID_CODE_PROPOSAL'), {
+      code:'MENTOR_NO_VALID_CODE_PROPOSAL',
+      failures:[{stage:'council-replay',error:'COUNCIL_REJECTED_PACKAGE_REPLAY'}],
+    });
+  }
   assertRoadmapCodeChanges(current, files);
   const tests = normalizeTests(proposal.tests);
   const bridgePreparation = {
@@ -373,6 +380,7 @@ export async function preparedMissionPackage(env, code, job, inspectedFiles = []
     pkg = JSON.parse((await mainReader.read(`prepared/${roadmapId}.json`)).content);
   } catch { return null; }
   if (pkg?.roadmap_id !== roadmapId || !Array.isArray(pkg.changes) || !pkg.changes.length) return null;
+  if (await isCouncilRejectedPackage(job, pkg.changes)) return null;
   const reader = createGitHubCodeReader({ ...code, token: String(env?.MEL_GITHUB_TOKEN || ''), pinnedSha: code.candidate_sha, fetchImpl });
   const changes = [];
   for (const change of pkg.changes.slice(0, 10)) {

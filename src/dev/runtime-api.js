@@ -1,3 +1,4 @@
+import { isCouncilRejectedPackage } from '../evolution/council-rejected-package.js';
 import { requireValue } from '../core/contracts.js';
 import { authorizeDevBridge, isOidcBridgeCall } from '../core/dev-bridge-auth.js';
 import { authorizeGitHubActionsOidcRequest } from '../security/github-actions-oidc.js';
@@ -347,6 +348,11 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
           }
         }
       }
+      if (requestedJobId) {
+        const candidateJob = await repo.get(requestedJobId);
+        if (await isCouncilRejectedPackage(candidateJob, candidateJob?.files_json))
+          return Response.json({job:null,code:'COUNCIL_REJECTED_PACKAGE_REPLAY'},{status:409});
+      }
       // CODEX: local bearer authentication is not autonomous execution consent.
       // Keep cloud OIDC and the shared atomic claim unchanged. A PC may only
       // claim an exact package after a scoped cloud failure and owner opt-in.
@@ -364,6 +370,8 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
           { status: requestedJobId ? 409 : 200 },
         );
       }
+      if (await isCouncilRejectedPackage(job, job.files_json))
+        return Response.json({job:null,code:'COUNCIL_REJECTED_PACKAGE_REPLAY'},{status:409});
       if (job?.result_json?.bridge_preparation?.status === 'READY') {
         return Response.json(job);
       }
@@ -397,6 +405,8 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
         if (actualPause || isLegacyOwnerMaxStop(control))
           return Response.json({ ok: false, code: 'AUTONOMY_OWNER_STOP_PAUSED' }, { status: 409 });
       }
+      if (await isCouncilRejectedPackage(job, job.files_json))
+        return Response.json({ok:false,code:'COUNCIL_REJECTED_PACKAGE_REPLAY'},{status:409});
       return Response.json({ ok: true, code: 'PRECOMMIT_ALLOWED', job_id: jobId }, { headers: { 'cache-control': 'no-store' } });
     }
 
