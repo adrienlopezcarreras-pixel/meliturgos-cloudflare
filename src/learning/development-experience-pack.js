@@ -1727,4 +1727,51 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1793896870701
   },
+  {
+    "id": "codex-ready-packet-waits-for-external-dispatch-20261105",
+    "source": "codex",
+    "domain": "autonomy-progress",
+    "task": "Éviter que le watchdog empêche la publication du paquet READY qu’il attend.",
+    "input": "Un tick contient un paquet READY et une mission TEACHER_APPROVED mais renvoie HTTP503 MAX_PROGRESS_STALLED avant le dispatch Bridge.",
+    "before": "L’absence de nouvel événement est prise pour un blocage alors que la prochaine étape appartient au Bridge externe.",
+    "after": "Classer un paquet READY cohérent et sans erreur comme attente de dispatch externe avant le watchdog. Ne pas inventer de progression ou de livraison; conserver les erreurs, pauses et identités incohérentes comme blocages.",
+    "rationale": "Une barrière de progression ne doit pas supprimer la transition nécessaire pour produire cette progression.",
+    "tests": [
+      "tests/max-ready-bridge-watchdog.test.mjs: watchdog déjà déclenché, attente externe sans faux événement ou livraison; erreurs et mismatch conservés",
+      "validation ciblée MAX, baux et transport:37 succès locaux"
+    ],
+    "tags": [
+      "watchdog",
+      "bridge",
+      "external-wait",
+      "progress-truth"
+    ],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1793898889714
+  },
+  {
+    "id": "codex-long-json-proof-preserves-live-transport-20261105",
+    "source": "codex",
+    "domain": "http-proof-transport",
+    "task": "Maintenir une preuve JSON longue au travers des délais d’inactivité des proxys.",
+    "input": "La preuve de veille coupe la connexion vers60s deux fois, malgré un délai client240s et des tests de code réussis.",
+    "before": "Attendre tout le résultat avant le premier octet dépasse le délai d’inactivité du transport; accepter202 perdrait la preuve finale.",
+    "after": "Sur option explicite de preuve longue, envoyer des espaces JSON périodiques sans compression puis le véritable résultat. Vérifier toujours le résultat final et les preuves; une réponse200 avec ok:false reste un échec. Nettoyer le timer après fin ou déconnexion et ne pas relancer aveuglément le POST.",
+    "rationale": "Un timeout total client ne protège pas contre un timeout d’inactivité intermédiaire; le heartbeat ne vaut jamais preuve fonctionnelle.",
+    "tests": [
+      "tests/json-heartbeat-response.test.mjs: octets avant fin de preuve, heartbeat, JSON final, erreurs et déconnexion",
+      "tests/watch-interface-dedicated.test.mjs et tests/gen2/preview-watch-http-sanitizer.test.mjs: preuve finale conservée, pas de retry POST aveugle",
+      "validation locale uniquement; preuve réseau Cloudflare encore requise"
+    ],
+    "tags": [
+      "json",
+      "heartbeat",
+      "idle-timeout",
+      "proof-integrity"
+    ],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1793898889714
+  },
 ]);

@@ -837,8 +837,19 @@ async function applyObservedCountermeasures(env, repository, control, watchdog, 
   });
 }
 
-function augmentTickProgress(tick = {}) {
+export function augmentTickProgress(tick = {}) {
   const progress = tick?.progress && typeof tick.progress === 'object' ? { ...tick.progress } : {};
+  // A READY packet is waiting for the external Bridge, not for another model
+  // or an execution on the PC. Reporting a stall here prevents the authenticated
+  // tick workflow from dispatching that very packet.
+  if (tick.ok !== false && tick.paused !== true && !tick.runtime_error && !tick.owner_max_error
+      && !progress.block_reason && tick.bridge_preparation?.status === 'READY'
+      && tick.job?.id && String(tick.job.status).toUpperCase() === 'TEACHER_APPROVED'
+      && (!progress.job_id || progress.job_id === tick.job.id)) {
+    progress.work_remaining = true;
+    progress.waiting_external = true;
+    progress.block_reason = 'CLOUD_BRIDGE_DISPATCH_PENDING';
+  }
   const events = new Set(Array.isArray(progress.events) ? progress.events : []);
   if (Array.isArray(tick?.owner_max_sweep?.applied) && tick.owner_max_sweep.applied.length > 0) events.add('OWNER_MAX_APPROVAL_APPLIED');
   if (Array.isArray(tick?.internal_teacher_mirror?.mirrored) && tick.internal_teacher_mirror.mirrored.length > 0) events.add('TEACHER_REQUEST_MIRRORED');

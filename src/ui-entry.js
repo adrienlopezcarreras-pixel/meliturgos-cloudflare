@@ -1,5 +1,6 @@
 import app from './learning-entry.js';
 import { requireAuth } from './core/security.js';
+import { jsonHeartbeatResponse } from './core/json-heartbeat-response.js';
 import { migrate } from './persistence/migrations.js';
 import { createConversationService } from './conversations/conversation-service.js';
 import { buildActivitySnapshot } from './activity/activity-snapshot.js';
@@ -82,6 +83,10 @@ async function capabilityWatchRunResponse(request, env, ctx) {
       force,
       sourceSha: build?.sha || null,
     });
+    if (wait && body?.heartbeat === true) {
+      return jsonHeartbeatResponse(run.then(result => ({ ok: true, manual: true, forced: force, result }))
+        .catch(() => ({ ok: false, error: 'CAPABILITY_WATCH_RUN_FAILED' })));
+    }
     // A full watch outlives the HTTP request: Cloudflare then answered with an
     // HTML error page and the UI showed "Réponse serveur invalide".
     if (!wait && typeof ctx?.waitUntil === 'function') {

@@ -213,3 +213,6 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 - `codex-council-negative-proof-survives-cache-invalidation-20261105` — conserver l’empreinte des contenus rejetés à travers les caches et la vérifier jusqu’au precommit ; les révisions corrigées gardent le chemin de preuve normal. Preuve locale, sans certification production.
 
 - `codex-council-goals-follow-surviving-diff-20261105` — attribuer les objectifs aux fichiers encore présents dans le diff, conserver le plein objectif des missions partielles et les provenances inconnues ; ne jamais certifier un ancien paquet annulé.
+
+- `codex-ready-packet-waits-for-external-dispatch-20261105` — un paquet READY cohérent attend le Bridge sans constituer une livraison; ne pas laisser le watchdog bloquer son dispatch.
+- `codex-long-json-proof-preserves-live-transport-20261105` — heartbeat JSON opt-in contre les timeouts d’inactivité; exiger le vrai résultat final, nettoyer les timers et ne pas rejouer aveuglément les POST. Preuve locale, validation Cloudflare encore requise.

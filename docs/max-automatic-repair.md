@@ -45,3 +45,7 @@ revue Council. Le nettoyage d’un test orphelin d’une candidate rejetée ne c
 pas son objectif ; sa régression doit accompagner l’implémentation corrigée.
 
 La revue ne transforme pas tous les commits historiques en missions du diff courant : les paquets annulés dont aucun fichier ne participe au diff sont exclus de ses critères et de ses mutations D1. Une mission partielle garde tous ses critères, et une provenance inconnue reste incluse par précaution. Cela ne termine aucune mission exclue.
+
+Un paquet READY, lié à la mission TEACHER_APPROVED et sans erreur, attend explicitement le dispatch Bridge. Cette attente ne crée ni événement de progression ni livraison et ne masque pas une pause, une erreur ou un identifiant incohérent.
+
+La preuve de veille longue peut demander `wait:true, heartbeat:true` : le transport JSON émet des espaces pendant le travail puis le résultat final. Le contrôle exige encore `ok:true` et toutes les preuves sourcées; un202 ou un200 avec résultat négatif ne suffit pas. La durée totale reste bornée et aucun POST forcé n’est réessayé automatiquement.
