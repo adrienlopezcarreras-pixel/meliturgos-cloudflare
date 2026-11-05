@@ -58,6 +58,8 @@ jobs:
       - name: Prove interrupted cloud runtime and resumable evidence waits
         run: |
           node --test tests/autonomy-runtime-epoch.test.mjs tests/autonomy-verification-wait.test.mjs
+      - name: Verify AUDIT-02 prepared code/test packet matches this branch or has already been applied
+        run: node --test tests/gen2/prepared-mel-audit-02-contract.test.mjs
       - name: Declare scope of evidence
         run: |
           {
