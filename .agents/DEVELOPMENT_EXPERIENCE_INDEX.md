@@ -207,3 +207,5 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 - `claude-clone-test-sees-committed-files-20261025` — un test fondé sur un clone ne voit que les fichiers commités.
 - `claude-budget-meter-needs-every-model-rate-20261026` — un compteur de dépense estimé doit connaître le tarif réel de chaque modèle utilisé.
 - `claude-reduced-identity-audit-validated-before-missions-20261026` — un audit qui crée des missions est validé en production avant branchement ; l'inobservable est BLOCKED.
+
+- `codex-workers-fetch-option-runtime-parity-20261105` — tester les options fetch critiques sous workerd ; mode supporté, refus des 3xx, timeout et URL fixe conservés. Preuve locale réelle, sans certification production.

@@ -27,9 +27,9 @@ export async function readAuthoritativeGitHubMirror(rawUrl,{fetchImpl=fetch,maxB
   if(token&&!/[\r\n]/.test(token))headers.authorization='Bearer '+token;
   let response;
   try{
-    response=await fetchImpl(url,{method:'GET',redirect:'error',headers},12000);
+    response=await fetchImpl(url,{method:'GET',redirect:'manual',headers},12000);
   }catch{return null;}
-  if(!response?.ok)return null;
+  if(!response?.ok||(Number(response.status)>=300&&Number(response.status)<400))return null;
   const headerSize=Number(response.headers?.get?.('content-length')||0);
   const maxEncoded=Math.ceil(maxBytes/3)*4;
   // GitHub Contents JSON line-wraps base64 (typically every 60 chars).

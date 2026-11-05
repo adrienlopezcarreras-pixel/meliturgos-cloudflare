@@ -19,7 +19,10 @@ export async function verifyRepairRelease({oidc, deployedSha, token, fetchImpl=f
     let response;
     try {
       response=await fetchImpl(`https://api.github.com/repos/${REPOSITORY}/actions/runs/${identity.run_id}${suffix}`,{
-      redirect:'error', signal:AbortSignal.timeout(15000),
+      // Workers rejects redirect:'error' with a TypeError before any HTTP
+      // request. Manual mode keeps the bearer on the fixed GitHub URL; the
+      // non-ok check below rejects every 3xx without following Location.
+      redirect:'manual', signal:AbortSignal.timeout(15000),
       headers:{accept:'application/vnd.github+json',authorization:`Bearer ${token}`,'user-agent':'MEL-verified-repair-release'},
       });
     }catch {throw new Error(`${stage}_FETCH_FAILED`);}

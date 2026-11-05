@@ -17,7 +17,20 @@ fait vérifier ces résultats GitHub par le serveur, sous OIDC, avant de lever
 la réservation. Le prochain heartbeat reprend alors les missions normales.
 
 L'arrêt du propriétaire reste global et prioritaire : aucun mécanisme de
-réparation ou callback de release ne réactive MAX après cet arrêt. Une ancienne
+réparation ni callback automatique ne réactive MAX après cet arrêt. Une ancienne
 pause globale de réparation reste également fermée ; elle n'est pas convertie
 silencieusement en autorisation nouvelle. Un état invalide, un budget épuisé ou
 une preuve absente garde les autres missions bloquées avec un diagnostic.
+
+Le lecteur des preuves GitHub utilise `redirect: manual` et refuse les réponses
+3xx sans suivre leur destination. Ce contrat est testé dans workerd : le mode
+`error`, accepté par Node, est rejeté par Workers avant tout envoi réseau.
+
+Une nouvelle commande explicite du propriétaire peut lancer MAX après la
+release vérifiée. Dans le workflow canonique, cette option est désactivée par
+défaut et exige un lancement manuel par le propriétaire, le SHA déployé exact,
+les vrais contrôles de production et la version du choix propriétaire reconnue
+au lancement. Une version plus récente, notamment un nouvel arrêt pendant les
+contrôles, annule la commande sans rallumer MAX. La préparation de lancement
+complète et le contrôle atomique final restent obligatoires. Cette commande
+n'exécute pas de mission ; le heartbeat ou le workflow de tick existant le fait.
