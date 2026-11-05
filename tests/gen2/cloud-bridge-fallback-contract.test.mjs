@@ -67,8 +67,11 @@ test('cloud bridge normalizes trailing whitespace before hygiene and tests', asy
 });
 
 
-test('bridge cancels as already satisfied only when the candidate also matches the package', async () => {
+test('bridge verifies exact candidate content but never cancels a satisfied roadmap package', async () => {
   const source = await readFile(new URL('../../.github/workflows/gen2-42-apply-ready-bridge.yml', import.meta.url), 'utf8');
-  const reconcile = source.slice(source.indexOf('Reconcile package already satisfied on main'), source.indexOf('bridge-main-exact.txt'));
+  const reconcile = source.slice(source.indexOf('Reconcile package already satisfied on main'), source.indexOf('- name: Checkout exact approved candidate'));
   assert.match(reconcile, /git',\['show',`\$\{process\.env\.CANDIDATE_SHA\}:\$\{rel\}`\]/);
+  assert.match(reconcile, /ALREADY_SATISFIED_ON_MAIN_AWAITING_EXACT_SHA_CI/);
+  assert.match(reconcile, /echo "already_satisfied=false"/);
+  assert.doesNotMatch(reconcile, /status:'CANCELLED'|status:"CANCELLED"/);
 });
