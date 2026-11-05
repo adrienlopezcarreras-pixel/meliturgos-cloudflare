@@ -1,3 +1,4 @@
+import {MAX_AUTONOMOUS_REPAIR_ATTEMPTS} from '../evolution/autonomy-repair-policy.js';
 import { MAX_ACTIVE_REVENUE_JOBS } from '../revenue/revenue-queue-policy.js';
 import { MAINTENANCE_FENCE_ID } from '../maintenance/maintenance-gate.js';
 import { migrate } from '../persistence/migrations.js';
@@ -30,6 +31,21 @@ const OWNER_MAX_BRIDGE_CLAIM_FENCE_SQL = `NOT EXISTS (
       ) ELSE 0 END
     )
 )`;
+
+// A repair holds the single autonomous slot even while the maintenance
+// worker runs. Invalid or foreign repair scopes cannot authorize a claim.
+const NO_REPAIR_LANE_SQL = `NOT EXISTS (SELECT 1 FROM dev_bridge_state c WHERE c.bridge_id='mel-autonomy-control'
+ AND CASE WHEN json_valid(c.metadata_json) THEN json_type(c.metadata_json,'$.repair') IS NOT NULL
+ AND json_type(c.metadata_json,'$.repair')<>'null' ELSE 1 END)`;
+const THIS_REPAIR_LANE_SQL = `EXISTS (SELECT 1 FROM dev_bridge_state c WHERE c.bridge_id='mel-autonomy-control'
+ AND c.status='MAX_AUTONOMY' AND json_valid(c.metadata_json)
+ AND json_extract(c.metadata_json,'$.paused')=0 AND json_extract(c.metadata_json,'$.max_autonomy')=1
+ AND json_extract(c.metadata_json,'$.repair.schema')='mel.autonomy-repair/v1'
+ AND json_extract(c.metadata_json,'$.repair.job_id')=dev_jobs.id
+ AND json_type(c.metadata_json,'$.repair.owner_control_version')='integer'
+ AND json_extract(c.metadata_json,'$.repair.owner_control_version')>0
+ AND json_extract(c.metadata_json,'$.repair.owner_control_version')=json_extract(c.metadata_json,'$.owner_control_version')
+ AND json_type(c.metadata_json,'$.repair.started_at')='integer' AND json_extract(c.metadata_json,'$.repair.started_at')>0)`;
 
 const ACTIVE_JOB_SQL = "status NOT IN ('CANCELLED','FAILED','COMPLETED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED','WAITING_DEPENDENCY')";
 const objectiveId = job => job?.requested_by === 'mel-autonomy' ? String(job?.optional_context?.roadmap_id || '').trim() : '';
@@ -197,8 +213,8 @@ export class D1DevJobRepository {
     return j;
     }
     // Same SQL statement as the insertion: a preflight read cannot close this race.
-    const admission = await this.db.prepare("INSERT INTO dev_jobs(id,created_at,updated_at,status,requested_by,goal,optional_context,plan_json,files_json,patch_json,tests_json,result_json,candidate_branch,approval_status,error) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED') AND (?='' OR NOT EXISTS (SELECT 1 FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + "(" + ACTIVE_JOB_SQL + " OR status='WAITING_DEPENDENCY') AND json_extract(optional_context,'$.roadmap_id')=?)) AND (?=0 OR NOT EXISTS (SELECT 1 FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + ACTIVE_JOB_SQL + " AND NOT COALESCE(" + ROTATABLE_PROVIDER_EXHAUSTION_SQL + ",0) AND NOT COALESCE(" + PASSIVE_QUEUED_AUTONOMY_SQL + ",0))) AND (?<> 'revenue-watch' OR (SELECT COUNT(*) FROM dev_jobs WHERE " + "(" + ACTIVE_JOB_SQL + " OR status='WAITING_DEPENDENCY') AND json_extract(optional_context,'$.source')='revenue-watch') < " + MAX_ACTIVE_REVENUE_JOBS + ")")
-      .bind(j.id, j.created_at, j.updated_at, j.status, j.requested_by, j.goal, JSON.stringify(j.optional_context), null, '[]', null, '[]', null, null, j.approval_status, null, MAINTENANCE_FENCE_ID, objectiveId(j), objectiveId(j), exclusiveAutonomyAdmission(j) ? 1 : 0, j.optional_context?.source || '')
+    const admission = await this.db.prepare("INSERT INTO dev_jobs(id,created_at,updated_at,status,requested_by,goal,optional_context,plan_json,files_json,patch_json,tests_json,result_json,candidate_branch,approval_status,error) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE (?<>'mel-autonomy' OR " + NO_REPAIR_LANE_SQL + ") AND NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED') AND (?='' OR NOT EXISTS (SELECT 1 FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + "(" + ACTIVE_JOB_SQL + " OR status='WAITING_DEPENDENCY') AND json_extract(optional_context,'$.roadmap_id')=?)) AND (?=0 OR NOT EXISTS (SELECT 1 FROM dev_jobs WHERE requested_by='mel-autonomy' AND " + ACTIVE_JOB_SQL + " AND NOT COALESCE(" + ROTATABLE_PROVIDER_EXHAUSTION_SQL + ",0) AND NOT COALESCE(" + PASSIVE_QUEUED_AUTONOMY_SQL + ",0))) AND (?<> 'revenue-watch' OR (SELECT COUNT(*) FROM dev_jobs WHERE " + "(" + ACTIVE_JOB_SQL + " OR status='WAITING_DEPENDENCY') AND json_extract(optional_context,'$.source')='revenue-watch') < " + MAX_ACTIVE_REVENUE_JOBS + ")")
+      .bind(j.id, j.created_at, j.updated_at, j.status, j.requested_by, j.goal, JSON.stringify(j.optional_context), null, '[]', null, '[]', null, null, j.approval_status, null, j.requested_by, MAINTENANCE_FENCE_ID, objectiveId(j), objectiveId(j), exclusiveAutonomyAdmission(j) ? 1 : 0, j.optional_context?.source || '')
       .run();
     if (Number(admission?.meta?.changes) !== 1) {
       if (objectiveId(j)) {
@@ -574,6 +590,7 @@ export class D1DevJobRepository {
     const sql="UPDATE dev_jobs SET status='PLANNING',updated_at=?"
       +" WHERE id=? AND requested_by='mel-autonomy' AND status='QUEUED' AND updated_at=?"
       +" AND COALESCE(result_json,'null')=? AND COALESCE(plan_json,'null')=?"
+      +" AND "+NO_REPAIR_LANE_SQL
       +" AND NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED')"
       +" AND NOT EXISTS (SELECT 1 FROM dev_jobs WHERE id<>? AND requested_by='mel-autonomy' AND "
       +ACTIVE_JOB_SQL+" AND NOT COALESCE("+ROTATABLE_PROVIDER_EXHAUSTION_SQL+",0)"
@@ -586,6 +603,28 @@ export class D1DevJobRepository {
     await this.recordEvolution(claimed,'JOB_UPDATED',{
       previous_status:'QUEUED',next_status:'PLANNING',changed_fields:['status']
     });
+    return claimed;
+  }
+
+  async claimQueuedRepair(id,{expected=null}={}) {
+    await this.init();
+    const job=await this.get(id);
+    if(job?.requested_by!=='mel-autonomy'||job.status!=='QUEUED')return null;
+    if(expected&&(job.updated_at!==expected.updated_at||JSON.stringify(job.result_json)!==JSON.stringify(expected.result_json)
+      ||JSON.stringify(job.plan_json)!==JSON.stringify(expected.plan_json)))return null;
+    if(!this.db)throw Object.assign(new Error('AUTONOMY_REPAIR_D1_FENCE_REQUIRED'),{code:'AUTONOMY_REPAIR_D1_FENCE_REQUIRED'});
+    const at=Math.max(Date.now(),Number(job.updated_at||0)+1);
+    const sql="UPDATE dev_jobs SET status='PLANNING',updated_at=? WHERE id=? AND status='QUEUED' AND updated_at=?"
+      +" AND COALESCE(result_json,'null')=? AND COALESCE(plan_json,'null')=? AND "+THIS_REPAIR_LANE_SQL
+      +" AND COALESCE(json_extract(result_json,'$.repair_cycle.attempts'),0)<=?"
+      +" AND COALESCE(json_extract(result_json,'$.repair_cycle.status'),'')<>'EXHAUSTED'"
+      +" AND NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status='PAUSED')"
+      +" AND NOT EXISTS (SELECT 1 FROM dev_jobs other WHERE other.id<>dev_jobs.id AND other.requested_by='mel-autonomy' AND other.status IN ('CLAIMED','PLANNING'))";
+    const write=await this.db.prepare(sql).bind(at,id,job.updated_at,job.result_json===null?'null':JSON.stringify(job.result_json),
+      job.plan_json===null?'null':JSON.stringify(job.plan_json),MAX_AUTONOMOUS_REPAIR_ATTEMPTS,MAINTENANCE_FENCE_ID).run();
+    if(Number(write?.meta?.changes)!==1)return null;
+    const claimed=await this.get(id);
+    await this.recordEvolution(claimed,'JOB_UPDATED',{previous_status:'QUEUED',next_status:'PLANNING',changed_fields:['status'],repair_only:true});
     return claimed;
   }
 
@@ -674,7 +713,7 @@ export class D1DevJobRepository {
 
     const r = await this.db.prepare(
       'UPDATE dev_jobs SET status=?,updated_at=? WHERE id=? AND status=? AND NOT EXISTS (SELECT 1 FROM dev_bridge_state WHERE bridge_id=? AND status=\'PAUSED\')'
-        + " AND (requested_by <> 'mel-autonomy' OR (" + OWNER_MAX_BRIDGE_CLAIM_FENCE_SQL + " AND id=(" + SINGLE_FLIGHT_AUTONOMY_JOB_SQL + ')))'
+        + " AND (requested_by <> 'mel-autonomy' OR (" + OWNER_MAX_BRIDGE_CLAIM_FENCE_SQL + " AND ("+THIS_REPAIR_LANE_SQL+" OR ("+NO_REPAIR_LANE_SQL+" AND id=(" + SINGLE_FLIGHT_AUTONOMY_JOB_SQL + ')))))'
     ).bind('CLAIMED', Date.now(), id, expected, MAINTENANCE_FENCE_ID).run();
     return r.meta?.changes === 1 ? this.get(id) : null;
   }

@@ -7,6 +7,9 @@ import { D1BridgeRepository } from './d1-bridge-repository.js';
 import { AutonomySupervisor } from '../evolution/autonomy-supervisor.js';
 import { runAutonomyRuntimeTick } from '../evolution/autonomy-runtime.js';
 import { getAutonomyControl, setAutonomyControl, isLegacyOwnerMaxStop } from '../evolution/autonomy-control.js';
+import { beginAutomaticRepair, repairLane } from '../evolution/autonomy-repair.js';
+import { readActivityListEpoch } from '../evolution/autonomy-activity.js';
+import { jobActivityTimestamp } from '../evolution/autonomy-job-epoch.js';
 import { prepareDevelopmentRequest } from '../evolution/development-preflight.js';
 import { createTeacherReviewRequest } from '../teachers/teacher-request.js';
 import { queueRuntimeTeacherRequest, applyRuntimeTeacherReply } from '../teachers/runtime-teacher-bridge.js';
@@ -335,6 +338,10 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
           // owner/technical runtime pauses still prevent new MAX claims.
           const activePause = control?.paused === true
             && control?.source !== 'default-d1-fail-closed';
+          const repair=repairLane(control);
+          if (control.repair_invalid || (control.repair && !repair)
+            || (repair && requestedJobId && repair.job_id!==requestedJobId))
+            return Response.json({job:null,code:'AUTONOMY_REPAIR_JOB_OUT_OF_SCOPE'},{status:409});
           if (activePause || isLegacyOwnerMaxStop(control)) {
             return Response.json({ job: null, code: 'AUTONOMY_OWNER_STOP_PAUSED' }, { status: 409 });
           }
@@ -384,6 +391,9 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
         try { control = await getAutonomyControl(env.DB); }
         catch { return Response.json({ ok: false, code: 'AUTONOMY_PAUSE_CHECK_FAILED' }, { status: 503 }); }
         const actualPause = control?.paused === true && control?.source !== 'default-d1-fail-closed';
+        const repair=repairLane(control);
+        if (control.repair_invalid || (control.repair && !repair) || (repair && repair.job_id!==job.id))
+          return Response.json({ok:false,code:'AUTONOMY_REPAIR_JOB_OUT_OF_SCOPE'},{status:409});
         if (actualPause || isLegacyOwnerMaxStop(control))
           return Response.json({ ok: false, code: 'AUTONOMY_OWNER_STOP_PAUSED' }, { status: 409 });
       }
@@ -427,7 +437,11 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
         let control;
         try {
           control = await getAutonomyControl(env.DB);
-          if (control.paused !== true) {
+          if (control.paused !== true && control.max_autonomy === true) {
+            const epoch=await readActivityListEpoch(env.DB,{strict:true});
+            if (!epoch || jobActivityTimestamp(job)>=epoch)
+              control=await beginAutomaticRepair(env.DB,updated,control);
+          } else if (control.paused !== true) {
             const ownerStopped = isLegacyOwnerMaxStop(control);
             control = await setAutonomyControl(env.DB, {
               paused: true, max_autonomy: false,
@@ -447,8 +461,10 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
         }
         return Response.json({
           ...updated, autonomy_pause: {
-            confirmed: control.paused === true,
-            status: control.status, reason: control.reason,
+            confirmed: control.paused === true || repairLane(control)?.job_id===job.id,
+            scope: control.paused === true ? 'RUNTIME' : 'MISSION_STREAM',
+            repairing: repairLane(control)?.job_id===job.id,
+            status: repairLane(control)?.job_id===job.id ? 'REPAIR_ONLY' : control.status, reason: control.reason,
           },
         });
       }

@@ -241,6 +241,11 @@ test('stale Teacher approval is archived and requeued for a fresh Council and ex
     feedback: 'Proceed only on the reviewed candidate SHA.',
   }));
   fixture.setCandidateHead(NEW_CANDIDATE_HEAD_SHA);
+  const oldJob = await fixture.repository.get(first.job.id);
+  await fixture.repository.update(first.job.id, { result_json: { ...oldJob.result_json,
+    bridge_preparation: { status: 'READY', candidate_sha: CANDIDATE_HEAD_SHA },
+    bridge_preparation_diagnostic: { status: 'READY', observed_at: '2026-01-01T00:00:00Z' },
+  } });
 
   const stale = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
   assert.equal(stale.reconciliation.applied.length, 1);
@@ -252,6 +257,9 @@ test('stale Teacher approval is archived and requeued for a fresh Council and ex
   const requeued = await fixture.repository.get(first.job.id);
   assert.equal(requeued.status, 'QUEUED');
   assert.equal(requeued.result_json.teacher_bridge, null);
+  assert.equal(requeued.result_json.bridge_preparation.status, 'NOT_READY');
+  assert.equal(requeued.result_json.bridge_preparation_diagnostic, undefined);
+  assert.equal(requeued.result_json.bridge_preparation_diagnostic_history.at(-1).status, 'READY');
   assert.equal(requeued.result_json.implementation_proposal, undefined);
   assert.equal(requeued.result_json.implementation_planning_diagnostic.code, 'TEACHER_APPROVAL_CANDIDATE_SHA_STALE');
   assert.equal(requeued.result_json.teacher_bridge_history.length, 1);
