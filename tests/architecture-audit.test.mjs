@@ -33,7 +33,7 @@ test('MEL stores the report and the weekly audit turns it into findings', async 
     schema: 'mel.architecture-audit/v1', max_lines: 1500,
     oversized: [{ path: 'src/api/native-chat.js', lines: 3020 }],
     untested_modules: ['src/a.js'], legacy_imported: [], duplicate_exports: [{ name: 'x', files: ['src/a.js', 'src/b.js'] }],
-  }, { sha: 'abc', now });
+  }, { sha: 'ab01ab01ab01ab01ab01ab01ab01ab01ab01ab01', now });
   const latest = await readArchitectureReport(db);
   assert.deepEqual(architectureFindings(latest, { now }).map(f => f.code), ['ARCH_FILE_TOO_LARGE', 'ARCH_DUPLICATE_EXPORT', 'ARCH_UNTESTED_MODULES']);
   assert.deepEqual(architectureFindings(latest, { now: now + 9 * 86_400_000 }).map(f => f.code), ['ARCHITECTURE_AUDIT_STALE']);
@@ -60,7 +60,24 @@ test('MEL-AUDIT-06: new Workers AI text models become upgrade discoveries', asyn
   assert.deepEqual(newCatalogModels(catalog, ['@cf/openai/gpt-oss-120b']), ['@cf/new/coder-2']);
   const db = sqliteD1();
   const now = Date.now();
-  await storeArchitectureReport(db, { schema: 'mel.architecture-audit/v1', new_models: ['@cf/new/coder-2'] }, { now });
+  await storeArchitectureReport(db, { schema: 'mel.architecture-audit/v1', new_models: ['@cf/new/coder-2'] }, { sha: 'd'.repeat(40), now });
   assert.deepEqual(architectureFindings(await readArchitectureReport(db), { now }).map(f => f.code), ['UPGRADE_MODEL_AVAILABLE']);
   assert.match(await readFile('.github/workflows/architecture-audit.yml', 'utf8'), /ai\/models\/search/);
+});
+
+// MEL-AUDIT-04: exact-SHA identity, recorded once.
+test('an exact-SHA report is stored once; an invalid identity or a replay adds no finding', async () => {
+  const db = sqliteD1();
+  const now = Date.parse('2026-10-26T05:00:00Z');
+  const report = { schema: 'mel.architecture-audit/v1', max_lines: 1500, oversized: [{ path: 'src/a.js', lines: 2000 }], untested_modules: [], legacy_imported: [], duplicate_exports: [] };
+  await assert.rejects(storeArchitectureReport(db, report, { sha: 'not-a-sha', now }), /IDENTITY_INVALID/);
+  assert.equal(await readArchitectureReport(db), null, 'an invalid identity stores nothing');
+  const sha = 'c'.repeat(40);
+  assert.equal((await storeArchitectureReport(db, report, { sha, now })).status, 'ARCHITECTURE_REPORT_STORED');
+  const first = await readArchitectureReport(db);
+  const replay = await storeArchitectureReport(db, { ...report, oversized: [...report.oversized, { path: 'src/b.js', lines: 3000 }] }, { sha, now: now + 86_400_000 });
+  assert.equal(replay.status, 'ARCHITECTURE_REPORT_ALREADY_STORED');
+  const after = await readArchitectureReport(db);
+  assert.deepEqual(after, first, 'a replay changes neither the report nor its date');
+  assert.deepEqual(architectureFindings(after, { now }).map(f => f.code), ['ARCH_FILE_TOO_LARGE']);
 });
