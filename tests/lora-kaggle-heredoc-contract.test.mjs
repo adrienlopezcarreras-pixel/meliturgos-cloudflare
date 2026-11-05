@@ -16,3 +16,14 @@ test('Kaggle monitor heredoc terminators stay at YAML run-block root indentation
   assert.equal(rootTerminators,starts,'every NODE terminator must dedent to shell column 0 after YAML stripping');
   assert.equal(indentedTerminators,0,'indented NODE terminators make Bash read to EOF');
 });
+
+test('Kaggle CLI installs and imports the explicit six runtime dependency before dataset publish', () => {
+  const authStart=source.indexOf('      - name: Authenticate Kaggle');
+  const authEnd=source.indexOf('      - name: Record free accelerator quota', authStart);
+  const publishStart=source.indexOf('      - name: Publish private offline cycle payload');
+  assert.ok(authStart >= 0 && authEnd > authStart && publishStart > authEnd);
+  const auth=source.slice(authStart,authEnd);
+  assert.match(auth,/python -m pip install -q -U kaggle "six>=1\\.16,<2"/);
+  assert.match(auth,/python -c 'import six; import kaggle'/);
+  assert.ok(source.indexOf('python -c \'import six; import kaggle\'') < publishStart);
+});
