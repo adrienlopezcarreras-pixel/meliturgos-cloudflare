@@ -346,6 +346,10 @@ jobs:
           git diff "$MEL_COUNCIL_BASE_SHA" "$MEL_COUNCIL_HEAD_SHA" -- . ':(exclude)bridge-apply-result.json' > council.diff
           test -s council.diff
           git log --format=%s "$MEL_COUNCIL_BASE_SHA..$MEL_COUNCIL_HEAD_SHA" > council.log
+          # Record exact immutable input size and digest before the planner can reject it.
+          # Never print diff contents or weaken any Council limit.
+          echo "COUNCIL_DIFF_EXACT_BYTES=$(wc -c < council.diff | tr -d ' ')"
+          echo "COUNCIL_DIFF_SHA256=$(sha256sum council.diff | cut -d ' ' -f 1)"
           node scripts/prepare-council-review-batches.mjs council.diff council-review-manifest.json
       - name: Full multi-batch independent Council verdict
         shell: bash
