@@ -908,6 +908,19 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       launch_gate_digest: preparednessDigest(prepared?.readiness) || readiness.gate_digest || null,
     });
 
+    // A protected pause can survive the control update. Respect that state
+    // rather than ticking autonomy or claiming MAX was restarted.
+    if (releaseRestore && (control?.paused === true || control?.max_autonomy !== true)) {
+      return Response.json({
+        ok: true,
+        status: 'RELEASE_OWNER_CONTROL_PRESERVED',
+        restore_skipped: true,
+        paused: control?.paused === true,
+        max_autonomy: control?.max_autonomy === true,
+        autonomy_started: false,
+      }, { headers: { 'cache-control': 'no-store' } });
+    }
+
     const tick = await runAutonomyTick(env);
     const completions = tick?.completions || tick?.passive_completions || {};
     const completed = Array.isArray(completions?.completed) ? completions.completed : [];
