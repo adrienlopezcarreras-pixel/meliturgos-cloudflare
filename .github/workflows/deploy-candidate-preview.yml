@@ -353,6 +353,9 @@ jobs:
           # SHA and archive-length equality mandatory; retry ONLY the explicit
           # declared-size mismatch, and bound the entire loop.
           copied=0
+          # A timed-out upload has an indeterminate result. Retry only that
+          # transport case, at most twice, after a read-only exact-SHA recheck.
+          timeout_retries=0
           for attempt in {1..10}; do
             HTTP_CODE="$(curl --show-error --silent --max-time 120 \
               --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
@@ -361,6 +364,34 @@ jobs:
               --write-out '%{http_code}' \
               "${BASE_URL}/api/gen2/shardvault/code-source" \
               --output shardvault-code-source.json || true)"
+
+            if [ "${HTTP_CODE}" = "000" ] && [ ! -s shardvault-code-source.json ]; then
+              timeout_retries=$((timeout_retries + 1))
+              echo "PREVIEW_CRITICAL_BUNDLE_TRANSPORT_TIMEOUT ${timeout_retries}/3"
+              if [ "${timeout_retries}" -ge 3 ]; then
+                echo "::error title=ShardVault::CRITICAL_BUNDLE_TRANSPORT_TIMEOUT_LIMIT_REACHED"
+                exit 28
+              fi
+              EXPECT_HTTP="$(curl --show-error --silent --max-time 20 \
+                --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+                --write-out '%{http_code}' \
+                --output shardvault-code-expectation.retry.json \
+                "${BASE_URL}/api/gen2/shardvault/code-source/expectation" || true)"
+              if [ "${EXPECT_HTTP}" != "200" ]; then
+                echo "::error title=ShardVault::CRITICAL_BUNDLE_TIMEOUT_RECHECK_UNAVAILABLE"
+                exit 28
+              fi
+              EXPECTED_BYTES="${MEL_CRITICAL_CODE_BUNDLE_BYTES}" GITHUB_SHA="${GITHUB_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('shardvault-code-expectation.retry.json','utf8'));
+          if(d?.ok!==true||d?.status!=='EXACT_DEPLOYMENT_EXPECTATION'
+            ||d?.deployed_sha!==process.env.GITHUB_SHA
+            ||Number(d?.declared_bytes)!==Number(process.env.EXPECTED_BYTES))
+            throw Error('PREVIEW_EXACT_SHA_RECHECK_FAILED');
+          NODE
+              sleep 5
+              continue
+            fi
 
             # 0 = strictly verified exact code archive.
             # 10 = known transient edge-version mismatch, recheck deployment.
