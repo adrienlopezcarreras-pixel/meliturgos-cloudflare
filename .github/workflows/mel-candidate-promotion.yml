@@ -183,6 +183,7 @@ jobs:
             REVIEW="$(curl --silent --show-error --max-time 300 --request POST --header "x-mel-github-oidc: $TOKEN" --header 'content-type: application/json' --data-binary @council.json https://meliturgos.adrien-lopezcarreras.workers.dev/api/internal/council-review || echo '{}')"
           fi
           DECISION="$(printf '%s' "$REVIEW" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)}catch{};process.stdout.write(String(j.decision||j.code||"REVIEW_UNAVAILABLE"))})')"
+          printf '%s' "$REVIEW" | node scripts/write-council-objection-receipt.mjs "$CAND" "$MAIN" "$RUNNER_TEMP/council-review-objections.json"
           echo "COUNCIL_REVIEW $CAND -> $DECISION"
           # A rejected candidate must not block every later promotion: put the
           # rejected files back to main on the candidate (no force push). The
@@ -228,5 +229,14 @@ jobs:
         with:
           name: council-pending-batch-review
           path: council-review-manifest.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Preserve scoped Council objections without dependency source or prompts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: council-review-objections
+          path: ${{ runner.temp }}/council-review-objections.json
           if-no-files-found: ignore
           retention-days: 14
