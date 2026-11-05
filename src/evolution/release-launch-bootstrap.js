@@ -1,3 +1,4 @@
+import {isAcceptedRoadmapCodeJob} from '../roadmap/roadmap-code-acceptance.js';
 import { reconcileRuntimeCompletions } from '../teachers/github-completion-reconciler.js';
 import { completeVerifiedRepair, repairLane, scopeRepairRepository } from './autonomy-repair.js';
 import { verifyRepairRelease } from './verified-repair-release.js';
@@ -327,7 +328,8 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       const repository=new D1DevJobRepository(env.DB);
       const control=await getAutonomyControl(env.DB);
       const lane=repairLane(control);
-      if (lane && !control.paused && control.max_autonomy===true)
+      if (lane && !control.paused && control.max_autonomy===true
+          && !isAcceptedRoadmapCodeJob(await repository.get(lane.job_id)))
         await reconcileRuntimeCompletions({repository:scopeRepairRepository(repository,lane.job_id),env});
       const result=await completeVerifiedRepair(env.DB,repository,{deployedSha:sha,releaseVerified:true});
       return Response.json({ok:result.ok,status:result.status,resumed:result.resumed},

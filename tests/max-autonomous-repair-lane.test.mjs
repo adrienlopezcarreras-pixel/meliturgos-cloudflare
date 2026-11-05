@@ -125,3 +125,27 @@ test('the real runtime holds completed but unproven repair without selecting the
  assert.equal(result.status,'REPAIR_NEEDS_VALID_PACKAGE');assert.equal(result.repairing,true);
  assert.deepEqual(await repo.get(b.id),before);assert.equal(calls,0);
 });
+
+test('a current repair QUEUED revision re-enters only its authorized slot through the real runtime',async t=>{
+ const {db,repo,a,b}=await fixture(t);
+ await repo.update(a.id,{optional_context:{roadmap_id:'TEST-REPAIR'}});
+ await setAutonomyControl(db,{launch_approved_sha:sha,source:'verified-release-restore'});
+ const before=await repo.get(b.id);
+ const {runAutonomyRuntimeTick}=await import('../src/evolution/autonomy-runtime.js');
+ const result=await runAutonomyRuntimeTick({DB:db,MEL_DEPLOYED_GIT_SHA:sha,MEL_GITHUB_BRANCH:'candidate/mel-clean-autonomy',MEL_TEACHER_BRANCH:'candidate/mel-clean-autonomy'},
+  {repository:repo,ignoreNeuronBudget:true,localPcReady:async()=>({ok:false}),roadmap:[{id:'TEST-REPAIR',title:'repair only',status:'PLANNED'}],fetchImpl:async()=>new Response('',{status:403})});
+ assert.equal(result.repairing,true);
+ assert.notEqual((await repo.get(a.id)).status,'QUEUED','repair entered the existing planning pipeline');
+ assert.deepEqual(await repo.get(b.id),before);
+});
+
+test('rollback restoration cannot replace a newer owner STOP, and retains the repair scope on a technical rollback',async t=>{
+ const {db,control}=await fixture(t);
+ const pause=await setAutonomyControl(db,{paused:true,max_autonomy:false,source:'release-rollback-restore',reason:'restore-predeploy-autonomy-state'});
+ const resume=await setAutonomyControl(db,{paused:false,max_autonomy:true,source:'release-rollback-restore',reason:'restore-predeploy-autonomy-state'});
+ assert.equal(resume.owner_control_version,control.owner_control_version);
+ assert.equal(repairLane(resume).job_id,'repair-a');
+ await setAutonomyControl(db,{paused:true,max_autonomy:false,source:'owner-ui',reason:'owner-stop'});
+ const stopped=await setAutonomyControl(db,{paused:false,max_autonomy:true,source:'release-rollback-restore',reason:'restore-predeploy-autonomy-state'});
+ assert.equal(stopped.paused,true);assert.equal(stopped.max_autonomy,false);assert.equal(stopped.source,'owner-ui');
+});

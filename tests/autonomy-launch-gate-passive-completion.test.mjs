@@ -1,3 +1,4 @@
+import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -108,7 +109,7 @@ test('MAX on with no launch SHA binds the deployed commit and does not stay bloc
       MEL_GITHUB_BRANCH: 'candidate/mel-clean-autonomy',
       MEL_TEACHER_BRANCH: 'candidate/mel-clean-autonomy',
     }, {
-      repository: {},
+      repository: new D1DevJobRepository(DB),
       prepareLaunch: async () => ({
         ok: true,
         readiness: { launch_ready: true, candidate_sha: deployedSha, evaluated_at: '2026-11-03T08:00:00.000Z' },

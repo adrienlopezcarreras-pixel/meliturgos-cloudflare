@@ -215,14 +215,14 @@ export async function setAutonomyControl(db, {
   const rollbackPause = paused === true && source === ROLLBACK_PAUSE_SOURCE;
   // A release must not overwrite an owner stop. A previous rollback is not one:
   // treating it as protected cleared max_remembered on 02/11.
-  const protectedPause = releasePause && current.paused === true
+  const protectedPause = (releasePause || source === ROLLBACK_PAUSE_SOURCE || source === 'verified-release-restore') && current.paused === true
     && (isOwnerAutonomyStop(current) || isMissionRepairAutonomyPause(current));
-  const nextPaused = typeof paused === 'boolean' ? paused : current.paused === true;
+  const nextPaused = protectedPause ? true : (typeof paused === 'boolean' ? paused : current.paused === true);
   const requestedMax = typeof max_autonomy === 'boolean'
     ? max_autonomy
     : (typeof owner_override === 'boolean' ? owner_override : current.max_autonomy === true);
   const nextMax = nextPaused ? false : requestedMax;
-  const automatic = ['bridge-repair-lane','verified-release-restore','verified-repair-completed','rollback-auto-resume','autonomous-launch-bind'].includes(source);
+  const automatic = ['bridge-repair-lane','verified-release-restore','verified-repair-completed','rollback-auto-resume','autonomous-launch-bind',ROLLBACK_PAUSE_SOURCE].includes(source);
   if (current.repair_invalid && repair === undefined && source !== 'owner-ui')
     throw Object.assign(new Error('AUTONOMY_REPAIR_SCOPE_INVALID'), {code:'AUTONOMY_REPAIR_SCOPE_INVALID',status:409});
   const nextRepair = repair === undefined
