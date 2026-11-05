@@ -113,3 +113,33 @@ test('authenticated cloud claim and final precommit both veto identical rejected
  job.files_json=[{...rejectedFiles[0],content:'export const ready = "corrected";\n'}];
  assert.equal((await run('precommit')).status,200,'a genuinely corrected proposal keeps the normal proof path');
 });
+
+for(const unavailable of [false,true])test(`a veto is bound to reviewed GitHub bytes, never newer D1 proposals (unavailable=${unavailable})`,async()=>{
+ const {runAutonomyRuntimeTick}=await import('../src/evolution/autonomy-runtime-core.js');
+ const repository=new D1DevJobRepository(null,{memoryStore:new Map()});
+ const created=await repository.create({id:'reviewed-bytes',requested_by:'mel-autonomy',goal:'Same objective'});
+ const corrected=[{...rejectedFiles[0],content:'export const ready = "corrected after review";\n'}];
+ await repository.update(created.id,{status:'REPAIR_REQUIRED',files_json:corrected,result_json:{
+  teacher_bridge:{status:'ANSWERED',request:{request_id:'req'},review:{request_id:'req',verdict:'APPROVE_PLAN',development_allowed:true}},
+  implementation_proposal:{status:'READY'},bridge_preparation:{status:'READY'},bridge_package:{status:'READY'},
+  council_review:{decision:'REJECTED',head:SHA,repair_required:true},
+  dev_bridge:{needs_repair:true,applied_files:['src/example.js'],tests:[]},
+ }});
+ const before=await repository.get(created.id),reads=[];
+ const result=await runAutonomyRuntimeTick({MEL_GITHUB_REPOSITORY:'o/r'}, {repository,roadmap:[],maxAutonomy:true,epochMs:0,onlyJobId:created.id,
+  fetchImpl:async url=>{
+   reads.push(String(url));
+   if(unavailable)return new Response('',{status:503});
+   if(String(url).startsWith('https://raw.githubusercontent.com/')&&String(url).includes('/src/example.js')&&String(url).includes(SHA))return new Response(rejectedFiles[0].content);
+   return new Response('',{status:403});
+  }});
+ const after=await repository.get(created.id);
+ assert.ok(reads.some(url=>url.includes(SHA)),'the read is pinned to the vetoed SHA');
+ if(unavailable){
+  assert.equal(result.status,'COUNCIL_REJECTED_CONTENT_UNAVAILABLE');
+  assert.deepEqual(after,before,'a GitHub outage consumes no code-repair attempt and invents no negative fingerprint');
+ }else{
+  assert.equal(await isCouncilRejectedPackage(after,rejectedFiles),true);
+  assert.equal(await isCouncilRejectedPackage(after,corrected),false,'an innocent newer proposal is never mislabeled as vetoed');
+ }
+});
