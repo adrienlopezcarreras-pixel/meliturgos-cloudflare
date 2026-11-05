@@ -357,15 +357,17 @@ jobs:
           # transport case, at most twice, after a read-only exact-SHA recheck.
           timeout_retries=0
           for attempt in {1..10}; do
+            : > shardvault-code-source.json
+            CURL_EXIT=0
             HTTP_CODE="$(curl --show-error --silent --max-time 120 \
               --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
               --header "content-type: application/gzip" \
               --data-binary @mel-critical-code.tar.gz \
               --write-out '%{http_code}' \
               "${BASE_URL}/api/gen2/shardvault/code-source" \
-              --output shardvault-code-source.json || true)"
+              --output shardvault-code-source.json)" || CURL_EXIT=$?
 
-            if [ "${HTTP_CODE}" = "000" ] && [ ! -s shardvault-code-source.json ]; then
+            if [ "$CURL_EXIT" -eq 28 ] && [ "${HTTP_CODE}" = "000" ] && [ ! -s shardvault-code-source.json ]; then
               timeout_retries=$((timeout_retries + 1))
               echo "PREVIEW_CRITICAL_BUNDLE_TRANSPORT_TIMEOUT ${timeout_retries}/3"
               if [ "${timeout_retries}" -ge 3 ]; then
@@ -391,6 +393,10 @@ jobs:
           NODE
               sleep 5
               continue
+            fi
+            if [ "$CURL_EXIT" -ne 0 ]; then
+              echo "::error title=ShardVault::CRITICAL_BUNDLE_TRANSPORT_ERROR_${CURL_EXIT}"
+              exit "$CURL_EXIT"
             fi
 
             # 0 = strictly verified exact code archive.
