@@ -222,3 +222,5 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 - `codex-council-review-needs-unchanged-file-context-20261105` — fournir les petits fichiers complets au SHA exact pour vérifier le code inchangé autour du diff; contexte borné, omissions explicites et lectures parallèles, sans modifier le quorum.
 
 - `codex-temporal-audit-normalizes-serialized-milliseconds-20261105` — préserver la valeur temporelle des millisecondes numériques sérialisées, les seuils et les frontières; paquet préparé testé localement, livraison de mission encore requise.
+
+- `codex-prepared-missions-isolate-full-file-regressions-20261106` — isoler les régressions des paquets indépendants; refuser les snapshots concurrents incompatibles et pré-tester leur application successive, sans perdre les tests existants. Preuve locale, publication et missions suivantes encore requises.

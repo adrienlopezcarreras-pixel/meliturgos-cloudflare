@@ -7,6 +7,19 @@ import { ROADMAP_CODE_CONTRACTS } from '../src/roadmap/roadmap-code-contracts.js
 const sha = text => createHash('sha256').update(text).digest('hex');
 const packages = fs.existsSync('prepared') ? fs.readdirSync('prepared').filter(f => f.endsWith('.json')) : [];
 
+test('independent prepared packages never replace a shared file with conflicting snapshots', () => {
+  const targets = new Map();
+  for (const file of packages) {
+    const pkg = JSON.parse(fs.readFileSync(`prepared/${file}`, 'utf8'));
+    for (const change of pkg.changes) {
+      const previous = targets.get(change.path);
+      if (previous) assert.equal(change.content, previous.content,
+        `${file} conflicts with ${previous.file} on ${change.path}; isolate the mission regression before scheduling`);
+      targets.set(change.path, { file, content: change.content });
+    }
+  }
+});
+
 // A prepared package must stay applicable: every file is in its contract and
 // either still matches the recorded base or is already delivered.
 test('prepared mission packages target their contract and a live base', () => {

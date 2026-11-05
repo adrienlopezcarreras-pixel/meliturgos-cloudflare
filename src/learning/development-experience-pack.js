@@ -1851,4 +1851,28 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1793902642672
   },
+  {
+    "id": "codex-prepared-missions-isolate-full-file-regressions-20261106",
+    "source": "codex",
+    "domain": "autonomy-prepared-packages",
+    "task": "Garantir que des missions successives conservent leurs régressions et restent applicables.",
+    "input": "Deux paquets préparés remplacent le même fichier de tests par des snapshots différents, pourtant valides sur leur base commune.",
+    "before": "Chaque paquet passe seul sur la base initiale; le premier appliqué invalide le second ou ses tests seraient perdus lors du remplacement.",
+    "after": "Isoler la régression de chaque mission dans son fichier dédié autorisé par son contrat. Refuser avant programmation les remplacements complets incompatibles entre paquets indépendants; accepter les snapshots strictement identiques. Appliquer réellement les paquets successivement en pré-test et conserver les assertions métier et tests existants.",
+    "rationale": "Une suite verte sur la base commune ne prouve pas que les missions se composent sans écraser leurs preuves.",
+    "tests": [
+      "tests/prepared-mission-packages.test.mjs: le conflit AUDIT-02/AUDIT-06 reproduit un échec avant correction; contrôle réussi après isolation",
+      "Pré-test réel AUDIT-02:16 tests réussis; application successive AUDIT-02/AUDIT-06 dans les deux ordres:18 tests réussis, en conservant les régressions de persistance, de résolution des constats et du catalogue"
+    ],
+    "tags": [
+      "prepared-package",
+      "sequential-missions",
+      "test-isolation",
+      "no-regression",
+      "local-proof"
+    ],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1793921306915
+  },
 ]);
