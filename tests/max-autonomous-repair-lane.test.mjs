@@ -109,9 +109,17 @@ test('post-deployment verification reads the actual run and all health jobs; inc
 });
 test('release verification explains only safe failure classes and never reveals GitHub tokens',async()=>{
  const f=releaseFixture();
- for(const [response,reason] of [[new Response('',{status:403}),'GITHUB_READ_HTTP_403'],[new Response('',{status:502}),'GITHUB_READ_HTTP_502']]){
+ for(const [response,reason] of [[new Response('',{status:403}),'RUN_HTTP_403'],[new Response('',{status:502}),'RUN_HTTP_502']]){
   const result=await verifyRepairRelease({oidc:f.oidc,deployedSha:sha,token:'private-fixture',fetchImpl:async()=>response});
   assert.equal(result.ok,false);assert.equal(result.reason,reason);
+  assert.ok(!JSON.stringify(result).includes('private-fixture'));
+ }
+ for(const [fetchImpl,reason] of [
+  [async()=>{throw new TypeError('network secret')},'RUN_FETCH_FAILED'],
+  [async()=>new Response('not-json',{status:200}),'RUN_JSON_INVALID'],
+ ]){
+  const result=await verifyRepairRelease({oidc:f.oidc,deployedSha:sha,token:'private-fixture',fetchImpl});
+  assert.equal(result.reason,reason);
   assert.ok(!JSON.stringify(result).includes('private-fixture'));
  }
  const mismatch=await verifyRepairRelease({oidc:f.oidc,deployedSha:'b'.repeat(40),token:'private-fixture',fetchImpl:async()=>{throw new Error('must not fetch')}});
