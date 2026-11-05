@@ -143,6 +143,8 @@ const STALE_TEACHER_APPROVAL_CODES = new Set([
   'TEACHER_APPROVAL_CANDIDATE_BRANCH_REQUIRED',
   // [GPT6] The Bridge preparer reports SHA drift under its own diagnostic codes.
   'BRIDGE_PREPARATION_CANDIDATE_STALE',
+  // Older preparers and strict source readers can surface the raw pin code.
+  'CODE_HEAD_PIN_MISMATCH',
   'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION',
 ]);
 
@@ -295,6 +297,18 @@ async function requeueStaleTeacherApproval(repository, jobId, diagnosticCode, st
   result.teacher_bridge = null;
   delete result.implementation_proposal;
   delete result.bridge_package;
+  // READY describes the old pin, not the package being replanned. Preserve
+  // that diagnostic as history rather than advertising two current states.
+  if (result.bridge_preparation_diagnostic) {
+    result.bridge_preparation_diagnostic_history = [
+      ...(Array.isArray(result.bridge_preparation_diagnostic_history) ? result.bridge_preparation_diagnostic_history : []),
+      { ...result.bridge_preparation_diagnostic, invalidated_by: code, invalidated_at: now },
+    ].slice(-10);
+    delete result.bridge_preparation_diagnostic;
+  }
+  if (result.bridge_preparation) result.bridge_preparation = {
+    ...result.bridge_preparation, status: 'NOT_READY', code, invalidated_at: now,
+  };
   // Retain SHA evidence across the requeue: clearing teacher_bridge otherwise
   // hides the exact candidate drift that caused repeated FOUNDER retries.
   const expectedSha = String(staleError?.approved_candidate_sha || staleError?.expected_sha || bridge?.request?.candidate?.sha || '').toLowerCase();

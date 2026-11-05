@@ -294,7 +294,18 @@ export async function prepareApprovedBridgePackage({
     throw Object.assign(new Error('BRIDGE_PREPARATION_CHANGES_REQUIRED'), { code: 'BRIDGE_PREPARATION_CHANGES_REQUIRED' });
   }
 
-  await reader.head();
+  try {
+    await reader.head();
+  } catch (error) {
+    if (error?.code !== 'CODE_HEAD_PIN_MISMATCH') throw error;
+    // The branch may advance while Mentor is generating. Treat that as
+    // stale approval, not a failed code proposal to repeat on the same pin.
+    throw Object.assign(new Error('BRIDGE_PREPARATION_CANDIDATE_STALE'), {
+      code: 'BRIDGE_PREPARATION_CANDIDATE_STALE',
+      expected_sha: code.candidate_sha,
+      observed_sha: String(error.observed_sha || '').toLowerCase() || null,
+    });
+  }
 
   const files = proposal.changes.slice(0, 10).map((change) => ({
     path: String(change.path || ''),

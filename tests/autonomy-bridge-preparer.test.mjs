@@ -389,7 +389,8 @@ test('candidate advancing during Mentor inference cannot persist a package again
   await assert.rejects(prepareApprovedBridgePackage({ env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
     repository, job: await repository.get('bridge-prep-job'), fetchImpl: movingFetch,
     mentorEngine: { async propose(input) { const answer = await engine.propose(input); head = 'd'.repeat(40); return answer; } },
-  }), error => error.code === 'CODE_HEAD_PIN_MISMATCH');
+  }), error => error.code === 'BRIDGE_PREPARATION_CANDIDATE_STALE'
+    && error.expected_sha === SHA && error.observed_sha === 'd'.repeat(40));
   assert.deepEqual((await repository.get('bridge-prep-job')).files_json, []);
   assert.equal((await repository.get('bridge-prep-job')).status, 'TEACHER_APPROVED');
 });
