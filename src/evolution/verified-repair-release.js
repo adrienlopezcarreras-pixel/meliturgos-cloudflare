@@ -15,20 +15,23 @@ export async function verifyRepairRelease({oidc, deployedSha, token, fetchImpl=f
   if(oidc?.ok!==true || identity?.ok!==true || identity.repository!==REPOSITORY || identity.sha!==deployedSha
       || !/^[a-f0-9]{40}$/.test(String(deployedSha||''))
       || !Number.isSafeInteger(identity.run_id) || identity.run_id<=0 || !token) return denied('IDENTITY_OR_TOKEN_INVALID');
-  const read=async suffix=>{
-    const response=await fetchImpl(`https://api.github.com/repos/${REPOSITORY}/actions/runs/${identity.run_id}${suffix}`,{
+  const read=async (suffix,stage)=>{
+    let response;
+    try {
+      response=await fetchImpl(`https://api.github.com/repos/${REPOSITORY}/actions/runs/${identity.run_id}${suffix}`,{
       redirect:'error', signal:AbortSignal.timeout(15000),
       headers:{accept:'application/vnd.github+json',authorization:`Bearer ${token}`,'user-agent':'MEL-verified-repair-release'},
-    });
-    if(!response.ok)throw new Error(`GITHUB_READ_HTTP_${response.status}`);
-    return response.json();
+      });
+    }catch {throw new Error(`${stage}_FETCH_FAILED`);}
+    if(!response?.ok)throw new Error(`${stage}_HTTP_${Number(response?.status)||0}`);
+    try{return await response.json();}catch{throw new Error(`${stage}_JSON_INVALID`);}
   };
   try {
-    const run=await read('');
+    const run=await read('','RUN');
     if(run.id!==identity.run_id || run.head_sha!==deployedSha || run.repository?.full_name!==REPOSITORY
         || run.path!=='.github/workflows/deploy-cloudflare-release.yml'
         || !['push','workflow_dispatch'].includes(run.event)) return denied('RUN_METADATA_MISMATCH');
-    const page=await read('/jobs?per_page=100');
+    const page=await read('/jobs?per_page=100','JOBS');
     const jobs=page.jobs;
     if(!Array.isArray(jobs) || page.total_count!==jobs.length) return denied('JOBS_INCOMPLETE');
     if(!REPAIR_RELEASE_GATES.every(name=>jobs.some(job=>job.name===name && job.status==='completed' && job.conclusion==='success'))) return denied('HEALTH_GATE_NOT_SUCCESSFUL');
@@ -37,6 +40,6 @@ export async function verifyRepairRelease({oidc, deployedSha, token, fetchImpl=f
     return {ok:true,status:'REPAIR_RELEASE_HEALTH_VERIFIED',run_id:run.id,sha:deployedSha};
   }catch(error){
     const code=String(error?.message||'');
-    return denied(/^GITHUB_READ_HTTP_(401|403|404|429|500|502|503)$/.test(code) ? code : 'GITHUB_READ_UNAVAILABLE');
+    return denied(/^(RUN|JOBS)_(FETCH_FAILED|JSON_INVALID|HTTP_[0-9]{1,3})$/.test(code) ? code : 'GITHUB_READ_UNAVAILABLE');
   }
 }
