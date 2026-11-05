@@ -938,6 +938,29 @@ jobs:
                       'ok':activation.get('ok') is True,
                       'status':str(activation.get('status') or 'UNSPECIFIED')[:80]
                   }))
+              # Diagnostic aggregates only: no target IDs, URLs, or raw errors.
+              buckets={'policy_or_consent':0,'retention_or_capacity':0,
+                       'excluded_active':0,'probe_or_transport':0,'other':0}
+              rejected=d.get('rejected') or []
+              for entry in rejected if isinstance(rejected,list) else []:
+                  reason=str(entry.get('reason') or '') if isinstance(entry,dict) else ''
+                  if reason=='EXCLUDED_ENDPOINT':
+                      buckets['excluded_active']+=1
+                  elif any(token in reason for token in ('RETENTION_TOO_SHORT','CAPACITY_TOO_SMALL')):
+                      buckets['retention_or_capacity']+=1
+                  elif any(token in reason for token in (
+                          'USER_AUTH_REQUIRED','ANONYMOUS_WRITE_NOT_DECLARED',
+                          'PUBLIC_READ_NOT_DECLARED','AUTOMATION_NOT_DECLARED',
+                          'FREE_USE_NOT_DECLARED','WRITE_PROBE_NOT_ALLOWED',
+                          'DOCUMENTED_EVIDENCE','POLICY_EVIDENCE')):
+                      buckets['policy_or_consent']+=1
+                  elif reason:
+                      buckets['probe_or_transport']+=1
+                  else:
+                      buckets['other']+=1
+              print('SHARDVAULT_REJECTION_CATEGORIES:',json.dumps({
+                  'rejected_total':len(rejected) if isinstance(rejected,list) else 0,
+                  'categories':buckets}))
           except Exception:
               print('SHARDVAULT_DIAGNOSTIC_RESPONSE_INVALID')
           PY
