@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { bridgePublicationFailureOnly } from '../src/evolution/autonomy-runtime-core.js';
+import { bridgePublicationFailureOnly, councilRejectedApprovedPackage } from '../src/evolution/autonomy-runtime-core.js';
 
 test('autonomy runtime retries REPAIR_REQUIRED executor failures without discarding approved package', async () => {
   const source = await readFile(new URL('../src/evolution/autonomy-runtime-core.js', import.meta.url), 'utf8');
   assert.match(source, /jobStatus === 'REPAIR_REQUIRED'/);
-  assert.match(source, /executorFailure = jobStatus === 'REPAIR_REQUIRED' && \(failedTests\.length === 0 \|\| bridgePublicationFailureOnly\(failedTests\)\)/);
+  assert.match(source, /const councilRejected = councilRejectedApprovedPackage\(job\)/);
+  assert.match(source, /jobStatus === 'REPAIR_REQUIRED' && !councilRejected/);
   assert.match(source, /OWNER_MAX_EXECUTOR_FAILURE/);
   assert.match(source, /runtime_retry/);
   assert.match(source, /status: 'TEACHER_APPROVED'/);
@@ -31,4 +32,32 @@ test('candidate branch races and bounded CI-dispatch errors preserve approved pa
     [{command:'git.push',error:'CANDIDATE_PUSH_NOT_FAST_FORWARD',passed:false},
       {command:'test',error:'TEST_COMMAND_FAILED',passed:false}],
   ]) assert.equal(bridgePublicationFailureOnly(bad),false,JSON.stringify(bad));
+});
+
+test('Council rejects stale approved code even after a candidate-CAS failure, but not an unrelated job', async () => {
+  const rejected = {
+    status: 'REPAIR_REQUIRED',
+    result_json: {
+      council_review: { decision: 'REJECTED', head: 'a'.repeat(40), repair_required: true },
+      dev_bridge: { needs_repair: true, tests: [{ command: 'git.push', passed: false, error: 'CANDIDATE_PUSH_NOT_FAST_FORWARD' }] },
+    },
+  };
+  assert.equal(councilRejectedApprovedPackage(rejected), true);
+  assert.equal(councilRejectedApprovedPackage({ ...rejected, result_json: {
+    ...rejected.result_json, council_review: { ...rejected.result_json.council_review, repair_required: false },
+  } }), false, 'a rejected Council batch must not invalidate an innocent job');
+  assert.equal(councilRejectedApprovedPackage({ ...rejected, result_json: {
+    ...rejected.result_json, council_review: { ...rejected.result_json.council_review, addressed_in_repair_at: '2026-11-05T14:00:00Z' },
+  } }), false, 'the same veto is addressed only once');
+  assert.equal(councilRejectedApprovedPackage({ ...rejected, result_json: {
+    ...rejected.result_json, council_review: { decision: 'APPROVED' },
+  } }), false);
+  assert.equal(councilRejectedApprovedPackage({ ...rejected, result_json: {
+    ...rejected.result_json, council_review: { decision: 'REJECTED' },
+  } }), true, 'legacy production veto retains needs_repair proof');
+  const source = await readFile(new URL('../src/evolution/autonomy-runtime-core.js', import.meta.url), 'utf8');
+  assert.match(source, /if \(councilRejected\) result\.council_review =/);
+  assert.match(source, /delete result\.bridge_package;/);
+  const council = await readFile(new URL('../src/evolution/council-review.js', import.meta.url), 'utf8');
+  assert.match(council, /repair_required: repair/);
 });
