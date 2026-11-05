@@ -86,7 +86,7 @@ test('only accepted exact-SHA delivery and verified deployment release the held 
  assert.equal((await repo.get('waiting-b')).status,'QUEUED','no callback invents a next execution');
 });
 function releaseFixture() {
- const oidc={ok:true,repository:repoName,sha,run_id:99};
+ const oidc={ok:true,identity:{ok:true,repository:repoName,sha,run_id:99}};
  const run={id:99,head_sha:sha,repository:{full_name:repoName},path:'.github/workflows/deploy-cloudflare-release.yml',event:'workflow_dispatch'};
  const jobs=REPAIR_RELEASE_GATES.map(name=>({name,status:'completed',conclusion:'success'}));
  jobs.push({name:'resume-verified-repair',status:'in_progress',conclusion:null});
@@ -111,8 +111,8 @@ test('repair completion endpoint rejects launch-bearer impersonation and SHA mis
  const request=()=>new Request('https://mel.test/api/internal/release-launch-bootstrap?expected_sha='+sha,{method:'POST',headers:{'x-mel-launch-bootstrap':'x'.repeat(32)},body:JSON.stringify({phase:'verified-repair-complete'})});
  const env={MEL_LAUNCH_BOOTSTRAP_TOKEN:'x'.repeat(32),MEL_DEPLOYED_GIT_SHA:sha};
  assert.equal((await maybeHandleReleaseLaunchBootstrap(request(),env,{authorizeOidc:async()=>({ok:false})})).status,401);
- assert.equal((await maybeHandleReleaseLaunchBootstrap(request(),env,{authorizeOidc:async()=>({ok:true,identity:{...releaseFixture().oidc,sha:'b'.repeat(40)}})})).status,409);
- const validIdentity=await maybeHandleReleaseLaunchBootstrap(request(),env,{authorizeOidc:async()=>({ok:true,identity:releaseFixture().oidc})});
+ assert.equal((await maybeHandleReleaseLaunchBootstrap(request(),env,{authorizeOidc:async()=>({ok:true,identity:{...releaseFixture().oidc.identity,sha:'b'.repeat(40)}})})).status,409);
+ const validIdentity=await maybeHandleReleaseLaunchBootstrap(request(),env,{authorizeOidc:async()=>({ok:true,identity:releaseFixture().oidc.identity})});
  assert.notEqual((await validIdentity.json()).code,'REPAIR_RELEASE_SHA_MISMATCH','a verified matching OIDC identity must pass the exact-SHA guard');
 });
 

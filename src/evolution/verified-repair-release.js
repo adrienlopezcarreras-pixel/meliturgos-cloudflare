@@ -11,11 +11,12 @@ export const REPAIR_RELEASE_GATES = Object.freeze([
 ]);
 export async function verifyRepairRelease({oidc, deployedSha, token, fetchImpl=fetch}={}) {
   const denied=()=>({ok:false,status:'REPAIR_RELEASE_HEALTH_UNPROVEN'});
-  if(oidc?.ok!==true || oidc.repository!==REPOSITORY || oidc.sha!==deployedSha
+  const identity=oidc?.identity;
+  if(oidc?.ok!==true || identity?.ok!==true || identity.repository!==REPOSITORY || identity.sha!==deployedSha
       || !/^[a-f0-9]{40}$/.test(String(deployedSha||''))
-      || !Number.isSafeInteger(oidc.run_id) || oidc.run_id<=0 || !token) return denied();
+      || !Number.isSafeInteger(identity.run_id) || identity.run_id<=0 || !token) return denied();
   const read=async suffix=>{
-    const response=await fetchImpl(`https://api.github.com/repos/${REPOSITORY}/actions/runs/${oidc.run_id}${suffix}`,{
+    const response=await fetchImpl(`https://api.github.com/repos/${REPOSITORY}/actions/runs/${identity.run_id}${suffix}`,{
       redirect:'error', signal:AbortSignal.timeout(15000),
       headers:{accept:'application/vnd.github+json',authorization:`Bearer ${token}`,'user-agent':'MEL-verified-repair-release'},
     });
@@ -24,7 +25,7 @@ export async function verifyRepairRelease({oidc, deployedSha, token, fetchImpl=f
   };
   try {
     const run=await read('');
-    if(run.id!==oidc.run_id || run.head_sha!==deployedSha || run.repository?.full_name!==REPOSITORY
+    if(run.id!==identity.run_id || run.head_sha!==deployedSha || run.repository?.full_name!==REPOSITORY
         || run.path!=='.github/workflows/deploy-cloudflare-release.yml'
         || !['push','workflow_dispatch'].includes(run.event)) return denied();
     const page=await read('/jobs?per_page=100');
