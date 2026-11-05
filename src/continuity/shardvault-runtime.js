@@ -1633,14 +1633,28 @@ export async function bootstrapIsolatedShardVaultSnapshot(env){
     ];
     if(!local.length)return {ok:false,status:'LOCAL_PREVIEW_STORAGE_REQUIRED'};
     const c={...base,allEndpoints:local,endpoints:local,storageMode:'CLOUDFLARE_FALLBACK',degraded:true};
+    const existingPointer=await env.MEDIA_BUCKET.get(r2LatestManifestKey(c));
     const previous=await latestShardVaultSnapshotFast(env,c);
     if(previous){
       if(!Array.isArray(previous.shards)||previous.shards.length!==c.n)return {ok:false,status:'PREVIEW_SNAPSHOT_SHARD_COUNT_INVALID'};
-      // The existing manifest MAC was checked by latestShardVaultSnapshotFast.
-      // Do not create a competing snapshot that would erase promotion progress.
-      return {ok:true,status:'SIGNED_SNAPSHOT_EXISTS',snapshot_id:previous.snapshotId,
-        shards:previous.shards.length,verified_roundtrip:false,storage_mode:'CLOUDFLARE_FALLBACK'};
+      // A signed manifest proves the descriptors, not that all their remote
+      // objects still exist. Repair the same authenticated snapshot before
+      // discovery promotes another external endpoint. Local repair candidates
+      // retain the six healthy external fragments and create a safe donor for
+      // the existing verified one-shard promotion path.
+      await checkAndRepair(env,c,previous);
+      const current=await latestShardVaultSnapshotFast(env,c);
+      if(!current||current.snapshotId!==previous.snapshotId)return {ok:false,status:'PREVIEW_SNAPSHOT_REPAIR_IDENTITY_INVALID'};
+      const live=await collect(env,c,current);
+      const verified=live.available.filter(Boolean).length===c.n&&!live.missing.length&&!live.errors.length;
+      return {ok:verified,status:verified?'SIGNED_SNAPSHOT_EXISTS':'PREVIEW_SNAPSHOT_UNHEALTHY',
+        snapshot_id:current.snapshotId,shards:current.shards.length,
+        verified_roundtrip:verified,storage_mode:'CLOUDFLARE_FALLBACK'};
     }
+    // A corrupt pointer is evidence of an existing vault, not permission to
+    // overwrite it with an empty seed. A valid signed fallback above can still
+    // recover from an invalid latest pointer without changing snapshot identity.
+    if(existingPointer)return {ok:false,status:'PREVIEW_SNAPSHOT_MANIFEST_UNVERIFIED'};
     const payload={format:'MEL-ShardVault-preview-seed',version:1,
       exported_at:new Date().toISOString(),memories:[],conversations:[],archive_messages:[],
       preview_seed_only:true};
