@@ -341,7 +341,6 @@ export class AutonomySupervisor {
     // in the repository but cannot forge roadmap completion evidence.
     const supervisedJobs = jobs
       .filter(isSupervisedAutonomyJob)
-    .filter(job => !ROADMAP_RETIRED_IDS[roadmapIdFromJob(job)])
       .filter((job) => !this.epochMs || jobActivityTimestamp(job) >= this.epochMs);
     let evolutionItems = null;
     let evolution = { status: this.evolutionLoader ? 'NOT_CHECKED' : 'NOT_CONFIGURED', actionable_count: null, code: null };
@@ -492,6 +491,10 @@ export class AutonomySupervisor {
       }
     }
     const current = await this.state();
+    const retiringExecution = current.active.find(job => ROADMAP_RETIRED_IDS[roadmapIdFromJob(job)]);
+    if (retiringExecution) return { created: false, job: null, next: current.next, complete: false,
+      external_progress: { job_id: retiringExecution.id, status: 'ROADMAP_RETIRED_EXECUTION_PENDING' } };
+
     const unfinishedRoadmap = this.roadmap.filter(row => !current.verifiedDependencyIds.includes(row.id));
     if (unfinishedRoadmap.length && !this.onlyJobId) {
       const lower = current.active.find(job => job.requested_by === 'mel-autonomy'
@@ -641,7 +644,6 @@ export class AutonomySupervisor {
     // stale; do not let one healthy passive lane hide another stale one.
     const passiveInternal = current.active
       .filter(isSupervisedAutonomyJob)
-    .filter(job => !ROADMAP_RETIRED_IDS[roadmapIdFromJob(job)])
       .filter((job) => isPassiveRuntimeJob(job) && job.requested_by === 'mel-autonomy')
       .filter((job) => !isRotatableProviderExhaustion(job) && !isSecondPassQueued(job))
       .filter((job) => !hasLiveExternalProgress(job))
@@ -690,7 +692,6 @@ export class AutonomySupervisor {
           status: 'SECOND_PASS_PREREQUISITES_PENDING', blocked_count: deferredSecondPass.length} };
       const passiveOwner = current.active
         .filter(isSupervisedAutonomyJob)
-    .filter(job => !ROADMAP_RETIRED_IDS[roadmapIdFromJob(job)])
         .filter((job) => isPassiveRuntimeJob(job) && !isRotatableProviderExhaustion(job) && !isSecondPassQueued(job))
         .sort(compareActiveJobs)[0] || null;
       // A prepared CLAIMED package is already executing outside the heartbeat.

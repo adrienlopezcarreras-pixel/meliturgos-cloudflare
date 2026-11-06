@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { flattenRoadmap, validateRoadmap } from '../src/roadmap/master-roadmap.js';
 import { ROADMAP_RETIRED_IDS, ROADMAP_CODE_CONTRACTS, roadmapContractRevision, assertRoadmapCodeChanges } from '../src/roadmap/roadmap-code-contracts.js';
 import { refreshRoadmapCodeMissions } from '../src/evolution/roadmap-code-missions.js';
-import { selectActionableAutonomyJobs } from '../src/evolution/autonomy-supervisor.js';
+import { AutonomySupervisor, selectActionableAutonomyJobs } from '../src/evolution/autonomy-supervisor.js';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 
@@ -62,6 +62,12 @@ for (const storage of ['memory', 'sqlite']) test(`retirement preserves evidence 
   assert.deepEqual(cancelled.result_json.council, evidence.council);
   assert.deepEqual(cancelled.files_json, [{path:'archived.js', content:'proof'}]);
   for (const id of ['running','review','done']) assert.equal((await repository.get(id)).result_json.roadmap_retirement, undefined);
+  const supervisor = new AutonomySupervisor({ repository, roadmap: rows });
+  const state = await supervisor.state();
+  assert.ok(state.active.some(job => job.id === 'running'), 'the executing job retains its slot');
+  const next = await supervisor.ensureNextJob();
+  assert.equal(next.job, null, 'no retired job is returned for generic re-execution');
+  assert.equal(next.external_progress.status, 'ROADMAP_RETIRED_EXECUTION_PENDING');
   assert.equal((await repository.list()).length, 4, 'no replacement mission or duplicate is created');
   assert.deepEqual(await refreshRoadmapCodeMissions(repository, await repository.list(), rows), []);
 });
