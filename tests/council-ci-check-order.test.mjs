@@ -2,7 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {selectLatestCheckOutcomes} from '../scripts/council-ci-check-order.cjs';
+import checkOrder from '../scripts/council-ci-check-order.cjs';
+const {selectLatestCheckOutcomes} = checkOrder;
 
 const check = (id, conclusion, completed_at, status='completed') => ({
   id, name:'full-suite',status,conclusion,
