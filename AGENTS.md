@@ -23,6 +23,23 @@ Ce fichier est le point d’entrée canonique pour toute page ChatGPT, agent de 
 - Helper XP : `src/learning/agent-xp-protocol.js`
 - Manuel MEL : `.agents/MEL_OPERATING_MANUAL.md` + `src/identity/mel-operating-manual.js`
 
+## Protection des workflows MAX critiques
+
+Les workflows GitHub Actions qui assurent la continuité de MAX, notamment
+`gen2-42-apply-ready-bridge.yml`, `gen2-42-runtime-tick.yml` et
+`github-action-relay.yml`, **ne doivent jamais être désactivés, supprimés
+ou mis en sommeil par un agent** (`gh workflow disable`, API GitHub
+`/disable`, outils équivalents) sans demande expresse du propriétaire qui
+identifie le workflow et la durée de l'arrêt.
+
+Pour sécuriser un déploiement ou une réparation, utiliser exclusivement
+les contrôles de pause MAX, le verrou D1 de mission unique et les gates
+de release existants ; ils n'exigent pas de désactiver l'exécuteur GitHub.
+En cas de workflow déjà désactivé, signaler le blocage et son audit,
+puis demander une autorisation explicite avant tout changement administratif.
+Un run vert ne suffit jamais à déclarer une mission `DONE_VERIFIED` :
+il faut les preuves métier, les tests et la CI du SHA exact.
+
 ## Règle de reprise
 
 Avant d’écrire, relire le HEAD candidate, le HEAD release, les derniers commits, branches/PR et runs pertinents. Choisir un lot atomique encore libre. Relire le HEAD candidate juste avant toute écriture. Ne jamais forcer la candidate. Si elle a avancé, reconstruire uniquement son lot au-dessus du nouveau HEAD et préserver le travail concurrent.
