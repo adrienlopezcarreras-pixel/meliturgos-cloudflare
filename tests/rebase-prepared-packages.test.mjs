@@ -17,6 +17,24 @@ test('an appended mission keeps the prepared package append', () => {
   assert.equal(next.baseSha, sha(current));
 });
 
+test('non-overlapping prepared insertions can rebase after another mission changes the same file', () => {
+  const committed = Array.from({length:30},(_,i)=>'line-' + i + '\n').join('');
+  const current = committed.replace('line-3\n', 'line-3\nmission-five\n');
+  const content = committed.replace('line-24\n', 'line-24\nmission-seven\n');
+  const next = rebasePreparedChange({ committed, current, content, baseSha: sha(committed) });
+  assert.equal(next.conflict, undefined);
+  assert.equal(next.content, current.replace('line-24\n', 'line-24\nmission-seven\n'));
+  assert.equal(next.baseSha, sha(current));
+});
+
+test('overlapping edits or unproven bases never rebase a prepared package', () => {
+  const committed = Array.from({length:20},(_,i)=>'line-' + i + '\n').join('');
+  const current = committed.replace('line-10\n','owner-current\n');
+  const content = committed.replace('line-10\n','prepared-different\n');
+  assert.deepEqual(rebasePreparedChange({ committed, current, content, baseSha: sha(committed) }), { conflict: true });
+  assert.deepEqual(rebasePreparedChange({ committed, current, content, baseSha: sha('wrong') }), { conflict: true });
+});
+
 test('a package already on the current file is left alone', () => {
   const current = 'same\n';
   assert.equal(rebasePreparedChange({ committed: 'old\n', current, content: current, baseSha: sha('old\n') }), null);
