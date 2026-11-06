@@ -120,9 +120,11 @@ export class D1GitHubActionRelayStore {
         WHERE id=? AND status='QUEUED'`)
         .bind(now, now, row.id).run();
       const changes = Number(result?.meta?.changes ?? result?.changes ?? 0);
-      if (changes > 0 || changes === 0) {
+      // A zero-row compare-and-swap means a concurrent relay claimed it first.
+      // Reading that other worker's CLAIMED row must never grant us its lease.
+      if (changes === 1) {
         const claimed = await this.get(row.id);
-        if (claimed?.status === 'CLAIMED') return claimed;
+        if (claimed?.status === 'CLAIMED' && claimed.claimed_at === now) return claimed;
       }
     }
     return null;
