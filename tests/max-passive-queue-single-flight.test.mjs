@@ -158,6 +158,27 @@ test('MAX supervisor processes fresh roadmap work before returning a deferred QU
   assert.equal(resumed.created,false);
 });
 
+for (const persisted of [false,true]) test('verified MEL-EVOL-04 revision never re-enters second pass ('+(persisted?'D1':'memory')+')', async()=>{
+  const db=persisted?sqliteD1():null;
+  const repo=new D1DevJobRepository(db);
+  try {
+    const id='mel-autonomy-mel-evol-04-historic';
+    await repo.create({id,requested_by:'mel-autonomy',goal:'Historical ledger proof',
+      optional_context:{roadmap_id:'MEL-EVOL-04'}});
+    await repo.update(id,{status:'WAITING_TEACHER',
+      files_json:[{path:'src/evolution/evolution-ledger.js',content:'historical candidate'}]});
+    const deferred=await repo.update(id,{status:'QUEUED'});
+    assert.equal(deferred.result_json?.autonomy_queue_pass?.round,2);
+    const supervisor=new AutonomySupervisor({repository:repo,roadmap:[{
+      id:'MEL-EVOL-04',title:'Evolution ledger',status:'DONE_VERIFIED',priority:'P1',depends_on:[]
+    }]});
+    const next=await supervisor.ensureNextJob();
+    assert.equal(next.job,null);
+    assert.equal((await repo.get(id)).status,'QUEUED','retain immutable historical candidate');
+    assert.equal((await repo.get(id)).result_json.autonomy_queue_pass.passive,true);
+  } finally { db?.close(); }
+});
+
 test('MAX protects QUEUED revisions still claimed by a live Bridge',async()=>{
   const {isSecondPassQueued}=await import('../src/evolution/provider-exhaustion-rotation.js');
   const job={id:'unsafe',requested_by:'mel-autonomy',status:'QUEUED',

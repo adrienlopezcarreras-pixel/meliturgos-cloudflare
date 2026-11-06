@@ -666,6 +666,12 @@ export class AutonomySupervisor {
       const deferredSecondPass = current.active
         .filter(job => isSecondPassQueued(job)
           && Number(job.result_json?.autonomy_queue_pass?.round) === 2)
+        // Do not revive historically retained work for a verified objective.
+        // Candidate evidence is preserved for audits, never re-admitted.
+        .filter(job => {
+          const item = this.roadmap.find(row => row.id === roadmapIdFromJob(job));
+          return !item || !isVerifiedRoadmap(item);
+        })
         .sort((a,b) => Number(a.result_json.autonomy_queue_pass.deferred_at||0)
           - Number(b.result_json.autonomy_queue_pass.deferred_at||0)
           || String(a.id).localeCompare(String(b.id)));
