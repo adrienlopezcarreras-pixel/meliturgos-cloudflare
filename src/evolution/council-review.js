@@ -473,9 +473,6 @@ async function executeCouncilReviewBody(body, env, {now, review, contextLoader})
   catch (error) { return Response.json({ ok:false, code:error?.code || 'COUNCIL_IMPORT_CONTEXT_UNAVAILABLE' }, { status:409 }); }
   const result = await review(env, { diff: body.diff, goal: goal || 'Vérifier la correction, la sécurité et les tests de cette intégration sur la candidate existante.', attempts, dependencyContext });
   const record = { decision: result.decision, head, base, diff_sha256: diffSha256, jobs, dependency_context: dependencyContext, reviews: result.reviews, reviewed_at: now, attempts: attempts + 1 };
-  await env.DB.prepare(`INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?)
-    ON CONFLICT(bridge_id) DO UPDATE SET last_seen=excluded.last_seen,status=excluded.status,metadata_json=excluded.metadata_json`)
-    .bind(key, now, result.decision, JSON.stringify(record)).run().catch(() => {});
   if (result.decision === 'REJECTED' || RETRYABLE.has(result.decision) || result.decision === OWNER_APPROVAL_REQUIRED) {
     const objections = result.reviews.filter(r => r.verdict === 'REJECT').flatMap(r => (r.blocking || []).map(b => r.model.split('/').pop() + ' : ' + b)).slice(0, 12);
     const unavailable = result.reviews.filter(r => !r.verdict).map(r => String(r.model || '').split('/').pop() + ' : ' + (r.error || 'NO_VERDICT')).slice(0, 8);
@@ -503,6 +500,12 @@ async function executeCouncilReviewBody(body, env, {now, review, contextLoader})
     // objections were all about UI-AUDIT-02). Name the culprits' files so the
     // workflow reverts only those. Empty list = unknown culprits = revert all.
     record.revert_paths = rejected ? culpritRevertPaths(culprits, packages) : [];
+    record.rejected_jobs = rejected ? [...culprits] : [];
   }
+  // Cache the complete attribution too: a repeated rejected review must not
+  // lose its rollback scope and fall back to discarding unrelated changes.
+  await env.DB.prepare(`INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?)
+    ON CONFLICT(bridge_id) DO UPDATE SET last_seen=excluded.last_seen,status=excluded.status,metadata_json=excluded.metadata_json`)
+    .bind(key, now, result.decision, JSON.stringify(record)).run().catch(() => {});
   return Response.json({ ok: true, cached: false, ...record });
 }

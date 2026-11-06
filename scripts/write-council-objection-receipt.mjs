@@ -22,9 +22,19 @@ export function councilObjectionReceipt(body, expectedHead, expectedBase) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  if (!isAbsolute(process.argv[4] || '')) throw Error('COUNCIL_RECEIPT_ABSOLUTE_OUTPUT_REQUIRED');
+  const latest=process.argv[2]==='--latest';
+  const output=latest?process.argv[3]:process.argv[4];
+  if (!isAbsolute(output || '')) throw Error('COUNCIL_RECEIPT_ABSOLUTE_OUTPUT_REQUIRED');
   let body = {};
   try { body = JSON.parse(readFileSync(0, 'utf8')); } catch {}
-  writeFileSync(process.argv[4], JSON.stringify(
-    councilObjectionReceipt(body, process.argv[2], process.argv[3]), null, 2) + '\n');
+  let receipt;
+  if(latest){
+    const parts=Array.isArray(body)?body:[body];
+    const rows=parts.flatMap(part=>Array.isArray(part?.results)?part.results:[]).slice(0,10);
+    receipt={diagnostic_only:true,release_authorized:false,receipts:rows.map(row=>{
+      let reviews=[];try{reviews=JSON.parse(row.reviews||'[]');}catch{}
+      return councilObjectionReceipt({...row,reviews},row.head,row.base);
+    })};
+  }else receipt=councilObjectionReceipt(body,process.argv[2],process.argv[3]);
+  writeFileSync(output,JSON.stringify(receipt,null,2)+'\n');
 }

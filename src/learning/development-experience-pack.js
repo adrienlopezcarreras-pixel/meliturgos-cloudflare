@@ -1781,12 +1781,14 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "task": "Restaurer tout un paquet rejeté même si sa proposition courante a changé.",
     "input": "Le rejet du paquet2ebfc65a restaure seulement domain-audit.js; le test ajouté reste dans la candidate2a22986d et fait échouer sa CI.",
     "before": "Les chemins à restaurer sont lus dans files_json, que la réparation peut déjà avoir modifié.",
-    "after": "Capturer les chemins du paquet figé au claim dans le rapport de publication réussie. Pour attribuer le diff et restaurer un paquet rejeté, préférer cette provenance publiée à la proposition courante mutable, afin de garder code et tests cohérents. Une restauration ne valide jamais l’objectif rejeté.",
+    "after": "Capturer les chemins du paquet figé au claim dans le rapport de publication réussie. Pour attribuer le diff et restaurer un paquet rejeté, préférer cette provenance publiée à la proposition courante mutable, afin de garder code et tests cohérents. Le commit Git publié est l’unité atomique, métadonnées dérivées comprises : appliquer son inverse sans écraser les éditions indépendantes, refuser tout conflit ou attribution incomplète, conserver l’attribution dans le cache et exécuter le helper depuis le main approuvé. Ne pas utiliser une boucle read qui ignore le dernier chemin sans retour à la ligne. Une restauration ne valide jamais l’objectif rejeté.",
     "rationale": "Une annulation partielle laisse des régressions orphelines et bloque les corrections indépendantes. La liste des fichiers publiée doit survivre aux nouvelles propositions.",
     "tests": [
       "CI42074515373 échoue sur le test orphelin après restauration partielle2a22986d; commit2a retire seulementlecode",
       "tests/council-review-gate.test.mjs: proposition courante limitée au source, provenance publiée source+test, restauration des deux",
-      "validation ciblée élargie:71 succès locaux; nouvelle publication Cloudflare encore à vérifier"
+      "validation ciblée élargie:71 succès locaux; nouvelle publication Cloudflare encore à vérifier",
+      "tests/council-atomic-package-rollback.test.mjs: vrai Git et vrai shell workflow; source/test/métadonnées restaurés, travail indépendant conservé, conflit et helper candidat hostile refusés",
+      "tests/council-heartbeat-transport.test.mjs: rejet signé réel et cache conservent les mêmes coupables et chemins"
     ],
     "tags": [
       "council",
@@ -1806,12 +1808,13 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "task": "Éviter les refus fondés sur du code inchangé absent du diff.",
     "input": "AUDIT-05 passe la CI, mais les relecteurs disent time et WEEK_MS non définis et les findings absents alors que ces éléments existent hors des hunks.",
     "before": "Le Council reçoit seulement le patch et une preuve d’existence des imports, puis assimile une absence dans le patch à une absence dans le module.",
-    "after": "Fournir les petits fichiers complets lus au même SHA immuable, en plus du diff et des imports. Borner le nombre de lectures, les octets par fichier et le total; marquer explicitement les omissions sans troncature présentée comme complète. Paralléliser les lectures pour ne pas cumuler les délais. Maintenir les vrais votes et le refus si une lecture nécessaire est indisponible.",
+    "after": "Fournir les petits fichiers complets lus au même SHA immuable, en plus du diff et des imports. Borner le nombre de lectures, les octets par fichier et le total; marquer explicitement les omissions sans troncature présentée comme complète. Paralléliser les lectures pour ne pas cumuler les délais. Maintenir les vrais votes et le refus si une lecture nécessaire est indisponible. Appliquer ce contrat aussi au vote final distinct : un petit diff complet doit y rester visible et un résumé d’avis ne remplace pas le code; les gros lots conservent le contexte borné et leurs omissions explicites.",
     "rationale": "Un diff n’est pas un fichier complet et une existence d’import ne prouve pas les définitions autour du hunk. La preuve doit couvrir le contexte que le verdict utilise.",
     "tests": [
       "tests/council-file-context.test.mjs: helpers et findings inchangés transmis au prompt réel, head immuable, lectures parallèles, limites par fichier et totales, indisponibilité fail-closed",
       "tests/council-import-context.test.mjs, tests/council-review-gate.test.mjs et tests/council-batch-review.test.mjs:48 succès locaux",
-      "CI42073258720 réussie et refus2ebfc65a comportant ces objections; aucun nouveau vote production encore revendiqué"
+      "CI42073258720 réussie et refus2ebfc65a comportant ces objections; aucun nouveau vote production encore revendiqué",
+      "Revue42205651034: lot approuvé puis refus final confirmé D1 faute de hunks; tests/maintenance/council-single-batch-review.test.mjs rouge puis vert, vote final et contexte exact conservés"
     ],
     "tags": [
       "council",

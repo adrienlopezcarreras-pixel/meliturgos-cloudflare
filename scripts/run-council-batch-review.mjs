@@ -65,11 +65,16 @@ for(const batch of planned.batches){
 }
 const result=await post({...common,mode:'final',log});
 const expectedDecision=auditOnly?'POST_MERGE_AUDIT_APPROVED':'APPROVED';
-if(result?.ok!==true||result?.decision!==expectedDecision||result?.complete_review!==true
-    ||result?.audit_only!==auditOnly||result?.release_authorized!==false
-    ||result.head!==head||result.root_sha256!==root
-    ||result.batch_count!==planned.batchCount)throw Error('COUNCIL_FINAL_REVIEW_NOT_APPROVED');
-process.stdout.write(JSON.stringify({ok:true,decision:expectedDecision,head,
+const verified=result?.ok===true&&result?.decision===expectedDecision&&result?.complete_review===true
+    &&result?.audit_only===auditOnly&&result?.release_authorized===false
+    &&result.head===head&&result.root_sha256===root
+    &&result.batch_count===planned.batchCount;
+// Preserve bounded status evidence even when the final vote refuses. Never
+// emit model prompts, code, dependency context or an unverified approval.
+process.stdout.write(JSON.stringify({ok:verified,
+  decision:verified?expectedDecision:'NOT_VERIFIED',head,
   root_sha256:root,reviewed_file_count:planned.fileCount,
-  reviewed_batch_count:planned.batchCount,complete_review:true,
-  audit_only:auditOnly,release_authorized:false}));
+  reviewed_batch_count:planned.batchCount,complete_review:verified,
+  audit_only:auditOnly,release_authorized:false,
+  final_status:/^[A-Z0-9_]{1,80}$/.test(String(result?.decision||''))?result.decision:'UNAVAILABLE'}));
+if(!verified)throw Error('COUNCIL_FINAL_REVIEW_NOT_APPROVED');

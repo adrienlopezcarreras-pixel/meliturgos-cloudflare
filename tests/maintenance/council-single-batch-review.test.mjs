@@ -76,3 +76,40 @@ test('small diff runner accepts one batch but never zero batches', () => {
   assert.match(runner, /planned\.batchCount<1/);
   assert.doesNotMatch(runner, /planned\.batchCount<2/);
 });
+
+test('final independent voters receive the real small diff and exact-head file context', async () => {
+ const db=sqliteD1({maintenanceFence:true});
+ const chunk=plan.batches[0];let votes=0,contexts=0;
+ const context={files:[{path:'src/small-change.js',content:'export const actual=2;'}]};
+ const call=body=>handleCouncilBatchedReview({DB:db},body,{
+  cryptoImpl:webcrypto,now:3,
+  contextLoader:async(_env,input)=>{contexts++;assert.equal(input.head,head);assert.equal(input.diff,diff);return context;},
+  review:async(_env,input)=>{
+   votes++;
+   if(votes===2){
+    assert.equal(input.diff,diff,'the final vote must inspect actual code, not summaries of prior votes');
+    assert.deepEqual(input.dependencyContext,context);
+   }
+   return vote();
+  }
+ });
+ try{
+  await call({...common,mode:'batch',batch_index:1,batch_sha256:hash(chunk.diff),diff:chunk.diff});
+  const outcome=await call({...common,mode:'final'});
+  assert.equal(outcome.result.decision,'APPROVED');
+  assert.equal(votes,2);assert.equal(contexts,2);
+ }finally{db.close();}
+});
+
+test('unavailable exact-head final context cannot create another approval',async()=>{
+ const db=sqliteD1({maintenanceFence:true});let finalVotes=0;
+ try{
+  const chunk=plan.batches[0];
+  await handleCouncilBatchedReview({DB:db},{...common,mode:'batch',batch_index:1,batch_sha256:hash(chunk.diff),diff:chunk.diff},
+   {review:vote,cryptoImpl:webcrypto});
+  const result=await handleCouncilBatchedReview({DB:db},{...common,mode:'final'},
+   {review:async()=>{finalVotes++;return vote();},cryptoImpl:webcrypto,contextLoader:async()=>{throw Error('unavailable');}});
+  assert.equal(result.result.code,'COUNCIL_FINAL_CONTEXT_UNAVAILABLE');
+  assert.equal(finalVotes,0);
+ }finally{db.close();}
+});

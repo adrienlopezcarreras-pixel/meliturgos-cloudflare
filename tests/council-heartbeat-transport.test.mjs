@@ -46,19 +46,65 @@ test('authenticated Council streaming sends bytes before the vote and preserves 
   globalThis.fetch=async url=>Response.json(String(url).includes('openid-configuration')
     ?{issuer:'https://token.actions.githubusercontent.com',jwks_uri:'https://token.actions.githubusercontent.com/keys'}:{keys:[jwk]});
   t.after(()=>{globalThis.fetch=original;});
-  const db={prepare:()=>({bind:()=>({first:async()=>null,run:async()=>({meta:{changes:1}})})})};
+  const records=new Map();
+  const db={prepare:sql=>({bind:(...args)=>({
+    first:async()=>sql.startsWith('SELECT goal, files_json')
+      ?{goal:'MEL-UI-AUDIT-05',files_json:'[]',applied_files_json:JSON.stringify(['a.js','tests/a.test.mjs'])}
+      :sql.includes('AS roadmap_id FROM dev_jobs')?{roadmap_id:'MEL-UI-AUDIT-05'}
+      :records.get(args[0])||null,
+    run:async()=>{
+      if(sql.startsWith('INSERT INTO dev_bridge_state'))records.set(args[0],{metadata_json:args[3]});
+      return {meta:{changes:1}};
+    },
+  })})};
   const vote=Promise.withResolvers();let votes=0;
   const options={contextLoader:async()=>({head}),review:async()=>{votes++;return vote.promise;}};
   const call=body=>handleCouncilReviewRequest(new Request('https://mel.test/api/internal/council-review',{
     method:'POST',headers:{'x-mel-github-oidc':token,'content-type':'application/json'},body:JSON.stringify(body),
   }),{MEL_GITHUB_REPOSITORY:'o/r',DB:db},options);
-  const response=await call({head,base,heartbeat:true,diff:'diff --git a/a.js b/a.js\n+x\n'});
+  const body={head,base,heartbeat:true,diff:'diff --git a/a.js b/a.js\n+x\n',log:'GEN2-42: apply approved bridge package job-a'};
+  const response=await call(body);
   const reader=response.body.getReader();let raw=new TextDecoder().decode((await reader.read()).value);
   assert.equal(raw,'\n');
   vote.resolve({decision:'REJECTED',reviews:[{model:'independent',verdict:'REJECT',blocking:['Still needs repair']}]});
   while(true){const chunk=await reader.read();if(chunk.done)break;raw+=new TextDecoder().decode(chunk.value);}
-  assert.equal(JSON.parse(raw).decision,'REJECTED');assert.equal(votes,1);
+  const answer=JSON.parse(raw);
+  assert.equal(answer.decision,'REJECTED');assert.equal(votes,1);
+  assert.deepEqual(answer.rejected_jobs,['job-a']);
+  assert.deepEqual(answer.revert_paths,['a.js','tests/a.test.mjs']);
+  const cached=await(await call(body)).json();
+  assert.equal(cached.cached,true);
+  assert.deepEqual(cached.rejected_jobs,answer.rejected_jobs);
+  assert.deepEqual(cached.revert_paths,answer.revert_paths);
+  assert.equal(votes,1,'cached rejection retains attribution without another model call');
   const invalid=await call({heartbeat:true,head:'not-a-sha',diff:'x'});
   assert.equal((await invalid.json()).ok,false);
   assert.equal(votes,1,'invalid input never calls a model even when transport status is200');
+});
+
+test('a final refusal leaves a content-free non-approval receipt and a failing exit',t=>{
+ const dir=mkdtempSync(join(tmpdir(),'council-final-receipt-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));
+ writeFileSync(join(dir,'review.diff'),'diff --git a/a.js b/a.js\n--- a/a.js\n+++ b/a.js\n@@ -1 +1 @@\n-old\n+new\n');
+ writeFileSync(join(dir,'review.log'),'Code review');
+ const hook=join(dir,'fetch.mjs');
+ writeFileSync(hook,`globalThis.fetch=async(url,init)=>{
+  if(String(url).startsWith('https://issuer.unit/'))return Response.json({value:'x'.repeat(120)});
+  const b=JSON.parse(init.body);
+  return Response.json({ok:true,head:b.head,root_sha256:b.root_sha256,batch_count:b.batch_count,
+   batch_index:b.batch_index,batch_decision:'APPROVED',
+   decision:b.mode==='batch'?'PENDING_ALL_BATCH_REVIEWS':'REJECTED',
+   audit_only:false,release_authorized:false,complete_review:false,
+   reviews:[{blocking:['private-model-text-must-not-leak']}]});
+ };`);
+ const result=spawnSync(process.execPath,[fileURLToPath(new URL('../scripts/run-council-batch-review.mjs',import.meta.url)),join(dir,'review.diff'),join(dir,'review.log')],{
+  cwd:dir,encoding:'utf8',timeout:5000,env:{...process.env,NODE_OPTIONS:'--import '+pathToFileURL(hook).href,
+   MEL_COUNCIL_HEAD_SHA:'a'.repeat(40),MEL_COUNCIL_BASE_SHA:'b'.repeat(40),MEL_COUNCIL_REVIEW_KIND:'PRE_MERGE_REVIEW',
+   ACTIONS_ID_TOKEN_REQUEST_URL:'https://issuer.unit/token',ACTIONS_ID_TOKEN_REQUEST_TOKEN:'fixture-only'}
+ });
+ assert.notEqual(result.status,0);assert.match(result.stderr,/COUNCIL_FINAL_REVIEW_NOT_APPROVED/);
+ const receipt=JSON.parse(result.stdout);
+ assert.equal(receipt.ok,false);assert.equal(receipt.complete_review,false);
+ assert.equal(receipt.decision,'NOT_VERIFIED');assert.equal(receipt.final_status,'REJECTED');
+ assert.equal(receipt.release_authorized,false);
+ assert.doesNotMatch(result.stdout+result.stderr,/private-model-text-must-not-leak/);
 });

@@ -51,6 +51,29 @@ jobs:
       - name: Run GEN2-42 targeted contract tests
         run: node --test tests/gen2/capability-watch-production-proof.test.mjs tests/gen2/capability-watch.test.mjs tests/gen2/preview-watch-http-sanitizer.test.mjs tests/gen2/autonomy-runtime-observation-safety.test.mjs
 
+      - name: Read bounded Council objection diagnostics
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute DB --remote --json \
+            --command "SELECT json_extract(metadata_json,'$.head') AS head,json_extract(metadata_json,'$.base') AS base,json_extract(metadata_json,'$.decision') AS decision,json_extract(metadata_json,'$.reviews') AS reviews FROM dev_bridge_state WHERE bridge_id LIKE 'council-review:%' OR bridge_id LIKE 'council-diff-batch:%' ORDER BY last_seen DESC LIMIT 10" \
+            > council-verdicts.raw.json
+          node scripts/write-council-objection-receipt.mjs --latest \
+            "$RUNNER_TEMP/council-latest-objections.json" < council-verdicts.raw.json
+
+      - name: Upload sanitized Council objection diagnostics
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: council-latest-objections-${{ github.sha }}
+          path: ${{ runner.temp }}/council-latest-objections.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Read production capability watch state
         if: github.event_name != 'pull_request'
         shell: bash

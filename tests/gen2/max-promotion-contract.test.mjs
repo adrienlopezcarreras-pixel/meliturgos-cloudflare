@@ -28,7 +28,7 @@ test('cloud bridge starts the full candidate suite and requires fresh review whe
   assert.match(s, /"\$REMOTE_SHA" = "\$CANDIDATE_SHA"/);
 });
 
-test('a Council rejection resets the candidate to main content instead of blocking promotion', async () => {
+test('a Council rejection restores complete culprit packages before any promotion', async () => {
   const s = await read('.github/workflows/mel-candidate-promotion.yml');
   const reject = s.indexOf('if [ "$DECISION" = "REJECTED" ]');
   assert.ok(reject > s.indexOf('COUNCIL_REVIEW $CAND'));
@@ -36,8 +36,11 @@ test('a Council rejection resets the candidate to main content instead of blocki
   const block = s.slice(reject, s.indexOf('"$CAND:refs/heads/main"', reject));
   assert.match(block, /git push --force-with-lease="refs\/heads\/\$CANDIDATE:\$CAND" origin "HEAD:refs\/heads\/\$CANDIDATE"/);
   // A rejection must not destroy the work of jobs the Council did not blame.
-  assert.match(block, /revert_paths/);
-  assert.match(block, /git diff --name-only "\$MAIN" "\$CAND" > council\.revert/);
+  assert.ok(block.includes('git show "$MAIN:scripts/revert-rejected-council-packages.mjs"'));
+  assert.ok(block.includes('node "$RUNNER_TEMP/council-rollback-trusted.mjs" "$MAIN" "$CAND"'));
+  const helper = await read('scripts/revert-rejected-council-packages.mjs');
+  assert.match(helper, /rejected_jobs/);
+  assert.match(helper, /COUNCIL_ATOMIC_ROLLBACK_CONFLICT/);
 });
 
 test('candidate publication uses atomic expected-head lease rather than unchecked branch push', async () => {
