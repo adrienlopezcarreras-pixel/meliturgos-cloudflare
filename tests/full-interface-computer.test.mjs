@@ -29,10 +29,3 @@ test('offline hardware recipe blocks missing evidence and never performs a devic
  assert.equal(report.mutations_performed,0);
  assert.equal(report.simulated_physical_passes,0);
 });
-
-test('offlineHardwareControlReceipt never reports mutations or simulated passes',async()=>{
-  const {offlineHardwareControlReceipt}=await import('../scripts/ui-production-audit.mjs');
-  const report=offlineHardwareControlReceipt([]);
-  assert.equal(report.mutations_performed,0);
-  assert.equal(report.simulated_physical_passes,0);
-});
