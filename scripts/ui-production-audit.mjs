@@ -7,6 +7,8 @@
 // not make answer 401/403: they are BLOCKED, never counted as failures.
 // Usage: BASE_URL=… MEL_PARALLEL_PROOF=… node scripts/ui-production-audit.mjs > report.json
 
+import { classifyCompanionHardwareControl } from '../src/api/native-companion-fallback.js';
+
 export const PAGES = ['/', '/professor'];
 const PANELS = ['overview', 'chat', 'skills', 'roadmap', 'multi', 'memory', 'lora', 'connections', 'computer', 'diagnostics', 'terminal'];
 const LOADING_RE = /^(chargement…?|chargement\.\.\.|lecture de l’état…|vérification…|état à charger…)$/i;
@@ -37,6 +39,22 @@ export function summarizeUiAudit(observations = []) {
   // One finding per distinct problem, however many panels repeat it.
   const unique = [...new Map(findings.map(row => [row.code + row.detail.replace(/#[a-z-]+ :/, ':'), row])).values()];
   return { schema: 'mel.ui-production-audit/v1', pages: observations.length, api_calls: checked, blocked_calls: blocked, blocked_stuck: stuckBlocked, findings: unique.slice(0, 40) };
+}
+
+
+// A separate offline recipe: no mutating browser click, no physical-hardware
+// success claim from software mocks, and no second Companion dispatch.
+export function offlineHardwareControlReceipt(observations = []) {
+ const controls=['screen','keyboard','mouse','stop'];
+ const rows=controls.map(control=>{
+   const observation=(Array.isArray(observations)?observations:[])
+     .find(row=>row?.control===control);
+   return classifyCompanionHardwareControl(control, observation || {});
+ });
+ const count=status=>rows.filter(row=>row.status===status).length;
+ return {schema:'mel.ui-hardware-offline-receipt/v1',controls:rows,
+   pass:count('PASS'),blocked:count('BLOCKED'),mutations_performed:0,
+   simulated_physical_passes:0};
 }
 
 // MEL-UI-AUDIT-01: executable inventory of the visible controls. Each button
