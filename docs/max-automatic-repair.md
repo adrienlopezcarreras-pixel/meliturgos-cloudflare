@@ -64,3 +64,5 @@ Les paquets de missions indépendantes ne doivent pas remplacer un fichier parta
 Le contrat AUDIT-06 conserve aussi le chemin de tests historique pour les plans déjà persistés; son paquet préparé utilise uniquement la régression dédiée. L'isolation des snapshots ne retire aucun test existant ni la compatibilité des plans en attente.
 
 Un cache issu de `prepared/` est revalidé contre l’empreinte du paquet actuel sur la source autorisée. Teacher et SHA candidat identiques ne suffisent pas : une révision préparée corrigée remplace la copie en cache sans appel au codeur. Une lecture de révision indisponible bloque ce rejeu avec `CODE_READ_FAILED`; les preuves négatives Council, la portée approuvée et la suite complète restent exigées.
+
+La revue Council utilise l’adaptateur Workers AI commun au lieu d’un appel parallèle brut : options documentées de réponse visible pour Gemma/Nemotron, filtrage Harmony final uniquement et refus d’un résultat local présenté comme cloud. Une réponse vide ou illisible reste une absence de vote; un vrai REJECT et le quorum existant restent inchangés.

@@ -9,7 +9,7 @@ function normalizeMessages(input, context = {}) {
 }
 
 function extractText(result) {
-  if (typeof result === 'string') return result;
+  if (typeof result === 'string') return harmonyFinal(result);
   // gpt-oss-120b answers in the Responses format (output_text / output[]).
   const responses = Array.isArray(result?.output)
     ? result.output.flatMap(item => (Array.isArray(item?.content) ? item.content : []))

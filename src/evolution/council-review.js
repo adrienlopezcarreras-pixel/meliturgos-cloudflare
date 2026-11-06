@@ -7,6 +7,7 @@ import { jsonHeartbeatResponse } from '../core/json-heartbeat-response.js';
 
 import { authorizeGitHubActionsOidcRequest } from '../security/github-actions-oidc.js';
 import { standardRegistry } from '../models/ModelRegistry.js';
+import { createWorkersAIAdapter } from '../augmentio/workers-ai-adapter.js';
 import { createMentorCompanionFallback } from '../learning/mentor-companion-provider.js';
 import { companionFallbackAuthorized } from './cloud-bridge-dispatch.js';
 import { handleCouncilBatchedReview } from './council-batch-review.js';
@@ -80,16 +81,6 @@ export function parseVerdict(text) {
     } catch { /* try the previous object */ }
   }
   return null;
-}
-
-// Reasoning models answer in Responses format: output[] with message parts.
-function reviewText(out) {
-  if (typeof out === 'string') return out;
-  const direct = out?.response || out?.choices?.[0]?.message?.content || out?.output_text;
-  if (typeof direct === 'string' && direct.trim()) return direct;
-  const parts = (Array.isArray(out?.output) ? out.output : []).flatMap(item => Array.isArray(item?.content) ? item.content : [])
-    .map(part => part?.text).filter(value => typeof value === 'string');
-  return parts.length ? parts.join('\n') : JSON.stringify(direct ?? out ?? '');
 }
 
 export function decide(reviews) {
@@ -173,10 +164,12 @@ async function askModels(env, models, user, timeoutMs, system = SYSTEM) {
     let timer;
     try {
       const out = await Promise.race([
-        env.AI.run(model, { neuron_reserve: true, messages: [{ role: 'system', content: system }, { role: 'user', content: user }], max_tokens: 2400 }),
+        createWorkersAIAdapter({ env, modelId: model }).invoke({ input: user, context: {
+          system, purpose: 'model-council-independent-critique', inference_settings: { max_tokens: 2400 },
+        } }),
         new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('REVIEW_TIMEOUT')), timeoutMs); }),
       ]);
-      const parsed = parseVerdict(reviewText(out));
+      const parsed = parseVerdict(out.text);
       return { model, ...(parsed || { verdict: null, error: 'UNPARSEABLE_REVIEW' }) };
     } catch (error) {
       return { model, verdict: null, error: String(error?.message || error).slice(0, 160) };

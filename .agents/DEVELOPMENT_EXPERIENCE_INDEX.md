@@ -226,3 +226,5 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 - `codex-prepared-missions-isolate-full-file-regressions-20261106` — isoler les régressions des paquets indépendants; refuser les snapshots concurrents incompatibles et pré-tester leur application successive, sans perdre les tests existants. Preuve locale, publication et missions suivantes encore requises.
 
 - `codex-prepared-cache-binds-authoritative-revision-20261106` — la révision du paquet autorisé participe à la validité du cache, même à Teacher/SHA constants; une source illisible ne justifie pas le rejeu de la copie précédente. Preuves locales, livraison runtime encore requise.
+
+- `codex-council-uses-shared-visible-answer-adapter-20261106` — utiliser l’adaptateur canonique pour la revue aussi; options visibles documentées, canal final obligatoire et substitut local refusé, quorum inchangé. Preuves locales, validation runtime à obtenir.
