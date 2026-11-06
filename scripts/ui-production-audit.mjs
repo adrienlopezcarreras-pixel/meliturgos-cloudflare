@@ -27,8 +27,6 @@ export function summarizeUiAudit(observations = []) {
       if (call.status === 401 || call.status === 403) { blocked++; continue; }
       if (call.status >= 500) findings.push({ code: 'UI_API_SERVER_ERROR', detail: `${page.path} → ${call.method} ${call.path} HTTP ${call.status}` });
     }
-    // Offline / aborted requests are treated as blocked calls.
-    for (const _ of page.aborted || []) { blocked++; }
     // Production proof 26/10: under the read-only identity most panels never
     // request their own data (only the shared progress call). A placeholder
     // there proves nothing about MEL: it is BLOCKED, not a finding.
