@@ -1861,11 +1861,12 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "task": "Garantir que des missions successives conservent leurs régressions et restent applicables.",
     "input": "Deux paquets préparés remplacent le même fichier de tests par des snapshots différents, pourtant valides sur leur base commune.",
     "before": "Chaque paquet passe seul sur la base initiale; le premier appliqué invalide le second ou ses tests seraient perdus lors du remplacement.",
-    "after": "Isoler la régression de chaque mission dans son fichier dédié autorisé par son contrat. Refuser avant programmation les remplacements complets incompatibles entre paquets indépendants; accepter les snapshots strictement identiques. Appliquer réellement les paquets successivement en pré-test et conserver les assertions métier et tests existants.",
+    "after": "Isoler la régression de chaque mission dans son fichier dédié autorisé par son contrat. Refuser avant programmation les remplacements complets incompatibles entre paquets indépendants; accepter les snapshots strictement identiques. Appliquer réellement les paquets successivement en pré-test et conserver les assertions métier et tests existants. Quand les octets cibles sont déjà exactement présents dans le HEAD Git, le snapshot est déjà appliqué : reporter le nouveau contenu et sa base, au lieu de rejouer les anciens octets. Un paquet encore en attente et une base non prouvée restent conflictuels; cette réconciliation ne certifie aucune mission.",
     "rationale": "Une suite verte sur la base commune ne prouve pas que les missions se composent sans écraser leurs preuves.",
     "tests": [
       "tests/prepared-mission-packages.test.mjs: le conflit AUDIT-02/AUDIT-06 reproduit un échec avant correction; contrôle réussi après isolation",
-      "Pré-test réel AUDIT-02:16 tests réussis; application successive AUDIT-02/AUDIT-06 dans les deux ordres:18 tests réussis, en conservant les régressions de persistance, de résolution des constats et du catalogue"
+      "Pré-test réel AUDIT-02:16 tests réussis; application successive AUDIT-02/AUDIT-06 dans les deux ordres:18 tests réussis, en conservant les régressions de persistance, de résolution des constats et du catalogue",
+      "Bridge42244103645 échoue sur la base du paquet AUDIT-05 déjà livré; tests/rebase-prepared-packages.test.mjs reproduit avec vrai HEAD Git puis conserve le nouveau source, les tests et le refus du paquet non prouvé; 23 contrôles locaux réussis"
     ],
     "tags": [
       "prepared-package",
