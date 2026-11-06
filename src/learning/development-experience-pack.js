@@ -1882,11 +1882,11 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "task": "Ne pas rejouer une ancienne version de paquet préparé quand le plan et le SHA candidat restent identiques.",
     "input": "La révision du paquet sur main évolue indépendamment du cache de préparation lié à Teacher et à la candidate.",
     "before": "Le cache était retourné avant la lecture du paquet; une correction du contenu pouvait rester invisible et une lecture indisponible pouvait être masquée par une ancienne copie.",
-    "after": "Pour un cache issu d’un paquet préparé, relire sa source autorisée et comparer son empreinte complète. Réutiliser uniquement la même révision; reconstruire une révision corrigée sans coder supplémentaire. Si la lecture de révision échoue, refuser le rejeu et propager un diagnostic borné. Conserver les contrôles des contenus rejetés, des exports, de la portée Teacher et de la suite complète.",
+    "after": "Avant de réutiliser un cache, vérifier si un paquet préparé autorisé est devenu disponible et le préférer à une proposition de modèle. Pour un cache déjà issu d’un paquet préparé, relire obligatoirement sa source autorisée et comparer son empreinte complète. Réutiliser uniquement la même révision; reconstruire une révision corrigée sans coder supplémentaire. Si la lecture de révision échoue, refuser le rejeu et propager un diagnostic borné. Conserver les contrôles des contenus rejetés, des exports, de la portée Teacher et de la suite complète.",
     "rationale": "Le couple Teacher/SHA ne versionne pas les autres entrées mutables de la préparation. Chaque source d’autorité doit participer à la validité du cache.",
     "tests": [
       "tests/autonomy-bridge-preparer.test.mjs: trois régressions reproduites avant correction — contenu modifié ignoré, absence de revalidation, rejeu pendant indisponibilité",
-      "36 contrôles préparateur/paquets/refus Council/réparation réussis après correction; aucun appel au modèle de codage pour une révision préparée valide ou indisponible"
+      "36 contrôles préparateur/paquets/refus Council/réparation réussis après correction; aucun appel au modèle de codage pour une révision préparée valide ou indisponible; extension 06/11: nouveau paquet ignoré par un cache de modèle reproduit en échec, 50 contrôles réussis après correction, cache de modèle valide conservé si la source facultative est indisponible"
     ],
     "tags": [
       "cache",

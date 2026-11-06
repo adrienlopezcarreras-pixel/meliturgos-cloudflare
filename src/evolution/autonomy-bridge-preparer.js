@@ -203,14 +203,18 @@ export async function prepareApprovedBridgePackage({
   const code = await inspectSources(env, implementation, { fetchImpl });
   const cachedPrepared = current.result_json?.bridge_preparation?.mentor?.provenance;
   const revalidatePrepared = cachedPrepared?.source === 'prepared-package';
-  // A prepared packet can change on main without changing the approved plan.
-  // Its authoritative revision must still match before replaying cached bytes.
-  const checkedPrepared = revalidatePrepared
-    ? await preparedMissionPackage(env, code, current, code.files, fetchImpl, { required: true })
-    : null;
-  const preparedRevisionMatches = !revalidatePrepared || Boolean(checkedPrepared
-    && checkedPrepared.proposal.provenance.package_sha256 === cachedPrepared.package_sha256);
   const reused = reusablePackage(current, implementation);
+  const checkPreparedSource = revalidatePrepared || Boolean(reused);
+  // A prepared packet can change on main without changing the approved plan.
+  // It may also first appear after a model proposal was cached. Prefer a valid
+  // authorized packet; absence of an optional packet keeps the model cache.
+  // A known prepared source still requires a successful revision read.
+  const checkedPrepared = checkPreparedSource
+    ? await preparedMissionPackage(env, code, current, code.files, fetchImpl, { required: revalidatePrepared })
+    : null;
+  const preparedRevisionMatches = revalidatePrepared
+    ? Boolean(checkedPrepared && checkedPrepared.proposal.provenance.package_sha256 === cachedPrepared.package_sha256)
+    : !checkedPrepared;
   if (reused && preparedRevisionMatches && !(await isCouncilRejectedPackage(current, current.files_json))) {
     assertRoadmapCodeChanges(current, current.files_json);
     for (const file of current.files_json) {
@@ -263,7 +267,7 @@ export async function prepareApprovedBridgePackage({
   // A revised package (new content hash) is applied again; the same package
   // that already failed is not, and the coders repair instead.
   const lastPrepared = current?.result_json?.bridge_preparation?.mentor?.provenance;
-  const candidatePackage = revalidatePrepared ? checkedPrepared
+  const candidatePackage = checkPreparedSource ? checkedPrepared
     : await preparedMissionPackage(env, code, current, inspectedFiles, fetchImpl);
   const prepared = repairFor && lastPrepared?.source === 'prepared-package'
     && lastPrepared?.package_sha256 === candidatePackage?.proposal?.provenance?.package_sha256 ? null : candidatePackage;

@@ -592,3 +592,35 @@ test('an unreadable prepared revision cannot replay cached content or invoke a c
   assert.deepEqual((await repository.get(jobId)).files_json, before.files_json);
   assert.equal(state.coderCalls, 0);
 });
+
+async function modelCachedRevisionFixture() {
+  const fixture = await preparedRevisionFixture();
+  const job = await fixture.repository.get(fixture.jobId);
+  await fixture.repository.update(job.id, { result_json: { ...job.result_json,
+    bridge_preparation: { ...job.result_json.bridge_preparation, mentor: {
+      ...job.result_json.bridge_preparation.mentor, provenance: { source: 'model-coder' },
+    } },
+  } });
+  return fixture;
+}
+
+test('a newly available authorized prepared packet supersedes a cached model proposal', async () => {
+  const { state, repository, prepare, jobId } = await modelCachedRevisionFixture();
+  const target = state.packet.changes.find(file => file.path.startsWith('tests/'));
+  target.content += '\n// New authoritative prepared revision after the model cache.\n';
+  const result = await prepare();
+  const after = await repository.get(jobId);
+  assert.notEqual(result.reused, true);
+  assert.equal(after.files_json.find(file => file.path === target.path).content, target.content);
+  assert.equal(after.result_json.bridge_preparation.mentor.provenance.source, 'prepared-package');
+  assert.equal(state.coderCalls, 0);
+});
+
+test('an unavailable optional prepared source does not invalidate a valid model cache', async () => {
+  const { state, repository, prepare, jobId } = await modelCachedRevisionFixture();
+  const before = await repository.get(jobId);
+  state.unavailable = true;
+  assert.equal((await prepare()).reused, true);
+  assert.deepEqual((await repository.get(jobId)).files_json, before.files_json);
+  assert.equal(state.coderCalls, 0);
+});
