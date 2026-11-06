@@ -106,7 +106,7 @@ jobs:
         run: |
           set -euo pipefail
           npx wrangler d1 execute DB --remote --json \
-            --command "SELECT json_extract(metadata_json,'$.head') AS head,json_extract(metadata_json,'$.base') AS base,json_extract(metadata_json,'$.decision') AS decision,json_extract(metadata_json,'$.reviews') AS reviews FROM dev_bridge_state WHERE bridge_id LIKE 'council-review:%' ORDER BY last_seen DESC LIMIT 10" \
+            --command "SELECT json_extract(metadata_json,'$.head') AS head,json_extract(metadata_json,'$.base') AS base,json_extract(metadata_json,'$.decision') AS decision,json_extract(metadata_json,'$.reviews') AS reviews FROM dev_bridge_state WHERE bridge_id LIKE 'council-review:%' OR bridge_id LIKE 'council-diff-batch:%' ORDER BY last_seen DESC LIMIT 10" \
             > council-verdicts.raw.json
           node --input-type=module - <<'NODE'
           import {readFileSync,writeFileSync} from 'node:fs';
