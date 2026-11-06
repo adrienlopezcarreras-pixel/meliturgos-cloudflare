@@ -7,6 +7,7 @@ import { flattenRoadmap } from '../src/roadmap/master-roadmap.js';
 import { ROADMAP_PROOF_SOURCES, computeRoadmapTruth, ROADMAP_TRUTH_WINDOW_MS } from '../src/roadmap/roadmap-truth.js';
 import { ROADMAP_RECERTIFICATION_PROFILES, withRuntimeRecertification, executeRuntimeRecertification, isAcceptedRuntimeRecertificationJob } from '../src/roadmap/runtime-recertification.js';
 import { AutonomySupervisor } from '../src/evolution/autonomy-supervisor.js';
+import { describeJob } from '../src/evolution/autonomy-activity.js';
 import { runAutonomyRuntimeTick, autonomyWorkRemaining } from '../src/evolution/autonomy-runtime-core.js';
 const sha = 'a'.repeat(40);
 async function fixture(t, { enabled = true, id = 'GEN2-03' } = {}) {
@@ -58,6 +59,11 @@ test('a real runtime diagnostic persists its exact audit event before accepting 
   const row=await f.db.prepare('SELECT details_json FROM audit_logs WHERE id=?').bind(proof.audit_id).first();
   const event=JSON.parse(row.details_json);assert.equal(event.event_id,proof.execution_id);assert.equal(event.status,'SUCCEEDED');
   assert.equal(isAcceptedRuntimeRecertificationJob(result.job),true);
+  const display=describeJob(result.job);
+  assert.match(display.status_text,/Recette logicielle validée/);
+  assert.equal(display.pipeline.length,2);
+  assert.ok(display.pipeline.every(step=>step.state==='done'));
+  assert.ok(display.pipeline.every(step=>!/Council|Code écrit/.test(step.label)));
   const truth=await computeRoadmapTruth(f.db,[{items:[historical('GEN2-03')]}]);
   assert.equal(truth.items['GEN2-03'].truth,'VERIFIED_LIVE');
   assert.equal(isAcceptedRuntimeRecertificationJob(result.job,{now:proof.at+ROADMAP_TRUTH_WINDOW_MS+1}),false);
@@ -69,6 +75,7 @@ test('a successful output without a durable matching audit event is never accept
   const f=await fixture(t);
   const result=await executeRuntimeRecertification(f.env,f.repository,f.job,{createRuntime:({env})=>createGen2Runtime({env,audit:async()=>{}})});
   assert.equal(result.status,'FAILED');assert.equal(result.code,'ROADMAP_RECERTIFICATION_AUDIT_REQUIRED');
+  assert.equal(describeJob(result.job).pipeline.at(-1).state,'blocked');
   assert.equal(isAcceptedRuntimeRecertificationJob(result.job),false);
 });
 

@@ -1,3 +1,4 @@
+import { isAcceptedRuntimeRecertificationJob } from '../roadmap/runtime-recertification.js';
 import { isAcceptedRoadmapCodeJob } from '../roadmap/roadmap-code-acceptance.js';
 import { singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
 import { unmetSoftwarePrerequisites } from './own-roadmap-advance.js';
@@ -124,6 +125,7 @@ function diagnostic(value) {
 function roadmapObjectiveProven(job) {
   const id = job?.optional_context?.roadmap_id;
   if (!id) return false;
+  if (job?.optional_context?.work_mode === 'VERIFY_RUNTIME') return isAcceptedRuntimeRecertificationJob(job);
   return isAcceptedRoadmapCodeJob({ ...job, files_json: Array.isArray(job?.files_json) ? job.files_json : [], optional_context: job.optional_context, result_json: obj(job?.result_json) })
     || isClosedRoadmapStatus(flattenRoadmap().find(item => item.id === id)?.status);
 }
@@ -131,6 +133,14 @@ function roadmapObjectiveProven(job) {
 export function jobPipeline(job) {
   const status = String(job?.status || '').toUpperCase();
   const r = obj(job?.result_json);
+  if (job?.optional_context?.work_mode === 'VERIFY_RUNTIME') {
+    const verified = isAcceptedRuntimeRecertificationJob({ ...job, result_json: r });
+    return [
+      { key: 'chosen', label: 'Recette logicielle sélectionnée', done: true, state: 'done' },
+      { key: 'runtime-proof', label: 'Exécution et reçu runtime audité', done: verified,
+        state: verified ? 'done' : status === 'FAILED' ? 'blocked' : 'current' },
+    ];
+  }
   const review = currentTeacherReview(job) || {};
   const completion = r.autonomy_completion || {};
   const prep = r.bridge_preparation || {};
@@ -232,7 +242,10 @@ export function describeJob(job, now = Date.now()) {
       : String(job?.requested_by || '').startsWith('owner-chat') ? 'demande d’Adrien' : 'feuille de route',
     goal: clip(job?.goal, 600),
     status,
-    status_text: status === 'COMPLETED' && roadmapObjectiveProven(job) ? 'Terminé : code livré et objectif prouvé.' : (STATUS_TEXT[status] || 'Statut ' + status + '.'),
+    status_text: job?.optional_context?.work_mode === 'VERIFY_RUNTIME'
+      ? (isAcceptedRuntimeRecertificationJob({ ...job, result_json: r }) ? 'Recette logicielle validée avec reçu runtime récent.'
+        : status === 'FAILED' ? 'Recette non validée : voir le diagnostic.' : 'Recertification logicielle en attente ou en cours.')
+      : status === 'COMPLETED' && roadmapObjectiveProven(job) ? 'Terminé : code livré et objectif prouvé.' : (STATUS_TEXT[status] || 'Statut ' + status + '.'),
     created_at: num(job?.created_at),
     updated_at: updated || null,
     idle_minutes: updated ? Math.max(0, Math.round((now - updated) / 60000)) : null,
