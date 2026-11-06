@@ -521,7 +521,7 @@ test('final Council sees immutable code hunks, not a summary, with bounded exact
     assert.equal(last.result.decision,'APPROVED');
     assert.equal(finalInput.diff,small);
     assert.equal(finalInput.dependencyContext,context);
-    assert.match(finalInput.diff,/\\+newImplementation\\(\\)/);
+    assert.ok(finalInput.diff.includes('+newImplementation()'));
     assert.doesNotMatch(finalInput.diff,/INTEGRATION REVIEW of an exact/);
     const row=await db.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?')
       .bind('council-review:'+head).first();
