@@ -1,5 +1,30 @@
 export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
   {
+    "id": "codex-domain-findings-keep-durable-row-references-20261106",
+    "source": "codex",
+    "domain": "diagnostic-provenance",
+    "task": "Relier un constat agrégé aux enregistrements durables qui le justifient.",
+    "input": "Un rapport chat/veille/WORK lit des lignes D1 mais abandonne leurs identifiants, empêchant de retrouver les données qui expliquent chaque constat.",
+    "before": "Les requêtes omettent les clés primaires et le rapport ne conserve que des comptes et un texte de diagnostic.",
+    "after": "Conserver les clés primaires dans les lectures et attacher au constat des références bornées table/identifiant/horodatage. Signaler les références omises, dédupliquer et ne pas inventer les identifiants absents. Garder les textes privés et les décisions de réparation hors de cette collecte; tester les références contre de vraies lignes SQL et vérifier le retour sain. La clôture de mission conserve ses gates de preuve indépendants.",
+    "rationale": "Une agrégation reste explicable si chaque constat peut être rapproché de ses sources sans recopier leur contenu privé.",
+    "tests": [
+      "Paquet AUDIT-03 appliqué localement : tests/domain-audit.test.mjs vérifie trois constats sur de vraies tables SQLite, les clés retrouvables, la confidentialité et aucune mission créée.",
+      "tests/prepared-audit03-evidence-contract.test.mjs exécute les octets sérialisés, le chargeur canonique et le vrai CLI de préparation; 44 contrôles ciblés réussis. Preuve locale, livraison de mission encore requise."
+    ],
+    "tags": [
+      "audit",
+      "d1",
+      "row-references",
+      "privacy",
+      "bounded-evidence",
+      "local-proof"
+    ],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1793981796768
+  },
+  {
     id: 'codex-single-flight-lifecycle-all-entrypoints-20261028',
     source: 'codex',
     domain: 'autonomy-concurrency',
