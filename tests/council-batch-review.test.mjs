@@ -572,3 +572,14 @@ test('owner manual Council can audit a merged SHA but never retroactively author
   assert.ok(!review.includes('wrangler deploy'));
   assert.ok(!review.includes('git push'));
 });
+
+
+test('Council repair pushes run full exact-head CI without starting candidate promotion',()=>{
+  const wf=file('../.github/workflows/full-candidate-ci.yml');
+  const push=wf.slice(wf.indexOf('  push:\n'),wf.indexOf('  workflow_dispatch:'));
+  assert.ok(push.includes("- 'fix/council-*'"));
+  assert.ok(push.includes('- candidate/mel-clean-autonomy'));
+  assert.ok(wf.includes("if: github.ref == 'refs/heads/candidate/mel-clean-autonomy'"));
+  assert.ok(wf.includes('TEST_EVIDENCE_SHA: ${{ github.sha }}'));
+  assert.ok(wf.includes('npm test 2>&1 | tee test-report.log'));
+});
