@@ -62,3 +62,5 @@ Le paquet AUDIT-05 révisé conserve le code chat/audit existant, la régression
 
 Les paquets de missions indépendantes ne doivent pas remplacer un fichier partagé par des snapshots différents. Chaque nouvelle régression peut disposer de son fichier dédié dans le contrat, en conservant la suite existante. Le contrôle des paquets refuse les cibles incompatibles avant programmation; le pré-test applique les missions successivement pour vérifier que les preuves précédentes restent exécutables.
 Le contrat AUDIT-06 conserve aussi le chemin de tests historique pour les plans déjà persistés; son paquet préparé utilise uniquement la régression dédiée. L'isolation des snapshots ne retire aucun test existant ni la compatibilité des plans en attente.
+
+Un cache issu de `prepared/` est revalidé contre l’empreinte du paquet actuel sur la source autorisée. Teacher et SHA candidat identiques ne suffisent pas : une révision préparée corrigée remplace la copie en cache sans appel au codeur. Une lecture de révision indisponible bloque ce rejeu avec `CODE_READ_FAILED`; les preuves négatives Council, la portée approuvée et la suite complète restent exigées.

@@ -201,8 +201,17 @@ export async function prepareApprovedBridgePackage({
   const teacher = requireTeacherApproved(current);
   const implementation = requireImplementationProposal(current, teacher);
   const code = await inspectSources(env, implementation, { fetchImpl });
+  const cachedPrepared = current.result_json?.bridge_preparation?.mentor?.provenance;
+  const revalidatePrepared = cachedPrepared?.source === 'prepared-package';
+  // A prepared packet can change on main without changing the approved plan.
+  // Its authoritative revision must still match before replaying cached bytes.
+  const checkedPrepared = revalidatePrepared
+    ? await preparedMissionPackage(env, code, current, code.files, fetchImpl, { required: true })
+    : null;
+  const preparedRevisionMatches = !revalidatePrepared || Boolean(checkedPrepared
+    && checkedPrepared.proposal.provenance.package_sha256 === cachedPrepared.package_sha256);
   const reused = reusablePackage(current, implementation);
-  if (reused && !(await isCouncilRejectedPackage(current, current.files_json))) {
+  if (reused && preparedRevisionMatches && !(await isCouncilRejectedPackage(current, current.files_json))) {
     assertRoadmapCodeChanges(current, current.files_json);
     for (const file of current.files_json) {
       const inspected = code.files.find(source => source.path === file.path);
@@ -254,7 +263,8 @@ export async function prepareApprovedBridgePackage({
   // A revised package (new content hash) is applied again; the same package
   // that already failed is not, and the coders repair instead.
   const lastPrepared = current?.result_json?.bridge_preparation?.mentor?.provenance;
-  const candidatePackage = await preparedMissionPackage(env, code, current, inspectedFiles, fetchImpl);
+  const candidatePackage = revalidatePrepared ? checkedPrepared
+    : await preparedMissionPackage(env, code, current, inspectedFiles, fetchImpl);
   const prepared = repairFor && lastPrepared?.source === 'prepared-package'
     && lastPrepared?.package_sha256 === candidatePackage?.proposal?.provenance?.package_sha256 ? null : candidatePackage;
   const mentor = prepared || await engine.propose({
@@ -370,7 +380,7 @@ async function sha256Hex(text) {
   return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-export async function preparedMissionPackage(env, code, job, inspectedFiles = [], fetchImpl = fetch) {
+export async function preparedMissionPackage(env, code, job, inspectedFiles = [], fetchImpl = fetch, { required = false } = {}) {
   const roadmapId = String(job?.optional_context?.roadmap_id || '');
   const contract = ROADMAP_CODE_CONTRACTS[roadmapId];
   if (!contract || !/^MEL-[A-Z0-9-]+$/.test(roadmapId)) return null;
@@ -378,7 +388,10 @@ export async function preparedMissionPackage(env, code, job, inspectedFiles = []
   try {
     const mainReader = createGitHubCodeReader({ repository: code.repository, branch: 'main', token: String(env?.MEL_GITHUB_TOKEN || ''), fetchImpl });
     pkg = JSON.parse((await mainReader.read(`prepared/${roadmapId}.json`)).content);
-  } catch { return null; }
+  } catch (error) {
+    if (required) throw Object.assign(new Error('CODE_READ_FAILED'), { code: 'CODE_READ_FAILED', status: Number(error?.status) || 503 });
+    return null;
+  }
   if (pkg?.roadmap_id !== roadmapId || !Array.isArray(pkg.changes) || !pkg.changes.length) return null;
   if (await isCouncilRejectedPackage(job, pkg.changes)) return null;
   const reader = createGitHubCodeReader({ ...code, token: String(env?.MEL_GITHUB_TOKEN || ''), pinnedSha: code.candidate_sha, fetchImpl });

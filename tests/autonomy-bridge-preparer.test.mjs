@@ -515,3 +515,72 @@ test('manual MAX tick reports cloud handoff failure without leaking internal tra
   assert.equal(answer.cloud_dispatch.code, 'CLOUD_DISPATCH_FAILED');
   assert.doesNotMatch(JSON.stringify(answer), /private network authorization detail/);
 });
+
+async function preparedRevisionFixture() {
+  const { readFile } = await import('node:fs/promises');
+  const packet = JSON.parse(await readFile(new URL('../prepared/MEL-AUDIT-07.json', import.meta.url), 'utf8'));
+  const sources = new Map(await Promise.all(packet.changes.map(async file => [file.path,
+    await readFile(new URL('../' + file.path, import.meta.url), 'utf8')])));
+  const repository = await approvedRepository();
+  const job = await repository.get('bridge-prep-job');
+  await repository.update(job.id, {
+    optional_context: { roadmap_id: packet.roadmap_id,
+      roadmap_contract_revision: (await import('../src/roadmap/roadmap-code-contracts.js')).roadmapContractRevision(packet.roadmap_id) },
+    result_json: { ...job.result_json, implementation_proposal: {
+      ...job.result_json.implementation_proposal, roadmap_id: packet.roadmap_id,
+      inspected_files: packet.changes.map(file => ({ path: file.path })),
+    } },
+  });
+  const state = { packet, unavailable: false, reads: 0, coderCalls: 0 };
+  const transport = async url => {
+    const target = String(url);
+    if (target.includes('/commits/candidate%2Faugmentio-core')) return Response.json({ sha: SHA });
+    if (target.startsWith('https://api.github.com/')) return new Response('rate limited', { status: 403 });
+    if (target.endsWith('/prepared/MEL-AUDIT-07.json')) {
+      state.reads += 1;
+      return state.unavailable ? new Response('unavailable', { status: 503 }) : Response.json(state.packet);
+    }
+    for (const [path, content] of sources) if (target.endsWith('/' + path)) return new Response(content);
+    return new Response('not found', { status: 404 });
+  };
+  const args = {
+    env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH }, repository,
+    fetchImpl: transport, mentorEngine: { async propose() { state.coderCalls += 1; throw new Error('PREPARED_PACKET_MUST_NOT_CALL_CODER'); } },
+  };
+  const prepare = async () => prepareApprovedBridgePackage({ ...args, job: await repository.get(job.id) });
+  await prepare();
+  return { state, repository, prepare, jobId: job.id };
+}
+
+test('a revised prepared packet replaces a cache with the same Teacher approval and candidate SHA', async () => {
+  const { state, repository, prepare, jobId } = await preparedRevisionFixture();
+  const before = await repository.get(jobId);
+  const target = state.packet.changes.find(file => file.path.startsWith('tests/'));
+  target.content += '\n// Revised prepared regression, same approved candidate.\n';
+  const result = await prepare();
+  const after = await repository.get(jobId);
+  assert.notEqual(result.reused, true);
+  assert.equal(after.files_json.find(file => file.path === target.path).content, target.content);
+  assert.notEqual(after.result_json.bridge_preparation.mentor.provenance.package_sha256,
+    before.result_json.bridge_preparation.mentor.provenance.package_sha256);
+  assert.equal(after.result_json.teacher_bridge.request.request_id, REQUEST);
+  assert.equal(after.result_json.bridge_preparation.candidate_sha, SHA);
+  assert.equal(state.coderCalls, 0);
+});
+
+test('an unchanged prepared packet is revalidated and reused without another coder call', async () => {
+  const { state, prepare } = await preparedRevisionFixture();
+  const reads = state.reads;
+  assert.equal((await prepare()).reused, true);
+  assert.ok(state.reads > reads, 'reuse requires a fresh authoritative packet read');
+  assert.equal(state.coderCalls, 0);
+});
+
+test('an unreadable prepared revision cannot replay cached content or invoke a coding model', async () => {
+  const { state, repository, prepare, jobId } = await preparedRevisionFixture();
+  const before = await repository.get(jobId);
+  state.unavailable = true;
+  await assert.rejects(prepare, error => String(error.code || '').startsWith('CODE_'));
+  assert.deepEqual((await repository.get(jobId)).files_json, before.files_json);
+  assert.equal(state.coderCalls, 0);
+});
