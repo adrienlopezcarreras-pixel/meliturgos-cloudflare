@@ -499,10 +499,12 @@ test('final Council sees immutable code hunks, not a summary, with bounded exact
     total_bytes:planned.totalBytes,file_count:planned.fileCount};
   const db=sqliteD1({maintenanceFence:true});
   let finalInput;
+  let votes=0;
   const context={files:[{path:'src/actual.js',content:'export const newImplementation = true;'}]};
   try{
     const vote=async(_env,input)=>{
-      if(input.goal.includes('final'))finalInput=input;
+      votes++;
+      if(votes===2)finalInput=input;
       return approved();
     };
     const options={review:vote,cryptoImpl:webcrypto,now:123456,
