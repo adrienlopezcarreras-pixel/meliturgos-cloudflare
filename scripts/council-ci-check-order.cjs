@@ -18,8 +18,13 @@ function selectLatestCheckOutcomes(checks) {
     if (!row || typeof row.name !== 'string' || !row.name)
       throw new Error('COUNCIL_CI_CHECK_INVALID');
     const current = latest.get(row.name);
-    if (!current || timestamp(row) > timestamp(current)
-      || (timestamp(row) === timestamp(current) && Number(row.id) > Number(current.id)))
+    // An unfinished check must never be hidden by a finished check with
+    // the same name: Council requires no pending check on the exact SHA.
+    const pending = value => value.status !== 'completed';
+    if (!current || (pending(row) && !pending(current))
+      || (pending(row) === pending(current)
+        && (timestamp(row) > timestamp(current)
+          || (timestamp(row) === timestamp(current) && Number(row.id) > Number(current.id)))))
       latest.set(row.name, row);
   }
   return latest;
