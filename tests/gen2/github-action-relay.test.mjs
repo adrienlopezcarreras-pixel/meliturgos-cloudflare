@@ -56,6 +56,40 @@ test('GitHub relay persists heartbeat, queues, atomically claims and completes o
   }
 });
 
+test('GitHub relay never returns another executor\'s claim after a zero-row CAS', async () => {
+  // Simulate the race: the SELECT sees QUEUED but a competing executor wins
+  // the conditional UPDATE before this worker can claim the same job.
+  let readsOfClaimedRow = 0;
+  let casAttempts = 0;
+  const db = {
+    prepare(sql) {
+      const statement = {
+        bind() { return statement; },
+        async run() {
+          if (sql.includes("SET status='CLAIMED'")) {
+            casAttempts += 1;
+            return { meta: { changes: 0 } };
+          }
+          return { meta: { changes: 0 } };
+        },
+        async first() {
+          if (sql.includes("WHERE status='QUEUED'")) return { id: 'already-claimed-by-peer' };
+          if (sql.includes('WHERE id=?')) {
+            readsOfClaimedRow += 1;
+            return { id: 'already-claimed-by-peer', status: 'CLAIMED', claimed_at: 42 };
+          }
+          return null;
+        },
+      };
+      return statement;
+    },
+  };
+  const store = new D1GitHubActionRelayStore(db);
+  assert.equal(await store.claim({ now: 43 }), null);
+  assert.equal(casAttempts, 3, 'the bounded retry cannot acquire the competing claim');
+  assert.equal(readsOfClaimedRow, 0, 'the loser must not borrow another worker\'s lease');
+});
+
 test('GitHub workflow control falls back to the live D1 Actions relay without a persistent GitHub token', async () => {
   const db = sqliteD1();
   try {
