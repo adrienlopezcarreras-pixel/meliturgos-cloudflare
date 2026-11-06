@@ -34,7 +34,8 @@ function extractText(result) {
 export function harmonyFinal(text) {
   if (!text.includes('<|channel|>')) return text;
   // Protocol examples inside a complete JSON answer are data, not channels.
-  try { JSON.parse(text); return text; } catch { /* inspect transport framing */ }
+  const jsonAnswer = text.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/i, '$1');
+  try { JSON.parse(jsonAnswer); return text; } catch { /* inspect transport framing */ }
   // A final JSON answer may itself quote channel/termination markers. Try
   // complete JSON bodies before the legacy plain-text extraction below.
   const finals = [...text.matchAll(/<\|channel\|>final/g)];

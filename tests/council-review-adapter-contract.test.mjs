@@ -50,3 +50,11 @@ test('a local substitute cannot be counted as an independent Workers AI review',
   assert.equal(result.decision, 'INSUFFICIENT_REVIEWERS');
   assert.ok(result.reviews.every(review => review.verdict === null && review.error === 'COUNCIL_LOCAL_SUBSTITUTE_REFUSED'));
 });
+
+test('a fenced final JSON rejection preserves quoted channel markers as blocking evidence', async () => {
+  const reject = JSON.stringify({ verdict: 'REJECT', blocking: ['Incorrect <|channel|>final handling'], summary: 'A genuine code objection.' });
+  const result = await runCouncilReview({ AI: { async run() { return { response: '```json\n' + reject + '\n```' }; } } },
+    { diff, models: ['@cf/google/gemma-4-26b-a4b-it', '@cf/nvidia/nemotron-3-120b-a12b'] });
+  assert.equal(result.decision, 'REJECTED');
+  assert.ok(result.reviews.every(review => review.blocking[0] === 'Incorrect <|channel|>final handling'));
+});
