@@ -44,7 +44,6 @@ export function summarizeUiAudit(observations = []) {
 
 // A separate offline recipe: no mutating browser click, no physical-hardware
 // success claim from software mocks, and no second Companion dispatch.
- // Offline hardware control receipt: ensures no device commands are executed and all missing or denied evidence is reported as BLOCKED.
 export function offlineHardwareControlReceipt(observations = []) {
  const controls=['screen','keyboard','mouse','stop'];
  const rows=controls.map(control=>{
