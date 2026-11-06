@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync,writeFileSync,mkdtempSync,rmSync,chmodSync} from 'node:fs';
+import {readFileSync,writeFileSync,mkdtempSync,rmSync,chmodSync,mkdirSync,copyFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {execFileSync} from 'node:child_process';
@@ -30,6 +30,10 @@ const goodRun={name:'full-candidate-ci',head_sha:head,status:'completed',conclus
 function ciGate({checks=[{id:1,name:'full-suite',conclusion:'success'}],runs=[goodRun],manual=true,pr='3115',total=checks.length}={}){
  const dir=mkdtempSync(join(tmpdir(),'council-owner-ci-'));
  try{
+  // The extracted workflow gate runs from a temporary cwd. Mirror its
+  // checked-in helper as Actions checkout does before running the gate.
+  mkdirSync(join(dir,'scripts'));
+  copyFileSync('scripts/council-ci-check-order.cjs',join(dir,'scripts/council-ci-check-order.cjs'));
   writeFileSync(join(dir,'council-checks.json'),JSON.stringify({total_count:total,check_runs:checks}));
   writeFileSync(join(dir,'council-exact-full-ci.json'),JSON.stringify({workflow_runs:runs}));
   try{execFileSync(process.execPath,['-e',gate],{cwd:dir,env:{...process.env,MEL_COUNCIL_PR_NUMBER:pr,MEL_COUNCIL_OWNER_MANUAL_PROFILE:String(manual),MEL_COUNCIL_HEAD_SHA:head,GITHUB_REPOSITORY:repo,GITHUB_OUTPUT:join(dir,'output')},stdio:'pipe'});return readFileSync(join(dir,'output'),'utf8').trim();}catch{return 'DENIED';}
