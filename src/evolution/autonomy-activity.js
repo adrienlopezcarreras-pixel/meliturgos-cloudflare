@@ -13,7 +13,7 @@ import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { mentorMetrics, pipelineAlerts } from './autonomy-metrics.js';
 import { D1DevJobRepository, isPreparedDevBridgeJob } from '../dev/d1-dev-job-repository.js';
 import { D1EvolutionLedger } from './evolution-ledger.js';
-import { getAutonomyControl } from './autonomy-control.js';
+import { getAutonomyControl, isLegacyOwnerMaxStop } from './autonomy-control.js';
 import { readAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
 import { readSurvivalState } from '../legacy/survival-mode.js';
 import { flattenRoadmap, isClosedRoadmapStatus } from '../roadmap/master-roadmap.js';
@@ -382,6 +382,13 @@ export function buildPassiveRoadmapCatalog(roadmap = flattenRoadmap(), jobs = []
     remaining: items.length, items };
 }
 
+// The legacy owner-ui MAX-off representation has paused=false. It must not
+// render a running mission until the owner explicitly resumes autonomy.
+export function visibleActiveAutonomyMission(holder, control) {
+  if (!holder || control?.paused === true || isLegacyOwnerMaxStop(control)) return null;
+  return String(holder.status || '').toUpperCase() === 'QUEUED' ? null : holder;
+}
+
 // The plan shown in the Code chat: the mission in progress with its steps,
 // the roadmap items that come next, and when the next cycles are scheduled.
 export function buildCodePlan(jobs = [], { roadmap = flattenRoadmap(), now = Date.now(), limit = 3, verifiedIds = [] } = {}) {
@@ -439,7 +446,7 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
   // of its lifecycle, not permission for a passive queue entry to advance.
   // A fresh QUEUED record alone still proves no execution.
   const holder = singleFlightAutonomyMission(unique);
-  const activeMission = control?.paused || String(holder?.status || '').toUpperCase() === 'QUEUED' ? null : holder;
+  const activeMission = visibleActiveAutonomyMission(holder, control);
   const pending = unique.filter(job => !terminal.has(String(job?.status || '').toUpperCase()) && job.id !== activeMission?.id);
   const reportJobs = unique.slice().sort((a,b)=>Number(b.id===activeMission?.id)-Number(a.id===activeMission?.id));
   const jobs = reportJobs.filter(job => !terminal.has(String(job.status || '').toUpperCase())).concat(reportJobs.filter(job => terminal.has(String(job.status || '').toUpperCase())).slice(0, Math.max(1, Math.min(60, limit)))).map(job => ({ ...describeJob(job, now), queue_state: terminal.has(String(job.status).toUpperCase()) ? 'TERMINAL' : job.id === activeMission?.id ? 'ACTIVE' : 'WAITING', priority_penalty: Number(job.result_json?.autonomy_deferral?.priority_penalty || (job.result_json?.autonomy_deferral?.exhausted ? 1 : 0)) }));
