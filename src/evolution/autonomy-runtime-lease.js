@@ -124,5 +124,51 @@ export function keepAutonomyRuntimeLeaseAlive(args, { everyMs = 30_000, maxHoldM
   return () => clearInterval(timer);
 }
 
+// MEL-MANIFEST-02: resume recipe. Each step of a mission records a durable
+// checkpoint BEFORE its first write (status STARTED) and marks it DONE after
+// its last write. A tick killed between two writes leaves STARTED: once the
+// lease expires, the next owner resumes that same job and step — never a new
+// job — and a step already DONE is skipped, so nothing runs twice.
+const CHECKPOINT_KEY = 'runtime-checkpoint:autonomy';
+
+async function readCheckpointRow(db, memoryStore) {
+  if (!db) return memoryStore?.get(CHECKPOINT_KEY) || null;
+  const row = await db.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?').bind(CHECKPOINT_KEY).first();
+  try { return row ? JSON.parse(row.metadata_json || 'null') : null; } catch { return null; }
+}
+
+async function writeCheckpointRow(db, memoryStore, value, now) {
+  if (!db) { memoryStore.set(CHECKPOINT_KEY, value); return; }
+  await db.prepare(`INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?)
+    ON CONFLICT(bridge_id) DO UPDATE SET last_seen=excluded.last_seen,status=excluded.status,metadata_json=excluded.metadata_json`)
+    .bind(CHECKPOINT_KEY, Number(now), value.status, JSON.stringify(value)).run();
+}
+
+export async function beginAutonomyCheckpoint({ db = null, memoryStore = null, owner, jobId, step, now = Date.now() } = {}) {
+  const current = await readCheckpointRow(db, memoryStore);
+  if (current && current.job_id === String(jobId) && current.step === String(step) && current.status === 'DONE') {
+    return { run: false, reason: 'STEP_ALREADY_DONE', checkpoint: current };
+  }
+  const resumed = current?.status === 'STARTED' && current.job_id === String(jobId) && current.step === String(step);
+  const next = { job_id: String(jobId), step: String(step), status: 'STARTED', owner: String(owner || ''),
+    started_at: resumed ? current.started_at : Number(now), attempts: resumed ? Number(current.attempts || 1) + 1 : 1 };
+  await writeCheckpointRow(db, memoryStore, next, now);
+  return { run: true, resumed, checkpoint: next };
+}
+
+export async function completeAutonomyCheckpoint({ db = null, memoryStore = null, jobId, step, now = Date.now() } = {}) {
+  const current = await readCheckpointRow(db, memoryStore);
+  if (!current || current.job_id !== String(jobId) || current.step !== String(step)) return false;
+  await writeCheckpointRow(db, memoryStore, { ...current, status: 'DONE', done_at: Number(now) }, now);
+  return true;
+}
+
+// What the next lease owner must do first: the interrupted job/step, if any.
+export async function pendingAutonomyCheckpoint({ db = null, memoryStore = null } = {}) {
+  const current = await readCheckpointRow(db, memoryStore);
+  return current?.status === 'STARTED' ? { job_id: current.job_id, step: current.step, attempts: Number(current.attempts || 1) } : null;
+}
+
+export const AUTONOMY_RUNTIME_CHECKPOINT_KEY = CHECKPOINT_KEY;
 export const AUTONOMY_RUNTIME_LEASE_KEY = LEASE_KEY;
 export const AUTONOMY_RUNTIME_LEASE_MS = DEFAULT_LEASE_MS;

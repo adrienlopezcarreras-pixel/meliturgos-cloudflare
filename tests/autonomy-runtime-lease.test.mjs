@@ -193,3 +193,42 @@ test('lease renewal never shortens a valid expiry when the clock moves backward'
     sqlite.close();
   }
 });
+
+
+test('MEL-MANIFEST-02: an interruption between two writes resumes the same checkpoint after lease expiry, without double step or new job', async () => {
+  const lease = await import('../src/evolution/autonomy-runtime-lease.js');
+  const memoryStore = new Map();
+  const t0 = 1_000_000;
+  const first = await lease.tryAcquireAutonomyRuntimeLease({ memoryStore, owner: 'tick-1', now: t0 });
+  assert.equal(first.acquired, true);
+  const begun = await lease.beginAutonomyCheckpoint({ memoryStore, owner: 'tick-1', jobId: 'job-A', step: 'bridge', now: t0 });
+  assert.equal(begun.run, true);
+  // tick-1 is killed after its first write: no complete, no release.
+  assert.equal((await lease.tryAcquireAutonomyRuntimeLease({ memoryStore, owner: 'tick-2', now: t0 + 30_000 })).acquired, false);
+  const expired = t0 + lease.AUTONOMY_RUNTIME_LEASE_MS + 1;
+  assert.equal((await lease.tryAcquireAutonomyRuntimeLease({ memoryStore, owner: 'tick-2', now: expired })).acquired, true);
+  assert.deepEqual(await lease.pendingAutonomyCheckpoint({ memoryStore }), { job_id: 'job-A', step: 'bridge', attempts: 1 });
+  const resumed = await lease.beginAutonomyCheckpoint({ memoryStore, owner: 'tick-2', jobId: 'job-A', step: 'bridge', now: expired });
+  assert.equal(resumed.run, true);
+  assert.equal(resumed.resumed, true);
+  assert.equal(resumed.checkpoint.job_id, 'job-A', 'same job, not a new one');
+  assert.equal(resumed.checkpoint.started_at, t0);
+  assert.equal(await lease.completeAutonomyCheckpoint({ memoryStore, jobId: 'job-A', step: 'bridge', now: expired + 1 }), true);
+  assert.equal(await lease.pendingAutonomyCheckpoint({ memoryStore }), null);
+  const again = await lease.beginAutonomyCheckpoint({ memoryStore, owner: 'tick-3', jobId: 'job-A', step: 'bridge', now: expired + 2 });
+  assert.equal(again.run, false, 'a DONE step never runs twice');
+  assert.equal(again.reason, 'STEP_ALREADY_DONE');
+});
+
+test('MEL-MANIFEST-02: the checkpoint survives in D1', async () => {
+  const { sqliteD1 } = await import('./helpers/sqlite-d1.mjs');
+  const lease = await import('../src/evolution/autonomy-runtime-lease.js');
+  const db = sqliteD1();
+  try {
+    await db.prepare('CREATE TABLE IF NOT EXISTS dev_bridge_state (bridge_id TEXT PRIMARY KEY, last_seen INTEGER, status TEXT, metadata_json TEXT)').run();
+    await lease.beginAutonomyCheckpoint({ db, owner: 'a', jobId: 'job-B', step: 'council', now: 5 });
+    assert.deepEqual(await lease.pendingAutonomyCheckpoint({ db }), { job_id: 'job-B', step: 'council', attempts: 1 });
+    await lease.completeAutonomyCheckpoint({ db, jobId: 'job-B', step: 'council', now: 6 });
+    assert.equal(await lease.pendingAutonomyCheckpoint({ db }), null);
+  } finally { db.close(); }
+});
