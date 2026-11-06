@@ -1,5 +1,7 @@
 # MEL — Index d’expérience développement
 
+- `codex-roadmap-expiry-recertification-not-reimplementation-20261106` — recertifier les preuves expirées dans le créneau MAX, sans confondre livraison, audit runtime et contrôle de release ; preuves locales SQLite, pas une certification production.
+
 - `codex-single-flight-lifecycle-all-entrypoints-20261028` — une sélection de mission unique doit couvrir admission, Teacher, reprise PC, claims atomiques Bridge et UI ; les lectures actives respectent aussi l’époque propriétaire. Preuves locales mémoire/SQLite, production à vérifier.
 
 - `codex-powershell-typed-null-atomic-config-20261021` — utiliser une vraie chaîne .NET nulle pour File.Replace sous Windows PowerShell ; conserver l’atomicité et tester le clic avec processus/configuration réels.

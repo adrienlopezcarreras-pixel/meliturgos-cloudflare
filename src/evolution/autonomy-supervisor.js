@@ -1,3 +1,4 @@
+import { isAcceptedRuntimeRecertificationJob } from '../roadmap/runtime-recertification.js';
 import { ROADMAP_RETIRED_IDS } from '../roadmap/roadmap-code-contracts.js';
 import { isAcceptedRoadmapCodeJob } from '../roadmap/roadmap-code-acceptance.js';
 import { roadmapCodeMissionContext, roadmapCodeMissionGoal, refreshRoadmapCodeMissions } from './roadmap-code-missions.js';
@@ -109,7 +110,7 @@ export const BRIDGE_MENTOR_ROUNDS = 3;
 // Set at the start of each tick from the monthly re-verification.
 let runtimeRegressions = new Set();
 export function setRuntimeRoadmapRegressions(ids = []) { runtimeRegressions = new Set(ids); }
-function currentRoadmap() {
+export function currentRoadmap() {
   const items = flattenRoadmap();
   return runtimeRegressions.size ? items.map(item => runtimeRegressions.has(item.id) ? { ...item, status: 'REGRESSED' } : item) : items;
 }
@@ -267,7 +268,8 @@ export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedId
   const active = new Set(activeIds);
   // First-pass admission only: never pre-empt the current job or promote a
   // second-pass QUEUED mission. All existing proof/dependency gates still run.
-  const rank = (a, b) => (quickWinsFirst ? Number(!isMaxQuickWin(a)) - Number(!isMaxQuickWin(b)) : 0)
+  const rank = (a, b) => Number(a.mode !== 'VERIFY_RUNTIME') - Number(b.mode !== 'VERIFY_RUNTIME')
+    || (quickWinsFirst ? Number(!isMaxQuickWin(a)) - Number(!isMaxQuickWin(b)) : 0)
     || score(a) - score(b) || String(a.id).localeCompare(String(b.id));
   const open = roadmap
     .filter((item) => item && item.id)
@@ -365,9 +367,10 @@ export class AutonomySupervisor {
     for (const item of evolutionItems || []) if (isClosedRoadmapStatus(item.status)) verifiedRoadmapIds.add('EVOLUTION-' + item.id);
     const reopenedIds = new Set(this.roadmap.filter(item => String(item.status).toUpperCase() === 'REGRESSED').map(item => item.id));
     for (const item of evolutionItems || []) if (item.status === 'REGRESSED') reopenedIds.add('EVOLUTION-' + item.id);
+    const recertificationIds = new Set(this.roadmap.filter(row => row.recertification_only === true || row.mode === 'VERIFY_RUNTIME').map(row => row.id));
     const completedIds = [...new Set([
       ...supervisedJobs
-        .filter(job => contractRevisions[roadmapIdFromJob(job)] ? isAcceptedRoadmapCodeJob(job) : ['COMPLETED'].includes(String(job.status).toUpperCase()) || isClosedRoadmapStatus(job.status))
+        .filter(job => recertificationIds.has(roadmapIdFromJob(job)) ? isAcceptedRuntimeRecertificationJob(job) : contractRevisions[roadmapIdFromJob(job)] ? isAcceptedRoadmapCodeJob(job) : ['COMPLETED'].includes(String(job.status).toUpperCase()) || isClosedRoadmapStatus(job.status))
         .map(roadmapIdFromJob),
       // Resetting the activity view cannot erase independently verified code.
       // The unchanged contract/SHA/CI checks still run; REGRESSED wins below.
@@ -428,6 +431,7 @@ export class AutonomySupervisor {
       waiting,
       completedIds,
       verifiedDependencyIds,
+      outstandingRoadmapIds: this.roadmap.filter(item => !isVerifiedRoadmap(item) && !completedSet.has(item.id)).map(item => item.id),
       blockedIds,
       retryExhaustedIds,
       failedAttemptsByRoadmap: Object.fromEntries(failedAttemptsByRoadmap),
@@ -481,7 +485,7 @@ export class AutonomySupervisor {
       if (verified.size) {
         for (const job of await this.listSchedulerJobs()) {
           const item = job?.requested_by === 'mel-autonomy' ? verified.get(roadmapIdFromJob(job)) : null;
-          if (!item || TERMINAL_JOB.has(String(job.status || '').toUpperCase())) continue;
+          if (!item || job?.optional_context?.work_mode === 'VERIFY_RUNTIME' || TERMINAL_JOB.has(String(job.status || '').toUpperCase())) continue;
           try {
             await this.repository.reconcileVerifiedAutonomyJob(job.id, item);
           } catch (error) {

@@ -447,3 +447,16 @@ test('QUEUED is passive and never reserves the MAX execution lane',async()=>{
   assert.ok(ui.includes('a.scheduler_slot?.reserved===true'));
   assert.ok(ui.includes('Créneau MAX réservé par'));
 });
+
+
+test('MEL-EVOL-04 deployment ledger drills are distinguished from real mission creation', () => {
+  const sha='b'.repeat(40), id='release-proof-'+sha.slice(0,12);
+  const event={evolution_id:id,source_sha:sha,actor:'release-bootstrap',stage:'JOB_CREATED',status:'QUEUED',occurred_at:now,evidence:{roadmap_id:'MEL-EVOL-04'}};
+  const [created,verified]=foldLedger([event,{...event,stage:'PRODUCTION_VERIFIED',status:'DONE_VERIFIED'}]);
+  assert.equal(created.stage_text,'Contrôle du journal de déploiement démarré');
+  assert.equal(verified.stage_text,'Journal du déploiement vérifié');
+  assert.match(created.detail,/aucune mission MAX relancée/);
+  assert.equal(created.stage,'JOB_CREATED','immutable original evidence remains intact');
+  assert.equal(foldLedger([{...event,actor:'mel-autonomy'}])[0].stage_text,'Travail créé');
+  assert.equal(foldLedger([{...event,source_sha:'c'.repeat(40)}])[0].stage_text,'Travail créé');
+});

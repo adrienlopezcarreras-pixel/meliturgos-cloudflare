@@ -797,11 +797,11 @@ function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&l
 async function loadRoadmap(force=false){const box=qs('#roadmapList');box.textContent='Chargement…';const d=await loadRoadmapData(force);renderRoadmapSummary(d);renderRoadmap();return d}
 function truthTag(t,declared){
   if(!t)return statusTag(declared);
-  const labels={VERIFIED_LIVE:['good','Vérifié en production'],PARTIAL_LIVE:['warn','Partiellement prouvé'],BROKEN:['bad','En échec'],UNPROVEN:['warn','Jamais exécuté'],DECLARED:['warn','Déclaré, sans preuve']};
+  const labels={VERIFIED_LIVE:['good','Vérifié en production'],PARTIAL_LIVE:['warn','Partiellement prouvé'],BROKEN:['bad','En échec'],UNPROVEN:['warn','Preuve récente manquante'],DECLARED:['warn','Déclaré, sans preuve']};
   const [kind,label]=labels[t.truth]||['warn',String(t.truth||'?')];
   const failed=(t.proofs||[]).filter(p=>p.ok===0&&p.ko>0).map(p=>p.id+(p.error?' ('+p.error+')':''));
   const missing=(t.proofs||[]).filter(p=>p.ok===0&&p.ko===0).map(p=>p.id);
-  const title=[t.last_proof_at?'Dernière preuve : '+new Date(t.last_proof_at).toLocaleString('fr-FR'):'',failed.length?'Échecs : '+failed.join(', '):'',missing.length?'Jamais exécuté : '+missing.join(', '):'','Statut déclaré : '+declared].filter(Boolean).join(' · ');
+  const title=[t.last_proof_at?'Dernière preuve : '+new Date(t.last_proof_at).toLocaleString('fr-FR'):'',failed.length?'Échecs : '+failed.join(', '):'',missing.length?'Sans preuve dans la fenêtre courante : '+missing.join(', '):'','Statut déclaré : '+declared].filter(Boolean).join(' · ');
   return '<span class="tag '+kind+'" title="'+esc(title)+'">'+esc(label)+'</span>';
 }
 function renderRoadmap(){if(!roadmapCache)return;const sf=qs('#rmStatus').value,pf=qs('#rmPriority').value,box=qs('#roadmapList');box.innerHTML='';const fragment=document.createDocumentFragment();let rendered=0;for(const phase of roadmapCache.phases||[]){const items=(phase.items||[]).filter(item=>(!sf||item.status===sf)&&(!pf||item.priority===pf));if(!items.length)continue;const ph=document.createElement('section');ph.className='phase';ph.innerHTML='<h3><span>'+esc(phase.title)+'</span><span class="tag">'+items.length+' étape(s)</span></h3>';for(const item of items){const row=document.createElement('div');row.className='road-item';row.innerHTML='<div class="road-id">'+esc(item.id)+' · '+esc(item.priority)+'</div><div><div class="road-title">'+esc(item.title)+'</div><div class="road-next">'+esc(item.next||'—')+'</div></div><div class="road-status">'+truthTag(roadmapCache.truth?.items?.[item.id],item.status)+'</div>';ph.appendChild(row)}fragment.appendChild(ph);rendered+=items.length}box.appendChild(fragment);if(!rendered)box.textContent='Aucune étape pour ces filtres.'}
