@@ -517,10 +517,18 @@ test('manual MAX tick reports cloud handoff failure without leaking internal tra
 });
 
 async function preparedRevisionFixture() {
-  const { readFile } = await import('node:fs/promises');
-  const packet = JSON.parse(await readFile(new URL('../prepared/MEL-AUDIT-07.json', import.meta.url), 'utf8'));
-  const sources = new Map(await Promise.all(packet.changes.map(async file => [file.path,
-    await readFile(new URL('../' + file.path, import.meta.url), 'utf8')])));
+  const { createHash } = await import('node:crypto');
+  const { ROADMAP_CODE_CONTRACTS } = await import('../src/roadmap/roadmap-code-contracts.js');
+  const contract = ROADMAP_CODE_CONTRACTS['MEL-AUDIT-07'];
+  const codePath = contract.code_paths[0], testPath = contract.test_paths[0];
+  // The fake repository is independent of real mission delivery state. Once
+  // AUDIT-07 is delivered, these transport snapshots must still test cache reuse.
+  const regression = expected => `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { ready } from '../${codePath}';\ntest('ready', () => assert.equal(ready, ${expected}));\n`;
+  const sources = new Map([[codePath, 'export const ready = false;\n'], [testPath, regression(false)]]);
+  const packet = { roadmap_id: 'MEL-AUDIT-07', tests: ['test'], changes: [
+    { path: codePath, content: 'export const ready = true;\n' },
+    { path: testPath, content: regression(true) },
+  ].map(file => ({ ...file, base_sha256: createHash('sha256').update(sources.get(file.path)).digest('hex') })) };
   const repository = await approvedRepository();
   const job = await repository.get('bridge-prep-job');
   await repository.update(job.id, {
