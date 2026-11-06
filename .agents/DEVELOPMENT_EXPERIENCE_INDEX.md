@@ -223,7 +223,7 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 
 - `codex-temporal-audit-normalizes-serialized-milliseconds-20261105` — préserver la valeur temporelle des millisecondes numériques sérialisées, les seuils et les frontières; paquet préparé testé localement, livraison de mission encore requise.
 
-- `codex-prepared-missions-isolate-full-file-regressions-20261106` — isoler les régressions des paquets indépendants; refuser les snapshots concurrents incompatibles et pré-tester leur application successive, sans perdre les tests existants. Preuve locale, publication et missions suivantes encore requises.
+- `codex-prepared-missions-isolate-full-file-regressions-20261106` — isoler les régressions des paquets indépendants; refuser les snapshots concurrents incompatibles et pré-tester leur application successive, sans perdre les tests existants; un snapshot dont les octets cibles sont déjà dans HEAD suit le nouveau contenu sans rejouer les anciens octets. Preuve locale, publication et missions suivantes encore requises.
 
 - `codex-prepared-cache-binds-authoritative-revision-20261106` — la disponibilité et la révision du paquet autorisé participent à la validité du cache, même à Teacher/SHA constants; un nouveau paquet remplace le cache de modèle; une source illisible ne justifie pas le rejeu de la copie précédente. Preuves locales, livraison runtime encore requise.
 

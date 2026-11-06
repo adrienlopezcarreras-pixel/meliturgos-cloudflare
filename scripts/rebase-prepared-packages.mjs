@@ -11,7 +11,12 @@ const sha = text => createHash('sha256').update(text).digest('hex');
 // Keep that package applicable: same base, both sides only added text.
 export function rebasePreparedChange({ committed, current, content, baseSha }) {
   if (current == null) return null;
-  if (sha(current) === baseSha || current === content) return null;
+  if (current === content) return null;
+  // Exact target bytes in immutable HEAD prove this snapshot was applied.
+  // Carry the new file forward rather than reintroducing its old contents.
+  if (committed != null && committed === content)
+    return { content: current, baseSha: sha(current) };
+  if (sha(current) === baseSha) return null;
   if (committed == null || sha(committed) !== baseSha) return { conflict: true };
   if (content.startsWith(committed) && current.startsWith(committed)) {
     const suffix = content.slice(committed.length);
