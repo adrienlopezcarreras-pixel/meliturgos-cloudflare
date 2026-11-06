@@ -155,3 +155,23 @@ test('a new free Workers AI model yields one idempotent benchmark proposal; paid
   assert.deepEqual(first, [{ id: 'benchmark:@cf/new/free-coder', kind: 'BENCHMARK_PROPOSAL', model: '@cf/new/free-coder', status: 'PROPOSED' }]);
   assert.deepEqual(benchmarkProposals(catalog, options), first, 'same catalog, same proposals');
 });
+
+test('MEL-AUDIT-02 refresh removes stale findings without creating a new mission', async t => {
+  const { sqliteD1 } = await import('./helpers/sqlite-d1.mjs');
+  const db = sqliteD1();
+  t.after(() => db.close());
+  const first = { findings: [{ code: 'MISSION_LOOP', detail: 'MEL-AUDIT-02 x6' }, { code: 'JOBS_STALLED', detail: 'historical' }], summary: { state: 'unresolved' } };
+  const second = { findings: [{ code: 'REPAIR_VERIFIED', detail: 'MEL-AUDIT-02' }, { code: 'REPAIR_VERIFIED', detail: 'MEL-AUDIT-02' }], summary: { state: 'resolved' } };
+  const a = await persistWeeklyDevelopmentAudit(db, first, { now: NOW });
+  const b = await persistWeeklyDevelopmentAudit(db, second, { now: NOW + 1000 });
+  assert.equal(a.week_start, b.week_start);
+  assert.equal(b.findings_recorded, 1);
+  const findings = await db.prepare('SELECT code,detail FROM mel_development_audit_findings ORDER BY code').all();
+  assert.deepEqual(findings.results.map(row => ({ ...row })), [{ code: 'REPAIR_VERIFIED', detail: 'MEL-AUDIT-02' }]);
+  const report = await db.prepare('SELECT report_json FROM mel_development_audit_reports').first();
+  assert.equal(JSON.parse(report.report_json).summary.state, 'resolved');
+  await persistWeeklyDevelopmentAudit(db, { ...second, findings: [] }, { now: NOW + 2000 });
+  assert.equal((await db.prepare('SELECT code FROM mel_development_audit_findings').all()).results.length, 0);
+  const stored = await db.prepare('SELECT COUNT(*) AS count FROM mel_development_audit_reports').first();
+  assert.equal(stored.count, 1);
+});

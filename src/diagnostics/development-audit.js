@@ -149,10 +149,6 @@ export async function persistWeeklyDevelopmentAudit(db, report, { now = Date.now
     week_start INTEGER NOT NULL, code TEXT NOT NULL, detail TEXT NOT NULL,
     PRIMARY KEY (week_start, code, detail)
   )`).run();
-  await db.prepare(`INSERT INTO mel_development_audit_reports(week_start,report_json,updated_at)
-    VALUES(?,?,?) ON CONFLICT(week_start) DO UPDATE SET
-      report_json=excluded.report_json, updated_at=excluded.updated_at`)
-    .bind(weekStart, JSON.stringify(report), at).run();
   const distinct = new Map();
   for (const finding of report.findings) {
     const code = String(finding?.code || '').slice(0, 120);
@@ -160,10 +156,23 @@ export async function persistWeeklyDevelopmentAudit(db, report, { now = Date.now
     const detail = String(finding?.detail || '').slice(0, 300);
     distinct.set(JSON.stringify([code, detail]), { code, detail });
   }
-  for (const { code, detail } of distinct.values()) {
-    await db.prepare(`INSERT INTO mel_development_audit_findings(week_start,code,detail)
-      VALUES(?,?,?) ON CONFLICT(week_start,code,detail) DO NOTHING`)
-      .bind(weekStart, code, detail).run();
-  }
+  // The weekly report is a snapshot, not an append-only finding ledger.
+  // A resolved finding must disappear from this week's durable snapshot;
+  // otherwise retries report an obsolete failure even after MAX fixes it.
+  const writes = [
+    db.prepare(`INSERT INTO mel_development_audit_reports(week_start,report_json,updated_at)
+      VALUES(?,?,?) ON CONFLICT(week_start) DO UPDATE SET
+        report_json=excluded.report_json, updated_at=excluded.updated_at`)
+      .bind(weekStart, JSON.stringify(report), at),
+    db.prepare('DELETE FROM mel_development_audit_findings WHERE week_start=?').bind(weekStart),
+    ...[...distinct.values()].map(({ code, detail }) =>
+      db.prepare(`INSERT INTO mel_development_audit_findings(week_start,code,detail)
+        VALUES(?,?,?) ON CONFLICT(week_start,code,detail) DO NOTHING`)
+        .bind(weekStart, code, detail)),
+  ];
+  // D1 batches are transactional: publish the replacement snapshot together,
+  // never expose a new report with stale findings if a write fails.
+  if (typeof db.batch === 'function') await db.batch(writes);
+  else for (const statement of writes) await statement.run();
   return { persisted: true, week_start: weekStart, findings_recorded: distinct.size };
 }
