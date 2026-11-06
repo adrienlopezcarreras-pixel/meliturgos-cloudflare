@@ -89,3 +89,44 @@ test('healthy millisecond timestamps serialized as strings never generate repair
   const findings = auditCore({memory:{candidates},sessions:{rows:[{expires_at:String(NOW+H)}]},lastBackupAt:String(NOW-H)}, {now:NOW});
   assert.deepEqual(findings, [], 'valid current data stays healthy after JSON/SQL string serialization');
 });
+
+test('MEL-AUDIT-03 correlates the three domain findings to durable D1 rows without creating missions',async t=>{
+ const {sqliteD1}=await import('./helpers/sqlite-d1.mjs');const db=sqliteD1();t.after(()=>db.close());
+ await db.prepare('CREATE TABLE mel_response_quality_events(id TEXT PRIMARY KEY,user_excerpt TEXT,issues_json TEXT,response_excerpt TEXT,created_at INTEGER)').run();
+ await db.prepare('CREATE TABLE capability_watch_state(id TEXT PRIMARY KEY,state_json TEXT,updated_at INTEGER)').run();
+ await db.prepare('CREATE TABLE mel_work_cycles(id TEXT PRIMARY KEY,state TEXT,updated_at TEXT)').run();
+ await db.prepare('CREATE TABLE dev_jobs(id TEXT PRIMARY KEY)').run();
+ for(let i=0;i<3;i++)await db.prepare('INSERT INTO mel_response_quality_events VALUES(?,?,?,?,?)')
+  .bind('chat-'+i,'private-user-fixture',JSON.stringify(i<2?[{severity:'high'}]:[]),'private-response-fixture',NOW-H).run();
+ await db.prepare('INSERT INTO capability_watch_state VALUES(?,?,?)')
+  .bind('watch-1',JSON.stringify({last_run_at:NOW-24*H,interval_ms:6*H}),NOW-H).run();
+ for(let i=0;i<4;i++)await db.prepare('INSERT INTO mel_work_cycles VALUES(?,?,?)')
+  .bind('work-'+i,i<3?'INTERRUPTED':'COMPLETE',new Date(NOW-H).toISOString()).run();
+ const report=await runDomainAudit(db,{now:NOW});
+ assert.deepEqual(report.findings.map(row=>row.code),['CHAT_OFF_TOPIC_ANSWERS','WATCH_STALLED','WORK_CYCLES_INTERRUPTED']);
+ const expected=[['mel_response_quality_events',['chat-0','chat-1']],['capability_watch_state',['watch-1']],['mel_work_cycles',['work-0','work-1','work-2']]];
+ for(let i=0;i<expected.length;i++){
+  const [table,ids]=expected[i],finding=report.findings[i];
+  assert.deepEqual(finding.evidence_refs.map(ref=>ref.id).sort(),ids);
+  assert.equal(finding.evidence_refs_omitted,0);
+  for(const ref of finding.evidence_refs){
+   assert.equal(ref.table,table);assert.equal(ref.at,NOW-H);
+   assert.ok(await db.prepare('SELECT id FROM '+table+' WHERE id=?').bind(ref.id).first());
+  }
+ }
+ assert.doesNotMatch(JSON.stringify(report),/private-user-fixture|private-response-fixture/);
+ assert.equal((await db.prepare('SELECT count(*) AS n FROM dev_jobs').first()).n,0);
+ await db.prepare("UPDATE mel_response_quality_events SET issues_json='[]'").run();
+ await db.prepare('UPDATE capability_watch_state SET state_json=?').bind(JSON.stringify({last_run_at:NOW,interval_ms:6*H})).run();
+ await db.prepare("UPDATE mel_work_cycles SET state='COMPLETE'").run();
+ assert.deepEqual((await runDomainAudit(db,{now:NOW})).findings,[]);
+});
+
+test('domain evidence is bounded and never invents a durable id',()=>{
+ const rows=Array.from({length:23},(_,i)=>({id:'event-'+i,created_at:NOW-H,issues_json:'[{"severity":"high"}]',response_excerpt:'private-text'}));
+ const finding=auditChat(rows,{now:NOW})[0];
+ assert.equal(finding.evidence_refs.length,20);assert.equal(finding.evidence_refs_omitted,3);
+ const noIds=auditChat(rows.map(({id,...row})=>row),{now:NOW})[0];
+ assert.equal(noIds.evidence_refs,undefined);
+ assert.doesNotMatch(JSON.stringify(finding),/private-text/);
+});
