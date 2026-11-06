@@ -379,7 +379,9 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
           && !isAcceptedRoadmapCodeJob(await repository.get(lane.job_id)))
         await reconcileRuntimeCompletions({repository:scopeRepairRepository(repository,lane.job_id),env});
       const result=await completeVerifiedRepair(env.DB,repository,{deployedSha:sha,releaseVerified:true});
-      return Response.json({ok:result.ok,status:result.status,resumed:result.resumed},
+      return Response.json({ok:result.ok,status:result.status,resumed:result.resumed,
+        ...(result.ok===false && result.status==='REPAIR_DELIVERY_NOT_VERIFIED'
+          ? {reason:result.reason||'REPAIR_UNCLASSIFIED'} : {})},
         {status:result.ok?200:409,headers:{'cache-control':'no-store'}});
     }catch(error){
       if (ownerStart && error?.code==='AUTONOMY_CONTROL_CHANGED') {

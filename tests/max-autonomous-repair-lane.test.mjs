@@ -71,6 +71,15 @@ test('technical release pause/restore preserves the exact repair authorization; 
  assert.equal((await completeVerifiedRepair(db,repo,{deployedSha:sha,releaseVerified:true})).resumed,false);
  assert.equal((await getAutonomyControl(db)).repair.job_id,a.id);
 });
+test('unaccepted repair reports a safe reason and never releases another queued mission',async t=>{
+ const {db,repo,a,b}=await fixture(t);
+ const waiting=await repo.get(b.id);
+ const result=await completeVerifiedRepair(db,repo,{deployedSha:sha,releaseVerified:true});
+ assert.deepEqual(result,{ok:false,status:'REPAIR_DELIVERY_NOT_VERIFIED',reason:'REPAIR_MISSION_ACCEPTANCE_NOT_VERIFIED',resumed:false});
+ assert.equal((await getAutonomyControl(db)).repair.job_id,a.id);
+ assert.deepEqual(await repo.get(b.id),waiting);
+ assert.doesNotMatch(JSON.stringify(result),/repair-a|waiting-b|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/);
+});
 test('only accepted exact-SHA delivery and verified deployment release the held stream',async t=>{
  const {db,repo,a}=await fixture(t);
  const item=flattenRoadmap().find(x=>x.id==='MEL-FOUNDER-02');
@@ -79,8 +88,13 @@ test('only accepted exact-SHA delivery and verified deployment release the held 
  const completion={status:'VERIFIED',candidate_sha:sha,candidate_branch:ci.head_branch,ci_run_id:42,ci,mel_implementation:{verified:true,providers_attempted:2}};
  const receipt=createRoadmapCodeAcceptance(await repo.get(a.id),completion,ci);
  await repo.update(a.id,{result_json:{roadmap_code_acceptance:receipt,autonomy_completion:completion}});
- assert.equal((await completeVerifiedRepair(db,repo,{deployedSha:sha})).resumed,false);
- assert.equal((await completeVerifiedRepair(db,repo,{deployedSha:'b'.repeat(40),releaseVerified:true})).resumed,false);
+ const releaseNotVerified=await completeVerifiedRepair(db,repo,{deployedSha:sha});
+ assert.equal(releaseNotVerified.resumed,false);
+ assert.equal(releaseNotVerified.reason,'REPAIR_RELEASE_HEALTH_NOT_VERIFIED');
+ const wrongSha=await completeVerifiedRepair(db,repo,{deployedSha:'b'.repeat(40),releaseVerified:true});
+ assert.equal(wrongSha.resumed,false);
+ assert.equal(wrongSha.reason,'REPAIR_ACCEPTED_SHA_NOT_DEPLOYED');
+ assert.equal((await getAutonomyControl(db)).repair.job_id,a.id);
  const done=await completeVerifiedRepair(db,repo,{deployedSha:sha,releaseVerified:true});
  assert.equal(done.resumed,true);assert.equal(done.control.repair,null);assert.equal(done.control.max_autonomy,true);
  assert.equal((await repo.get('waiting-b')).status,'QUEUED','no callback invents a next execution');

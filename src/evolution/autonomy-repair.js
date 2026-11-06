@@ -43,9 +43,13 @@ export async function completeVerifiedRepair(db,repository,{deployedSha,releaseV
  const lane=repairLane(control);
  if(!lane)return control.repair||control.repair_invalid?{ok:false,status:'AUTONOMY_REPAIR_SCOPE_INVALID',resumed:false}:{ok:true,status:'REPAIR_NOT_NEEDED',resumed:false};
  const job=await repository.get(lane.job_id);
- if(releaseVerified!==true || !isAcceptedRoadmapCodeJob(job)
-   || job.result_json.roadmap_code_acceptance.candidate_sha!==deployedSha)
-  return {ok:false,status:'REPAIR_DELIVERY_NOT_VERIFIED',resumed:false};
+ // Return only a fixed diagnostic code; never expose the held job, receipt or deployed SHA.
+ // None of these failures is permitted to release the repair lane.
+ const reject=reason=>({ok:false,status:'REPAIR_DELIVERY_NOT_VERIFIED',reason,resumed:false});
+ if(releaseVerified!==true)return reject('REPAIR_RELEASE_HEALTH_NOT_VERIFIED');
+ if(!isAcceptedRoadmapCodeJob(job))return reject('REPAIR_MISSION_ACCEPTANCE_NOT_VERIFIED');
+ if(job.result_json.roadmap_code_acceptance.candidate_sha!==deployedSha)
+  return reject('REPAIR_ACCEPTED_SHA_NOT_DEPLOYED');
  const updated=await setAutonomyControl(db,{paused:false,max_autonomy:true,source:'verified-repair-completed',reason:'verified-repair-delivered',repair:null,expected_updated_at:control.updated_at,memoryState});
  return {ok:true,status:'AUTONOMOUS_REPAIR_COMPLETED',resumed:true,control:updated};
 }
