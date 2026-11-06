@@ -23,6 +23,7 @@ on:
       - 'scripts/rebase-prepared-packages.mjs'
       - 'tests/rebase-prepared-packages.test.mjs'
       - 'src/evolution/**'
+      - 'tests/council-batch-review.test.mjs'
       - 'src/maintenance/**'
       - 'release-tools/predeploy-backup-refresh/system-restore-proof.mjs'
       - 'release-tools/predeploy-backup-refresh/isolated-restore-runner.mjs'
