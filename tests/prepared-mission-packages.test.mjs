@@ -2,16 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
+import {execFileSync} from 'node:child_process';
 import { ROADMAP_CODE_CONTRACTS } from '../src/roadmap/roadmap-code-contracts.js';
 
 const sha = text => createHash('sha256').update(text).digest('hex');
 const packages = fs.existsSync('prepared') ? fs.readdirSync('prepared').filter(f => f.endsWith('.json')) : [];
 
-test('independent prepared packages never replace a shared file with conflicting snapshots', () => {
+test('pending prepared packages never replace a shared file with conflicting snapshots', () => {
   const targets = new Map();
   for (const file of packages) {
     const pkg = JSON.parse(fs.readFileSync(`prepared/${file}`, 'utf8'));
     for (const change of pkg.changes) {
+      // Match the preparation CLI: an exact target already in HEAD is applied,
+      // so only still-pending snapshots can conflict with another proposal.
+      let committed=null;try{committed=execFileSync('git',['show',`HEAD:${change.path}`],{encoding:'utf8',stdio:['ignore','pipe','pipe']});}catch{}
+      if(committed!==null && committed===change.content)continue;
       const previous = targets.get(change.path);
       if (previous) assert.equal(change.content, previous.content,
         `${file} conflicts with ${previous.file} on ${change.path}; isolate the mission regression before scheduling`);
