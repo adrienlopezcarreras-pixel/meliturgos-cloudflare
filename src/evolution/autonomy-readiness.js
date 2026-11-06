@@ -274,7 +274,7 @@ export async function getAutonomyReadiness({ repository } = {}) {
   const ready = blockers.length === 0;
   // Expose a separate, bounded admission assessment. Generic
   // SELF_DEVELOPMENT_READY is NOT proof of all manifesto priorities.
-  const manifest01 = manifest01FoundationPrerequisites();
+  const manifest01 = manifest01FoundationPrerequisites(undefined, { verifiedIds: state.verifiedDependencyIds });
   const current = state.active
     .filter(isSupervisedAutonomyJob)
     .sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0))[0] || null;
