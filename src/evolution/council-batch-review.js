@@ -1,4 +1,4 @@
-import { planCouncilDiffBatches } from './council-diff-batches.js';
+import { COUNCIL_REVIEW_BATCH_LIMIT_BYTES, planCouncilDiffBatches } from './council-diff-batches.js';
 const enc = new TextEncoder();
 const SHA = /^[a-f0-9]{40}$/;
 const DIGEST = /^[a-f0-9]{64}$/;
@@ -122,6 +122,7 @@ export async function handleCouncilBatchedReview(env,body,{
   // Re-validate the whole cache, including distinct independent reviewers,
   // immutable batch hashes and metadata. An old bare APPROVED must be re-voted.
   const cacheProven=previous?.mode==='COMPLETE_INDEPENDENT_MULTI_BATCH_REVIEW'
+    && previous.final_input_contract==='CODE_AT_EXACT_HEAD_V1'
     && (previous.audit_only===true)===auditOnly
     && previous.file_count===files && previous.total_bytes===total
     && Array.isArray(previous.batch_hashes) && previous.batch_hashes.length===count
@@ -138,11 +139,19 @@ export async function handleCouncilBatchedReview(env,body,{
     '; independent verdict='+row.decision+
     '; reviewers='+row.reviews.filter(r=>r&&typeof r==='object').map(r=>String(r.model||'')+':'+String(r.verdict||'')+':'+String(r.summary||'').slice(0,180)).join(' | ')
   ).join('\n');
+  // Final voters get code; large integrations retain bounded file context.
+  let dependencyContext;
+  try{if(contextLoader)dependencyContext=await contextLoader(env,{head,diff:entireDiff});}
+  catch{return reject('COUNCIL_FINAL_CONTEXT_UNAVAILABLE',409);}
+  const completeDiff=bytes(entireDiff)<=COUNCIL_REVIEW_BATCH_LIMIT_BYTES;
   const finalVote=await review(env,{
-    diff:'INTEGRATION REVIEW of an exact, fully reconstructed and SHA256-checked code diff.\n'
-      +'SHA='+head+' BASE='+base+' ROOT_SHA256='+root+'\n'
-      +reviewSummary+'\nREJECT if independent per-batch evidence or cross-batch consistency is insufficient.',
-    goal:'Independent Council final architecture/security/integration decision; do not approve a mere artifact or code summary',
+    diff:completeDiff?entireDiff:reviewSummary,
+    dependencyContext,
+    goal:'Vérifier indépendamment la correction, la sécurité et l’intégration du code au SHA '+head
+      +' (base '+base+', empreinte '+root+'). '
+      +(completeDiff?'Le diff complet est fourni. ':'Les diffs complets ont été revus séparément par lot; le contexte de fichiers est borné et les omissions restent explicites. ')
+      +'Les votes par lot ne remplacent pas ton inspection du code visible. Refuser si une information nécessaire manque.\n'
+      +reviewSummary,
     attempts:Math.max(0,Number(previous?.attempts||0)),
   });
   // The separate integration verdict must meet the same independent, reasoned
@@ -154,7 +163,7 @@ export async function handleCouncilBatchedReview(env,body,{
     batch_count:count,file_count:files,total_bytes:total,
     batch_hashes:records.map(row=>row.sha256),reviews:finalVote?.reviews||[],
     reviewed_at:now,attempts:Number(previous?.attempts||0)+1,
-    mode:'COMPLETE_INDEPENDENT_MULTI_BATCH_REVIEW'};
+    mode:'COMPLETE_INDEPENDENT_MULTI_BATCH_REVIEW',final_input_contract:'CODE_AT_EXACT_HEAD_V1'};
   await persist(env.DB,key,final,now);
   return {status:200,result:{ok:true,
     decision:auditOnly && final.decision==='APPROVED'?'POST_MERGE_AUDIT_APPROVED':final.decision,
