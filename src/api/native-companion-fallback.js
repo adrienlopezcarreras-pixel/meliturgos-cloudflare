@@ -8,19 +8,12 @@ import {createCompanionLocalAiAdapter} from '../portability/companion-local-ai-a
 export function classifyCompanionHardwareControl(control, observation = {}) {
  const id=String(control||'').trim();
  const status=String(observation?.status||'').toUpperCase();
- const code=String(observation?.code||'').toUpperCase();
  const source=String(observation?.source||'').toLowerCase();
  const receipt=observation?.physical_receipt;
  const blocked=reason=>({control:id,status:'BLOCKED',reason,physical_verified:false});
  if(!id)return blocked('CONTROL_UNSPECIFIED');
- if(observation?.halted===true || status==='STOPPED' || code==='COMPUTER_HALTED'
-   || code==='LOCAL_COMPUTE_DISABLED')return blocked('OWNER_STOPPED');
- if(observation?.permission==='DENIED' || status==='PERMISSION_DENIED'
-   || ['PERMISSION_DENIED','COMPUTER_PERMISSION_DENIED','FORBIDDEN'].includes(code))
-   return blocked('PERMISSION_DENIED');
- if(observation?.online===false || status==='OFFLINE'
-   || ['COMPUTER_OFFLINE','COMPANION_SOVEREIGNTY_TIMEOUT','NETWORK_OFFLINE'].includes(code))
-   return blocked('COMPUTER_OFFLINE');
+ const refusal=companionBlockReason(observation);
+ if(refusal)return blocked(refusal);
  // Only an independently observed device receipt can satisfy an on-device
  // hardware acceptance. Test doubles, untrusted source fields and a bare
  // success boolean are not proof of a physical action.
@@ -31,8 +24,24 @@ export function classifyCompanionHardwareControl(control, observation = {}) {
     || !String(receipt?.device_id||'').trim()
     || !Number.isSafeInteger(receipt?.observed_at) || receipt.observed_at<=0)
    return blocked('PHYSICAL_PROOF_MISSING');
- return {control:id,status:'PASS',reason:null,physical_verified:true,
-   device_id:String(receipt.device_id).slice(0,120)};
+ // This offline recipe has no authenticated server lookup. A well-shaped
+ // client claim is still unverified; real device acceptance is separate.
+ return blocked('PHYSICAL_PROOF_UNVERIFIED');
+}
+
+function companionBlockReason(observation={}){
+ const status=String(observation?.status||'').trim().toUpperCase();
+ const code=String(observation?.code||'').trim().toUpperCase();
+ if(observation?.halted===true || ['HALTED','STOPPED'].includes(status)
+   || ['OWNER_HALT_ACTIVE','COMPUTER_HALTED','LOCAL_COMPUTE_DISABLED'].includes(code))return 'OWNER_STOPPED';
+ if(String(observation?.permission||'').toUpperCase()==='DENIED'
+   || ['DENIED','PERMISSION_DENIED'].includes(status)
+   || ['PERMISSION_DENIED','COMPUTER_PERMISSION_DENIED','FORBIDDEN',
+       'REMOTE_ACCESS_DISABLED_LOCALLY','COMPUTER_PERMISSION_REVOKED','COMPANION_PERMISSION_CHANGED'].includes(code))return 'PERMISSION_DENIED';
+ if(observation?.online===false || status==='OFFLINE'
+   || ['COMPUTER_OFFLINE','COMPUTER_DEVICE_OFFLINE','COMPUTER_ENGINE_OFFLINE',
+       'COMPUTER_ENGINE_UNVERIFIED','COMPANION_SOVEREIGNTY_TIMEOUT','NETWORK_OFFLINE'].includes(code))return 'COMPUTER_OFFLINE';
+ return ['FAILED','CANCELLED'].includes(status)?'COMPANION_CONTROL_BLOCKED':null;
 }
 
 // Optional only. "Prefer PC" must be explicit on the request AND the
@@ -65,7 +74,14 @@ export async function tryOptionalNativeCompanionFallback({
    const executor=execute||createCompanionSovereigntyExecutor(env,{
      timeoutMs:boundedTimeout,pollIntervalMs:250
    });
-   const adapter=createCompanionLocalAiAdapter({execute:executor});
+   const adapter=createCompanionLocalAiAdapter({execute:async input=>{
+     const result=await executor(input);
+     // A legacy command envelope may say SUCCEEDED while its payload carries
+     // a device refusal. Never turn the accompanying stale text into success.
+     if(companionBlockReason(result))
+       return {ok:false,code:'COMPANION_CONTROL_BLOCKED'};
+     return result;
+   }});
    const answer=await adapter.invoke({input:bounded,context:{
      inference_settings:{
        temperature:inferenceSettings?.temperature??0.2,
@@ -80,7 +96,7 @@ export async function tryOptionalNativeCompanionFallback({
      fallback_used:!asPrimary,optional_companion_used:true,
      companion_primary:asPrimary===true,
      tool_succeeded:true,finish_reason:null,truncated:false,
-     provenance:answer.provenance,
+     provenance:{...answer.provenance,hardware_test_performed:false,evidence_scope:'INFERENCE_RESPONSE'},
      usage:null
    };
  }catch{return null;}

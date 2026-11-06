@@ -93,8 +93,35 @@ test('no software simulation can certify a physical hardware control',async()=>{
  assert.equal(classify('screen',{source:'paired-windows-companion',simulated:true,status:'SUCCESS',ok:true,physical_receipt}).status,'BLOCKED');
  assert.equal(classify('screen',{source:'paired-windows-companion',status:'SUCCESS',ok:true}).status,'BLOCKED');
  const accepted=classify('screen',{source:'paired-windows-companion',status:'SUCCESS',ok:true,physical_receipt});
- assert.equal(accepted.status,'PASS');
- assert.equal(accepted.physical_verified,true);
- assert.equal(accepted.device_id,'pc-1');
+ assert.equal(accepted.status,'BLOCKED');
+ assert.equal(accepted.physical_verified,false);
+ assert.equal(accepted.reason,'PHYSICAL_PROOF_UNVERIFIED');
+
  assert.equal(classify('keyboard',{source:'paired-windows-companion',status:'SUCCESS',ok:true,physical_receipt}).status,'BLOCKED');
+});
+
+for (const code of ['COMPUTER_OFFLINE', 'PERMISSION_DENIED', 'OWNER_HALT_ACTIVE']) {
+ test('software recipe refuses a contradictory successful envelope carrying '+code, async()=>{
+  let calls=0;
+  const result=await fallback({env:{},messages:[{role:'user',content:'bonjour'}],
+   execute:async()=>{calls++;return {ok:true,code,text:'stale local text',backend:'software-test-double'};}});
+  assert.equal(result,null,'a blocked device receipt must leave the cloud route available');
+  assert.equal(calls,1,'a refusal must not retry the local action');
+ });
+}
+
+test('a software double can never attest a physical hardware test',async()=>{
+ const result=await fallback({env:{},messages:[{role:'user',content:'bonjour'}],
+  execute:async()=>({ok:true,text:'synthetic response',backend:'software-test-double',hardware_test_performed:true})});
+ assert.equal(result.text,'synthetic response');
+ assert.equal(result.provenance.hardware_test_performed,false);
+ assert.equal(result.provenance.evidence_scope,'INFERENCE_RESPONSE');
+});
+
+test('negative device status and halt telemetry override stale successful text',async()=>{
+ for(const refusal of [{status:'DENIED'},{status:'OFFLINE'},{status:'HALTED'},
+  {halted:true},{online:false},{code:' owner_halt_active '}]){
+  assert.equal(await fallback({env:{},messages:[{role:'user',content:'bonjour'}],
+   execute:async()=>({ok:true,text:'stale text',...refusal})}),null,JSON.stringify(refusal));
+ }
 });
