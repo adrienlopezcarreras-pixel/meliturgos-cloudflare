@@ -29,12 +29,12 @@ test('orphan proof sources are highlighted explicitly',()=>{
 
 test('full roadmap includes 133 historic rows and 43 open software contracts',()=>{
   const ledger=createCompleteEvidenceLedger();
-  assert.equal(ledger.summary.total,177,'All 177 roadmap objectives must be individually present');
+  assert.equal(ledger.summary.total,173,'All 173 roadmap objectives must be individually present');
   const historical=ledger.items.filter(x=>x.declared_status==='DONE_VERIFIED');
   const open=ledger.items.filter(x=>x.declared_status!=='DONE_VERIFIED');
   assert.equal(historical.length,133);
-  assert.equal(open.length,44);
-  assert.equal(ledger.summary.production_not_evaluated,177);
+  assert.equal(open.length,40);
+  assert.equal(ledger.summary.production_not_evaluated,173);
   assert.equal(ledger.summary.verified_live,0);
 });
 

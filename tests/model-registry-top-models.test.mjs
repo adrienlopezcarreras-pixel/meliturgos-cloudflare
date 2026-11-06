@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { TOP_MODELS, topModelIds, preferTopModels, standardRegistry } from '../src/models/ModelRegistry.js';
 
 // Owner decision 01/11: only MEL's top models deliberate and code. The list is
-// MEL's own, evolvable through MEL-AUDIT-06 then MEL-MANIFEST-09.
+// MEL's own, evolvable through MEL-AUDIT-06 then MEL-FOUNDER-03.
 test('top models are registered, free, and replace the weak free models in council and mentor', () => {
   assert.equal(TOP_MODELS.length, 2, 'two distinct models keep an independent second opinion');
   for (const id of TOP_MODELS) {

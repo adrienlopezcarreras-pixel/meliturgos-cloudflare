@@ -1,3 +1,4 @@
+import { ROADMAP_RETIRED_IDS } from '../roadmap/roadmap-code-contracts.js';
 import { isAcceptedRoadmapCodeJob } from '../roadmap/roadmap-code-acceptance.js';
 import { roadmapCodeMissionContext, roadmapCodeMissionGoal, refreshRoadmapCodeMissions } from './roadmap-code-missions.js';
 import { staleCouncilDeferral } from '../teachers/council-inference-policy.js';
@@ -36,8 +37,6 @@ const AUTONOMY_ORDER = [
   'MEL-FOUNDER-07',
   'MEL-FOUNDER-08',
   'MEL-MANIFEST-01',
-  'MEL-MANIFEST-02',
-  'MEL-MANIFEST-03',
   'MEL-MANIFEST-04',
   'MEL-WORK-01',
   'MEL-WORK-02',
@@ -45,8 +44,6 @@ const AUTONOMY_ORDER = [
   'MEL-MANIFEST-06',
   'MEL-MANIFEST-07',
   'MEL-MANIFEST-08',
-  'MEL-MANIFEST-09',
-  'MEL-MANIFEST-10',
   'GEN2-17',
   'MEL-EVOL-01',
   'MEL-EVOL-02',
@@ -235,6 +232,7 @@ export function selectActionableAutonomyJobs(jobs = [], { epochMs = 0, roadmap =
   const excluded = new Set(excludeIds);
   return (Array.isArray(jobs) ? jobs : [])
     .filter(isSupervisedAutonomyJob)
+    .filter(job => !ROADMAP_RETIRED_IDS[roadmapIdFromJob(job)])
     .filter(job => !closedIds.has(roadmapIdFromJob(job)))
     .filter(job => {
       const item = roadmap.find(row => row.id === roadmapIdFromJob(job));
@@ -493,6 +491,10 @@ export class AutonomySupervisor {
       }
     }
     const current = await this.state();
+    const retiringExecution = current.active.find(job => ROADMAP_RETIRED_IDS[roadmapIdFromJob(job)]);
+    if (retiringExecution) return { created: false, job: null, next: current.next, complete: false,
+      external_progress: { job_id: retiringExecution.id, status: 'ROADMAP_RETIRED_EXECUTION_PENDING' } };
+
     const unfinishedRoadmap = this.roadmap.filter(row => !current.verifiedDependencyIds.includes(row.id));
     if (unfinishedRoadmap.length && !this.onlyJobId) {
       const lower = current.active.find(job => job.requested_by === 'mel-autonomy'

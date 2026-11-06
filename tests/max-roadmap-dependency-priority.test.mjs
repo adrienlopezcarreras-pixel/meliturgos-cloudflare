@@ -18,8 +18,8 @@ test('all canonical roadmap edges reference existing IDs and never form cycles',
   assert.deepEqual(validateRoadmapDependencies(items), []);
   assert.deepEqual(validateRoadmapTechnicalWork(items), []);
   const open = items.filter(row => row.status !== 'DONE_VERIFIED');
-  assert.equal(open.length, 44);
-  assert.equal(open.filter(row => ['IMPLEMENT','FIX'].includes(row.mode)).length, 44);
+  assert.equal(open.length, 40);
+  assert.equal(open.filter(row => ['IMPLEMENT','FIX'].includes(row.mode)).length, 40);
   assert.equal(open.filter(row => row.mode === 'EXTERNAL').length, 0);
   assert.ok(open.every(row => row.required_proof), 'every open roadmap item has an acceptance contract');
   const promoted = items.map(row => row.id === 'MEL-FOUNDER-06'
@@ -27,18 +27,17 @@ test('all canonical roadmap edges reference existing IDs and never form cycles',
   assert.deepEqual(validateRoadmapTechnicalWork(promoted), [],
     'when a formerly external mission is truly verified, its immutable contract stays valid');
   const serialized = getRoadmapPayload().phases.flatMap(phase => phase.items);
-  assert.equal(serialized.find(row => row.id === 'MEL-MANIFEST-03').mode, 'IMPLEMENT');
-  assert.deepEqual(serialized.find(row => row.id === 'MEL-MANIFEST-03').depends_on,
-    ['MEL-FOUNDER-03']);
+  assert.equal(serialized.find(row => row.id === 'MEL-FOUNDER-03').mode, 'IMPLEMENT');
+  assert.deepEqual(serialized.find(row => row.id === 'MEL-FOUNDER-03').depends_on,
+    ['MEL-FOUNDER-02', 'MEL-FOUNDER-04', 'MEL-COUNCIL-OPS-01']);
   const manifest = items.find(item => item.id === 'MEL-MANIFEST-01');
   assert.deepEqual(manifest.depends_on, ['MEL-FOUNDER-02'],
     'the accounting implementation follows the durable foundation it consumes');
   assert.equal(items.find(item => item.id === 'MEL-FOUNDER-06').external_acceptance.blocking_code, false,
     'software protocol tests do not require physical acceptance');
   assert.deepEqual(unmetRoadmapPrerequisites(manifest, items), ['MEL-FOUNDER-02']);
-  const closure = items.find(item => item.id === 'MEL-MANIFEST-10');
-  assert.ok(unmetRoadmapPrerequisites(closure, items).length >= 4,
-    'final manifesto closure still requires verified cloud foundations');
+  assert.equal(items.some(item => item.id === 'MEL-MANIFEST-10'), false);
+  assert.match(manifest.acceptance.join(' '), /interdit 100/);
 });
 
 test('dependency validator rejects cycles, missing nodes and self edges', () => {

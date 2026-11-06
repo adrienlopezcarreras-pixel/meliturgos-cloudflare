@@ -6,10 +6,10 @@ import {sqliteD1} from './helpers/sqlite-d1.mjs';
 test('roadmap.evidence.read returns 176 unverified items when DB is missing',async()=>{
  const bus=createDefaultCapabilityBus({env:{}});
  const ledger=await bus.execute('roadmap.evidence.read',{}, {owner:'test',permissions:[]});
- assert.equal(ledger.summary.total,177);
+ assert.equal(ledger.summary.total,173);
  assert.equal(ledger.production_truth_available,false);
  assert.equal(ledger.summary.verified_live,0);
- assert.equal(ledger.summary.production_not_evaluated,177);
+ assert.equal(ledger.summary.production_not_evaluated,173);
 });
 test('roadmap.evidence.read joins recorded D1 capability executions by item ID',async()=>{
  const db=sqliteD1();
@@ -19,7 +19,7 @@ test('roadmap.evidence.read joins recorded D1 capability executions by item ID',
  const bus=createDefaultCapabilityBus({env:{DB:db}});
  const ledger=await bus.execute('roadmap.evidence.read',{}, {owner:'test',permissions:[]});
  assert.equal(ledger.production_truth_available,true);
- assert.equal(ledger.summary.total,177);
+ assert.equal(ledger.summary.total,173);
  assert.equal(ledger.items.find(x=>x.id==='MEL-CODE-01').verified_live,true);
  assert.equal(ledger.items.find(x=>x.id==='MEL-CODE-02').verified_live,false);
  assert.equal(ledger.items.find(x=>x.id==='MEL-CODE-01').production_receipt.proofs[0].id,'code.read');

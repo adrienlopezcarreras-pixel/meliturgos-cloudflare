@@ -1,5 +1,5 @@
 import { isAcceptedRoadmapCodeJob } from '../roadmap/roadmap-code-acceptance.js';
-import { roadmapContractRevision } from '../roadmap/roadmap-code-contracts.js';
+import { ROADMAP_RETIRED_IDS, roadmapContractRevision } from '../roadmap/roadmap-code-contracts.js';
 import { unmetRoadmapPrerequisites } from '../roadmap/roadmap-dependencies.js';
 
 export function roadmapCodeMissionContext(item) {
@@ -22,6 +22,18 @@ export async function refreshRoadmapCodeMissions(repository, jobs, roadmap) {
   const verifiedCodeIds = jobs.filter(isAcceptedRoadmapCodeJob).map(job => job.optional_context.roadmap_id);
   const safe = new Set(['QUEUED','TEACHER_APPROVED','COUNCIL_COMPLETE','REPAIR_REQUIRED','WAITING_TEACHER','WAITING_DEPENDENCY']);
   for (const job of jobs) {
+    const replacement = ROADMAP_RETIRED_IDS[job.optional_context?.roadmap_id];
+    if (replacement && job.requested_by === 'mel-autonomy' && safe.has(job.status)
+        && !['RUNNING','IN_PROGRESS','CLAIMED','READY_FOR_REVIEW'].includes(job.result_json?.dev_bridge?.status)) {
+      // Cancel obsolete scheduling only. Preserve all archived files, votes and receipts.
+      const next = await repository.update(job.id, { status: 'CANCELLED', error: 'ROADMAP_ITEM_RETIRED',
+        result_json: { ...(job.result_json || {}), roadmap_retirement: {
+          replacement_id: replacement, observed_at: new Date().toISOString(), proof_transferred: false,
+        } },
+      }, { expected: job });
+      refreshed.push(next.id);
+      continue;
+    }
     const item = roadmap.find(row => row.id === job.optional_context?.roadmap_id);
     if (job.requested_by !== 'mel-autonomy' || !item || item.contract_revision !== roadmapContractRevision(item.id)
         || ['DONE_VERIFIED','VERIFIED','ACCEPTED'].includes(item.status)
