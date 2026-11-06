@@ -10,7 +10,7 @@ const run=(id,overrides={})=>({
  repository:{full_name:REPO},head_repository:{full_name:REPO},
  ...overrides
 });
-function mock({runs=[],comments=[],fail='',fullPage=false}={}){
+function mock({runs=[],comments=[],fail='',fullPage=false,fullPages=0}={}){
  const posts=[],gets=[];
  const fetchImpl=async(url,opts={})=>{
   const u=new URL(url),method=opts.method||'GET';
@@ -23,7 +23,10 @@ function mock({runs=[],comments=[],fail='',fullPage=false}={}){
   }
   gets.push(p);
   if(p.includes('/actions/workflows/'))return {ok:true,status:200,json:async()=>({workflow_runs:runs})};
-  if(p.includes('/comments?'))return {ok:true,status:200,json:async()=>fullPage?Array(100).fill({body:'noise'}):comments};
+  if(p.includes('/comments?')){
+   const page=Number(u.searchParams.get('page'));
+   return {ok:true,status:200,json:async()=>fullPage || page<=fullPages?Array(100).fill({body:'noise'}):comments};
+  }
   throw new Error('UNEXPECTED_ROUTE_'+p);
  };
  return {posts,gets,fetchImpl};
@@ -72,6 +75,14 @@ test('GitHub failures and unbounded comment history fail closed',async()=>{
  const unbounded=mock({runs:[run(53)],fullPage:true});
  await assert.rejects(reconcileReleaseOutcomes({...args,fetchImpl:unbounded.fetchImpl}),/RELEASE_RECONCILE_COMMENTS_UNBOUNDED/);
  assert.equal(unbounded.posts.length,0);
+});
+test('history beyond five full pages reconciles without losing the duplicate guard',async()=>{
+ const url='https://github.com/'+REPO+'/actions/runs/54';
+ const f=mock({runs:[run(54)],fullPages:5,comments:[{body:'Recorded '+url}]});
+ const done=await reconcileReleaseOutcomes({...args,fetchImpl:f.fetchImpl});
+ assert.deepEqual(done,{checked:1,created:0,skipped:1});
+ assert.equal(f.gets.filter(path=>path.includes('/comments?')).length,6);
+ assert.equal(f.posts.length,0);
 });
 test('merged PR write denial remains a reported failure without invented ledger receipt',async()=>{
  const f=mock({runs:[run(57)]});
