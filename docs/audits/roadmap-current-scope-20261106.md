@@ -20,7 +20,8 @@ Les anciens identifiants ne sont jamais des alias de preuve. Les anciennes missi
 
 - GEN2-36 : objectif courant GitHub/Cloudflare. La preuve Vercel reste historique ; Vercel est exclu du catalogue gratuit actuel.
 - GEN2-63 : sélection d’un travail admissible, subordonnée aux arrêts propriétaire et pauses de réparation. L’ancienne formulation NON-IDLE n’autorise pas leur contournement.
-- P16 : titre fonctionnel permanent plutôt qu’une date de cycle passée.
+- P16/P17 : titres fonctionnels permanents plutôt qu’une date de cycle ou un ordre implicite contredisant les dépendances.
+- AUDIT-06, MANIFEST-08 et CHAT-01 : anciens diagnostics du 31 octobre reformulés en critères de non-régression, sans annoncer que les défauts persistent. Les scénarios requis restent inchangés.
 - Référence de versionnement du ModelRegistry alignée sur FOUNDER-03.
 
 ## Exigences conservées après examen

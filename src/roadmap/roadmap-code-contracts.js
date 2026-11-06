@@ -98,7 +98,7 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
     ],
     "acceptance": [
       "Un modèle nouveau et autorisé crée une proposition de benchmark idempotente; modèle payant, supprimé ou déjà mesuré reste exclu.",
-      "Le Council a rejeté le 31/10 un diff qui utilisait standardRegistry sans l'importer ni le recevoir en paramètre : le registre des modèles déjà mesurés doit être importé explicitement ou passé en argument, et le test doit l'exercer."
+      "Le registre des modèles déjà mesurés est importé explicitement ou passé en argument; la régression exerce ce registre et interdit un identifiant standardRegistry non défini."
     ],
     "max_attempts": 3
   },
@@ -222,7 +222,7 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
       "tests/gen2/companion-ci-provider-adapter.test.mjs"
     ],
     "acceptance": [
-      "Le banc logiciel couvre appairage, arrêt, autorisations et déconnexion avec doubles explicites; la recette physique reste séparée et non validée."
+      "Le banc logiciel couvre appairage, arrêt, autorisations et déconnexion avec doubles explicites; la recette physique reste séparée et exige son propre reçu vérifié."
     ],
     "max_attempts": 3
   },
@@ -467,7 +467,7 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
     ],
     "acceptance": [
       "Cinq messages sont rendus depuis un vrai reçu ou le code d’erreur exact est conservé; absence de compte et erreur réseau ne sont pas une lecture réussie.",
-      "La version existante ne le prouve pas (Council 31/10) : ajouter dans le test de régression un reçu de cinq messages rendus et un cas absence de compte et un cas erreur réseau qui gardent leur code exact."
+      "La régression vérifie un reçu de cinq messages rendus, un cas absence de compte et un cas erreur réseau qui gardent leur code exact."
     ],
     "focus_symbols": ["gmailNativeRead", "gmailRequest", "gmailAuthFailure"],
     "revision": "2026-10-31-code-v3",
@@ -486,7 +486,7 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
     ],
     "acceptance": [
       "Demande de média, explication, négation et exemple JSON sont distingués sans appel supplémentaire; les formulations polies conservent la même intention.",
-      "Exemples exacts mesurés le 31/10 (inferChatMediaCapability) : « Bonjour, montre-moi une photo de la tour Eiffel » et « merci de me montrer une photo de chien » renvoient aujourd'hui null et doivent donner web.images.search (query « la tour Eiffel » / « chien », max_images 1) ; « ne me montre pas de photo de chat », « explique la différence entre une photo et une vidéo » et « donne un exemple JSON: {...} » doivent rester null ; « montre-moi trois photos de chats » garde max_images 3."
+      "Cas de non-régression (inferChatMediaCapability) : « Bonjour, montre-moi une photo de la tour Eiffel » et « merci de me montrer une photo de chien » doivent donner web.images.search (query « la tour Eiffel » / « chien », max_images 1) ; « ne me montre pas de photo de chat », « explique la différence entre une photo et une vidéo » et « donne un exemple JSON: {...} » doivent rester null ; « montre-moi trois photos de chats » garde max_images 3."
     ],
     "max_attempts": 3
   },

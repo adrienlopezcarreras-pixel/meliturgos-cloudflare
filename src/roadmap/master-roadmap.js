@@ -250,7 +250,7 @@ export const MASTER_ROADMAP = Object.freeze([
     codeItem("MEL-UI-AUDIT-07", 'PLANNED', 'P2')
   ]),
 
-  phase('P17', 'Compte du manifeste : continuer après le cycle fondateur', [
+  phase('P17', 'Contrôles du manifeste et critères de livraison', [
     codeItem("MEL-MANIFEST-01", 'PLANNED', 'P2'),
     codeItem("MEL-MANIFEST-04", 'PLANNED', 'P2'),
     codeItem("MEL-MANIFEST-05", 'PLANNED', 'P1'),
