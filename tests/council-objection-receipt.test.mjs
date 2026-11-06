@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { councilObjectionReceipt } from '../scripts/write-council-objection-receipt.mjs';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import {spawnSync} from 'node:child_process';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 
 test('a scoped rejection preserves actionable blockers without publishing raw context', () => {
   const head = 'a'.repeat(40), base = 'b'.repeat(40);
@@ -40,4 +44,22 @@ test('the workflow artifact stays outside candidate git add -A and is never an a
   assert.match(workflow, /write-council-objection-receipt\.mjs "\$CAND" "\$MAIN" "\$RUNNER_TEMP\/council-review-objections\.json"/);
   assert.match(workflow, /path: \$\{\{ runner\.temp \}\}\/council-review-objections\.json/);
   assert.doesNotMatch(workflow, /DECISION=.*council-review-objections/);
+});
+
+test('canonical CLI filters remote D1 batches without workflow-relative imports',t=>{
+ const dir=mkdtempSync(join(tmpdir(),'council-latest-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));
+ const output=join(dir,'receipt.json');
+ const row={head:'a'.repeat(40),base:'b'.repeat(40),decision:'COUNCIL_BATCH_QUORUM_UNPROVEN',
+  reviews:JSON.stringify([{model:'reviewer',verdict:'REJECT',blocking:['Inspect the actual code'],summary:'private-summary'}]),
+  diff:'private-code',prompt:'private-prompt'};
+ const result=spawnSync(process.execPath,[fileURLToPath(new URL('../scripts/write-council-objection-receipt.mjs',import.meta.url)),
+  '--latest',output],{input:JSON.stringify([{results:Array(12).fill(row)}]),encoding:'utf8'});
+ assert.equal(result.status,0,result.stderr);
+ const raw=readFileSync(output,'utf8'),receipt=JSON.parse(raw);
+ assert.equal(receipt.receipts.length,10);assert.equal(receipt.release_authorized,false);
+ assert.deepEqual(receipt.receipts[0].reviews[0].blocking,['Inspect the actual code']);
+ assert.doesNotMatch(raw,/private-/);assert.equal(result.stdout,'');
+ const workflow=readFileSync('.github/workflows/gen2-42-live-proof.yml','utf8');
+ assert.match(workflow,/node scripts\/write-council-objection-receipt\.mjs --latest/);
+ assert.doesNotMatch(workflow,/from ['"]\.\/scripts\/write-council-objection-receipt/);
 });

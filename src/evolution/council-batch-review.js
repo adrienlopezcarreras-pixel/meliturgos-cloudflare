@@ -139,9 +139,7 @@ export async function handleCouncilBatchedReview(env,body,{
     '; independent verdict='+row.decision+
     '; reviewers='+row.reviews.filter(r=>r&&typeof r==='object').map(r=>String(r.model||'')+':'+String(r.verdict||'')+':'+String(r.summary||'').slice(0,180)).join(' | ')
   ).join('\n');
-  // The separate final vote must see code too. A small complete diff fits
-  // the existing bound; large integrations retain all independent batch
-  // votes and expose bounded full-file context, with omissions explicit.
+  // Final voters get code; large integrations retain bounded file context.
   let dependencyContext;
   try{if(contextLoader)dependencyContext=await contextLoader(env,{head,diff:entireDiff});}
   catch{return reject('COUNCIL_FINAL_CONTEXT_UNAVAILABLE',409);}
