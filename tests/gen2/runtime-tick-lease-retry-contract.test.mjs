@@ -65,14 +65,14 @@ test('GEN2-42 targeted mission exits both dispatch paths before reading tick pro
 
 test('GEN2-42 defers a no-progress tick with a claimed mission instead of recursively dispatching', async () => {
   const source = await readFile(new URL('../../.github/workflows/gen2-42-runtime-tick.yml', import.meta.url), 'utf8');
-  const start = source.indexOf('      - name: Continue event-driven autonomy while work is advancing\\n');
-  const end = source.indexOf('      - name: Upload sanitized tick proof\\n', start);
+  const start = source.indexOf('      - name: Continue event-driven autonomy while work is advancing\n');
+  const end = source.indexOf('      - name: Upload sanitized tick proof\n', start);
   assert.ok(start >= 0 && end > start, 'autonomy continuation step exists');
   const section = source.slice(start, end);
-  const index = section.indexOf('        run: |\\n');
+  const index = section.indexOf('        run: |\n');
   assert.ok(index >= 0, 'continuation has a Bash script');
-  const script = section.slice(index + '        run: |\\n'.length)
-    .split('\\n').map(line => line.startsWith('          ') ? line.slice(10) : line).join('\\n');
+  const script = section.slice(index + '        run: |\n'.length)
+    .split('\n').map(line => line.startsWith('          ') ? line.slice(10) : line).join('\n');
   const fs = await import('node:fs');
   const os = await import('node:os');
   const path = await import('node:path');
