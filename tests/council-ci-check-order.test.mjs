@@ -25,6 +25,9 @@ test('Council still blocks a later failure, cancellation or incomplete latest ch
   }
   const pending={...check(3,null,null,'in_progress'),started_at:'2026-11-06T18:34:00Z'};
   assert.equal(selectLatestCheckOutcomes([success,pending]).get('full-suite'),pending);
+  const laterSuccess=check(4,'success','2026-11-06T18:36:00Z');
+  assert.equal(selectLatestCheckOutcomes([laterSuccess,pending]).get('full-suite'),pending,
+    'even an older, still in-progress duplicate must block Council');
 });
 
 test('Council preserves fail-closed tie break and the review gate still requires all checks green',()=>{
