@@ -6,6 +6,9 @@ on:
   push:
     branches:
       - candidate/mel-clean-autonomy
+      # Review-only repair branches need exact-HEAD full evidence without manual dispatch.
+      # Request-promotion below remains restricted to the candidate branch.
+      - 'fix/council-*'
   workflow_dispatch:
 
 permissions:
