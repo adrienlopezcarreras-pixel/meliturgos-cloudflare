@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { pathToFileURL } from 'node:url';
 
 const sha = text => createHash('sha256').update(text).digest('hex');
@@ -12,10 +13,33 @@ export function rebasePreparedChange({ committed, current, content, baseSha }) {
   if (current == null) return null;
   if (sha(current) === baseSha || current === content) return null;
   if (committed == null || sha(committed) !== baseSha) return { conflict: true };
-  if (!content.startsWith(committed) || !current.startsWith(committed)) return { conflict: true };
-  const suffix = content.slice(committed.length);
-  const merged = current.endsWith(suffix) ? current : current + suffix;
-  return { content: merged, baseSha: sha(current) };
+  if (content.startsWith(committed) && current.startsWith(committed)) {
+    const suffix = content.slice(committed.length);
+    const merged = current.endsWith(suffix) ? current : current + suffix;
+    return { content: merged, baseSha: sha(current) };
+  }
+  // A second mission can insert code elsewhere in the same source file.
+  // Merge only if Git proves the two changes are non-conflicting against
+  // the exact recorded base. Never rebase on an unmatched base or discard
+  // a conflict marker to make the package appear ready.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mel-prepared-merge-'));
+  try {
+    const ours = path.join(dir, 'current');
+    const ancestor = path.join(dir, 'base');
+    const theirs = path.join(dir, 'prepared');
+    fs.writeFileSync(ours, current);
+    fs.writeFileSync(ancestor, committed);
+    fs.writeFileSync(theirs, content);
+    const merged = execFileSync('git', ['merge-file', '--stdout', ours, ancestor, theirs],
+      { cwd: dir, encoding: 'utf8', timeout: 5000, maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
+    if (!merged || merged === committed) return { conflict: true };
+    return { content: merged, baseSha: sha(current) };
+  } catch {
+    // Git merge-file exits nonzero for overlapping edits. Remain fail-closed.
+    return { conflict: true };
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 export function rebasePreparedPackages(root, { readCommitted } = {}) {
