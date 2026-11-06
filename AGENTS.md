@@ -2,14 +2,22 @@
 
 Ce fichier est le point d’entrée canonique pour toute page ChatGPT, agent de code ou IA qui travaille sur MEL.
 
+## Alerte prioritaire : modèles Cloudflare Workers AI — novembre 2026
+
+**OBLIGATOIRE POUR TOUT AGENT / MODÈLE / CODEX / COPILOT / CLAUDE / CHATGPT intervenant sur MEL.**
+Lire et appliquer `docs/WORKERS_AI_DEPRECATION_20261106.md` à chaque reprise, avant toute intervention sur modèles IA, routage, Council, Teacher, médias, embeddings, LoRA ou déploiements.
+L'avis Cloudflare transmis annonce des dépréciations au **20 novembre 2026** ; vérifier la date officielle et retenir toute échéance antérieure. Inventorier les références actives, tester les alternatives et les coûts, préserver les preuves Council, les gates de release et la politique sans surcoût. **Interdiction de relancer MAX sur la seule base de cette alerte.**
+Inclure cette directive dans les handoffs des missions concernées.
+
 ## À lire avant toute modification
 
-1. `.agents/MEL_OPERATING_MANUAL.md`
-2. `.agents/DEPLOYMENT_UNICITY.md`
-3. `.agents/MULTI_PAGE_RESUME.md`
-4. `.agents/XP_PROTOCOL.md`
-5. `.agents/DEVELOPMENT_EXPERIENCE_INDEX.md`
-6. `src/roadmap/master-roadmap.js`
+1. `docs/WORKERS_AI_DEPRECATION_20261106.md` (alerte prioritaire, si travail lié aux modèles IA)
+2. `.agents/MEL_OPERATING_MANUAL.md`
+3. `.agents/DEPLOYMENT_UNICITY.md`
+4. `.agents/MULTI_PAGE_RESUME.md`
+5. `.agents/XP_PROTOCOL.md`
+6. `.agents/DEVELOPMENT_EXPERIENCE_INDEX.md`
+7. `src/roadmap/master-roadmap.js`
 
 ## Sources de vérité
 
