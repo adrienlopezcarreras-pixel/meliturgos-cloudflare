@@ -62,3 +62,39 @@ test('GEN2-42 targeted mission exits both dispatch paths before reading tick pro
     assert.doesNotMatch(result.stdout, /CLOUD_BRIDGE_DISPATCHED|AUTONOMY_CHAIN_CONTINUED/, name);
   }
 });
+
+test('GEN2-42 defers a no-progress tick with a claimed mission instead of recursively dispatching', async () => {
+  const source = await readFile(new URL('../../.github/workflows/gen2-42-runtime-tick.yml', import.meta.url), 'utf8');
+  const start = source.indexOf('      - name: Continue event-driven autonomy while work is advancing\n');
+  const end = source.indexOf('      - name: Upload sanitized tick proof\n', start);
+  assert.ok(start >= 0 && end > start, 'autonomy continuation step exists');
+  const section = source.slice(start, end);
+  const index = section.indexOf('        run: |\n');
+  assert.ok(index >= 0, 'continuation has a Bash script');
+  const script = section.slice(index + '        run: |\n'.length)
+    .split('\n').map(line => line.startsWith('          ') ? line.slice(10) : line).join('\n');
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mel-claimed-tick-'));
+  try {
+    const proof = {
+      advanced: false, paused: false, max_autonomy: true,
+      bridge_preparation_ready: false,
+      progress: { work_remaining: true, waiting_external: false, block_reason: null,
+        active_jobs: 1, job_id: 'job-claimed', job_status: 'CLAIMED' },
+      watchdog: { tripped: false },
+    };
+    fs.writeFileSync(path.join(dir, 'gen2-42-runtime-tick-proof.json'), JSON.stringify(proof));
+    const result = spawnSync('bash', ['-c', script], {
+      cwd: dir, encoding: 'utf8', timeout: 5000,
+      env: { ...process.env, ONLY_JOB_ID: '', CHAIN_DEPTH: '0', GH_TOKEN: 'unused' },
+    });
+    assert.equal(result.status, 0, result.stderr || result.error?.message);
+    assert.match(result.stdout, /AUTONOMY_CHAIN_DEFERRED_ACTIVE_CLAIM job_id=job-claimed/);
+    assert.doesNotMatch(result.stdout, /AUTONOMY_CHAIN_CONTINUED|CLOUD_BRIDGE_DISPATCHED/);
+    assert.equal(fs.existsSync(path.join(dir, 'autonomy-next-dispatch.json')), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
