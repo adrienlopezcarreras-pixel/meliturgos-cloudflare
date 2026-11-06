@@ -169,7 +169,15 @@ jobs:
             3112|3113) test "$STATE" = "open" ;;
             *)
               if [ "$OWNER_MANUAL_REVIEW" != true ]; then echo "::error::COUNCIL_PR_NOT_ALLOWLISTED"; exit 1; fi
-              test "$STATE" = open
+              # Owner may inspect an already merged exact SHA only as a
+              # historical audit. It never grants retrospective merge/release approval.
+              if [ "$STATE" != open ]; then
+                test "$STATE" = closed
+                test -n "$MERGED_AT"
+                [[ "$MERGE_SHA" =~ ^[a-f0-9]{40}$ ]]
+                test -z "$REVIEW_BASE_OVERRIDE"
+                echo "::notice title=Council audit only::Merged PR review is nonauthorizing."
+              fi
               echo "MEL_COUNCIL_OWNER_MANUAL_PROFILE=true" >> "$GITHUB_ENV"
               ;;
           esac
