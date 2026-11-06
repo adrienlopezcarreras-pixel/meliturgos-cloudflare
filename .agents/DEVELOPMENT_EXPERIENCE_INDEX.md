@@ -228,3 +228,5 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 - `codex-prepared-cache-binds-authoritative-revision-20261106` — la révision du paquet autorisé participe à la validité du cache, même à Teacher/SHA constants; une source illisible ne justifie pas le rejeu de la copie précédente. Preuves locales, livraison runtime encore requise.
 
 - `codex-council-uses-shared-visible-answer-adapter-20261106` — utiliser l’adaptateur canonique pour la revue aussi; options visibles documentées, canal final obligatoire et substitut local refusé, quorum inchangé. Preuves locales, validation runtime à obtenir.
+
+- `codex-batch-safety-facts-before-recovery-effects-20261106` — évaluer les signaux de sécurité du lot avant tout exécuteur de reprise; préserver les contre-mesures indépendantes et distinguer refus de reprise et activation. Paquet testé localement, livraison de mission encore requise.

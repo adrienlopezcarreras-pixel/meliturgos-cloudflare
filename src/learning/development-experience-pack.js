@@ -1925,4 +1925,28 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1793925149327
   },
+  {
+    "id": "codex-batch-safety-facts-before-recovery-effects-20261106",
+    "source": "codex",
+    "domain": "continuity-safety",
+    "task": "Préserver une pause de sécurité face à des signaux simultanés et contradictoires de reprise.",
+    "input": "Un cycle reçoit ensemble une pause de sécurité, une pause supposée accidentelle et une absence du propriétaire.",
+    "before": "Le traitement séquentiel appelait les exécuteurs de reprise avant de rencontrer le signal KEEP_PAUSE, ce qui annulait de fait la priorité de sécurité.",
+    "after": "Évaluer tout le lot de signaux avant le premier effet. Une pause de sécurité interdit les contre-mesures qui remettent MAX en marche, quel que soit l’ordre ou le format des signaux; les contre-mesures indépendantes restent disponibles. Rapporter les reprises bloquées comme non exécutées avec un diagnostic typé. Sans pause de sécurité, conserver le chemin normal autorisé.",
+    "rationale": "Un ordre de parcours ne doit pas arbitrer des faits contradictoires; la contrainte de sécurité doit être connue avant toute activation.",
+    "tests": [
+      "Trois régressions locales en échec avant correction: faits camelCase, snake_case et liste detected",
+      "11 tests locaux réussis, dont tests/prepared-life01-safety-contract.test.mjs exécutant le code réel du paquet JSON; aucune livraison runtime de mission affirmée"
+    ],
+    "tags": [
+      "safety-pause",
+      "batch-precedence",
+      "no-false-activation",
+      "prepared-package",
+      "local-proof"
+    ],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1793943404341
+  },
 ]);
