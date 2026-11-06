@@ -1,5 +1,13 @@
 // Every scheduled roadmap objective is a bounded software deliverable, never a declaration.
 export const ROADMAP_CODE_CONTRACT_REVISION = '2026-10-29-code-v1';
+// Historical IDs remain traceable, but never schedule or certify their replacement.
+export const ROADMAP_RETIRED_IDS = Object.freeze({
+  "MEL-MANIFEST-02": "MEL-FOUNDER-02",
+  "MEL-MANIFEST-03": "MEL-FOUNDER-03",
+  "MEL-MANIFEST-09": "MEL-FOUNDER-03",
+  "MEL-MANIFEST-10": "MEL-MANIFEST-01"
+});
+
 export const ROADMAP_CODE_CONTRACTS = Object.freeze({
   "MEL-LIFE-01": {
     "title": "Contre-mesures de survie, d evolution et de mise a jour",
@@ -136,17 +144,19 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
       "src/evolution/autonomy-runtime-lease.js"
     ],
     "test_paths": [
-      "tests/autonomy-runtime.test.mjs"
+      "tests/autonomy-runtime.test.mjs",
+      "tests/autonomy-runtime-lease.test.mjs"
     ],
     "acceptance": [
-      "Trois ticks reprennent le même identifiant et son étape persistée, libèrent le lease et distinguent absence de progrès de réussite."
+      "Trois ticks reprennent le même identifiant et son étape persistée, libèrent le lease et distinguent absence de progrès de réussite.",
+      "Une interruption entre deux écritures reprend le même checkpoint après expiration du lease, sans double étape ni nouveau job."
     ],
     "focus_symbols": ["runAutonomyRuntimeTick", "autonomyTickAdvanced", "tryAcquireAutonomyRuntimeLease", "releaseAutonomyRuntimeLease"],
-    "revision": "2026-10-31-code-v2",
+    "revision": "2026-11-06-consolidated-v1",
     "max_attempts": 3
   },
   "MEL-FOUNDER-03": {
-    "title": "Implémenter le parcours capacité absente vers développement persistant",
+    "title": "Livrer une capacité versionnée depuis un écart prouvé jusqu’au bus canonique",
     "mode": "IMPLEMENT",
     "required_proof": "DIFF_TESTS_EXACT_SHA_CI",
     "code_paths": [
@@ -155,13 +165,17 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
       "src/capabilities/capability-bus.js"
     ],
     "test_paths": [
-      "tests/autonomy-runtime-evolution-queue-progress.test.mjs"
+      "tests/autonomy-runtime-evolution-queue-progress.test.mjs",
+      "tests/expanded-capability-bus.test.mjs"
     ],
     "acceptance": [
-      "Une capacité manquante autorisée ouvre un seul objectif reprenable; sa livraison vérifiée enregistre la compétence sur le bus canonique."
+      "Une capacité manquante autorisée ouvre un seul objectif reprenable; sa livraison vérifiée enregistre la compétence sur le bus canonique.",
+      "Une livraison validée enregistre un descripteur unique; échec CI, conflit de nom ou preuve absente empêchent l’enregistrement.",
+      "Seul un écart avec preuves ouvre une évolution idempotente; l’ancienne compétence reste active jusqu’à la livraison vérifiée de la nouvelle."
     ],
     "focus_symbols": ["ensureNextJob", "selectNextAutonomyItem", "AutonomySupervisor"],
-    "max_attempts": 3
+    "max_attempts": 3,
+    "revision": "2026-11-06-consolidated-v1"
   },
   "MEL-FOUNDER-04": {
     "title": "Rendre le Council indépendant, borné et lié au SHA",
@@ -359,7 +373,7 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
     "max_attempts": 3
   },
   "MEL-MANIFEST-01": {
-    "title": "Implémenter le registre calculé des priorités du manifeste",
+    "title": "Calculer les priorités et l’avancement vérifiable du manifeste",
     "mode": "IMPLEMENT",
     "required_proof": "DIFF_TESTS_EXACT_SHA_CI",
     "code_paths": [
@@ -369,40 +383,11 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
       "tests/autonomy-readiness.test.mjs"
     ],
     "acceptance": [
-      "Les cinq indices métier restent des données du rapport, jamais des priorités P4; les statuts sont calculés depuis les preuves et le matériel absent reste en attente externe."
+      "Les cinq indices métier restent des données du rapport, jamais des priorités P4; les statuts sont calculés depuis les preuves et le matériel absent reste en attente externe.",
+      "Les lignes calculées distinguent code livré, preuves d’usage et acceptation externe; une dépendance absente ou un appareil non testé interdit 100 pour cent."
     ],
-    "max_attempts": 3
-  },
-  "MEL-MANIFEST-02": {
-    "title": "Ajouter la recette de reprise MAX après interruption et release",
-    "mode": "IMPLEMENT",
-    "required_proof": "DIFF_TESTS_EXACT_SHA_CI",
-    "code_paths": [
-      "src/evolution/autonomy-runtime-lease.js",
-      "src/evolution/autonomy-runtime-core.js"
-    ],
-    "test_paths": [
-      "tests/autonomy-runtime-lease.test.mjs"
-    ],
-    "acceptance": [
-      "Une interruption entre deux écritures reprend le même checkpoint après expiration du lease, sans double étape ni nouveau job."
-    ],
-    "max_attempts": 3
-  },
-  "MEL-MANIFEST-03": {
-    "title": "Raccorder la livraison d’une compétence au CapabilityBus unique",
-    "mode": "IMPLEMENT",
-    "required_proof": "DIFF_TESTS_EXACT_SHA_CI",
-    "code_paths": [
-      "src/capabilities/capability-bus.js"
-    ],
-    "test_paths": [
-      "tests/expanded-capability-bus.test.mjs"
-    ],
-    "acceptance": [
-      "Une livraison validée enregistre un descripteur unique; échec CI, conflit de nom ou preuve absente empêchent l’enregistrement."
-    ],
-    "max_attempts": 3
+    "max_attempts": 3,
+    "revision": "2026-11-06-consolidated-v1"
   },
   "MEL-MANIFEST-04": {
     "title": "Raccorder la sauvegarde vérifiée au garde de changement risqué",
@@ -487,36 +472,6 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
     "focus_symbols": ["gmailNativeRead", "gmailRequest", "gmailAuthFailure"],
     "revision": "2026-10-31-code-v3",
     "verify_existing": false,
-    "max_attempts": 3
-  },
-  "MEL-MANIFEST-09": {
-    "title": "Implémenter le lien écart mesuré vers compétence versionnée",
-    "mode": "IMPLEMENT",
-    "required_proof": "DIFF_TESTS_EXACT_SHA_CI",
-    "code_paths": [
-      "src/roadmap/evolution-storage.js"
-    ],
-    "test_paths": [
-      "tests/autonomy-runtime-evolution-queue-progress.test.mjs"
-    ],
-    "acceptance": [
-      "Seul un écart avec preuves ouvre une évolution idempotente; l’ancienne compétence reste active jusqu’à la livraison vérifiée de la nouvelle."
-    ],
-    "max_attempts": 3
-  },
-  "MEL-MANIFEST-10": {
-    "title": "Coder l’agrégation vérifiable de l’avancement du manifeste",
-    "mode": "IMPLEMENT",
-    "required_proof": "DIFF_TESTS_EXACT_SHA_CI",
-    "code_paths": [
-      "src/roadmap/manifest-01-acceptance.js"
-    ],
-    "test_paths": [
-      "tests/autonomy-readiness.test.mjs"
-    ],
-    "acceptance": [
-      "Les lignes calculées distinguent code livré, preuves d’usage et acceptation externe; une dépendance absente ou un appareil non testé interdit 100 pour cent."
-    ],
     "max_attempts": 3
   },
   "MEL-CHAT-01": {
@@ -727,6 +682,8 @@ export function codeContractForRoadmapJob(job) {
 // A manifest/accounting objective must not edit its own declaration to pass.
 // The approved code and regression files define the deliverable, not a status.
 export function assertRoadmapCodeChanges(job, changes = []) {
+  if (job?.requested_by === 'mel-autonomy' && ROADMAP_RETIRED_IDS[job?.optional_context?.roadmap_id])
+    throw Object.assign(new Error('ROADMAP_ITEM_RETIRED'), { code: 'ROADMAP_ITEM_RETIRED' });
   const contract = codeContractForRoadmapJob(job);
   if (!contract) return;
   if (job.optional_context?.roadmap_contract_revision !== roadmapContractRevision(job.optional_context?.roadmap_id))

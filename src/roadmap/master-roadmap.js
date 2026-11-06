@@ -12,7 +12,7 @@ export function isClosedRoadmapStatus(status) {
   return [ROADMAP_STATUSES.VERIFIED, 'DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED'].includes(String(status || '').trim().toUpperCase());
 }
 
-export const ROADMAP_REGISTRY_REVISION = '2026-10-29.1';
+export const ROADMAP_REGISTRY_REVISION = '2026-11-06.1';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -130,7 +130,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-33', 'Gmail / Google', 'DONE_VERIFIED', 'Production certifiée sur le SHA exact 1054e06986bc00d09eef29344df6f95ac7d557ba par release #669, job connections / production-proof 112808758304 SUCCESS : OAuth Google configuré et refreshable, Gmail live_probe=true, Google Tasks live_probe=true, Google Drive live_probe=true. Google Calendar natif reste désactivé côté projet Google mais le chemin fonctionnel MEL est couvert par le compte Pipedream google_calendar sain et par le fallback Calendar du CapabilityBus déployé sur ce même SHA.', 'P1'),
     item('GEN2-34', 'Outlook / Microsoft', 'DONE_VERIFIED', 'Certification production acquise le 01/10/2026 sur SHA exact f4f57e3617f313a1f41c113eab0deee0c44388b4 via post-release-proof-suite run 36902043229: la route Microsoft directe a correctement signalé CONNECTION_TOKEN_NOT_AVAILABLE puis le fallback supporté Pipedream a prouvé un compte microsoft_outlook réellement lié; la preuve finale marque microsoft.outlook=true sans exposer de secret.', 'P2'),
     item('GEN2-35', 'OneDrive / SharePoint', 'DONE_VERIFIED', 'Certification production acquise le 01/10/2026 sur SHA exact f4f57e3617f313a1f41c113eab0deee0c44388b4 via post-release-proof-suite run 36902043229: après absence attendue de token Microsoft direct, les fallbacks supportés Pipedream ont prouvé des comptes microsoft_onedrive et sharepoint réellement liés; la preuve finale marque microsoft.onedrive=true et microsoft.sharepoint=true sans exposition de secret.', 'P1'),
-    item('GEN2-36', 'GitHub / Cloudflare / Vercel', 'DONE_VERIFIED', 'Certification production acquise le 01/10/2026 sur SHA exact f4f57e3617f313a1f41c113eab0deee0c44388b4. post-release-proof-suite run 36902043229 / job 110503345561 a prouvé Cloudflare workers.read et deployments.read réels via relay avec health HEALTHY, puis GitHub workflow dispatch réellement exécuté via D1 Actions relay avec statut DISPATCHED. Le job connexions du même run a prouvé Vercel authentifié avec project_count=2. Aucune valeur secrète exposée.', 'P0'),
+    item('GEN2-36', 'Connecteurs GitHub et Cloudflare', 'DONE_VERIFIED', 'Certification production acquise le 01/10/2026 sur SHA exact f4f57e3617f313a1f41c113eab0deee0c44388b4. post-release-proof-suite run 36902043229 / job 110503345561 a prouvé Cloudflare workers.read et deployments.read réels via relay avec health HEALTHY, puis GitHub workflow dispatch réellement exécuté via D1 Actions relay avec statut DISPATCHED. La preuve Vercel de ce run est historique : ce fournisseur est désormais exclu de la politique gratuite courante et ne constitue plus un objectif actif. Aucune valeur secrète exposée.', 'P0'),
     item('GEN2-37', 'Web / recherche', 'DONE_VERIFIED', 'Production vérifiée: release 36150649958 sur SHA 231b83e5009bf86af538d802f12e46b339252c70 a exécuté le vrai endpoint /api/gen2/web/research avec seed officiel Cloudflare, scope release strict, provenance complète et marqueur GEN2-37 PRODUCTION_VERIFIED.', 'P1'),
     item('MEL-CONN-01', 'WordPress Vérité Interdite', 'DONE_VERIFIED', 'Production certifiée le 26/09/2026: correctif public auth #470 fusionné puis déployé sur SHA f33f161dd4b1639e5b32490bfe4dfba05b5c370c par run 36233051273. Preuve depuis PC Windows réel DESKTOP-0S87KA9: GET /public/wordpress-chat = HTTP 200 sans owner auth, tandis que / et /manifest.webmanifest restent HTTP 401; séparation public/privé confirmée en production.', 'P3'),
     item('MEL-CONN-03', 'Mail Yahoo/Ymail', 'DONE_VERIFIED', 'Certification production fraîche acquise le 01/10/2026 après retrait du fournisseur mail générique, sur SHA exact f4f57e3617f313a1f41c113eab0deee0c44388b4 via post-release-proof-suite run 36902043229: OAuth Yahoo direct absent et IMAP Yahoo direct rejeté, puis fallback Pipedream IMAP supporté a prouvé linked_account=true; la preuve sanitizée finale marque mail.yahoo_or_ymail=true.', 'P1'),
@@ -223,13 +223,13 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-60', 'Completion matrix', 'DONE_VERIFIED', 'Implémentation canonique fusionnée par PR #30 puis réconciliée dans le main actuel: matrice dérivée uniquement du registre, fingerprint déterministe, séparation human/external blockers, sorties Markdown/JSON. Sur le SHA exact e749551d6c2786c225d5194a5a3556e4f47c84fd, les 8 tests GEN2-60 sont verts dans le run de release 36164971157, puis ce SHA a été déployé et le HTTP production final a été vérifié.', 'P2'),
     item('GEN2-61', 'Final status report', 'DONE_VERIFIED', 'Rapport final factuel/fail-closed fusionné et présent sur le main actuel: MATURE uniquement si matrice complète sans blockers ni P0/P1 ouverts, provenance révision/fingerprint conservée. Sur le SHA exact e749551d6c2786c225d5194a5a3556e4f47c84fd, les 8 tests GEN2-61 sont verts dans le run de release 36164971157, puis ce SHA a été déployé et le HTTP production final a été vérifié.', 'P2'),
     item('GEN2-62', 'human-actions-required', 'DONE_VERIFIED', 'Registre exact des actions humaines livré par PR #284 puis durci par PR #348: dérivation stricte depuis BLOCKED_HUMAN, aucun ghost blocker, provenance révision/fingerprint et validation fail-closed. Maintenir la cohérence avec le registre canonique. Certification finale: présent sur le SHA exact 02709095088bf71567350b1b4f4465231440d448, full-suite CI verte avant fusion et déploiement Cloudflare release 36232449914 vert avec preuve identite SHA, autonomie production et HTTP final.', 'P1'),
-    item('GEN2-63', 'Règle NON-IDLE / continue-when-blocked', 'DONE_VERIFIED', 'Politique exécutable fusionnée par PR #404: tant qu un item actionable existe, les blockers humains/externes ne peuvent pas forcer IDLE; sélection déterministe issue de la Completion Matrix et validation fail-closed. Gate gen2-63-non-idle-ci 36226797726 vert. Certification finale: présent sur le SHA exact 02709095088bf71567350b1b4f4465231440d448, full-suite CI verte avant fusion et déploiement Cloudflare release 36232449914 vert avec preuve identite SHA, autonomie production et HTTP final.', 'P1'),
+    item('GEN2-63', 'Sélection du travail admissible et respect des pauses', 'DONE_VERIFIED', 'Politique historique fusionnée par PR #404, désormais subordonnée aux gardes MAX : arrêt propriétaire et pause de réparation restent prioritaires; aucune poursuite ne les contourne. Hors pause, tant qu un item actionable existe, les blockers humains/externes ne peuvent pas forcer IDLE; sélection déterministe issue de la Completion Matrix et validation fail-closed. Gate gen2-63-non-idle-ci 36226797726 vert. Certification finale: présent sur le SHA exact 02709095088bf71567350b1b4f4465231440d448, full-suite CI verte avant fusion et déploiement Cloudflare release 36232449914 vert avec preuve identite SHA, autonomie production et HTTP final.', 'P1'),
     item('MEL-REL-01', 'Release figée sur commit exact', 'DONE_VERIFIED', 'Répéter pour chaque déploiement', 'P0'),
     item('MEL-REL-02', 'CI complet vert avant déploiement', 'DONE_VERIFIED', 'Conserver gate', 'P0'),
     item('MEL-REL-03', 'Smoke tests production après déploiement', 'DONE_VERIFIED', 'Release run 35693911802 vert sur SHA f5f294b1b4167fdbc88926d590f1dd808b73133e : readiness publique GO, code.read/code.search authentifiés via chat, self-check, mémoire ONLINE, Professor + runtime UI et HTTP production vérifiés.', 'P0')
   ]),
 
-  phase('P16', 'Cycle fondateur 2026-10-19 : reprendre, agir, se développer', [
+  phase('P16', 'Autonomie durable, livraison et preuves métier', [
     codeItem("MEL-FOUNDER-01", 'IN_PROGRESS', 'P0'),
     codeItem("MEL-FOUNDER-02", 'IN_PROGRESS', 'P0'),
     codeItem("MEL-FOUNDER-03", 'PLANNED', 'P0'),
@@ -252,15 +252,11 @@ export const MASTER_ROADMAP = Object.freeze([
 
   phase('P17', 'Compte du manifeste : continuer après le cycle fondateur', [
     codeItem("MEL-MANIFEST-01", 'PLANNED', 'P2'),
-    codeItem("MEL-MANIFEST-02", 'PLANNED', 'P1'),
-    codeItem("MEL-MANIFEST-03", 'PLANNED', 'P2'),
     codeItem("MEL-MANIFEST-04", 'PLANNED', 'P2'),
     codeItem("MEL-MANIFEST-05", 'PLANNED', 'P1'),
     codeItem("MEL-MANIFEST-06", 'PLANNED', 'P1'),
     codeItem("MEL-MANIFEST-07", 'PLANNED', 'P1'),
     codeItem("MEL-MANIFEST-08", 'PLANNED', 'P1'),
-    codeItem("MEL-MANIFEST-09", 'PLANNED', 'P2'),
-    codeItem("MEL-MANIFEST-10", 'PLANNED', 'P3')
   ]),
   phase('P19', 'Chat professionnel : compréhension, médias et diagnostics prouvés', [
     codeItem("MEL-CHAT-01", 'IN_PROGRESS', 'P1'),

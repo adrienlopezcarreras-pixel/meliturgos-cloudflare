@@ -1,5 +1,5 @@
 {
-  "roadmap_id": "MEL-MANIFEST-09",
+  "roadmap_id": "MEL-FOUNDER-03",
   "summary": "openEvolutionFromMeasuredGap : seul un écart avec mesure ouvre une évolution, idempotente par titre canonique ; activeCompetenceVersion garde l'ancienne version active jusqu'au DONE_VERIFIED de la nouvelle.",
   "tests": [
     "test"

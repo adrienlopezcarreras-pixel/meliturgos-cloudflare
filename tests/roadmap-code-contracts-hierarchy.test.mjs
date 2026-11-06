@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { flattenRoadmap, validateRoadmap } from '../src/roadmap/master-roadmap.js';
-import { ROADMAP_CODE_CONTRACT_REVISION, assertRoadmapCodeChanges } from '../src/roadmap/roadmap-code-contracts.js';
+import { ROADMAP_CODE_CONTRACT_REVISION, roadmapContractRevision, assertRoadmapCodeChanges } from '../src/roadmap/roadmap-code-contracts.js';
 import { validateRoadmapDependencies } from '../src/roadmap/roadmap-dependencies.js';
 import { manifest01FoundationPrerequisites } from '../src/roadmap/manifest-01-acceptance.js';
 import { unmetSoftwarePrerequisites } from '../src/evolution/own-roadmap-advance.js';
@@ -17,9 +17,9 @@ import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 const canonical = flattenRoadmap();
 const closed = row => ['DONE_VERIFIED','VERIFIED','ACCEPTED'].includes(row.status);
 
-test('all 43 open objectives have real, bounded code and test targets; proven history remains separate', async () => {
+test('all 40 open objectives have real, bounded code and test targets; proven history remains separate', async () => {
   assert.deepEqual(validateRoadmap(), {ok:true,issues:[]});
-  assert.equal(canonical.length,177);assert.equal(canonical.filter(closed).length,133);
+  assert.equal(canonical.length,173);assert.equal(canonical.filter(closed).length,133);
   for (const row of canonical.filter(row => !closed(row))) {
     assert.equal(row.mode,'IMPLEMENT',row.id);assert.equal(row.required_proof,'DIFF_TESTS_EXACT_SHA_CI');
     assert.equal(row.max_attempts,3);assert.ok(row.acceptance.length);assert.ok(row.code_paths.length);assert.ok(row.test_paths.length);
@@ -32,7 +32,7 @@ test('all 43 open objectives have real, bounded code and test targets; proven hi
 test('the whole canonical graph schedules prerequisites before every dependent, without simulated completed jobs',()=>{
   const verified=canonical.filter(closed).map(row=>row.id), order=[];
   assert.deepEqual(validateRoadmapDependencies(canonical),[]);
-  while(order.length<44){
+  while(order.length<40){
     const next=selectNextAutonomyItem({roadmap:canonical,verifiedIds:verified,completedIds:verified});
     assert.ok(next,'an acyclic code deliverable must remain schedulable');
     assert.deepEqual(unmetSoftwarePrerequisites(next, canonical, verified), [], next.id + ' ran before a software parent');
@@ -56,10 +56,10 @@ test('the exact observed generated P4 declaration fails validation and cannot be
   await writeFile(join(dir,'package.json'),'{"type":"module"}');
   const source=await readFile(new URL('../src/roadmap/master-roadmap.js',import.meta.url),'utf8');
   const bad="item('MEL-MANIFEST-01-P4', 'Priorité matérielle 4 du manifeste', 'BLOCKED_HUMAN', 'En pause, pas d’attente ni de programmation dans MAX.', 'P4'),\n    ";
-  await writeFile(join(dir,'master-roadmap.js'),source.replace(/codeItem\("MEL-MANIFEST-02"/,bad+'codeItem("MEL-MANIFEST-02"'));
+  await writeFile(join(dir,'master-roadmap.js'),source.replace(/codeItem\("MEL-MANIFEST-04"/,bad+'codeItem("MEL-MANIFEST-04"'));
   const broken=await import(pathToFileURL(join(dir,'master-roadmap.js')).href);
   assert.ok(broken.validateRoadmap().issues.some(row=>row.type==='INVALID_PRIORITY'&&row.id==='MEL-MANIFEST-01-P4'));
-  const job={requested_by:'mel-autonomy',optional_context:{roadmap_id:'MEL-MANIFEST-01',roadmap_contract_revision:ROADMAP_CODE_CONTRACT_REVISION}};
+  const job={requested_by:'mel-autonomy',optional_context:{roadmap_id:'MEL-MANIFEST-01',roadmap_contract_revision:roadmapContractRevision('MEL-MANIFEST-01')}};
   assert.throws(()=>assertRoadmapCodeChanges(job,[{path:'src/roadmap/master-roadmap.js',content:bad}]),{code:'ROADMAP_CODE_SCOPE_VIOLATION'});
   assert.doesNotThrow(()=>assertRoadmapCodeChanges(job,[{path:'src/roadmap/manifest-01-acceptance.js'},{path:'tests/autonomy-readiness.test.mjs'}]));
 });

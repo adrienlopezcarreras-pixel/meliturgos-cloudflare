@@ -65,7 +65,7 @@ export const standardRegistry = new ModelRegistry([
 // Owner decision 01/11: Council and mentor call only MEL's top models, never
 // the weaker free ones that lose rounds and neurons. This list is MEL's
 // evolvable choice: a measured, verified better model (MEL-AUDIT-06 then
-// MEL-MANIFEST-09) replaces one here. MEL_TOP_MODELS (comma list) overrides it.
+// MEL-FOUNDER-03) replaces one here. MEL_TOP_MODELS (comma list) overrides it.
 export const TOP_MODELS = Object.freeze(['@cf/openai/gpt-oss-120b', '@cf/meta/llama-3.3-70b-instruct-fp8-fast']);
 export function topModelIds(env = {}) {
   const configured = String(env?.MEL_TOP_MODELS || '').split(',').map(value => value.trim()).filter(Boolean);

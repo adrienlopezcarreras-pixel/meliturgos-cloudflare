@@ -1,5 +1,5 @@
 {
-  "roadmap_id": "MEL-MANIFEST-02",
+  "roadmap_id": "MEL-FOUNDER-02",
   "summary": "Reprise sur checkpoint durable après expiration du lease, sans double étape ni nouveau job",
   "tests": [
     "test"

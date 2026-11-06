@@ -42,7 +42,7 @@ export function validateRoadmapTechnicalWork(roadmap = []) {
 // A prerequisite is an exact roadmap ID, never an inferred keyword or phase.
 // In particular, paused real-device acceptance is not a dependency of cloud jobs.
 // The manifesto ledger consumes FOUNDER-02 durable state; its other rows may
-// remain pending. The final acceptance aggregator has explicit prerequisites.
+// remain pending. The report can be implemented before all rows pass; its acceptance must still expose missing proofs.
 export const ROADMAP_HARD_DEPENDENCIES = Object.freeze({
   "MEL-AUDIT-02": [
     "MEL-FOUNDER-02",
@@ -70,7 +70,8 @@ export const ROADMAP_HARD_DEPENDENCIES = Object.freeze({
   "MEL-FOUNDER-02": [],
   "MEL-FOUNDER-03": [
     "MEL-FOUNDER-02",
-    "MEL-FOUNDER-04"
+    "MEL-FOUNDER-04",
+    "MEL-COUNCIL-OPS-01"
   ],
   "MEL-FOUNDER-04": [],
   "MEL-FOUNDER-05": [
@@ -120,12 +121,6 @@ export const ROADMAP_HARD_DEPENDENCIES = Object.freeze({
   "MEL-MANIFEST-01": [
     "MEL-FOUNDER-02"
   ],
-  "MEL-MANIFEST-02": [
-    "MEL-FOUNDER-02"
-  ],
-  "MEL-MANIFEST-03": [
-    "MEL-FOUNDER-03"
-  ],
   "MEL-MANIFEST-04": [
     "MEL-FOUNDER-07"
   ],
@@ -141,22 +136,6 @@ export const ROADMAP_HARD_DEPENDENCIES = Object.freeze({
   ],
   "MEL-MANIFEST-08": [
     "MEL-FOUNDER-01"
-  ],
-  "MEL-MANIFEST-09": [
-    "MEL-FOUNDER-03",
-    "MEL-FOUNDER-04",
-    "MEL-COUNCIL-OPS-01"
-  ],
-  "MEL-MANIFEST-10": [
-    "MEL-MANIFEST-01",
-    "MEL-MANIFEST-02",
-    "MEL-MANIFEST-03",
-    "MEL-MANIFEST-04",
-    "MEL-MANIFEST-05",
-    "MEL-MANIFEST-06",
-    "MEL-MANIFEST-07",
-    "MEL-MANIFEST-08",
-    "MEL-MANIFEST-09"
   ],
   "MEL-CHAT-01": [
     "MEL-FOUNDER-01"

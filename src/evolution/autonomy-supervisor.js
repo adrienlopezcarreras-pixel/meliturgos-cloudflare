@@ -1,3 +1,4 @@
+import { ROADMAP_RETIRED_IDS } from '../roadmap/roadmap-code-contracts.js';
 import { isAcceptedRoadmapCodeJob } from '../roadmap/roadmap-code-acceptance.js';
 import { roadmapCodeMissionContext, roadmapCodeMissionGoal, refreshRoadmapCodeMissions } from './roadmap-code-missions.js';
 import { staleCouncilDeferral } from '../teachers/council-inference-policy.js';
@@ -36,8 +37,6 @@ const AUTONOMY_ORDER = [
   'MEL-FOUNDER-07',
   'MEL-FOUNDER-08',
   'MEL-MANIFEST-01',
-  'MEL-MANIFEST-02',
-  'MEL-MANIFEST-03',
   'MEL-MANIFEST-04',
   'MEL-WORK-01',
   'MEL-WORK-02',
@@ -45,8 +44,6 @@ const AUTONOMY_ORDER = [
   'MEL-MANIFEST-06',
   'MEL-MANIFEST-07',
   'MEL-MANIFEST-08',
-  'MEL-MANIFEST-09',
-  'MEL-MANIFEST-10',
   'GEN2-17',
   'MEL-EVOL-01',
   'MEL-EVOL-02',
@@ -235,6 +232,7 @@ export function selectActionableAutonomyJobs(jobs = [], { epochMs = 0, roadmap =
   const excluded = new Set(excludeIds);
   return (Array.isArray(jobs) ? jobs : [])
     .filter(isSupervisedAutonomyJob)
+    .filter(job => !ROADMAP_RETIRED_IDS[roadmapIdFromJob(job)])
     .filter(job => !closedIds.has(roadmapIdFromJob(job)))
     .filter(job => {
       const item = roadmap.find(row => row.id === roadmapIdFromJob(job));
@@ -343,6 +341,7 @@ export class AutonomySupervisor {
     // in the repository but cannot forge roadmap completion evidence.
     const supervisedJobs = jobs
       .filter(isSupervisedAutonomyJob)
+    .filter(job => !ROADMAP_RETIRED_IDS[roadmapIdFromJob(job)])
       .filter((job) => !this.epochMs || jobActivityTimestamp(job) >= this.epochMs);
     let evolutionItems = null;
     let evolution = { status: this.evolutionLoader ? 'NOT_CHECKED' : 'NOT_CONFIGURED', actionable_count: null, code: null };
@@ -642,6 +641,7 @@ export class AutonomySupervisor {
     // stale; do not let one healthy passive lane hide another stale one.
     const passiveInternal = current.active
       .filter(isSupervisedAutonomyJob)
+    .filter(job => !ROADMAP_RETIRED_IDS[roadmapIdFromJob(job)])
       .filter((job) => isPassiveRuntimeJob(job) && job.requested_by === 'mel-autonomy')
       .filter((job) => !isRotatableProviderExhaustion(job) && !isSecondPassQueued(job))
       .filter((job) => !hasLiveExternalProgress(job))
@@ -690,6 +690,7 @@ export class AutonomySupervisor {
           status: 'SECOND_PASS_PREREQUISITES_PENDING', blocked_count: deferredSecondPass.length} };
       const passiveOwner = current.active
         .filter(isSupervisedAutonomyJob)
+    .filter(job => !ROADMAP_RETIRED_IDS[roadmapIdFromJob(job)])
         .filter((job) => isPassiveRuntimeJob(job) && !isRotatableProviderExhaustion(job) && !isSecondPassQueued(job))
         .sort(compareActiveJobs)[0] || null;
       // A prepared CLAIMED package is already executing outside the heartbeat.

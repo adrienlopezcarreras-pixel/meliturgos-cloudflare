@@ -62,7 +62,7 @@ test('roadmap.read returns the real truth next to the declared roadmap', async (
   const manifesto = payload.phases.find(phase => phase.id === 'P17');
   assert.equal(founder.items.length, 8);
   assert.equal(founder.items.some(item => item.status === 'DONE_VERIFIED'), false);
-  assert.equal(manifesto.items.length, 10);
+  assert.equal(manifesto.items.length, 6);
   assert.equal(manifesto.items.some(item => item.status === 'DONE_VERIFIED'), false);
   assert.equal(payload.truth.available, true);
   assert.equal(payload.truth.items['MEL-CODE-01'].truth, 'VERIFIED_LIVE');

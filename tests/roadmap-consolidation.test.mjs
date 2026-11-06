@@ -117,15 +117,11 @@ test('canonical roadmap forbids bare DONE and requires exact production proof fo
     'MEL-FOUNDER-08',
     'MEL-LIFE-01',
     'MEL-MANIFEST-01',
-    'MEL-MANIFEST-02',
-    'MEL-MANIFEST-03',
     'MEL-MANIFEST-04',
     'MEL-MANIFEST-05',
     'MEL-MANIFEST-06',
     'MEL-MANIFEST-07',
     'MEL-MANIFEST-08',
-    'MEL-MANIFEST-09',
-    'MEL-MANIFEST-10',
   ].sort());
 });
 
@@ -140,7 +136,7 @@ test('MAX selects the open founder cycle instead of treating the historical regi
   assert.equal(followed.id, 'MEL-FOUNDER-06', 'the software device-protocol harness is schedulable without physical hardware');
   const objective = manifestObjective();
   assert.match(objective, /MEL-FOUNDER-01:IN_PROGRESS/);
-  assert.match(objective, /MEL-MANIFEST-10:PLANNED/);
+  assert.match(objective, /MEL-MANIFEST-01:PLANNED/);
   assert.match(objective, /MEL-FOUNDER-06:PLANNED/);
   const decisionIds = ['MEL-FOUNDER-01','MEL-FOUNDER-02','MEL-FOUNDER-03','MEL-FOUNDER-04','MEL-FOUNDER-05'];
   for (const id of decisionIds) assert.notEqual(byId(id).status, 'DONE_VERIFIED', id);

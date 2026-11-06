@@ -7,8 +7,8 @@ import { isRotatableProviderExhaustion, boundedCouncilDeferral, activeAutonomyMi
 
 const roadmap = [
   { id: 'MEL-MANIFEST-01', title: 'Provider blocked roadmap', status: 'PLANNED', priority: 'P0' },
-  { id: 'MEL-MANIFEST-02', title: 'Next independent roadmap', status: 'PLANNED', priority: 'P0' },
-  { id: 'MEL-MANIFEST-03', title: 'Third independent roadmap', status: 'PLANNED', priority: 'P0' },
+  { id: 'TEST-NEXT', title: 'Next independent roadmap', status: 'PLANNED', priority: 'P0' },
+  { id: 'TEST-THIRD', title: 'Third independent roadmap', status: 'PLANNED', priority: 'P0' },
 ];
 
 async function setup(repository, { attempts = 3, context = true, status = 'TEACHER_APPROVED', maxAttempts = 3 } = {}) {
@@ -36,7 +36,7 @@ for (const storage of ['memory', 'sqlite']) test(`provider exhaustion rotates sa
   const supervisor = new AutonomySupervisor({ repository, roadmap });
   const next = await supervisor.ensureNextJob();
   assert.equal(next.created, true);
-  assert.equal(next.job.optional_context.roadmap_id, 'MEL-MANIFEST-02');
+  assert.equal(next.job.optional_context.roadmap_id, 'TEST-NEXT');
   assert.equal((await repository.get(parkedId)).status, 'TEACHER_APPROVED');
   assert.equal((await repository.get(parkedId)).result_json.autonomy_deferral.attempts, 3);
   assert.equal((await supervisor.ensureNextJob()).job.id, next.job.id);
@@ -45,7 +45,7 @@ for (const storage of ['memory', 'sqlite']) test(`provider exhaustion rotates sa
   await assert.rejects(
     () => repository.create({ id: 'mel-autonomy-mel-manifest-03-manual',
       requested_by: 'mel-autonomy', goal: 'Third objective',
-      optional_context: { roadmap_id: 'MEL-MANIFEST-03' } }),
+      optional_context: { roadmap_id: 'TEST-THIRD' } }),
     { code: 'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE' },
   );
   await assert.rejects(
@@ -93,7 +93,7 @@ test('two competing D1 supervisors still admit only one replacement after provid
   assert.equal(a.job.id, b.job.id);
   assert.deepEqual([a.created, b.created].sort(), [false, true]);
   assert.equal((await repository.list()).filter(job =>
-    job.requested_by === 'mel-autonomy' && job.optional_context.roadmap_id === 'MEL-MANIFEST-02').length, 1);
+    job.requested_by === 'mel-autonomy' && job.optional_context.roadmap_id === 'TEST-NEXT').length, 1);
 });
 
 test('D1 NULL deferral never bypasses the atomic admission fence', async t => {
@@ -105,7 +105,7 @@ test('D1 NULL deferral never bypasses the atomic admission fence', async t => {
   assert.equal((await repository.claimQueuedAutonomy(active.id,{expected:active}))?.status,'PLANNING');
   await assert.rejects(() => repository.create({
     id: 'must-not-run-parallel', requested_by: 'mel-autonomy',
-    goal: 'Second job', optional_context: { roadmap_id: 'MEL-MANIFEST-02' },
+    goal: 'Second job', optional_context: { roadmap_id: 'TEST-NEXT' },
   }), { code: 'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE' });
 });
 
@@ -138,7 +138,7 @@ for (const storage of ['memory', 'sqlite']) test(`Council cooldown polling never
   const supervisor = new AutonomySupervisor({ repository, roadmap });
   const next = await supervisor.ensureNextJob();
   assert.equal(next.created, true);
-  assert.equal(next.job.optional_context.roadmap_id, 'MEL-MANIFEST-02');
+  assert.equal(next.job.optional_context.roadmap_id, 'TEST-NEXT');
   assert.equal((await repository.get(original.id)).result_json.autonomy_deferral.attempts, 3);
 });
 
@@ -168,7 +168,7 @@ for (const storage of ['memory', 'sqlite']) test(`Council with no eligible provi
   }
   const next = await new AutonomySupervisor({ repository, roadmap }).ensureNextJob();
   assert.equal(next.created, true);
-  assert.equal(next.job.optional_context.roadmap_id, 'MEL-MANIFEST-02');
+  assert.equal(next.job.optional_context.roadmap_id, 'TEST-NEXT');
   const preserved = await repository.get(original.id);
   assert.equal(preserved.status, 'QUEUED');
   assert.equal(preserved.result_json.autonomy_deferral.attempts, 3);
@@ -181,7 +181,7 @@ for (const storage of ['memory', 'sqlite']) test(`changed parked context cannot 
   const supervisor = new AutonomySupervisor({ repository, roadmap });
   const replacement = await supervisor.ensureNextJob();
   assert.equal(replacement.created, true);
-  assert.equal(replacement.job.optional_context.roadmap_id, 'MEL-MANIFEST-02');
+  assert.equal(replacement.job.optional_context.roadmap_id, 'TEST-NEXT');
   const successor = await repository.claimQueuedAutonomy(replacement.job.id, { expected: replacement.job });
   assert.equal(successor?.status, 'PLANNING', 'passive QUEUED does not reserve an execution lane');
 
@@ -218,7 +218,7 @@ for (const storage of ['memory', 'sqlite']) test(`bounded cloud policy reopens a
   await repository.update(original.id, { result_json: { autonomy_deferral: old } });
   assert.equal(isRotatableProviderExhaustion(await repository.get(original.id)), false);
   await assert.rejects(() => repository.create({ id: 'parallel-mission', requested_by: 'mel-autonomy',
-    goal: '[MEL-MANIFEST-02] Must wait', optional_context: { roadmap_id: 'MEL-MANIFEST-02' } }),
+    goal: '[TEST-NEXT] Must wait', optional_context: { roadmap_id: 'TEST-NEXT' } }),
   { code: 'AUTONOMY_OBJECTIVE_ALREADY_ACTIVE' });
   const supervisor = new AutonomySupervisor({ repository, roadmap });
   const resumed = await supervisor.ensureNextJob();
