@@ -48,7 +48,11 @@ export async function reconcileReleaseOutcomes({
  }));
  const existing=[];
  let ended=false;
- for(let page=1;page<=5;page++){
+ // GitHub issue #1516 can legitimately exceed 500 historical receipts.
+ // Keep the fail-closed safeguard, but allow bounded traversal of up to
+ // 10,000 comments instead of rejecting every subsequent scheduled run.
+ const MAX_COMMENT_PAGES=100;
+ for(let page=1;page<=MAX_COMMENT_PAGES;page++){
   const comments=await call('/issues/'+ISSUE+'/comments?per_page=100&page='+page);
   if(!Array.isArray(comments))throw new Error('RELEASE_RECONCILE_COMMENTS_INVALID');
   existing.push(...comments.map(x=>String(x?.body||'')));
