@@ -134,3 +134,24 @@ test('MEL-AUDIT-02 records a durable weekly report and deduplicated findings wit
   const jobs = await db.prepare('SELECT COUNT(*) AS total FROM dev_jobs').first().catch(() => ({ total: 0 }));
   assert.equal(Number(jobs?.total || 0), 0, 'recording audit evidence must not enqueue jobs');
 });
+
+// MEL-AUDIT-06: catalog diff → idempotent benchmark proposals.
+test('a new free Workers AI model yields one idempotent benchmark proposal; paid, deprecated, registered or measured models are excluded', async () => {
+  const { benchmarkProposals } = await import('../scripts/workers-ai-catalog-diff.mjs');
+  const { standardRegistry } = await import('../src/models/ModelRegistry.js');
+  const registered = standardRegistry.list().map(model => model.id);
+  const text = { name: 'Text Generation' };
+  const catalog = { result: [
+    { name: '@cf/new/free-coder', task: text, properties: [] },
+    { name: '@cf/new/free-coder', task: text, properties: [] },
+    { name: '@cf/new/paid-model', task: text, properties: [{ property_id: 'price', value: [{ unit: 'per M input tokens', price: 0.5 }] }] },
+    { name: '@cf/old/gone', task: text, properties: [{ property_id: 'planned_deprecation_date', value: '2026-01-01' }] },
+    { name: '@cf/new/already-measured', task: text, properties: [] },
+    { name: registered[0], task: text, properties: [] },
+    { name: '@cf/new/embedder', task: { name: 'Text Embeddings' }, properties: [] },
+  ] };
+  const options = { registered, measured: ['@cf/new/already-measured'] };
+  const first = benchmarkProposals(catalog, options);
+  assert.deepEqual(first, [{ id: 'benchmark:@cf/new/free-coder', kind: 'BENCHMARK_PROPOSAL', model: '@cf/new/free-coder', status: 'PROPOSED' }]);
+  assert.deepEqual(benchmarkProposals(catalog, options), first, 'same catalog, same proposals');
+});
