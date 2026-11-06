@@ -318,7 +318,8 @@ test('authenticated endpoint and MAX promotion must fail closed',()=>{
   assert.ok(promotion.indexOf('run-council-batch-review.mjs')<promotion.indexOf('DECISION='));
   const runner=file('../scripts/run-council-batch-review.mjs');
   assert.ok(runner.includes("batch_decision!=='APPROVED'"));
-  assert.ok(runner.includes('complete_review!==true'));
+  assert.ok(runner.includes('complete_review===true'));
+  assert.ok(runner.includes("if(!verified)throw Error('COUNCIL_FINAL_REVIEW_NOT_APPROVED')"));
   assert.ok(!runner.includes('COUNCIL_REVIEW_OVERRIDE'));
 });
 

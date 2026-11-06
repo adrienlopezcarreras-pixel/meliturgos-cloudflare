@@ -81,3 +81,30 @@ test('authenticated Council streaming sends bytes before the vote and preserves 
   assert.equal((await invalid.json()).ok,false);
   assert.equal(votes,1,'invalid input never calls a model even when transport status is200');
 });
+
+test('a final refusal leaves a content-free non-approval receipt and a failing exit',t=>{
+ const dir=mkdtempSync(join(tmpdir(),'council-final-receipt-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));
+ writeFileSync(join(dir,'review.diff'),'diff --git a/a.js b/a.js\n--- a/a.js\n+++ b/a.js\n@@ -1 +1 @@\n-old\n+new\n');
+ writeFileSync(join(dir,'review.log'),'Code review');
+ const hook=join(dir,'fetch.mjs');
+ writeFileSync(hook,`globalThis.fetch=async(url,init)=>{
+  if(String(url).startsWith('https://issuer.unit/'))return Response.json({value:'x'.repeat(120)});
+  const b=JSON.parse(init.body);
+  return Response.json({ok:true,head:b.head,root_sha256:b.root_sha256,batch_count:b.batch_count,
+   batch_index:b.batch_index,batch_decision:'APPROVED',
+   decision:b.mode==='batch'?'PENDING_ALL_BATCH_REVIEWS':'REJECTED',
+   audit_only:false,release_authorized:false,complete_review:false,
+   reviews:[{blocking:['private-model-text-must-not-leak']}]});
+ };`);
+ const result=spawnSync(process.execPath,[fileURLToPath(new URL('../scripts/run-council-batch-review.mjs',import.meta.url)),join(dir,'review.diff'),join(dir,'review.log')],{
+  cwd:dir,encoding:'utf8',timeout:5000,env:{...process.env,NODE_OPTIONS:'--import '+pathToFileURL(hook).href,
+   MEL_COUNCIL_HEAD_SHA:'a'.repeat(40),MEL_COUNCIL_BASE_SHA:'b'.repeat(40),MEL_COUNCIL_REVIEW_KIND:'PRE_MERGE_REVIEW',
+   ACTIONS_ID_TOKEN_REQUEST_URL:'https://issuer.unit/token',ACTIONS_ID_TOKEN_REQUEST_TOKEN:'fixture-only'}
+ });
+ assert.notEqual(result.status,0);assert.match(result.stderr,/COUNCIL_FINAL_REVIEW_NOT_APPROVED/);
+ const receipt=JSON.parse(result.stdout);
+ assert.equal(receipt.ok,false);assert.equal(receipt.complete_review,false);
+ assert.equal(receipt.decision,'NOT_VERIFIED');assert.equal(receipt.final_status,'REJECTED');
+ assert.equal(receipt.release_authorized,false);
+ assert.doesNotMatch(result.stdout+result.stderr,/private-model-text-must-not-leak/);
+});
