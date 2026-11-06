@@ -10,6 +10,20 @@ const approved = {
   result_json: { teacher_bridge: { status:'ANSWERED',request:{request_id:'teacher-1'},review: { request_id:'teacher-1',verdict: 'APPROVE_PLAN',development_allowed:true,owner_override: true } }, implementation_proposal: { status: 'READY',teacher_request_id:'teacher-1',candidate_sha:'a'.repeat(40) }, bridge_preparation: { status: 'READY',teacher_request_id:'teacher-1',candidate_branch: 'candidate/mel-clean-autonomy', candidate_sha: 'a'.repeat(40) } },
 };
 
+test('legacy owner MAX-off never displays an executing mission', async () => {
+  const { visibleActiveAutonomyMission } = await import('../src/evolution/autonomy-activity.js');
+  const job = { id: 'job-1', status: 'PLANNING' };
+  const ownerStopped = {
+    source: 'owner-ui', paused: false, max_autonomy: false,
+    max_remembered: false, reason: 'owner-stop',
+  };
+  assert.equal(visibleActiveAutonomyMission(job, ownerStopped), null);
+  assert.equal(visibleActiveAutonomyMission(job, { ...ownerStopped, paused: true }), null);
+  assert.equal(visibleActiveAutonomyMission({ ...job, status: 'QUEUED' }, { paused: false, max_autonomy: true }), null);
+  assert.equal(visibleActiveAutonomyMission(job, { source: 'owner-ui', paused: false, max_autonomy: true }), job);
+  assert.equal(visibleActiveAutonomyMission(job, { paused: false, max_autonomy: true }), job);
+});
+
 test('pipeline shows where a MAX job stands', () => {
   const steps = jobPipeline(approved);
   assert.deepEqual(steps.map(s => s.state), ['done', 'done', 'done', 'done', 'current', 'todo', 'todo', 'todo']);
