@@ -557,7 +557,7 @@ async function preparedRevisionFixture() {
   };
   const prepare = async () => prepareApprovedBridgePackage({ ...args, job: await repository.get(job.id) });
   await prepare();
-  return { state, repository, prepare, jobId: job.id };
+  return { state, sources, repository, prepare, jobId: job.id };
 }
 
 test('a revised prepared packet replaces a cache with the same Teacher approval and candidate SHA', async () => {
@@ -622,5 +622,22 @@ test('an unavailable optional prepared source does not invalidate a valid model 
   state.unavailable = true;
   assert.equal((await prepare()).reused, true);
   assert.deepEqual((await repository.get(jobId)).files_json, before.files_json);
+  assert.equal(state.coderCalls, 0);
+});
+
+// A partially applied packet remains useful; a completely applied snapshot
+// must not be republished solely to manufacture a promotion diff.
+test('fully applied prepared packet cannot replay its cache as new implementation', async () => {
+  const { state, sources, prepare } = await preparedRevisionFixture();
+  for (const change of state.packet.changes) sources.set(change.path, change.content);
+  await assert.rejects(prepare, /PREPARED_PACKET_MUST_NOT_CALL_CODER/);
+  assert.equal(state.coderCalls, 1, 'implementation must inspect the actual gap instead of replaying the no-op');
+});
+
+test('partially applied prepared packet retains its remaining genuine change', async () => {
+  const { state, sources, prepare } = await preparedRevisionFixture();
+  sources.set(state.packet.changes[0].path, state.packet.changes[0].content);
+  const prepared = await prepare();
+  assert.equal(prepared.status, 'READY');
   assert.equal(state.coderCalls, 0);
 });

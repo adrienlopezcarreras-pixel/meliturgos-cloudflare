@@ -1,6 +1,6 @@
 import { codeContractForRoadmapJob } from '../roadmap/roadmap-code-contracts.js';
 import { createGitHubCodeReader } from '../capabilities/github-code-capabilities.js';
-import { hasObjectiveBoundVerificationChecks } from './verify-existing-live-checks.js';
+import { hasObjectiveBoundVerificationChecks, objectiveLiveChecks } from './verify-existing-live-checks.js';
 import { hasDistinctProviderAttempts } from './autonomy-provider-attempts.js';
 import { Augmentio } from '../augmentio/augmentio.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
@@ -436,8 +436,8 @@ function planningPrompt(job, bridge, code) {
     'Tu es un ingénieur participant au développement supervisé de MELITURGOS.',
     'Le plan a déjà reçu une approbation Teacher. Tu ne déploies rien et tu ne modifies aucun compte.',
     'Détermine d’abord si l’objectif est déjà satisfait dans la version existante. Si oui, commence une ligne exacte DECISION: VERIFY_EXISTING, ne propose aucun changement, et donne les tests réels à exécuter ainsi que les preuves manquantes. Cela ne valide PAS l’objectif.',
-    'Avec DECISION: VERIFY_EXISTING, ajoute une ligne exacte LIVE_CHECKS: suivie des lectures réelles à exécuter en production parmi gmail.messages.search, calendar.events.read, drive.files.list (vide si aucune ne prouve l’objectif).',
-    'DECISION: VERIFY_EXISTING est interdite si aucune de ces lectures n’est fonctionnellement liée à l’objectif. Une réussite Gmail/Agenda/Drive ne prouve pas la persistance MAX ou la libération du lease. Dans ce cas, propose le plus petit plan DECISION: IMPLEMENT avec changements ou tests manquants ; ne duplique aucune capacité.',
+    `Avec DECISION: VERIFY_EXISTING, ajoute une ligne exacte LIVE_CHECKS: parmi les seules lectures liées à cet objectif : ${objectiveLiveChecks(job.goal).join(', ') || 'aucune'}. Pour MEL-MANIFEST-01, autonomy.status vérifie le rapport des cinq priorités, même encore en attente ; ne prétends pas terminer les priorités rapportées.`,
+    'DECISION: VERIFY_EXISTING est interdite si aucune lecture disponible n’est fonctionnellement liée à l’objectif. Une réussite Gmail/Agenda/Drive ne prouve pas la persistance MAX ou la libération du lease. Dans ce cas, propose le plus petit plan DECISION: IMPLEMENT avec changements ou tests manquants ; ne duplique aucune capacité.',
     'Si des changements sont réellement nécessaires, commence une ligne exacte DECISION: IMPLEMENT et conçois le plus petit changement réversible sur la SEULE branche candidate canonique indiquée ci-dessous.',
     'Interdiction de créer ou proposer une deuxième branche candidate, une deuxième roadmap, un second orchestrateur ou un module parallèle qui duplique une capacité existante.',
     'Réutilise l’existant avant toute création. Si un nouveau fichier est réellement nécessaire, justifie explicitement pourquoi aucun composant existant ne peut porter le changement.',

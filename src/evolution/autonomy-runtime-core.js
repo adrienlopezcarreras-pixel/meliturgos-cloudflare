@@ -1,3 +1,4 @@
+import { recoverNoopReview } from './noop-review-recovery.js';
 import { computeRoadmapTruth } from '../roadmap/roadmap-truth.js';
 import { withRuntimeRecertification, executeRuntimeRecertification } from '../roadmap/runtime-recertification.js';
 import { rememberCouncilRejectedPackage } from './council-rejected-package.js';
@@ -908,6 +909,11 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   const initialJobId = job?.id || null;
   const initialJobStatus = String(job?.status || '').toUpperCase() || null;
   const initialCompletedCount = Array.isArray(stateBefore?.completedIds) ? stateBefore.completedIds.length : 0;
+  if (maxAutonomy && job?.status === 'READY_FOR_REVIEW') {
+    // The supervisor already selected the unique current-epoch holder.
+    const recovered = await recoverNoopReview({ env, repository: currentRepository, job, fetchImpl }).catch(() => null);
+    if (recovered) job = recovered;
+  }
   let teacher = null;
   let teacherMirror = null;
   let runtimeProof = null;

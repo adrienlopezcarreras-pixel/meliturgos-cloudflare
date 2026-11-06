@@ -215,7 +215,7 @@ export async function prepareApprovedBridgePackage({
   const preparedRevisionMatches = revalidatePrepared
     ? Boolean(checkedPrepared && checkedPrepared.proposal.provenance.package_sha256 === cachedPrepared.package_sha256)
     : !checkedPrepared;
-  if (reused && preparedRevisionMatches && !(await isCouncilRejectedPackage(current, current.files_json))) {
+  if (reused && !checkedPrepared?.all_already_applied && preparedRevisionMatches && !(await isCouncilRejectedPackage(current, current.files_json))) {
     assertRoadmapCodeChanges(current, current.files_json);
     for (const file of current.files_json) {
       const inspected = code.files.find(source => source.path === file.path);
@@ -269,7 +269,7 @@ export async function prepareApprovedBridgePackage({
   const lastPrepared = current?.result_json?.bridge_preparation?.mentor?.provenance;
   const candidatePackage = checkPreparedSource ? checkedPrepared
     : await preparedMissionPackage(env, code, current, inspectedFiles, fetchImpl);
-  const prepared = repairFor && lastPrepared?.source === 'prepared-package'
+  const prepared = candidatePackage?.all_already_applied ? null : repairFor && lastPrepared?.source === 'prepared-package'
     && lastPrepared?.package_sha256 === candidatePackage?.proposal?.provenance?.package_sha256 ? null : candidatePackage;
   const mentor = prepared || await engine.propose({
     env,
@@ -400,6 +400,7 @@ export async function preparedMissionPackage(env, code, job, inspectedFiles = []
   if (await isCouncilRejectedPackage(job, pkg.changes)) return null;
   const reader = createGitHubCodeReader({ ...code, token: String(env?.MEL_GITHUB_TOKEN || ''), pinnedSha: code.candidate_sha, fetchImpl });
   const changes = [];
+  let allAlreadyApplied = true;
   for (const change of pkg.changes.slice(0, 10)) {
     const path = String(change?.path || '');
     if (![...contract.code_paths, ...contract.test_paths].includes(path)) return null;
@@ -412,10 +413,11 @@ export async function preparedMissionPackage(env, code, job, inspectedFiles = []
     // was already on the candidate). A file drifted to anything ELSE is still
     // refused: the guard is kept, only the already-done case is allowed.
     const applied = base === String(change.content || '');
+    allAlreadyApplied &&= applied;
     if (!applied && String(change.base_sha256 || '') !== (base ? await sha256Hex(base) : 'new')) return null;
     changes.push({ path, content: String(change.content || ''), reason: String(change.reason || 'Paquet préparé') });
   }
-  return { mode: 'prepared', council: null, proposal: {
+  return { mode: 'prepared', all_already_applied: allAlreadyApplied, council: null, proposal: {
     changes, tests: Array.isArray(pkg.tests) ? pkg.tests : ['test'],
     summary: String(pkg.summary || ''), confidence: 1,
     provenance: { source: 'prepared-package', path: `prepared/${roadmapId}.json`, package_sha256: await sha256Hex(JSON.stringify(pkg.changes)) },
