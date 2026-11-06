@@ -489,3 +489,66 @@ test('read-only PR review binds immutable head and base without mistaking moved 
   for(const forbidden of ['contents: write','git push','wrangler deploy',
     'npm run deploy','DEPLOY_APPROVED'])assert.ok(!workflow.includes(forbidden),forbidden);
 });
+
+test('final Council sees immutable code hunks, not a summary, with bounded exact-head file context',async()=>{
+  const small='diff --git a/src/actual.js b/src/actual.js\n--- a/src/actual.js\n+++ b/src/actual.js\n@@ -1 +1 @@\n-old()\n+newImplementation()\n';
+  const planned=planCouncilDiffBatches(small);
+  assert.equal(planned.ok,true);
+  assert.equal(planned.batchCount,1);
+  const req={head,base,root_sha256:h(small),batch_count:1,
+    total_bytes:planned.totalBytes,file_count:planned.fileCount};
+  const db=sqliteD1({maintenanceFence:true});
+  let finalInput;
+  let votes=0;
+  const context={files:[{path:'src/actual.js',content:'export const newImplementation = true;'}]};
+  try{
+    const vote=async(_env,input)=>{
+      votes++;
+      if(votes===2)finalInput=input;
+      return approved();
+    };
+    const options={review:vote,cryptoImpl:webcrypto,now:123456,
+      contextLoader:async(_env,{head:sha,diff})=>{
+        assert.equal(sha,head);
+        assert.equal(diff,small);
+        return context;
+      }};
+    const b=planned.batches[0];
+    const first=await handleCouncilBatchedReview({DB:db},{...req,mode:'batch',
+      batch_index:1,batch_sha256:h(b.diff),diff:b.diff},options);
+    assert.equal(first.result.batch_decision,'APPROVED');
+    const last=await handleCouncilBatchedReview({DB:db},{...req,mode:'final'},options);
+    assert.equal(last.result.decision,'APPROVED');
+    assert.equal(finalInput.diff,small);
+    assert.equal(finalInput.dependencyContext,context);
+    assert.ok(finalInput.diff.includes('+newImplementation()'));
+    assert.doesNotMatch(finalInput.diff,/INTEGRATION REVIEW of an exact/);
+    const row=await db.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?')
+      .bind('council-review:'+head).first();
+    assert.equal(JSON.parse(row.metadata_json).final_input_contract,'CODE_AT_EXACT_HEAD_V1');
+  }finally{db.close();}
+});
+
+test('final Council cannot approve if required exact-head context cannot be loaded',async()=>{
+  const small='diff --git a/src/fail.js b/src/fail.js\n--- a/src/fail.js\n+++ b/src/fail.js\n@@ -1 +1 @@\n-old()\n+new()\n';
+  const planned=planCouncilDiffBatches(small);
+  const req={head,base,root_sha256:h(small),batch_count:1,
+    total_bytes:planned.totalBytes,file_count:planned.fileCount};
+  const db=sqliteD1({maintenanceFence:true});
+  try{
+    const b=planned.batches[0];
+    const vote=async()=>approved();
+    const first=await handleCouncilBatchedReview({DB:db},{...req,mode:'batch',
+      batch_index:1,batch_sha256:h(b.diff),diff:b.diff},
+      {review:vote,cryptoImpl:webcrypto,contextLoader:async()=>({})});
+    assert.equal(first.result.batch_decision,'APPROVED');
+    const blocked=await handleCouncilBatchedReview({DB:db},{...req,mode:'final'},
+      {review:async()=>{throw Error('no vote when context fails');},cryptoImpl:webcrypto,
+        contextLoader:async()=>{throw Error('context unavailable');}});
+    assert.equal(blocked.status,409);
+    assert.equal(blocked.result.code,'COUNCIL_FINAL_CONTEXT_UNAVAILABLE');
+    const row=await db.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?')
+      .bind('council-review:'+head).first();
+    assert.equal(row??null,null);
+  }finally{db.close();}
+});
