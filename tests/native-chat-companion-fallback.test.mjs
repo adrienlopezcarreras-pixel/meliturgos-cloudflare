@@ -70,3 +70,31 @@ test('local-first failures yield null and leave normal remote inference availabl
    asPrimary:true,timeoutMs:4000,execute:async()=>({ok:false,code:'COMPUTER_OFFLINE'})});
  assert.equal(result,null);
 });
+
+test('hardware controls fail closed for offline, permission denied and owner stop',async()=>{
+ const {classifyCompanionHardwareControl:classify}=await import('../src/api/native-companion-fallback.js');
+ for(const control of ['screen','keyboard','mouse','stop']){
+   assert.deepEqual(
+     {status:classify(control,{online:false,status:'OFFLINE',code:'COMPUTER_OFFLINE'}).status,
+      reason:classify(control,{online:false,status:'OFFLINE'}).reason},
+     {status:'BLOCKED',reason:'COMPUTER_OFFLINE'});
+   assert.equal(classify(control,{permission:'DENIED'}).reason,'PERMISSION_DENIED');
+   assert.equal(classify(control,{halted:true}).reason,'OWNER_STOPPED');
+ }
+});
+test('no software simulation can certify a physical hardware control',async()=>{
+ const {classifyCompanionHardwareControl:classify}=await import('../src/api/native-companion-fallback.js');
+ const physical_receipt={kind:'ON_DEVICE_OBSERVED',control:'screen',device_id:'pc-1',observed_at:123};
+ for(const source of ['mock','browser','simulator','worker']){
+   const row=classify('screen',{source,status:'SUCCESS',ok:true,physical_receipt});
+   assert.equal(row.status,'BLOCKED');
+   assert.equal(row.physical_verified,false);
+ }
+ assert.equal(classify('screen',{source:'paired-windows-companion',simulated:true,status:'SUCCESS',ok:true,physical_receipt}).status,'BLOCKED');
+ assert.equal(classify('screen',{source:'paired-windows-companion',status:'SUCCESS',ok:true}).status,'BLOCKED');
+ const accepted=classify('screen',{source:'paired-windows-companion',status:'SUCCESS',ok:true,physical_receipt});
+ assert.equal(accepted.status,'PASS');
+ assert.equal(accepted.physical_verified,true);
+ assert.equal(accepted.device_id,'pc-1');
+ assert.equal(classify('keyboard',{source:'paired-windows-companion',status:'SUCCESS',ok:true,physical_receipt}).status,'BLOCKED');
+});

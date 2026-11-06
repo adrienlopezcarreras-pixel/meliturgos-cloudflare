@@ -1,6 +1,40 @@
 import {createCompanionSovereigntyExecutor} from '../portability/companion-sovereignty-executor.js';
 import {createCompanionLocalAiAdapter} from '../portability/companion-local-ai-adapter.js';
 
+
+// MEL-UI-AUDIT-05: a deterministic *offline* acceptance classifier. A
+// simulated browser/worker receipt is never independent physical hardware
+// evidence. The classifier is read-only: it does not execute device commands.
+export function classifyCompanionHardwareControl(control, observation = {}) {
+ const id=String(control||'').trim();
+ const status=String(observation?.status||'').toUpperCase();
+ const code=String(observation?.code||'').toUpperCase();
+ const source=String(observation?.source||'').toLowerCase();
+ const receipt=observation?.physical_receipt;
+ const blocked=reason=>({control:id,status:'BLOCKED',reason,physical_verified:false});
+ if(!id)return blocked('CONTROL_UNSPECIFIED');
+ if(observation?.halted===true || status==='STOPPED' || code==='COMPUTER_HALTED'
+   || code==='LOCAL_COMPUTE_DISABLED')return blocked('OWNER_STOPPED');
+ if(observation?.permission==='DENIED' || status==='PERMISSION_DENIED'
+   || ['PERMISSION_DENIED','COMPUTER_PERMISSION_DENIED','FORBIDDEN'].includes(code))
+   return blocked('PERMISSION_DENIED');
+ if(observation?.online===false || status==='OFFLINE'
+   || ['COMPUTER_OFFLINE','COMPANION_SOVEREIGNTY_TIMEOUT','NETWORK_OFFLINE'].includes(code))
+   return blocked('COMPUTER_OFFLINE');
+ // Only an independently observed device receipt can satisfy an on-device
+ // hardware acceptance. Test doubles, untrusted source fields and a bare
+ // success boolean are not proof of a physical action.
+ if(source!=='paired-windows-companion' || observation?.simulated===true
+    || observation?.ok!==true || status!=='SUCCESS'
+    || receipt?.kind!=='ON_DEVICE_OBSERVED'
+    || String(receipt?.control||'')!==id
+    || !String(receipt?.device_id||'').trim()
+    || !Number.isSafeInteger(receipt?.observed_at) || receipt.observed_at<=0)
+   return blocked('PHYSICAL_PROOF_MISSING');
+ return {control:id,status:'PASS',reason:null,physical_verified:true,
+   device_id:String(receipt.device_id).slice(0,120)};
+}
+
 // Optional only. "Prefer PC" must be explicit on the request AND the
 // owner's separate Windows consent must be admitted by the executor.
 // Without this flag MEL keeps its original primary cloud route.

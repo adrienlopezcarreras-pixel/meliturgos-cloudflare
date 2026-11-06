@@ -14,6 +14,10 @@ on:
       - 'tests/waiting-teacher-runtime-fix.test.mjs'
       - 'tests/passive-state-recovery.test.mjs'
       - 'tests/autonomy-activity-detail.test.mjs'
+      - 'src/api/native-companion-fallback.js'
+      - 'scripts/ui-production-audit.mjs'
+      - 'tests/native-chat-companion-fallback.test.mjs'
+      - 'tests/full-interface-computer.test.mjs'
       - '.github/workflows/gen2-42-runtime-tick.yml'
       - 'tests/gen2/runtime-tick-lease-retry-contract.test.mjs'
       - 'scripts/rebase-prepared-packages.mjs'
@@ -79,6 +83,8 @@ jobs:
         run: node --test tests/rebase-prepared-packages.test.mjs tests/prepared-mission-packages.test.mjs
       - name: GEN2-42 single-flight tick and chain regressions
         run: node --test tests/gen2/runtime-tick-lease-retry-contract.test.mjs tests/gen2/event-driven-autonomy-chain-contract.test.mjs
+      - name: Offline physical controls and evidence regressions
+        run: node --test tests/native-chat-companion-fallback.test.mjs tests/full-interface-computer.test.mjs tests/ui-production-audit.test.mjs
       - name: Global maintenance reset regressions
         run: node --test tests/maintenance/*.test.mjs tests/gen2/companion-grand-cleanup.test.mjs tests/mel-work-schedule.test.mjs
       - name: Chat direct-path and explicit-action regressions
