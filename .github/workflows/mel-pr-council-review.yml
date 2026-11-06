@@ -131,6 +131,11 @@ jobs:
     outputs:
       ready: ${{ steps.ci_gate.outputs.ready }}
     steps:
+      - name: Checkout trusted main for the checked-in Council CI selector
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          persist-credentials: false
       - name: Bind exact candidate for a read-only CI prerequisite check
         shell: bash
         env:
