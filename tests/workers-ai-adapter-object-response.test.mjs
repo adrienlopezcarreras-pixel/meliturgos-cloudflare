@@ -19,3 +19,18 @@ test('a gpt-oss answer in the Responses format reaches the caller as its output 
   const adapter = createWorkersAIAdapter({ env, modelId: '@cf/openai/gpt-oss-120b' });
   assert.equal((await adapter.invoke('propose', {})).text, 'SUMMARY fix');
 });
+
+test('an empty legacy response never hides the visible Responses output', async () => {
+  const env = { AI: { async run() { return { response: '', output: [
+    { type: 'reasoning', content: [{ type: 'reasoning_text', text: 'private draft' }] },
+    { type: 'message', content: [{ type: 'output_text', text: 'visible final answer' }] },
+  ] }; } } };
+  const adapter = createWorkersAIAdapter({ env, modelId: '@cf/openai/gpt-oss-120b' });
+  assert.equal((await adapter.invoke({ input: 'review' })).text, 'visible final answer');
+});
+
+test('explicit final output takes precedence over a legacy draft field', async () => {
+  const env = { AI: { async run() { return { response: 'private draft', output_text: 'visible final answer' }; } } };
+  const adapter = createWorkersAIAdapter({ env, modelId: '@cf/openai/gpt-oss-120b' });
+  assert.equal((await adapter.invoke({ input: 'review' })).text, 'visible final answer');
+});

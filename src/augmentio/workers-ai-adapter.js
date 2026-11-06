@@ -15,11 +15,17 @@ function extractText(result) {
     ? result.output.flatMap(item => (Array.isArray(item?.content) ? item.content : []))
       .filter(part => part?.type === 'output_text' && typeof part.text === 'string').map(part => part.text).join('') || null
     : null;
-  const value = result?.response ?? result?.text ?? result?.result?.response ?? result?.choices?.[0]?.message?.content ?? result?.output_text ?? responses ?? null;
   // Some Workers AI models (llama-3.3-70b) return a JSON answer already
   // parsed; String(object) gave "[object Object]" and lost every proposal.
-  const text = value && typeof value === 'object' ? JSON.stringify(value) : value;
-  return typeof text === 'string' ? harmonyFinal(text) : text;
+  // Prefer explicit visible output. An empty legacy response must not hide it.
+  for (const value of [result?.output_text, responses, result?.response, result?.text,
+    result?.result?.response, result?.choices?.[0]?.message?.content]) {
+    const text = value && typeof value === 'object' ? JSON.stringify(value) : value;
+    if (typeof text !== 'string') continue;
+    const final = harmonyFinal(text);
+    if (final.trim()) return final;
+  }
+  return null;
 }
 
 // gpt-oss can leak its raw harmony channels ("<|channel|>analysis ...") into

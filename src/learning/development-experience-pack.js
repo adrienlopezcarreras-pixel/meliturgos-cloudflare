@@ -1907,11 +1907,11 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "task": "Obtenir des avis exploitables sans confondre raisonnement, réponse finale et fournisseur réel.",
     "input": "La revue de code appelait directement Workers AI, contrairement au Council de planification qui utilisait l’adaptateur canonique et ses options documentées.",
     "before": "Gemma/Nemotron ne recevaient pas leur option de réponse visible; une trace Harmony sans canal final pouvait être interprétée comme un avis, et une substitution locale n’était pas filtrée par l’adaptateur commun.",
-    "after": "Faire passer la revue par le même adaptateur Workers AI avec le but de critique indépendante et le même budget de sortie. Appliquer le filtre de canal final aux réponses texte brutes et enveloppées; refuser le substitut PC en tant que vote cloud. Garder le quorum, les identités indépendantes, les véritables refus et les gates de coût inchangés.",
+    "after": "Faire passer la revue par le même adaptateur Workers AI avec le but de critique indépendante et le même budget de sortie. Privilégier les champs de réponse finale explicites sans les masquer par un ancien champ vide. Appliquer le filtre de canal final aux réponses texte brutes et enveloppées; refuser le substitut PC en tant que vote cloud. Garder le quorum, les identités indépendantes, les véritables refus et les gates de coût inchangés.",
     "rationale": "Des chemins d’inférence parallèles divergent sur les options de modèle et sur ce qui constitue réellement une réponse; l’absence de verdict final ne doit jamais devenir une approbation.",
     "tests": [
       "tests/council-review-adapter-contract.test.mjs: trois échecs reproduits avant correction (options visibles et traces Harmony sans final)",
-      "42 contrôles revue/quorum/refus/formats/adaptateur/chat réussis; refus réel conservé, substitution locale sans vote, aucune agrégation entre tentatives"
+      "44 contrôles revue/quorum/refus/formats/adaptateur/chat réussis; champs finaux visibles même avec une réponse héritée vide, refus réel conservé, substitution locale sans vote, aucune agrégation entre tentatives"
     ],
     "tags": [
       "council",
