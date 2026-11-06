@@ -200,11 +200,8 @@ jobs:
           const checks=response.check_runs||[];
           if(!Number.isSafeInteger(response.total_count)||response.total_count!==checks.length)
             throw Error('COUNCIL_CI_INCOMPLETE_CHECK_LIST');
-          const latest=new Map();
-          for(const row of checks){
-            const current=latest.get(row.name);
-            if(!current||Number(row.id)>Number(current.id))latest.set(row.name,row);
-          }
+          const {selectLatestCheckOutcomes}=require('./scripts/council-ci-check-order.cjs');
+          const latest=selectLatestCheckOutcomes(checks);
           const releaseMandatory=[
             'gen2-17-targeted','gen2-17-full-suite','monitor-contract',
             'encrypted-backup','professor-audit','shardvault-targeted',
