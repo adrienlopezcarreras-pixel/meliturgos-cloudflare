@@ -33,6 +33,18 @@ function extractText(result) {
 // Keep only the final channel; an answer with no final channel is empty.
 export function harmonyFinal(text) {
   if (!text.includes('<|channel|>')) return text;
+  // Protocol examples inside a complete JSON answer are data, not channels.
+  try { JSON.parse(text); return text; } catch { /* inspect transport framing */ }
+  // A final JSON answer may itself quote channel/termination markers. Try
+  // complete JSON bodies before the legacy plain-text extraction below.
+  const finals = [...text.matchAll(/<\|channel\|>final/g)];
+  for (const match of finals.reverse()) {
+    const start = text.indexOf('<|message|>', match.index);
+    const body = (start < 0 ? text.slice(match.index + match[0].length)
+      : text.slice(start + '<|message|>'.length))
+      .replace(/(?:<\|(end|return|call)\|>\s*)+$/, '').trim();
+    try { JSON.parse(body); return body; } catch { /* another marker may be quoted */ }
+  }
   const marker = text.lastIndexOf('<|channel|>final');
   if (marker < 0) return '';
   const start = text.indexOf('<|message|>', marker);
