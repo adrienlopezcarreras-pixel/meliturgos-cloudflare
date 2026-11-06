@@ -1,3 +1,5 @@
+import { computeRoadmapTruth } from '../roadmap/roadmap-truth.js';
+import { withRuntimeRecertification, executeRuntimeRecertification } from '../roadmap/runtime-recertification.js';
 import { rememberCouncilRejectedPackage } from './council-rejected-package.js';
 import {beginAutomaticRepair} from './autonomy-repair.js';
 import {getAutonomyControl} from './autonomy-control.js';
@@ -7,7 +9,7 @@ import { staleCouncilDeferral } from '../teachers/council-inference-policy.js';
 import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
-import { AutonomySupervisor, providerRetryContext, BRIDGE_MENTOR_ROUNDS, listAutonomySchedulerJobs } from './autonomy-supervisor.js';
+import { currentRoadmap, AutonomySupervisor, providerRetryContext, BRIDGE_MENTOR_ROUNDS, listAutonomySchedulerJobs } from './autonomy-supervisor.js';
 import { boundedCouncilDeferral, activeAutonomyMission, singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
 import { prepareDevelopmentRequest } from './development-preflight.js';
 import { createGitHubCodeReader } from '../capabilities/github-code-capabilities.js';
@@ -780,6 +782,7 @@ export function autonomyWorkRemaining(state) {
   // An inaccessible evolution queue is never proof that MEL has no work.
   return (Array.isArray(state?.active) && state.active.length > 0)
     || Boolean(state?.next)
+    || (Array.isArray(state?.outstandingRoadmapIds) && state.outstandingRoadmapIds.length > 0)
     || state?.evolution?.status === 'UNAVAILABLE';
 }
 
@@ -825,12 +828,14 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     }
   }
 
+  const recertificationRoadmap = !roadmap && maxAutonomy && !repairOnly && env?.DB
+    ? withRuntimeRecertification(currentRoadmap(), await computeRoadmapTruth(env.DB, [{ items: currentRoadmap() }])) : null;
   const evolutionLoader = !roadmap ? createRuntimeEvolutionLoader(env) : null;
   const supervisor = new AutonomySupervisor({
     singleFlight: true,
     repository: jobRepository,
     epochMs: activityEpoch,
-    ...(roadmap ? { roadmap } : {}),
+    ...(roadmap ? { roadmap } : recertificationRoadmap ? { roadmap: recertificationRoadmap } : {}),
     evolutionLoader,
     onlyJobId,
   });
@@ -887,6 +892,18 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     job = typeof jobRepository.claimQueuedAutonomy === 'function'
       ? await jobRepository.claimQueuedAutonomy(job.id,{expected:job})
       : null;
+  }
+  if (job?.optional_context?.work_mode === 'VERIFY_RUNTIME') {
+    const verification = await executeRuntimeRecertification(env, jobRepository, job);
+    const verified = verification.status === 'VERIFIED';
+    const after = await supervisor.state();
+    return { ok: true, advanced: verified, job: verification.job,
+      runtime_recertification: { status: verification.status, code: verification.code },
+      progress: { advanced: verified, events: verified ? ['JOB_COMPLETED','ROADMAP_RUNTIME_RECERTIFIED'] : [],
+        work_remaining: true, waiting_external: !verified, block_reason: verification.code,
+        active_jobs: verification.status === 'BLOCKED' ? 1 : 0,
+        completed_roadmap_items: after.completedIds.length, next_roadmap_id: after.next?.id || null,
+        job_id: verification.job.id, job_status: verification.job.status } };
   }
   const initialJobId = job?.id || null;
   const initialJobStatus = String(job?.status || '').toUpperCase() || null;

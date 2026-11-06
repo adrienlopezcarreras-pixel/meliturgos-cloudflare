@@ -1,5 +1,30 @@
 export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
   {
+    "id": "codex-roadmap-expiry-recertification-not-reimplementation-20261106",
+    "source": "codex",
+    "domain": "roadmap-proof-lifecycle",
+    "task": "Réconcilier les déclarations historiques avec des preuves runtime expirées sans reconstruire les fonctionnalités.",
+    "input": "Un point historiquement livré reste exclu de MAX alors que sa preuve runtime manque ou dépasse la fenêtre courante.",
+    "before": "Assimiler la couleur sans preuve récente à une absence de code, ou considérer la file vide comme une roadmap achevée.",
+    "after": "Planifier une recette de vérification bornée dans le créneau existant, exiger le SHA et l’audit durable de son exécution, conserver les obligations sans recette sûre et séparer preuve logicielle, validation externe et trace de release. Une déclaration historique et un ancien reçu ne remplacent pas la preuve requise.",
+    "rationale": "La livraison du code, la fraîcheur de la preuve et la répétition idempotente d’un contrôle de release ont des cycles différents.",
+    "tests": [
+      "tests/roadmap-runtime-recertification.test.mjs: vrai SQLite, exécution CapabilityBus, audit corrélé, expiration, refus sans audit, arrêt propriétaire et MAX core sans génération IA",
+      "tests/autonomy-activity-detail.test.mjs: contrôle ledger exact-SHA distingué des missions sans réécriture des événements"
+    ],
+    "tags": [
+      "roadmap",
+      "recertification",
+      "d1",
+      "single-flight",
+      "exact-sha",
+      "local-proof"
+    ],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1793997536049
+  },
+  {
     "id": "codex-domain-findings-keep-durable-row-references-20261106",
     "source": "codex",
     "domain": "diagnostic-provenance",

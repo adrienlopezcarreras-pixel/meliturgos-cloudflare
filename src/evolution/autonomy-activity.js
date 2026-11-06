@@ -254,18 +254,25 @@ export function foldLedger(events = [], limit = 40) {
   const out = [];
   for (const event of events) {
     const ev = obj(event?.evidence ?? event?.evidence_json);
+    const ledgerDrill = event?.actor === 'release-bootstrap' && ev.roadmap_id === 'MEL-EVOL-04'
+      && /^[a-f0-9]{40}$/.test(String(event?.source_sha || ''))
+      && event.evolution_id === 'release-proof-' + event.source_sha.slice(0, 12);
+    const drillText = ledgerDrill ? {
+      JOB_CREATED: 'Contrôle du journal de déploiement démarré',
+      PRODUCTION_VERIFIED: 'Journal du déploiement vérifié',
+    }[String(event?.stage || '')] : null;
     const row = {
       at: num(event?.occurred_at),
       evolution_id: clip(event?.evolution_id, 160),
       stage: clip(event?.stage, 60),
-      stage_text: STAGE_TEXT[String(event?.stage || '')] || String(event?.stage || 'Événement'),
+      stage_text: drillText || STAGE_TEXT[String(event?.stage || '')] || String(event?.stage || 'Événement'),
       status: clip(event?.status, 60),
       actor: clip(event?.actor, 60),
       detail: clip([
         ev.previous_status && ev.next_status && ev.previous_status !== ev.next_status ? ev.previous_status + ' → ' + ev.next_status : null,
         Array.isArray(ev.changed_fields) && ev.changed_fields.length ? 'champs : ' + ev.changed_fields.join(', ') : null,
         ev.bridge_status ? 'pont : ' + ev.bridge_status : null,
-        ev.roadmap_id ? 'roadmap ' + ev.roadmap_id : null,
+        ledgerDrill ? 'Contrôle de release · aucune mission MAX relancée' : ev.roadmap_id ? 'roadmap ' + ev.roadmap_id : null,
         ev.error ? 'erreur : ' + ev.error : null,
       ].filter(Boolean).join(' · '), 300),
       repeat: 1,

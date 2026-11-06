@@ -162,7 +162,7 @@ export const ROADMAP_TRUTH = Object.freeze({
   VERIFIED_LIVE: 'VERIFIED_LIVE',   // toutes les preuves ont réussi en production sur 7 jours
   PARTIAL_LIVE: 'PARTIAL_LIVE',     // une partie seulement a réussi
   BROKEN: 'BROKEN',                 // des exécutions, aucune réussite récente
-  UNPROVEN: 'UNPROVEN',             // jamais exécuté en production sur 7 jours
+  UNPROVEN: 'UNPROVEN',             // aucune exécution probante dans la fenêtre de 7 jours
   DECLARED: 'DECLARED',             // aucune preuve automatique définie
 });
 
