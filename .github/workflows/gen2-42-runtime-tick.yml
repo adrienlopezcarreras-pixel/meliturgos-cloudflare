@@ -210,6 +210,8 @@ jobs:
           WORK_REMAINING="$(node -p "JSON.parse(require('fs').readFileSync('gen2-42-runtime-tick-proof.json','utf8')).progress?.work_remaining===true?'true':'false'")"
           WAITING_EXTERNAL="$(node -p "JSON.parse(require('fs').readFileSync('gen2-42-runtime-tick-proof.json','utf8')).progress?.waiting_external===true?'true':'false'")"
           TRIPPED="$(node -p "JSON.parse(require('fs').readFileSync('gen2-42-runtime-tick-proof.json','utf8')).watchdog?.tripped===true?'true':'false'")"
+          ACTIVE_JOB_STATUS="$(node -p "String(JSON.parse(require('fs').readFileSync('gen2-42-runtime-tick-proof.json','utf8')).progress?.job_status||'').toUpperCase()")"
+          ACTIVE_JOB_ID="$(node -p "JSON.parse(require('fs').readFileSync('gen2-42-runtime-tick-proof.json','utf8')).progress?.job_id||''")"
           [[ "$CHAIN_DEPTH" =~ ^[0-9]+$ ]]
           if [ "$TRIPPED" = "true" ]; then
             echo "MAX_PROGRESS_WATCHDOG_TRIPPED"
@@ -222,6 +224,13 @@ jobs:
           fi
           if [ "$BLOCK" = "AUTONOMY_RUNTIME_LEASE_BUSY" ]; then
             echo "AUTONOMY_CHAIN_DEFERRED_LEASE_BUSY"
+            exit 0
+          fi
+          # A CLAIMED primary mission already owns the execution slot. No
+          # progress from this observation does not authorize another tick:
+          # its Bridge/Teacher callback or the scheduled watchdog will resume.
+          if [ "$ADVANCED" != "true" ] && [ "$ACTIVE_JOB_STATUS" = "CLAIMED" ] && [ -n "$ACTIVE_JOB_ID" ]; then
+            echo "AUTONOMY_CHAIN_DEFERRED_ACTIVE_CLAIM job_id=$ACTIVE_JOB_ID"
             exit 0
           fi
           if [ "$PAUSED" = "true" ] || [ "$READY" = "true" ] || [ "$WORK_REMAINING" != "true" ]; then
