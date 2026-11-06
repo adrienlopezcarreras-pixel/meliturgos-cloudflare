@@ -46,18 +46,37 @@ test('authenticated Council streaming sends bytes before the vote and preserves 
   globalThis.fetch=async url=>Response.json(String(url).includes('openid-configuration')
     ?{issuer:'https://token.actions.githubusercontent.com',jwks_uri:'https://token.actions.githubusercontent.com/keys'}:{keys:[jwk]});
   t.after(()=>{globalThis.fetch=original;});
-  const db={prepare:()=>({bind:()=>({first:async()=>null,run:async()=>({meta:{changes:1}})})})};
+  const records=new Map();
+  const db={prepare:sql=>({bind:(...args)=>({
+    first:async()=>sql.startsWith('SELECT goal, files_json')
+      ?{goal:'MEL-UI-AUDIT-05',files_json:'[]',applied_files_json:JSON.stringify(['a.js','tests/a.test.mjs'])}
+      :sql.includes('AS roadmap_id FROM dev_jobs')?{roadmap_id:'MEL-UI-AUDIT-05'}
+      :records.get(args[0])||null,
+    run:async()=>{
+      if(sql.startsWith('INSERT INTO dev_bridge_state'))records.set(args[0],{metadata_json:args[3]});
+      return {meta:{changes:1}};
+    },
+  })})};
   const vote=Promise.withResolvers();let votes=0;
   const options={contextLoader:async()=>({head}),review:async()=>{votes++;return vote.promise;}};
   const call=body=>handleCouncilReviewRequest(new Request('https://mel.test/api/internal/council-review',{
     method:'POST',headers:{'x-mel-github-oidc':token,'content-type':'application/json'},body:JSON.stringify(body),
   }),{MEL_GITHUB_REPOSITORY:'o/r',DB:db},options);
-  const response=await call({head,base,heartbeat:true,diff:'diff --git a/a.js b/a.js\n+x\n'});
+  const body={head,base,heartbeat:true,diff:'diff --git a/a.js b/a.js\n+x\n',log:'GEN2-42: apply approved bridge package job-a'};
+  const response=await call(body);
   const reader=response.body.getReader();let raw=new TextDecoder().decode((await reader.read()).value);
   assert.equal(raw,'\n');
   vote.resolve({decision:'REJECTED',reviews:[{model:'independent',verdict:'REJECT',blocking:['Still needs repair']}]});
   while(true){const chunk=await reader.read();if(chunk.done)break;raw+=new TextDecoder().decode(chunk.value);}
-  assert.equal(JSON.parse(raw).decision,'REJECTED');assert.equal(votes,1);
+  const answer=JSON.parse(raw);
+  assert.equal(answer.decision,'REJECTED');assert.equal(votes,1);
+  assert.deepEqual(answer.rejected_jobs,['job-a']);
+  assert.deepEqual(answer.revert_paths,['a.js','tests/a.test.mjs']);
+  const cached=await(await call(body)).json();
+  assert.equal(cached.cached,true);
+  assert.deepEqual(cached.rejected_jobs,answer.rejected_jobs);
+  assert.deepEqual(cached.revert_paths,answer.revert_paths);
+  assert.equal(votes,1,'cached rejection retains attribution without another model call');
   const invalid=await call({heartbeat:true,head:'not-a-sha',diff:'x'});
   assert.equal((await invalid.json()).ok,false);
   assert.equal(votes,1,'invalid input never calls a model even when transport status is200');

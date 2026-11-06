@@ -1781,12 +1781,14 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "task": "Restaurer tout un paquet rejeté même si sa proposition courante a changé.",
     "input": "Le rejet du paquet2ebfc65a restaure seulement domain-audit.js; le test ajouté reste dans la candidate2a22986d et fait échouer sa CI.",
     "before": "Les chemins à restaurer sont lus dans files_json, que la réparation peut déjà avoir modifié.",
-    "after": "Capturer les chemins du paquet figé au claim dans le rapport de publication réussie. Pour attribuer le diff et restaurer un paquet rejeté, préférer cette provenance publiée à la proposition courante mutable, afin de garder code et tests cohérents. Une restauration ne valide jamais l’objectif rejeté.",
+    "after": "Capturer les chemins du paquet figé au claim dans le rapport de publication réussie. Pour attribuer le diff et restaurer un paquet rejeté, préférer cette provenance publiée à la proposition courante mutable, afin de garder code et tests cohérents. Le commit Git publié est l’unité atomique, métadonnées dérivées comprises : appliquer son inverse sans écraser les éditions indépendantes, refuser tout conflit ou attribution incomplète, conserver l’attribution dans le cache et exécuter le helper depuis le main approuvé. Ne pas utiliser une boucle read qui ignore le dernier chemin sans retour à la ligne. Une restauration ne valide jamais l’objectif rejeté.",
     "rationale": "Une annulation partielle laisse des régressions orphelines et bloque les corrections indépendantes. La liste des fichiers publiée doit survivre aux nouvelles propositions.",
     "tests": [
       "CI42074515373 échoue sur le test orphelin après restauration partielle2a22986d; commit2a retire seulementlecode",
       "tests/council-review-gate.test.mjs: proposition courante limitée au source, provenance publiée source+test, restauration des deux",
-      "validation ciblée élargie:71 succès locaux; nouvelle publication Cloudflare encore à vérifier"
+      "validation ciblée élargie:71 succès locaux; nouvelle publication Cloudflare encore à vérifier",
+      "tests/council-atomic-package-rollback.test.mjs: vrai Git et vrai shell workflow; source/test/métadonnées restaurés, travail indépendant conservé, conflit et helper candidat hostile refusés",
+      "tests/council-heartbeat-transport.test.mjs: rejet signé réel et cache conservent les mêmes coupables et chemins"
     ],
     "tags": [
       "council",
