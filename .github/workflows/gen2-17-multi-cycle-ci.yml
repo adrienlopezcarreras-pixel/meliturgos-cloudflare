@@ -14,6 +14,8 @@ on:
       - 'tests/waiting-teacher-runtime-fix.test.mjs'
       - 'tests/passive-state-recovery.test.mjs'
       - 'tests/autonomy-activity-detail.test.mjs'
+      - 'scripts/rebase-prepared-packages.mjs'
+      - 'tests/rebase-prepared-packages.test.mjs'
       - 'src/evolution/**'
       - 'src/maintenance/**'
       - 'release-tools/predeploy-backup-refresh/system-restore-proof.mjs'
@@ -71,6 +73,8 @@ jobs:
           node --check src/evolution/release-launch-bootstrap.js &&
           node --check src/security/github-actions-oidc.js &&
           node --check src/evaluation/capability-watch-runtime.js
+      - name: Prepared package rebase regression (non-overlapping edits and conflicts)
+        run: node --test tests/rebase-prepared-packages.test.mjs tests/prepared-mission-packages.test.mjs
       - name: Global maintenance reset regressions
         run: node --test tests/maintenance/*.test.mjs tests/gen2/companion-grand-cleanup.test.mjs tests/mel-work-schedule.test.mjs
       - name: Chat direct-path and explicit-action regressions
