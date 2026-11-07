@@ -1,3 +1,4 @@
+import { recoverVerificationEvidence } from './verification-evidence-repair.js';
 import { beginAutomaticRepair, repairLane, scopeRepairRepository } from './autonomy-repair.js';
 import {isAcceptedRoadmapCodeJob} from '../roadmap/roadmap-code-acceptance.js';
 import { jobActivityTimestamp } from './autonomy-job-epoch.js';
@@ -1079,7 +1080,12 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     if (held) { control=await beginAutomaticRepair(env.DB,held,control,{memoryState:options.autonomyControlState||null});repair=repairLane(control); }
   }
   if (repair) {
-    const held = await repository.get(repair.job_id);
+    let held = await repository.get(repair.job_id);
+    if (held?.status === 'FAILED' && jobActivityTimestamp(held) >= epochMs) {
+      const recovered = await recoverVerificationEvidence({ env, repository, job: held, control, deployedSha: deployedCandidateSha(env),
+        readControl: () => getAutonomyControl(env.DB, { memoryState: options.autonomyControlState || null }) });
+      if (recovered) held = recovered;
+    }
     if (!held || jobActivityTimestamp(held)<epochMs || ['FAILED','CANCELLED','COMPLETED'].includes(held.status)) {
       const waiting = isAcceptedRoadmapCodeJob(held) ? 'REPAIR_AWAITING_VERIFIED_DEPLOYMENT' : 'REPAIR_NEEDS_VALID_PACKAGE';
       return {status:waiting,paused:false,advanced:false,repairing:true,control,

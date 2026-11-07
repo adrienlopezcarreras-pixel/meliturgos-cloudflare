@@ -781,3 +781,25 @@ test('READY_FOR_REVIEW with accepted Bridge receipt waits for exact-SHA CI and C
   assert.equal((await fixture.repository.list()).length, 1, 'pending review cannot admit a different mission');
   assert.equal((await fixture.repository.get(job.id)).status, 'READY_FOR_REVIEW', 'waiting cannot fabricate completion');
 });
+
+test('a verification veto repairs the same goal with a fresh code proposal, never an executor replay of rejected evidence', async () => {
+  const fixture = runtimeFixture();
+  const first = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
+  const before = await fixture.repository.get(first.job.id);
+  await fixture.repository.update(before.id, { status:'REPAIR_REQUIRED', result_json:{...before.result_json,
+    teacher_bridge:{...before.result_json.teacher_bridge,status:'ANSWERED',review:{request_id:first.teacher.request_id,
+      target_sha:CANDIDATE_HEAD_SHA,verdict:'APPROVE_PLAN',development_allowed:true}},
+    implementation_proposal:{status:'VERIFY_EXISTING',teacher_request_id:first.teacher.request_id,candidate_sha:CANDIDATE_HEAD_SHA},
+    dev_bridge:null, council_review:{decision:'REJECTED',mode:'VERIFY_EXISTING',head:CANDIDATE_HEAD_SHA,
+      repair_required:false,verification_repair_required:true,objections:['Add the missing acceptance regression']},
+  } });
+  const { runAutonomyRuntimeTick: coreTick } = await import('../src/evolution/autonomy-runtime-core.js');
+  await coreTick(fixture.env, { fetchImpl:fixture.fetchImpl,repository:fixture.repository,roadmap:TEST_ROADMAP,maxAutonomy:true,onlyJobId:before.id,repairOnly:true });
+  const after=await fixture.repository.get(before.id);
+  assert.equal(after.goal,before.goal);
+  assert.equal(after.result_json.verify_existing_rejection.repair_required,true);
+  assert.equal(after.result_json.repair_cycle.source,'COUNCIL_VERIFICATION_REJECTED');
+  assert.notEqual(after.result_json.implementation_proposal?.status,'VERIFY_EXISTING');
+  assert.equal((after.result_json.council_rejected_packages || []).length,0,'a rejected evidence packet must not poison existing code fingerprints');
+  assert.equal((await fixture.repository.list()).length,1);
+});

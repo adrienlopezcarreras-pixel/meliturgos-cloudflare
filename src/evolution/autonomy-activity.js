@@ -165,6 +165,24 @@ export function jobPipeline(job) {
     && ci.head_sha === completion.candidate_sha && ci.conclusion === 'success'
     && Number(ci.run_id) > 0;
   const existingVerified = verified && impl.decision === 'VERIFY_EXISTING';
+  if (impl.status === 'VERIFY_EXISTING' || r.verify_existing?.status) {
+    const evidence = obj(r.verify_existing), verdict = obj(r.council_review);
+    const rejected = verdict.decision === 'REJECTED';
+    const steps = [
+      { key: 'chosen', label: 'Chantier choisi', done: true },
+      { key: 'plan', label: 'Plan approuvé par le Teacher', done: planApproved },
+      { key: 'ci', label: 'CI exacte reçue', done: Number(evidence.ci_run_id) > 0 && evidence.candidate_sha === impl.candidate_sha },
+      { key: 'live', label: 'Résultats fonctionnels reçus', done: Array.isArray(evidence.live_checks) && evidence.live_checks.length > 0
+        && ['COUNCIL_REVIEWED','COUNCIL_APPROVED','VERIFIED'].includes(evidence.status) },
+      { key: 'council', label: 'Preuves validées par le Council', done: verdict.decision === 'APPROVED' || existingVerified },
+      { key: 'objective', label: 'Objectif prouvé (feuille de route)', done: roadmapObjectiveProven(job) },
+    ];
+    const current = steps.findIndex(step => !step.done);
+    return steps.map((step, index) => ({ ...step, state: step.done ? 'done'
+      : (step.key === 'council' && rejected) || (index === current && ['FAILED','BLOCKED'].includes(status)) ? 'blocked'
+        : index === current ? 'current' : 'todo' }));
+  }
+
   const bridge = obj(r.dev_bridge);
   const published = packageReady && bridge.mode === 'GITHUB_CLOUD_BRIDGE'
     && bridge.status === 'READY_FOR_REVIEW' && bridge.needs_repair === false
@@ -246,6 +264,8 @@ export function describeJob(job, now = Date.now()) {
     status_text: job?.optional_context?.work_mode === 'VERIFY_RUNTIME'
       ? (isAcceptedRuntimeRecertificationJob({ ...job, result_json: r }) ? 'Recette logicielle validée avec reçu runtime récent.'
         : status === 'FAILED' ? 'Recette non validée : voir le diagnostic.' : 'Recertification logicielle en attente ou en cours.')
+      : r.council_review?.decision === 'REJECTED' && r.council_review?.mode === 'VERIFY_EXISTING'
+        ? 'Vérification refusée par le Council : preuves ou comportement à corriger.'
       : status === 'COMPLETED' && roadmapObjectiveProven(job) ? 'Terminé : code livré et objectif prouvé.' : (STATUS_TEXT[status] || 'Statut ' + status + '.'),
     created_at: num(job?.created_at),
     updated_at: updated || null,
@@ -258,7 +278,9 @@ export function describeJob(job, now = Date.now()) {
     completion: completion.status ? { status: clip(completion.status, 60), sha: clip(completion.candidate_sha, 40), ci_run_id: num(completion.ci?.run_id) } : null,
     trace: jobTrace(r),
     bridge_diagnostics: bridgeDiagnostics(r),
-    diagnostics: [diagnostic(r.implementation_planning_diagnostic), diagnostic(r.bridge_preparation_diagnostic)].filter(Boolean),
+    diagnostics: (r.implementation_proposal?.status === 'VERIFY_EXISTING' || r.verify_existing?.status
+      ? [diagnostic(r.verify_existing)]
+      : [diagnostic(r.implementation_planning_diagnostic), diagnostic(r.bridge_preparation_diagnostic)]).filter(Boolean),
     error: clip(job?.error, 400),
   };
 }

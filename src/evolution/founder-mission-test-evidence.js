@@ -121,10 +121,15 @@ export async function fetchFounderMissionTestEvidence({ repository, candidateSha
     const receipt = decodeFounderEvidenceZip(bytes);
     const verdict = validateFounderMissionTestEvidence(receipt,run,{candidateSha,runId});
     if (!verdict.ok) return verdict;
+    if (receipt.roadmap_test_evidence && (receipt.roadmap_test_evidence.candidate_sha !== normalizedSha
+      || receipt.roadmap_test_evidence.github_run_id !== Number(runId)
+      || receipt.roadmap_test_evidence.github_run_attempt !== receipt.github_run_attempt))
+      return { ok: false, code: 'MISSION_TEST_OBJECTIVE_PROVENANCE_INVALID' };
     lookupStage = 'DIGEST';
     const digestBytes = await crypto.subtle.digest('SHA-256', bytes);
     const digest = Array.from(new Uint8Array(digestBytes), b => b.toString(16).padStart(2,'0')).join('');
     return { ok:true, candidate_sha: normalizedSha, run_id:Number(runId),
-      mandatory_tests_verified:true, digest, tests:receipt.tests };
+      mandatory_tests_verified:true, digest, tests:receipt.tests,
+      ...(receipt.roadmap_test_evidence ? { roadmap_test_evidence: receipt.roadmap_test_evidence } : {}) };
   } catch { return { ok:false, code:'MISSION_TEST_GITHUB_LOOKUP_FAILED', lookup_stage:lookupStage }; }
 }

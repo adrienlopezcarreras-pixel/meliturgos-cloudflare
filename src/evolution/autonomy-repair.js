@@ -37,7 +37,7 @@ export function scopeRepairRepository(repository,id) {
 // Called only after the canonical release's complete health gate. It never
 // turns MAX on: a stopped owner remains stopped, and only a verified repair
 // may release the held mission stream.
-export async function completeVerifiedRepair(db,repository,{deployedSha,releaseVerified=false,memoryState=null}={}) {
+export async function completeVerifiedRepair(db,repository,{deployedSha,releaseVerified=false,memoryState=null,verifyDescendant=null}={}) {
  const control=await getAutonomyControl(db,{memoryState});
  if(control.paused===true || control.max_autonomy!==true)return {ok:true,status:'REPAIR_OWNER_STOP_PRESERVED',resumed:false};
  const lane=repairLane(control);
@@ -48,8 +48,62 @@ export async function completeVerifiedRepair(db,repository,{deployedSha,releaseV
  const reject=reason=>({ok:false,status:'REPAIR_DELIVERY_NOT_VERIFIED',reason,resumed:false});
  if(releaseVerified!==true)return reject('REPAIR_RELEASE_HEALTH_NOT_VERIFIED');
  if(!isAcceptedRoadmapCodeJob(job))return reject('REPAIR_MISSION_ACCEPTANCE_NOT_VERIFIED');
- if(job.result_json.roadmap_code_acceptance.candidate_sha!==deployedSha)
-  return reject('REPAIR_ACCEPTED_SHA_NOT_DEPLOYED');
+ const receipt=job.result_json.roadmap_code_acceptance;
+ if(receipt.candidate_sha!==deployedSha) {
+  const protectedPaths=[...receipt.code_paths,...receipt.test_paths];
+  // Ancestry alone is insufficient: the accepted mission's implementation
+  // AND its tests must be unchanged in the exact deployed tree.
+  const equivalent=typeof verifyDescendant==='function'
+    && await verifyDescendant({acceptedSha:receipt.candidate_sha,deployedSha,protectedPaths});
+  if(equivalent!==true && equivalent?.ok!==true) {
+   const safeCode=equivalent&&typeof equivalent==='object'&&/^REPAIR_COMPARE_(?:INPUT_INVALID|FETCH_FAILED|HTTP_[0-9]{3}|JSON_INVALID|ANCESTRY_INVALID|TRUNCATED|PROTECTED_PATH_CHANGED)$/.test(String(equivalent.diagnostic||''))
+    ? equivalent.diagnostic : null;
+   return {...reject('REPAIR_ACCEPTED_SHA_NOT_DEPLOYED'),...(safeCode?{diagnostic:safeCode}:{})};
+  }
+ }
  const updated=await setAutonomyControl(db,{paused:false,max_autonomy:true,source:'verified-repair-completed',reason:'verified-repair-delivered',repair:null,expected_updated_at:control.updated_at,memoryState});
  return {ok:true,status:'AUTONOMOUS_REPAIR_COMPLETED',resumed:true,control:updated};
+}
+
+/**
+ * Verify that a newer production SHA still contains the *identical* accepted
+ * mission files. This is used only after exact deployed-SHA release health,
+ * completed CI and the Council acceptance receipt have been verified.
+ * Any GitHub failure, missing token, pagination ambiguity or changed file
+ * fails closed. No user-supplied repository URL is accepted.
+ */
+
+export async function diagnoseUnchangedRepairDescendant({acceptedSha,deployedSha,protectedPaths,token,fetchImpl=fetch}={}) {
+ const bad=diagnostic=>({ok:false,diagnostic});
+ const validSha=x=>/^[a-f0-9]{40}$/.test(String(x||''));
+ if(!validSha(acceptedSha)||!validSha(deployedSha)||acceptedSha===deployedSha
+   ||!Array.isArray(protectedPaths)||!protectedPaths.length||protectedPaths.length>100
+   ||protectedPaths.some(p=>typeof p!=='string'||p.length>240||p.startsWith('/')||p.split('/').some(x=>x==='..'||x==='.'||!x))
+   ||typeof token!=='string'||token.length<8)return bad('REPAIR_COMPARE_INPUT_INVALID');
+ try {
+  const url='https://api.github.com/repos/adrienlopezcarreras-pixel/meliturgos-cloudflare/compare/'
+    +acceptedSha+'...'+deployedSha;
+  const res=await fetchImpl(url,{headers:{Authorization:'Bearer '+token,Accept:'application/vnd.github+json'},redirect:'error',signal:AbortSignal.timeout(15000)});
+  if(!res.ok)return bad('REPAIR_COMPARE_HTTP_'+String(res.status).padStart(3,'0'));
+  let data;
+  try { data=await res.json(); }catch { return bad('REPAIR_COMPARE_JSON_INVALID'); }
+  if(data?.status!=='ahead'||!Number.isInteger(data.ahead_by)||data.ahead_by<1||data.behind_by!==0)
+   return bad('REPAIR_COMPARE_ANCESTRY_INVALID');
+  // The GitHub Compare endpoint may return partial evidence. Refuse it.
+  if(!Number.isInteger(data.total_commits)||data.total_commits<1||data.total_commits>250
+    ||!Array.isArray(data.commits)||data.commits.length!==data.total_commits
+    ||!Array.isArray(data.files)||data.files.length>=300)return bad('REPAIR_COMPARE_TRUNCATED');
+  const protectedSet=new Set(protectedPaths);
+  if(!data.files.every(file=>file&&typeof file.filename==='string'
+    && !protectedSet.has(file.filename)
+    && !(typeof file.previous_filename==='string'&&protectedSet.has(file.previous_filename))))
+   return bad('REPAIR_COMPARE_PROTECTED_PATH_CHANGED');
+  return {ok:true};
+ }catch{return bad('REPAIR_COMPARE_FETCH_FAILED');}
+}
+
+// Keep the public boolean contract for existing callers; the production
+// repair endpoint uses fixed-code diagnostics without exposing SHA or token.
+export async function verifyUnchangedRepairDescendant(args={}) {
+ return (await diagnoseUnchangedRepairDescendant(args)).ok===true;
 }

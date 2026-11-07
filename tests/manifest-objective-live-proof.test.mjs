@@ -11,10 +11,12 @@ const goal = '[MEL-MANIFEST-01] Tenir le compte des cinq priorités';
 
 test('manifest verification proves an honest pending report without certifying its priorities', async () => {
   const value = readiness();
+  value.control = { private: 'PRIVATE_CONTROL' };
+  value.manifest_01.business_indicators = [{ id: 'PRIVATE_INDICATOR', value: 'PRIVATE_VALUE', kind: 'REPORT_DATA' }];
   assert.equal(value.manifest_01.all_verified, false);
   assert.equal(validManifestReport(value), true);
   const calls = [];
-  const results = await runLiveChecks({}, requiredLiveChecks(goal, ''), {
+  const results = await runLiveChecks({ MEL_DEPLOYED_GIT_SHA: 'a'.repeat(40) }, requiredLiveChecks(goal, ''), {
     createRuntime: async () => ({ bus: { execute: async (id, input) => {
       calls.push({ id, input });
       return value;
@@ -22,7 +24,8 @@ test('manifest verification proves an honest pending report without certifying i
   });
   assert.deepEqual(calls, [{ id: 'autonomy.status', input: {} }]);
   assert.equal(liveProofGate(['autonomy.status'], results, { goal }).ok, true);
-  assert.equal(JSON.stringify(results).includes('priorities'), false);
+  assert.equal(results[0].functional_evidence.priorities.length, 5);
+  assert.equal(JSON.stringify(results).includes('PRIVATE_'), false);
   assert.equal(JSON.stringify(results).includes('control'), false);
 });
 
@@ -31,6 +34,7 @@ test('manifest recipe is bound to its exact objective rather than appended roadm
   assert.equal(hasObjectiveBoundVerificationChecks(goal, 'LIVE_CHECKS: autonomy.status'), true);
   assert.equal(hasObjectiveBoundVerificationChecks(goal, 'LIVE_CHECKS: gmail.messages.search'), false);
   assert.equal(hasObjectiveBoundVerificationChecks('[MEL-FOUNDER-02] runtime | MEL-MANIFEST-01', 'LIVE_CHECKS: autonomy.status'), false);
+  assert.equal(hasObjectiveBoundVerificationChecks('[MEL-FOUNDER-02] persistance puis Gmail', 'LIVE_CHECKS: gmail.messages.search'), false, 'generic read cannot replace an objective recipe');
 });
 
 test('manifest rejects absent, inconsistent and falsely verified physical reports', () => {
