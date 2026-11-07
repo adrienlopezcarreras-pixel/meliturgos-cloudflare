@@ -445,7 +445,11 @@ export function buildPassiveRoadmapCatalog(roadmap = flattenRoadmap(), jobs = []
 // render a running mission until the owner explicitly resumes autonomy.
 export function visibleActiveAutonomyMission(holder, control) {
   if (!holder || control?.paused === true || isLegacyOwnerMaxStop(control)) return null;
-  return String(holder.status || '').toUpperCase() === 'QUEUED' ? null : holder;
+  // A finished or cancelled job is historical evidence, never a running mission.
+  // Keep COMMITTED visible: it still needs release and runtime verification.
+  const status = String(holder.status || '').toUpperCase();
+  if (new Set(['QUEUED', 'COMPLETED', 'FAILED', 'CANCELLED']).has(status)) return null;
+  return holder;
 }
 
 // The plan shown in the Code chat: the mission in progress with its steps,
