@@ -1,6 +1,6 @@
 import {isAcceptedRoadmapCodeJob} from '../roadmap/roadmap-code-acceptance.js';
 import { reconcileRuntimeCompletions } from '../teachers/github-completion-reconciler.js';
-import { completeVerifiedRepair, repairLane, scopeRepairRepository } from './autonomy-repair.js';
+import { completeVerifiedRepair, repairLane, scopeRepairRepository, verifyUnchangedRepairDescendant } from './autonomy-repair.js';
 import { verifyRepairRelease } from './verified-repair-release.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import {
@@ -378,7 +378,9 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       if (lane && !control.paused && control.max_autonomy===true
           && !isAcceptedRoadmapCodeJob(await repository.get(lane.job_id)))
         await reconcileRuntimeCompletions({repository:scopeRepairRepository(repository,lane.job_id),env});
-      const result=await completeVerifiedRepair(env.DB,repository,{deployedSha:sha,releaseVerified:true});
+      const result=await completeVerifiedRepair(env.DB,repository,{deployedSha:sha,releaseVerified:true,
+        verifyDescendant:proof=>verifyUnchangedRepairDescendant({...proof,
+          token:request.headers.get('x-mel-github-read-token')})});
       return Response.json({ok:result.ok,status:result.status,resumed:result.resumed,
         ...(result.ok===false && result.status==='REPAIR_DELIVERY_NOT_VERIFIED'
           ? {reason:result.reason||'REPAIR_UNCLASSIFIED'} : {})},
