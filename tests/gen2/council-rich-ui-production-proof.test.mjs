@@ -147,3 +147,33 @@ test('Full browser proof waits for the actual rich assistant response independen
   const page = fs.readFileSync('src/pages/full-interface-v2.js', 'utf8');
   assert.ok(page.includes("'Modèle réel : '+actualModel"), 'the actual production presentation label remains valid');
 });
+
+test('the production receipt describes observed assistant content and rejects an unrelated nonempty Full response', () => {
+  const start = workflow.indexOf("          const fs=require('fs');\n          const normalBrowser=require('./rich-ui-normal.json');");
+  assert.ok(start >= 0);
+  const body = workflow.slice(start).split('\n          NODE')[0];
+  const sha = 'a'.repeat(40);
+  function execute(fullText) {
+    let receipt;
+    const fixtures = {
+      './rich-ui-normal.json': { ok: true, capability: 'browser.execute', result: { ok: true, steps_completed: 6,
+        outputs: [{step_id:'read-normal-rich',output:{kind:'text',text:'RELEASE_CODE_SMOKE_OK'}}] } },
+      './rich-ui-full.json': { ok: true, capability: 'browser.execute', result: { ok: true, steps_completed: 8,
+        outputs: [ {step_id:'wait-full-submit',output:{kind:'wait',matched:true}},
+          {step_id:'wait-full',output:{kind:'wait',matched:true}},
+          {step_id:'read-full-rich',output:{kind:'text',text:fullText}} ] } },
+      './council-live.json': {result:{status:'COMPLETE',independent_response_count:4,unique_model_count:4,synthesis:{status:'COMPLETE'}}},
+      './self-check.json': {deployed_sha:sha},
+    };
+    vm.runInNewContext(body, { require(name) {
+      if (name === 'fs') return {writeFileSync(path,value) {receipt=JSON.parse(value);}};
+      assert.ok(Object.hasOwn(fixtures,name)); return fixtures[name];
+    }, process:{env:{EXPECTED_SHA:sha}}, console:{log(){}} });
+    return receipt;
+  }
+  const receipt = execute('RELEASE_CODE_SMOKE_OK');
+  assert.equal(receipt.rich_ui.full.completion_marker,'RELEASE_CODE_SMOKE_OK');
+  assert.equal(receipt.rich_ui.full.completion_source,'rich-rendered-assistant-message');
+  assert.equal(receipt.exact_sha_runtime,true);
+  assert.throws(() => execute('Unrelated nonempty text'), /FULL_RICH_RENDER_NOT_PROVED/);
+});
