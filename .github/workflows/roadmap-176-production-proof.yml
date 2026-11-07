@@ -46,7 +46,7 @@ jobs:
           node-version: '22'
       - name: Verify exact SHA and measure real D1 roadmap evidence via GET only
         run: node scripts/prove-production-roadmap-176-readonly.mjs
-      - name: Upload redacted 176-point audit
+      - name: Upload redacted current-roadmap audit
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

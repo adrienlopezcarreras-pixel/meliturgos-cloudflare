@@ -1,6 +1,6 @@
 # MEL — Index d’expérience développement
 
-- `codex-roadmap-expiry-recertification-not-reimplementation-20261106` — recertifier les preuves expirées dans le créneau MAX; une recette absente ouvre un lot de code/test distinct du parent; les reçus logiciels ne suppriment pas la recertification, et le reçu runtime accepté débloque ses dépendants; preuves SQLite, pas une certification production.
+- `codex-roadmap-expiry-recertification-not-reimplementation-20261106` — recertifier tous les points sans preuve récente dans le créneau MAX; une recette absente ouvre un lot de code/test séparé, qui ne valide pas le point parent; compteurs alignés sur les preuves et le registre courant; preuves SQLite, pas une certification production.
 
 - `codex-single-flight-lifecycle-all-entrypoints-20261028` — une sélection de mission unique doit couvrir admission, Teacher, reprise PC, claims atomiques Bridge et UI ; les lectures actives respectent aussi l’époque propriétaire. Preuves locales mémoire/SQLite, production à vérifier.
 

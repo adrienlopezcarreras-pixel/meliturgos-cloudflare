@@ -4,6 +4,7 @@ import { flattenRoadmap } from '../src/roadmap/master-roadmap.js';
 import { withRuntimeRecertification } from '../src/roadmap/runtime-recertification.js';
 import { proofRecipeMissionId } from '../src/roadmap/proof-recipe-contracts.js';
 import { roadmapCodeContract, assertRoadmapCodeChanges } from '../src/roadmap/roadmap-code-contracts.js';
+import { buildPassiveRoadmapCatalog } from '../src/evolution/autonomy-activity.js';
 import { AutonomySupervisor } from '../src/evolution/autonomy-supervisor.js';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
@@ -27,6 +28,18 @@ test('every canonical point without a live proof has executable work or a bounde
   }
   assert.equal(new Set(expanded.map(row=>row.id)).size,expanded.length);
   assert.equal(flattenRoadmap().length,173,'auxiliary code work never inflates the product registry');
+});
+
+test('the passive catalog counts current evidence rather than historic DONE declarations', () => {
+  const rows=flattenRoadmap().filter(row=>['GEN2-02','GEN2-06'].includes(row.id));
+  const truth=unproven(rows);truth.items['GEN2-02'].truth='VERIFIED_LIVE';
+  const catalog=buildPassiveRoadmapCatalog(rows,[],{truth});
+  assert.equal(catalog.total,2);assert.equal(catalog.verified,1);assert.equal(catalog.remaining,1);
+  assert.equal(catalog.items[0].id,'GEN2-06');
+  assert.equal(catalog.items[0].state,'PROOF_RECIPE_REQUIRED');
+  assert.equal(catalog.items[0].proof_recipe_mission.certifies_parent,false);
+  const unavailable=buildPassiveRoadmapCatalog(rows,[],{truth:{available:false}});
+  assert.equal(unavailable.verified,0);assert.equal(unavailable.items[0].state,'PROOF_STATUS_UNAVAILABLE');
 });
 
 test('the real scheduler admits one recipe mission, keeps its target unverified and preserves scope', async t => {
@@ -77,6 +90,9 @@ test('an accepted code objective with stale runtime evidence receives proof work
   assert.ok(!state.completedIds.includes(parent.id),'it is not fresh verification of the reopened point');
   assert.equal(state.next.id,proofRecipeMissionId(parent.id));
   assert.ok(roadmapCodeContract(state.next.id),'code-only objectives without a capability mapping also get a bounded recipe contract');
+  const catalog=buildPassiveRoadmapCatalog([parent],[],{truth,acceptanceJobs:[job]});
+  assert.equal(catalog.verified,0);assert.equal(catalog.remaining,1);
+  assert.equal(catalog.items[0].proof_recipe_mission.id,state.next.id);
   const regressed={...parent,status:'REGRESSED'};
   assert.equal(withRuntimeRecertification([regressed],truth,{acceptedCodeIds:[parent.id]})[0],regressed,
     'an explicit regression cannot be hidden by a historical code receipt');
