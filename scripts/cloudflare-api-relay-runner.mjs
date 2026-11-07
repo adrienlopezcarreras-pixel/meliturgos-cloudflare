@@ -1,4 +1,5 @@
 import { selectAuthorizedWindowsCompanion } from '../src/devices/companion-relay-selection.js';
+import { observeProductionProvenance } from './read-production-provenance.mjs';
 const BASE_URL=String(process.env.MEL_RELAY_BASE_URL||'https://meliturgos.adrien-lopezcarreras.workers.dev').replace(/\/$/,'');
 const OIDC_TOKEN=String(process.env.MEL_CLOUDFLARE_RELAY_OIDC||'');
 const CF_TOKEN=String(process.env.CLOUDFLARE_API_TOKEN||'');
@@ -51,7 +52,26 @@ async function main(){
           id:String(row?.id||''),created_on:String(row?.created_on||''),source:String(row?.source||''),strategy:String(row?.strategy||''),
           versions:Array.isArray(row?.versions)?row.versions.slice(0,20).map(v=>({version_id:String(v?.version_id||''),percentage:Number(v?.percentage||0)})):[]
         }));
-        await worker('/api/internal/cloudflare-api-relay/result',{job_id:job.id,status:'COMPLETE',result:{provider:'cloudflare',transport:'github-actions-relay',script,deployments,count:deployments.length}});
+        // Independently cross-check the production Worker SHA against Cloudflare's
+        // stable version (two version reads and two Worker identity reads).
+        // A caller-controlled deployment message is never SHA provenance.
+        // If either source is unavailable, the list still works but it cannot
+        // be used to certify GEN2-53 rollback recertification.
+        let production_provenance=null;
+        if(script==='meliturgos'){
+          try{
+            const observed=await observeProductionProvenance({accountId:ACCOUNT_ID,apiToken:CF_TOKEN});
+            const versions=deployments[0]?.versions||[];
+            if(versions.length===1&&Number(versions[0].percentage)===100&&
+              versions[0].version_id===observed.cloudflare_version_id&&
+              observed.proof_source==='live-worker-and-cloudflare-deployment'){
+              production_provenance=observed;
+            }
+          }catch{
+            console.warn('::warning::CLOUDFLARE_READBACK_SOURCE_IDENTITY_UNPROVEN');
+          }
+        }
+        await worker('/api/internal/cloudflare-api-relay/result',{job_id:job.id,status:'COMPLETE',result:{provider:'cloudflare',transport:'github-actions-relay',script,deployments,count:deployments.length,production_provenance}});
       }else if(job.operation==='deployments.create'){
         const script=String(job.input?.script||'').trim();
         if(!/^[A-Za-z0-9_.:@-]{1,128}$/.test(script))throw Object.assign(new Error('CLOUDFLARE_SCRIPT_INVALID'),{code:'CLOUDFLARE_SCRIPT_INVALID'});
