@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
+import { jobActivityTimestamp, isJobInActivityEpoch } from '../src/evolution/autonomy-job-epoch.js';
 import { runAutonomyRuntimeTick } from '../src/evolution/autonomy-runtime.js';
 import { AutonomySupervisor, selectActionableAutonomyJob } from '../src/evolution/autonomy-supervisor.js';
 import { setAutonomyControl } from '../src/evolution/autonomy-control.js';
@@ -84,6 +85,7 @@ test('resetting activity cannot resurrect a deterministic job id from a previous
     const result = await f.tick();
     assert.notEqual(result.job?.id, old.id);
     assert.equal(result.job?.status, 'WAITING_TEACHER');
+    assert.equal(isJobInActivityEpoch(old, f.epoch), false);
     assert.equal((await f.repository.get(old.id)).status, 'CANCELLED');
     const again = await f.tick();
     assert.equal(again.job?.id, result.job.id);
