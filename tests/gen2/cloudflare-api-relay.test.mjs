@@ -243,7 +243,9 @@ test('GEN2-53 Cloudflare relay obtains production version/SHA provenance indepen
   const runner=await readFile(new URL('../../scripts/cloudflare-api-relay-runner.mjs',import.meta.url),'utf8');
   const provenance=await readFile(new URL('../../scripts/read-production-provenance.mjs',import.meta.url),'utf8');
   assert.match(runner,/import \{ observeProductionProvenance \} from '\.\/read-production-provenance\.mjs'/);
-  assert.match(runner,/await observeProductionProvenance\(\{accountId:ACCOUNT_ID,apiToken:CF_TOKEN\}\)/);
+  assert.ok(runner.includes('await observeProductionProvenance({accountId:ACCOUNT_ID,apiToken:CF_TOKEN,fetchImpl:proofFetch})'));
+  assert.ok(runner.includes('AbortSignal.timeout(25000)'));
+  assert.ok(runner.includes('signal:proofSignal'));
   assert.match(runner,/versions\[0\]\.version_id===observed\.cloudflare_version_id/);
   assert.match(runner,/production_provenance/);
   assert.match(provenance,/beforeSha !== afterSha \|\| beforeVersion !== afterVersion/);
