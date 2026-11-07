@@ -36,3 +36,24 @@ test('active diagnostics cap rows and discard raw strings, identifiers and unexp
   assert.equal(result.jobs[0].retry_after, null); assert.equal(result.jobs[0].context_matches, false);
   assert.equal(JSON.stringify(result).includes('PRIVATE'), false);
 });
+
+
+test('Mentor diagnostics expose bounded validator codes and stages, never replies or rejection detail', async t => {
+  const db = sqliteD1(); t.after(() => db.close());
+  await db.prepare('CREATE TABLE dev_jobs (id TEXT,status TEXT,requested_by TEXT,candidate_branch TEXT,optional_context TEXT,result_json TEXT,created_at INTEGER)').run();
+  const result = { bridge_preparation_diagnostic: {mentor_failure_codes: Array.from({length:12}, (_,i) => ({
+    code: i === 0 ? 'MENTOR_UNINSPECTED_EDIT' : 'PRIVATE_UNTRUSTED_VALUE', stage: i === 0 ? 'repair' : 'PRIVATE_STAGE',
+    detail: 'PRIVATE_SOURCE_OR_REPLY', provider: 'PRIVATE_PROVIDER',
+  }))} };
+  await db.prepare('INSERT INTO dev_jobs VALUES(?,?,?,?,?,?,?)')
+    .bind('job','TEACHER_APPROVED','mel-autonomy',null,JSON.stringify({roadmap_id:'GEN2-16'}),JSON.stringify(result),1).run();
+  const rows = (await db.prepare(ACTIVE_MISSION_DIAGNOSTIC_SQL).all()).results;
+  assert.equal(JSON.stringify(rows).includes('PRIVATE_SOURCE_OR_REPLY'), false);
+  assert.equal(JSON.stringify(rows).includes('PRIVATE_PROVIDER'), false);
+  const safe = sanitizeActiveMissions(rows);
+  assert.equal(safe.jobs[0].mentor_failures.length,8);
+  assert.deepEqual(safe.jobs[0].mentor_failures[0],{code:'MENTOR_UNINSPECTED_EDIT',stage:'repair'});
+  assert.deepEqual(safe.jobs[0].mentor_failures[1],{code:'OTHER_FAILURE',stage:'unknown'});
+  assert.equal(JSON.stringify(safe).includes('PRIVATE'),false);
+  assert.deepEqual(sanitizeActiveMissions([{mentor_failures:'malformed'}]).jobs[0].mentor_failures,[]);
+});
