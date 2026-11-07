@@ -24,6 +24,19 @@ test('legacy owner MAX-off never displays an executing mission', async () => {
   assert.equal(visibleActiveAutonomyMission(job, { paused: false, max_autonomy: true }), job);
 });
 
+test('terminal jobs cannot masquerade as the active MAX mission', async () => {
+  const { visibleActiveAutonomyMission } = await import('../src/evolution/autonomy-activity.js');
+  const control = { source: 'owner-ui', paused: false, max_autonomy: true };
+  for (const status of ['QUEUED', 'COMPLETED', 'FAILED', 'CANCELLED']) {
+    assert.equal(visibleActiveAutonomyMission({ id: 'job-1', status }, control), null, status);
+  }
+  for (const status of ['PLANNING', 'COMMITTED']) {
+    const job = { id: 'job-1', status };
+    assert.equal(visibleActiveAutonomyMission(job, control), job, status);
+  }
+  assert.equal(visibleActiveAutonomyMission({ id: 'job-1', status: 'COMMITTED' }, { ...control, paused: true }), null);
+});
+
 test('pipeline shows where a MAX job stands', () => {
   const steps = jobPipeline(approved);
   assert.deepEqual(steps.map(s => s.state), ['done', 'done', 'done', 'done', 'current', 'todo', 'todo', 'todo']);
