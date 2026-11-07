@@ -36,11 +36,7 @@ jobs:
           SQL="$(node --input-type=module -e "import {HELD_MISSION_SQL} from './scripts/read-held-mission-diagnostics.mjs'; process.stdout.write(HELD_MISSION_SQL)")"
           npx wrangler d1 execute DB --remote --config wrangler.jsonc --env="" --json --command "$SQL" > "$RUNNER_TEMP/held-mission.raw.json"
           node scripts/read-held-mission-diagnostics.mjs < "$RUNNER_TEMP/held-mission.raw.json" > "$RUNNER_TEMP/held-mission-diagnostics.json"
-      - name: Retain sanitized held mission diagnostics
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: held-mission-diagnostics
-          path: ${{ runner.temp }}/held-mission-diagnostics.json
+          cat "$RUNNER_TEMP/held-mission-diagnostics.json"
       - name: Read aggregated MAX state without modifying production
         shell: bash
         env:

@@ -484,7 +484,6 @@ async function executeCouncilReviewBody(body, env, {now, review, contextLoader})
   const result = await review(env, { diff: body.diff, goal: goal || 'Vérifier la correction, la sécurité et les tests de cette intégration sur la candidate existante.', attempts, dependencyContext });
   const record = { decision: result.decision, head, base, diff_sha256: diffSha256, jobs, dependency_context: dependencyContext, reviews: result.reviews, reviewed_at: now, attempts: attempts + 1 };
   if (result.decision === 'REJECTED' || RETRYABLE.has(result.decision) || result.decision === OWNER_APPROVAL_REQUIRED) {
-    const repairStatus = job.requested_by === 'mel-autonomy' ? 'REPAIR_REQUIRED' : 'FAILED';
     const objections = result.reviews.filter(r => r.verdict === 'REJECT').flatMap(r => (r.blocking || []).map(b => r.model.split('/').pop() + ' : ' + b)).slice(0, 12);
     const unavailable = result.reviews.filter(r => !r.verdict).map(r => String(r.model || '').split('/').pop() + ' : ' + (r.error || 'NO_VERDICT')).slice(0, 8);
     const rejected = result.decision === 'REJECTED';
