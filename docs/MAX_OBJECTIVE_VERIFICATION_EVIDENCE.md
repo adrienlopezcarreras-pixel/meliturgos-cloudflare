@@ -44,8 +44,6 @@ certifier MANIFEST-01. Respecter aussi `WORKERS_AI_DEPRECATION_20261106.md` pour
 les modèles et déploiements ; aucun quorum ni contrôle de coût n'est modifié.
 
 
-## Tous les points de la roadmap
+## Recettes manquantes et recertification
 
-Le catalogue d’activité utilise la même vérité D1 récente que MAX, pas les anciens statuts déclarés. Une recette sûre existante donne une mission `VERIFY_RUNTIME`. Une recette absente ouvre un lot auxiliaire `ROADMAP-PROOF-<ID>` avec fichiers, régression, prérequis et interdiction du no-op; le parent attend sa vérification réelle. Livrer ce lot ne valide ni le parent ni un appareil physique. Ces missions partagent le créneau unique et les budgets existants. La sonde de production conserve son ancien nom de fichier pour compatibilité, mais vérifie les identifiants et la révision du registre courant.
-
-Les reçus logiciels indépendants restent utilisables pour les prérequis de développement. Ils ne masquent pas une recertification manquante, y compris pour un objectif déjà livré dont le registre est encore `PLANNED`. Une régression explicite conserve son autorité.
+Un point historiquement livré ou doté d’un reçu logiciel indépendant peut nécessiter une nouvelle vérification réelle. Sans recette revue, MAX planifie un lot auxiliaire `ROADMAP-PROOF-<ID>` : code, test dédié, prérequis et budgets existants, sans no-op. Livrer cette instrumentation ne valide pas le parent ni un appareil physique. Les reçus logiciels restent utilisables pour les prérequis de développement; la preuve runtime doit encore être obtenue. Une recertification acceptée débloque immédiatement ses dépendants.

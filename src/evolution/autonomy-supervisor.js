@@ -369,6 +369,10 @@ export class AutonomySupervisor {
       softwareVerifiedIds.add(roadmapIdFromJob(job));
       if (!recertificationIds.has(roadmapIdFromJob(job))) verifiedRoadmapIds.add(roadmapIdFromJob(job));
     }
+    for (const job of jobs) if (recertificationIds.has(roadmapIdFromJob(job))
+      && isAcceptedRuntimeRecertificationJob(job)
+      && this.roadmap.find(row => row.id === roadmapIdFromJob(job))?.status !== 'REGRESSED')
+      verifiedRoadmapIds.add(roadmapIdFromJob(job));
     for (const item of evolutionItems || []) if (isClosedRoadmapStatus(item.status)) verifiedRoadmapIds.add('EVOLUTION-' + item.id);
     const reopenedIds = new Set(this.roadmap.filter(item => String(item.status).toUpperCase() === 'REGRESSED').map(item => item.id));
     for (const item of evolutionItems || []) if (item.status === 'REGRESSED') reopenedIds.add('EVOLUTION-' + item.id);

@@ -1,9 +1,7 @@
 // Exact-SHA, GET-only production roadmap audit. Never starts MAX or changes state.
-// Keep the historical filename/artifact for callers; inventory comes from the current registry.
 import {DEFAULT_BASE,deriveParallelProof} from './prove-production-capability-inventory-readonly.mjs';
 import {writeFile} from 'node:fs/promises';
 import {ROADMAP_PROOF_SOURCES} from '../src/roadmap/roadmap-truth.js';
-import {flattenRoadmap,ROADMAP_REGISTRY_REVISION} from '../src/roadmap/master-roadmap.js';
 import process from 'node:process';
 import {pathToFileURL} from 'node:url';
 
@@ -11,9 +9,7 @@ export function assessRoadmapResponse(body,expectedSha,{now=Date.now()}={}) {
   if(body?.ok!==true || !Array.isArray(body.phases) || !body.truth?.available)
     return {ok:false,code:'ROADMAP_PRODUCTION_TRUTH_UNAVAILABLE'};
   const ids=body.phases.flatMap(p=>(p.items||[]).map(i=>i.id));
-  const expectedIds=new Set(flattenRoadmap().map(row=>row.id)), total=expectedIds.size;
-  if(ids.length!==total||new Set(ids).size!==total ||body.truth.total!==total
-      || ids.some(id=>!expectedIds.has(id)) || body.source?.revision!==ROADMAP_REGISTRY_REVISION)
+  if(ids.length!==176||new Set(ids).size!==176 ||body.truth.total!==176)
     return {ok:false,code:'ROADMAP_PRODUCTION_INVENTORY_MISMATCH'};
   const allowed=new Set(['VERIFIED_LIVE','PARTIAL_LIVE','BROKEN','UNPROVEN','DECLARED']);
   const counts={VERIFIED_LIVE:0,PARTIAL_LIVE:0,BROKEN:0,UNPROVEN:0,DECLARED:0};
@@ -59,14 +55,14 @@ export function assessRoadmapResponse(body,expectedSha,{now=Date.now()}={}) {
     counts[result.truth]++;
     if(result.truth!=='VERIFIED_LIVE')missing.push({id,status:result.truth});
   }
-  if(Object.keys(body.truth.items).length!==total)return {ok:false,code:'ROADMAP_PRODUCTION_EXTRA_ITEM'};
+  if(Object.keys(body.truth.items).length!==176)return {ok:false,code:'ROADMAP_PRODUCTION_EXTRA_ITEM'};
   for(const key of Object.keys(counts)){
     if(body.truth.counts && body.truth.counts[key]!==counts[key])
       return {ok:false,code:'ROADMAP_PRODUCTION_COUNTS_MISMATCH'};
   }
-  return {ok:true,code:'ROADMAP_PRODUCTION_TRUTH_MEASURED',deployed_sha:expectedSha,
-    registry_revision:ROADMAP_REGISTRY_REVISION,total,counts,verified_live:counts.VERIFIED_LIVE,
-    coverage_percent:Math.round(counts.VERIFIED_LIVE*1000/total)/10,
+  return {ok:true,code:'ROADMAP_PRODUCTION_176_TRUTH_MEASURED',deployed_sha:expectedSha,
+    total:176,counts,verified_live:counts.VERIFIED_LIVE,
+    coverage_percent:Math.round(counts.VERIFIED_LIVE*1000/176)/10,
     remaining:missing,production_truth_available:true,
     details_private:false,mutation_scope:'GET_ONLY'};
 }

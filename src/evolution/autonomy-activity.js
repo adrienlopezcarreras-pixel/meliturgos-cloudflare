@@ -1,5 +1,4 @@
-import { isAcceptedRuntimeRecertificationJob, withRuntimeRecertification } from '../roadmap/runtime-recertification.js';
-import { computeRoadmapTruth } from '../roadmap/roadmap-truth.js';
+import { isAcceptedRuntimeRecertificationJob } from '../roadmap/runtime-recertification.js';
 import { isAcceptedRoadmapCodeJob } from '../roadmap/roadmap-code-acceptance.js';
 import { singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
 import { unmetSoftwarePrerequisites } from './own-roadmap-advance.js';
@@ -379,21 +378,14 @@ export function scheduledCycles(now = Date.now()) {
 
 // Read-only roadmap catalog. A declared objective is NOT a D1 job and never
 // reserves MAX's single-flight slot or triggers a model call.
-export function buildPassiveRoadmapCatalog(roadmap = flattenRoadmap(), jobs = [], { acceptanceJobs = [], truth = null } = {}) {
+export function buildPassiveRoadmapCatalog(roadmap = flattenRoadmap(), jobs = [], { acceptanceJobs = [] } = {}) {
   const rows = Array.isArray(roadmap) ? roadmap : [];
-  const acceptedCodeIds = [...jobs, ...acceptanceJobs].filter(isAcceptedRoadmapCodeJob).map(job => job.optional_context.roadmap_id);
-  const executionRows = truth?.available === true ? withRuntimeRecertification(rows, truth, {acceptedCodeIds}) : rows;
-  const visibleRows = executionRows.filter(row => row.proof_recipe_only !== true);
-  const recipeByTarget = new Map(executionRows.filter(row => row.proof_recipe_only === true).map(row => [row.verification_target_id, row]));
-  const verifiedIds = new Set(rows.filter(row => truth ? truth.available === true && truth.items?.[row.id]?.truth === 'VERIFIED_LIVE'
-    : isClosedRoadmapStatus(row?.status)).map(row => row.id));
-  const softwareVerifiedIds = new Set(verifiedIds);
+  const verifiedIds = new Set(rows.filter(row => isClosedRoadmapStatus(row?.status)).map(row => row.id));
   for (const job of [...jobs, ...acceptanceJobs]) {
     const acceptedId = job?.optional_context?.roadmap_id;
     if (acceptedId && isAcceptedRoadmapCodeJob(job)
         && !rows.some(row => row.id === acceptedId && String(row.status || '').toUpperCase() === 'REGRESSED')) {
-      softwareVerifiedIds.add(acceptedId);
-      if (!truth) verifiedIds.add(acceptedId);
+      verifiedIds.add(acceptedId);
     }
   }
   const latestJobs = new Map();
@@ -407,18 +399,14 @@ export function buildPassiveRoadmapCatalog(roadmap = flattenRoadmap(), jobs = []
   // not by merely completing a job. Explicitly REGRESSED objectives reopen.
   const isProven = row => row?.id && String(row.status || '').toUpperCase() !== 'REGRESSED'
     && verifiedIds.has(row.id);
-  const items = visibleRows.filter(row => row?.id && !isProven(row)).map(row => {
-    const recipe = recipeByTarget.get(row.id);
-    const mission = latestJobs.get(row.id) || latestJobs.get(recipe?.id) || null;
+  const items = rows.filter(row => row?.id && !isProven(row)).map(row => {
+    const mission = latestJobs.get(row.id) || null;
     const missionStatus = mission ? String(mission.status || 'UNKNOWN').toUpperCase() : null;
-    const blockers = unmetSoftwarePrerequisites(row, executionRows, [...softwareVerifiedIds]);
+    const blockers = unmetSoftwarePrerequisites(row, rows, [...verifiedIds]);
     const status = String(row.status || 'PLANNED').toUpperCase();
     const external = status === 'BLOCKED_HUMAN' || status === 'BLOCKED_EXTERNAL';
     const missionOpen = mission && !['COMPLETED','FAILED','CANCELLED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED'].includes(missionStatus);
-    const state = truth && truth.available !== true ? 'PROOF_STATUS_UNAVAILABLE'
-      : missionOpen ? 'MISSION_REGISTERED'
-      : recipe ? 'PROOF_RECIPE_REQUIRED'
-      : row.mode === 'VERIFY_RUNTIME' ? 'READY_FOR_RUNTIME_VERIFICATION'
+    const state = missionOpen ? 'MISSION_REGISTERED'
       : external ? status
       : blockers.length ? 'WAITING_PREREQUISITES'
       : missionStatus === 'COMPLETED' ? 'CODE_DELIVERED_UNVERIFIED'
@@ -430,14 +418,9 @@ export function buildPassiveRoadmapCatalog(roadmap = flattenRoadmap(), jobs = []
       contract_defined: Boolean(row.contract_revision && row.code_paths?.length && row.test_paths?.length),
       depends_on: Array.isArray(row.depends_on) ? row.depends_on : [],
       unmet_prerequisites: blockers,
-      proof_recipe_mission: recipe ? { id: recipe.id, mode: recipe.mode,
-        code_paths: recipe.code_paths, test_paths: recipe.test_paths,
-        depends_on: recipe.depends_on, certifies_parent: false } : null,
     };
   });
-  return { total: visibleRows.length, verified: visibleRows.filter(isProven).length,
-    verification_source: truth ? truth.available === true ? 'production_d1_audit' : 'UNAVAILABLE' : 'historical_registry',
-    proof_recipe_tasks: recipeByTarget.size,
+  return { total: rows.length, verified: rows.filter(isProven).length,
     remaining: items.length, items };
 }
 
@@ -475,8 +458,7 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
   if (!db?.prepare) throw Object.assign(new Error('DB_BINDING_MISSING'), { status: 503 });
   const repo = repository || new D1DevJobRepository(db);
   const ledger = new D1EvolutionLedger(db);
-  const roadmap = flattenRoadmap();
-  const [control, watchdog, allJobs, recentLedger, dispatches, relay, workCycles, executor, coder, truth] = await Promise.all([
+  const [control, watchdog, allJobs, recentLedger, dispatches, relay, workCycles, executor, coder] = await Promise.all([
     getAutonomyControl(db).catch(() => null),
     readAutonomyProgressWatchdog(db).catch(() => null),
     listAutonomySchedulerJobs(repo).catch(() => []),
@@ -486,7 +468,6 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
     rows(db, 'SELECT id,state,result,updated_at FROM mel_work_cycles ORDER BY updated_at DESC LIMIT 6'),
     db.prepare("SELECT last_seen,status FROM dev_bridge_state WHERE bridge_id='primary' LIMIT 1").first().catch(() => null),
     localPcModelReady(env, now).catch(() => ({ ok: false, code: 'LOCAL_CHECK_FAILED' })),
-    computeRoadmapTruth(db, [{items:roadmap}], {now}).catch(() => ({ available: false })),
   ]);
   const epoch = await readActivityListEpoch(db);
   const supervised = (Array.isArray(allJobs) ? allJobs : []).filter(job => {
@@ -560,7 +541,7 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
       by_status: uniqueByStatus,
     },
     jobs,
-    passive_roadmap: buildPassiveRoadmapCatalog(roadmap, unique, { acceptanceJobs: allJobs, truth }),
+    passive_roadmap: buildPassiveRoadmapCatalog(flattenRoadmap(), unique, { acceptanceJobs: allJobs }),
     plan: buildCodePlan(jobs, { now, verifiedIds: allJobs.filter(isAcceptedRoadmapCodeJob).map(job => job.optional_context.roadmap_id) }),
     metrics: { mentor, alerts: pipelineAlerts(supervised, mentor, { now }) },
     execution_evidence: supervised.slice(0, Math.max(1, Math.min(60, limit))).map(executionEvidence).filter(Boolean),

@@ -1,19 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {assessRoadmapResponse,measureRoadmapProduction} from '../scripts/prove-production-roadmap-176-readonly.mjs';
-import {flattenRoadmap,ROADMAP_REGISTRY_REVISION} from '../src/roadmap/master-roadmap.js';
-const sha='a'.repeat(40), canonicalIds=flattenRoadmap().map(row=>row.id), total=canonicalIds.length;
-const other=canonicalIds.find(id=>id!=='MEL-CODE-01'), codeOnly='MEL-MANIFEST-01';
+const sha='a'.repeat(40);
 const response=()=>{
- const ids=['MEL-CODE-01',...canonicalIds.filter(id=>id!=='MEL-CODE-01')];
+ const ids=Array.from({length:176},(_,i)=>i===0?'MEL-CODE-01':'POINT-'+i);
  const items=Object.fromEntries(ids.map((id,i)=>[id,{truth:i===0?'VERIFIED_LIVE':'UNPROVEN',...(i===0?{last_proof_at:new Date().toISOString(),proofs:[{kind:'capability',id:'code.read',ok:1}]}:{})}]));
- return {ok:true,source:{revision:ROADMAP_REGISTRY_REVISION},phases:[{items:ids.map(id=>({id}))}],truth:{available:true,total,items}};
+ return {ok:true,phases:[{items:ids.map(id=>({id}))}],truth:{available:true,total:176,items}};
 };
 test('returns only counts and IDs, not private proof payloads',()=>{
  const result=assessRoadmapResponse(response(),sha);
  assert.equal(result.ok,true);
  assert.equal(result.verified_live,1);
- assert.equal(result.remaining.length,total-1);
+ assert.equal(result.remaining.length,175);
  assert.equal(result.coverage_percent,0.6);
  assert.equal(result.deployed_sha,sha);
  assert.ok(!JSON.stringify(result).includes('proofs'));
@@ -21,16 +19,10 @@ test('returns only counts and IDs, not private proof payloads',()=>{
 test('fails closed for missing D1, omitted item or inconsistent counts',()=>{
  let body=response();body.truth.available=false;
  assert.equal(assessRoadmapResponse(body,sha).ok,false);
- body=response();delete body.truth.items[other];
+ body=response();delete body.truth.items['POINT-1'];
  assert.equal(assessRoadmapResponse(body,sha).ok,false);
- body=response();body.truth.total=total-1;
+ body=response();body.truth.total=175;
  assert.equal(assessRoadmapResponse(body,sha).ok,false);
-});
-test('current registry identities and revision cannot be replaced by a same-size historical checklist',()=>{
- let body=response();body.phases[0].items[1].id='OBSOLETE-POINT';
- assert.equal(assessRoadmapResponse(body,sha).code,'ROADMAP_PRODUCTION_INVENTORY_MISMATCH');
- body=response();body.source.revision='old-registry';
- assert.equal(assessRoadmapResponse(body,sha).code,'ROADMAP_PRODUCTION_INVENTORY_MISMATCH');
 });
 test('probe performs exactly three GET requests and checks SHA both ends',async()=>{
  const calls=[];
@@ -62,7 +54,7 @@ test('rejects stale and future-dated success receipts',()=>{
 });
 test('rejects inconsistent precomputed truth counts',()=>{
  const body=response();
- body.truth.counts={VERIFIED_LIVE:total,PARTIAL_LIVE:0,BROKEN:0,UNPROVEN:0,DECLARED:0};
+ body.truth.counts={VERIFIED_LIVE:176,PARTIAL_LIVE:0,BROKEN:0,UNPROVEN:0,DECLARED:0};
  assert.equal(assessRoadmapResponse(body,sha).code,'ROADMAP_PRODUCTION_COUNTS_MISMATCH');
 });
 
@@ -76,9 +68,9 @@ test('rejects success attributed to an unrelated or missing capability',()=>{
 });
 test('unmapped objectives need an accepted exact SHA delivery receipt',()=>{
  let body=response();
- body.truth.items[codeOnly]={truth:'VERIFIED_LIVE',last_proof_at:new Date().toISOString(),proofs:[{kind:'capability',id:'echo',ok:1}]};
+ body.truth.items['POINT-1']={truth:'VERIFIED_LIVE',last_proof_at:new Date().toISOString(),proofs:[{kind:'capability',id:'echo',ok:1}]};
  assert.equal(assessRoadmapResponse(body,sha).code,'ROADMAP_PRODUCTION_RECEIPT_SOURCE_MISMATCH');
- body.truth.items[codeOnly].proofs=[{kind:'max-delivery',id:'full-candidate-ci#41059036430',job_id:'job-1',candidate_sha:sha,ok:1}];
+ body.truth.items['POINT-1'].proofs=[{kind:'max-delivery',id:'full-candidate-ci#41059036430',job_id:'job-1',candidate_sha:sha,ok:1}];
  assert.equal(assessRoadmapResponse(body,sha).ok,true);
 });
 

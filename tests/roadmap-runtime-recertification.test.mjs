@@ -24,6 +24,17 @@ async function fixture(t, { enabled = true, id = 'GEN2-03' } = {}) {
 const historical = id => flattenRoadmap().find(row => row.id === id);
 const stale = ids => ({available:true,items:Object.fromEntries(ids.map(id=>[id,{truth:'UNPROVEN'}]))});
 
+test('an accepted runtime receipt unlocks its dependent in the same scheduler cycle',async t=>{
+  const f=await fixture(t,{id:'GEN2-03'});
+  const parent=historical('GEN2-03'), child={...historical('GEN2-04'),depends_on:[parent.id]};
+  const roadmap=withRuntimeRecertification([parent,child],stale([parent.id,child.id]));
+  const verified=await executeRuntimeRecertification(f.env,f.repository,f.job);
+  assert.equal(verified.status,'VERIFIED');
+  const state=await new AutonomySupervisor({repository:f.repository,roadmap}).state();
+  assert.ok(state.verifiedDependencyIds.includes(parent.id),'the actual audited receipt is available before another truth refresh');
+  assert.equal(state.next.id,child.id);
+});
+
 test('orange historical software becomes verification work, while physical and unsafe probes remain explicit obligations', () => {
   const items=['GEN2-03','GEN2-02','GEN2-33','MEL-EVOL-06'].map(historical);
   const mapped=withRuntimeRecertification(items, stale(items.map(row=>row.id)));

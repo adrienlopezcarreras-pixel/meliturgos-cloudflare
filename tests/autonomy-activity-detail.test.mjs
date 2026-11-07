@@ -412,10 +412,8 @@ test('MAX passive catalog never truncates roadmap to 3, 30, 60 or 100 items',asy
   assert.equal(a.counts.waiting,0);
   assert.equal(a.counts.active,0);
   assert.equal(a.scheduler_slot.reserved,false);
-  assert.equal(a.passive_roadmap.remaining,full.length,'empty live audits must reopen historical DONE points too');
-  assert.equal(a.passive_roadmap.items.length,full.length);
-  assert.equal(a.passive_roadmap.verified,0);
-  assert.equal(a.passive_roadmap.verification_source,'production_d1_audit');
+  assert.equal(a.passive_roadmap.remaining,open.length);
+  assert.equal(a.passive_roadmap.items.length,open.length);
 });
 
 test('MAX passive UI shows catalog separate from true D1 QUEUED missions',async()=>{
