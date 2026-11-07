@@ -40,12 +40,12 @@ export async function resolveCouncilFileContext(env, {head, diff, fetchImpl = fe
       throw Object.assign(new Error('COUNCIL_FILE_CONTEXT_UNAVAILABLE'), {code:'COUNCIL_FILE_CONTEXT_UNAVAILABLE'});
     }
   }
-  return {head, source:'github-immutable-tree', files};
+  return {head, snapshot_role:'POST_CHANGE_HEAD', source:'github-immutable-tree', files};
 }
 
 export async function resolveCouncilReviewContext(env, options) {
   const [imports, files] = await Promise.all([
     resolveCouncilImportContext(env, options), resolveCouncilFileContext(env, options),
   ]);
-  return {...imports, reviewed_files:files.files, file_context_head:files.head};
+  return {...imports, reviewed_files:files.files, file_context_head:files.head, file_context_snapshot_role:files.snapshot_role};
 }
