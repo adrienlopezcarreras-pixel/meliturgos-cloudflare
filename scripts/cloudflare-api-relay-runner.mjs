@@ -60,7 +60,11 @@ async function main(){
         let production_provenance=null;
         if(script==='meliturgos'){
           try{
-            const observed=await observeProductionProvenance({accountId:ACCOUNT_ID,apiToken:CF_TOKEN});
+            // One shared deadline: optional provenance must not starve
+            // other durable relay jobs if production identity is unavailable.
+            const proofSignal=AbortSignal.timeout(25000);
+            const proofFetch=(url,init={})=>fetch(url,{...init,signal:proofSignal});
+            const observed=await observeProductionProvenance({accountId:ACCOUNT_ID,apiToken:CF_TOKEN,fetchImpl:proofFetch});
             const versions=deployments[0]?.versions||[];
             if(versions.length===1&&Number(versions[0].percentage)===100&&
               versions[0].version_id===observed.cloudflare_version_id&&
