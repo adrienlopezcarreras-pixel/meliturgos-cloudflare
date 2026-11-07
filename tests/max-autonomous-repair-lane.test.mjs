@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {sqliteD1} from './helpers/sqlite-d1.mjs';
 import {D1DevJobRepository} from '../src/dev/d1-dev-job-repository.js';
 import {setAutonomyControl,getAutonomyControl} from '../src/evolution/autonomy-control.js';
-import {beginAutomaticRepair,scopeRepairRepository,completeVerifiedRepair,repairLane,verifyUnchangedRepairDescendant} from '../src/evolution/autonomy-repair.js';
+import {beginAutomaticRepair,scopeRepairRepository,completeVerifiedRepair,repairLane,verifyUnchangedRepairDescendant,diagnoseUnchangedRepairDescendant} from '../src/evolution/autonomy-repair.js';
 import {verifyRepairRelease,REPAIR_RELEASE_GATES} from '../src/evolution/verified-repair-release.js';
 import {maybeHandleReleaseLaunchBootstrap} from '../src/evolution/release-launch-bootstrap.js';
 import {flattenRoadmap} from '../src/roadmap/master-roadmap.js';
@@ -258,4 +258,27 @@ test('descendant compare requires complete immutable ancestry and unchanged miss
   acceptedSha,deployedSha,protectedPaths,token,
   fetchImpl:async()=>{throw new Error('unavailable')} }),false);
  assert.equal(await verifyUnchangedRepairDescendant({acceptedSha,deployedSha,protectedPaths,token:''}),false);
+});
+
+test('production diagnostic distinguishes GitHub authorization, changed files and incomplete compare without secrets',async()=>{
+ const base={acceptedSha:'a'.repeat(40),deployedSha:'b'.repeat(40),
+  protectedPaths:['src/evolution/autonomy-supervisor.js','tests/autonomy-runtime-evolution-queue-progress.test.mjs'],token:'hidden-gh-token'};
+ const good={status:'ahead',ahead_by:12,behind_by:0,total_commits:12,
+  commits:Array.from({length:12},(_,i)=>({sha:String(i)})),
+  files:[{filename:'src/evolution/autonomy-repair.js'}]};
+ const run=async response=>diagnoseUnchangedRepairDescendant({...base,fetchImpl:async()=>response});
+ assert.deepEqual(await run(Response.json(good)),{ok:true});
+ assert.deepEqual(await run(Response.json(good,{status:403})),{ok:false,diagnostic:'REPAIR_COMPARE_HTTP_403'});
+ assert.deepEqual(await run(Response.json({...good,files:[{filename:base.protectedPaths[0]}]})),
+  {ok:false,diagnostic:'REPAIR_COMPARE_PROTECTED_PATH_CHANGED'});
+ assert.deepEqual(await run(Response.json({...good,total_commits:13})),
+  {ok:false,diagnostic:'REPAIR_COMPARE_TRUNCATED'});
+ assert.deepEqual(await run(Response.json({...good,status:'diverged'})),
+  {ok:false,diagnostic:'REPAIR_COMPARE_ANCESTRY_INVALID'});
+ assert.deepEqual(await run(new Response('not json')),
+  {ok:false,diagnostic:'REPAIR_COMPARE_JSON_INVALID'});
+ assert.deepEqual(await diagnoseUnchangedRepairDescendant({...base,fetchImpl:async()=>{throw Error('hidden-gh-token')}}),
+  {ok:false,diagnostic:'REPAIR_COMPARE_FETCH_FAILED'});
+ assert.deepEqual(await diagnoseUnchangedRepairDescendant({...base,token:''}),
+  {ok:false,diagnostic:'REPAIR_COMPARE_INPUT_INVALID'});
 });
