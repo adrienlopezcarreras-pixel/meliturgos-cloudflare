@@ -28,7 +28,9 @@ async function fixture(t,{tag='sha:'+sha}={}){
   await add('deployments.create',0,{script,versions:canary,message:'owner-approved '+tag},expected(canaryId,canary));
   await add('deployments.create',10000,{script,versions:restored,message:'owner-approved '+tag},expected(rollbackId,restored));
   await add('deployments.list',20000,{script,limit:20},
-    {provider:'cloudflare',transport:'github-actions-relay',script,deployments:[deployment(rollbackId,restored),deployment(canaryId,canary)]});
+    {provider:'cloudflare',transport:'github-actions-relay',script,deployments:[deployment(rollbackId,restored),deployment(canaryId,canary)],
+      production_provenance:{proof_source:'live-worker-and-cloudflare-deployment',deployed_sha:sha,
+        cloudflare_version_id:stable,observed_at:new Date(start+20500).toISOString()}});
   const bus=createDefaultCapabilityBus({env:{DB:db,MEL_DEPLOYED_GIT_SHA:sha,MEL_CLOUDFLARE_SCRIPT:script}});
   const verify=()=>bus.execute(capability,{}, {owner:'proof',permissions:[]});
   return {db,verify,add,expected,start};
@@ -79,7 +81,7 @@ test('GEN2-53 rejects an unrelated latest provider deployment',async t=>{
   await f.db.prepare("UPDATE cloudflare_api_relay_jobs SET result_json=? WHERE operation='deployments.list'")
     .bind(JSON.stringify({provider:'cloudflare',transport:'github-actions-relay',script,
       deployments:[{id:canaryId,versions:canary}]})).run();
-  await assert.rejects(f.verify(),{code:'CLOUDFLARE_ROLLBACK_LIVE_PROOF_NOT_FOUND'});
+  await assert.rejects(f.verify(),{code:'CLOUDFLARE_ROLLBACK_SOURCE_IDENTITY_UNPROVEN'});
 });
 test('GEN2-53 rejects fixture-only receipts or a failed rollback',async t=>{
   const f=await fixture(t);
@@ -115,3 +117,24 @@ test('GEN2-53 auxiliary code mission is parked, never counted as real runtime ro
   assert.equal(state.active.length,1);
   assert.equal(state.completedIds.includes('GEN2-53'),false);
 });
+
+test('GEN2-53 never trusts a SHA annotation without independent Worker/version provenance',async t=>{
+  const f=await fixture(t);
+  await f.db.prepare("UPDATE cloudflare_api_relay_jobs SET result_json=json_remove(result_json,'$.production_provenance') WHERE operation='deployments.list'").run();
+  await assert.rejects(f.verify(),{code:'CLOUDFLARE_ROLLBACK_SOURCE_IDENTITY_UNPROVEN'});
+});
+for(const [name,field,value] of [
+  ['different deployed SHA','deployed_sha','b'.repeat(40)],
+  ['wrong Cloudflare stable version','cloudflare_version_id',candidate],
+  ['unrecognized proof source','proof_source','user-controlled-message'],
+  ['stale identity','observed_at',new Date(0).toISOString()],
+]){
+  test('GEN2-53 rejects '+name+' even with matching SHA message tokens',async t=>{
+    const f=await fixture(t);
+    const row=await f.db.prepare("SELECT result_json FROM cloudflare_api_relay_jobs WHERE operation='deployments.list'").first();
+    const payload=JSON.parse(row.result_json);
+    payload.production_provenance[field]=value;
+    await f.db.prepare("UPDATE cloudflare_api_relay_jobs SET result_json=? WHERE operation='deployments.list'").bind(JSON.stringify(payload)).run();
+    await assert.rejects(f.verify(),{code:'CLOUDFLARE_ROLLBACK_SOURCE_IDENTITY_UNPROVEN'});
+  });
+}
