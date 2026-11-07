@@ -62,6 +62,18 @@ test('GEN2-53 rejects a rollback followed by another deployment',async t=>{
     f.expected('55555555-5555-4555-8555-555555555555',restored));
   await assert.rejects(f.verify(),{code:'CLOUDFLARE_ROLLBACK_LIVE_PROOF_NOT_FOUND'});
 });
+test('GEN2-53 rejects a newer failed provider readback even if old successful data remains',async t=>{
+  const f=await fixture(t);
+  await f.add('deployments.list',30000,{script,limit:20},
+    {provider:'cloudflare',transport:'github-actions-relay',script,deployments:[]},'FAILED');
+  await assert.rejects(f.verify(),{code:'CLOUDFLARE_ROLLBACK_READBACK_MISSING'});
+});
+test('GEN2-53 rejects a later pending deployment, not just completed changes',async t=>{
+  const f=await fixture(t);
+  await f.add('deployments.create',30000,{script,versions:restored,message:'sha:'+sha},
+    f.expected('55555555-5555-4555-8555-555555555555',restored),'QUEUED');
+  await assert.rejects(f.verify(),{code:'CLOUDFLARE_ROLLBACK_LIVE_PROOF_NOT_FOUND'});
+});
 test('GEN2-53 rejects an unrelated latest provider deployment',async t=>{
   const f=await fixture(t);
   await f.db.prepare("UPDATE cloudflare_api_relay_jobs SET result_json=? WHERE operation='deployments.list'")
