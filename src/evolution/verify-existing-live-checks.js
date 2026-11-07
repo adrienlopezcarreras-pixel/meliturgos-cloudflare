@@ -1,3 +1,5 @@
+import { ROADMAP_CODE_CONTRACTS } from '../roadmap/roadmap-code-contracts.js';
+import { objectiveVerificationProfile, isFounderVerificationGoal } from './objective-verification-profiles.js';
 // VERIFY_EXISTING production proof: before the Council judges "already done",
 // MEL runs the read-only capabilities the plan names, through the same
 // CapabilityBus as the chat. Only the outcome is kept (ok, error code, item
@@ -87,7 +89,8 @@ const GOAL_CHECKS = [
 ];
 
 export function objectiveLiveChecks(goal) {
-  if (/^\s*\[MEL-MANIFEST-01\]/i.test(String(goal || ''))) return ['autonomy.status'];
+  const profile = objectiveVerificationProfile(goal);
+  if (profile) return [profile.capability];
   return GOAL_CHECKS.filter(([pattern]) => pattern.test(String(goal || ''))).map(([, id]) => id);
 }
 
@@ -98,6 +101,8 @@ export function objectiveLiveChecks(goal) {
  * Additional plan reads may not substitute unrelated success for those reads.
  */
 export function hasObjectiveBoundVerificationChecks(goal, planText) {
+  const id = /^\s*\[([A-Z0-9-]+)\]/i.exec(String(goal || ''))?.[1]?.toUpperCase();
+  if (Object.hasOwn(ROADMAP_CODE_CONTRACTS, id || '') && !isFounderVerificationGoal(goal) && !objectiveVerificationProfile(goal)) return false;
   const relevant = objectiveLiveChecks(goal);
   if (!relevant.length) return false;
   return requestedLiveChecks(planText).every((id) => relevant.includes(id));
@@ -114,10 +119,18 @@ export function requiredLiveChecks(goal, planText) {
  * when at least one functional read was required and every one succeeded in
  * production. A green CI or a model's judgement never replaces it.
  */
-export function liveProofGate(required, results, { goal = '' } = {}) {
+export function liveProofGate(required, results, { goal = '', candidateSha = null } = {}) {
   if (!Array.isArray(required) || !required.length) return { ok: false, code: 'VERIFY_EXISTING_NO_FUNCTIONAL_PROOF' };
   const byId = new Map((Array.isArray(results) ? results : []).map(row => [row?.capability, row]));
   const permitExactAuth = founderAllowsAuthDiagnostic(goal);
+  const profile = objectiveVerificationProfile(goal);
+  if (profile) {
+    const proof = byId.get(profile.capability)?.functional_evidence;
+    if (proof?.schema !== 'mel.objective-functional-evidence/v1' || proof.revision !== profile.revision
+      || proof.roadmap_id !== profile.id || !/^[a-f0-9]{40}$/.test(String(proof.deployed_sha || ''))
+      || (candidateSha && proof.deployed_sha !== candidateSha))
+      return { ok: false, code: 'VERIFY_EXISTING_OBJECTIVE_RECEIPT_REQUIRED' };
+  }
   const satisfied = id => {
     const row = byId.get(id);
     return row?.ok === true && row?.outcome !== 'AUTH_REQUIRED'
@@ -149,6 +162,25 @@ function itemCount(out) {
   return null;
 }
 
+export function manifestFunctionalEvidence(env, output) {
+  const value = output?.result ?? output;
+  if (!validManifestReport(value)) return null;
+  const compiled = typeof MEL_DEPLOYED_GIT_SHA !== 'undefined' ? String(MEL_DEPLOYED_GIT_SHA || '') : '';
+  const sha = String(compiled || env?.MEL_DEPLOYED_GIT_SHA || '').toLowerCase();
+  if (!/^[a-f0-9]{40}$/.test(sha)) return null;
+  const report = value.manifest_01, profile = objectiveVerificationProfile('[MEL-MANIFEST-01]');
+  return { schema: 'mel.objective-functional-evidence/v1', revision: profile.revision,
+    roadmap_id: profile.id, deployed_sha: sha, report_schema: report.schema,
+    required_count: report.required_count, verified_count: report.verified_count,
+    reportable: report.reportable, ready: report.ready, all_verified: report.all_verified,
+    priorities: report.priorities.map(row => ({ priority: row.priority, roadmap_id: row.roadmap_id,
+      status: row.status, verified: row.verified, blocking: row.blocking })),
+    pending_ids: report.pending.map(row => row.roadmap_id),
+    external_pending_ids: report.nonblocking_pending.map(row => row.roadmap_id),
+    business_indicators: { count: report.business_indicators.length, max_count: 5, kind: 'REPORT_DATA', values_included: false },
+    external_acceptance_verified: false };
+}
+
 export async function runLiveChecks(env, ids, { now = Date.now(), createRuntime = null } = {}) {
   if (!Array.isArray(ids) || !ids.length) return [];
   const runtime = createRuntime
@@ -162,7 +194,8 @@ export async function runLiveChecks(env, ids, { now = Date.now(), createRuntime 
       const ok = readSucceeded(id, out);
       results.push({ capability: id, ok, outcome: ok ? 'READ_SUCCEEDED' : 'FAILED',
         items: ok ? itemCount(out) : null,
-        code: ok ? null : 'CAPABILITY_READ_RESULT_INVALID' });
+        code: ok ? null : 'CAPABILITY_READ_RESULT_INVALID',
+        ...(ok && id === 'autonomy.status' ? { functional_evidence: manifestFunctionalEvidence(env, out) } : {}) });
     } catch (error) {
       // The bus checks real provider health before execute(). If that health
       // reports unavailable it throws CAPABILITY_UNAVAILABLE; retain the exact

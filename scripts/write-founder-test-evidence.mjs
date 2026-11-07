@@ -1,3 +1,4 @@
+import { collectRoadmapTestEvidence } from '../src/evolution/roadmap-test-evidence.js';
 import { readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 
@@ -46,6 +47,7 @@ const report = {
   log_sha256: createHash('sha256').update(log).digest('hex'),
   exit_code: exitCode,
   tests: [...tests, ...authTests, renderTest],
+  roadmap_test_evidence: collectRoadmapTestEvidence(log, { candidateSha: sha, runId, attempt, exitCode }),
   auth_test_file_passed: authFilePassed,
   replay_test_file_passed: replayFilePassed,
   mandatory_tests_verified: exitCode === 0 && [...tests, ...authTests, renderTest].every(t => t.passed),

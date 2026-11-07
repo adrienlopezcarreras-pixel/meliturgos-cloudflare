@@ -33,7 +33,8 @@ test('heartbeat list drops heavy payloads of failed/cancelled jobs but keeps act
   }
   const byId = Object.fromEntries((await repo.list()).map(job => [job.id, job]));
   for (const id of ['f', 'c']) {
-    assert.equal(byId[id].result_json.teacher_bridge.request, undefined);
+    assert.deepEqual(byId[id].result_json.teacher_bridge.request, { request_id: 'r' });
+    assert.equal(byId[id].result_json.teacher_bridge.request.council, undefined);
     assert.equal(byId[id].result_json.teacher_bridge_history, undefined);
     assert.equal(byId[id].result_json.teacher_bridge.status, 'ANSWERED');
     assert.deepEqual(byId[id].result_json.repair_cycle, { attempts: 2 });

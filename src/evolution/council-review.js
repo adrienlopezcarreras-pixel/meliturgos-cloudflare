@@ -1,3 +1,5 @@
+import { objectiveVerificationProfile, isFounderVerificationGoal } from './objective-verification-profiles.js';
+import { validateObjectiveTestEvidence } from './roadmap-test-evidence.js';
 import { resolveCouncilReviewContext } from './council-file-context.js';
 import { jsonHeartbeatResponse } from '../core/json-heartbeat-response.js';
 // Council review gate: no autonomous change reaches main without a majority of
@@ -301,7 +303,13 @@ export async function reviewVerificationEvidence(env, { job, implementation, ciR
   if (!env?.DB?.prepare || !job?.id || !/^[a-f0-9]{40}$/.test(head) || !Number(ciRunId)) return { decision: 'REVIEW_INPUT_INVALID' };
   // Founder requires a runner-produced, independently verified mission proof.
   // Missing proof is a resumable wait, never an AI review or an approval.
-  const founder = /MEL-FOUNDER-01/i.test(String(job.goal || ''));
+  const founder = isFounderVerificationGoal(job.goal);
+  const profile = objectiveVerificationProfile(job.goal);
+  if (profile && !validateObjectiveTestEvidence(missionTestProof, job, head, ciRunId))
+    return { decision: 'MISSION_TEST_EVIDENCE_REQUIRED' };
+  if (profile && !liveChecks.some(row => row?.capability === profile.capability && row.ok === true
+    && row.functional_evidence?.revision === profile.revision && row.functional_evidence.deployed_sha === head))
+    return { decision: 'OBJECTIVE_FUNCTIONAL_EVIDENCE_REQUIRED' };
   if (founder && (missionTestProof?.ok !== true || missionTestProof?.candidate_sha !== head
       || Number(missionTestProof?.run_id) !== Number(ciRunId)
       || missionTestProof?.mandatory_tests_verified !== true
@@ -311,7 +319,7 @@ export async function reviewVerificationEvidence(env, { job, implementation, ciR
   const cached = await env.DB.prepare('SELECT metadata_json FROM dev_bridge_state WHERE bridge_id=?').bind(key).first().catch(() => null);
   let attempts = 0;
   if (cached?.metadata_json) {
-    try { const prior = JSON.parse(cached.metadata_json); const sameInputs = prior.head === head && Number(prior.ci_run_id) === Number(ciRunId) && JSON.stringify(prior.live_checks) === JSON.stringify(liveChecks) && (!founder || prior.mission_test_digest === missionTestProof?.digest); if (sameInputs && !RETRYABLE.has(prior.decision)) return { cached: true, ...prior }; attempts = sameInputs ? priorAttempts(prior) : 0; } catch {}
+    try { const prior = JSON.parse(cached.metadata_json); const sameInputs = prior.head === head && Number(prior.ci_run_id) === Number(ciRunId) && JSON.stringify(prior.live_checks) === JSON.stringify(liveChecks) && (!(founder || profile) || prior.mission_test_digest === missionTestProof?.digest) && (prior.evidence_revision || null) === (profile?.revision || null); if (sameInputs && !RETRYABLE.has(prior.decision)) return { cached: true, ...prior }; attempts = sameInputs ? priorAttempts(prior) : 0; } catch {}
   }
   const inspected = (Array.isArray(implementation?.inspected_files) ? implementation.inspected_files : []).map(row => row?.path).filter(Boolean).slice(0, 8);
   const evidence = [
@@ -320,17 +328,18 @@ export async function reviewVerificationEvidence(env, { job, implementation, ciR
     'Exception limitée à MEL-FOUNDER-01 : le manifeste autorise un diagnostic EXACT de connexion/authentification manquante comme preuve du parcours d’erreur, PAS comme preuve de lecture Gmail/Agenda/Drive réussie. Les erreurs réseau, permissions ou fournisseurs génériques ne sont jamais des preuves.',
     `SHA candidat exact : ${head}`,
     `full-candidate-ci verte sur ce SHA : run ${Number(ciRunId)}`,
-    ...(founder ? ['Preuve tests mission : ' + JSON.stringify(missionTestProof)] : []),
+    ...((founder || profile) ? ['Preuve tests mission : (reçu indépendant ; les chemins inventés par un modèle ne remplacent pas ces résultats) ' + JSON.stringify(missionTestProof)] : []),
     `Fichiers inspectés : ${inspected.join(', ') || '(aucun)'}`,
     'PREUVES FONCTIONNELLES EXÉCUTÉES EN PRODUCTION (lecture seule, résultat seulement) :',
     liveChecks.length
       ? liveChecks.map(c => `- ${c.capability} : ${c.outcome === 'AUTH_REQUIRED' ? 'AUTHENTIFICATION MANQUANTE (aucune lecture réussie) ' + (c.code || '') : c.ok ? 'OK' : 'ÉCHEC ' + (c.code || '')}${c.items != null ? ' (' + c.items + ' élément(s))' : ''}`).join('\n')
       : '- AUCUNE. REJECT si l’objectif exige une preuve fonctionnelle en production.',
-    'Décision et preuves de MEL :',
+    ...(profile ? ['RÉSULTAT FONCTIONNEL BORNÉ OBSERVÉ (aucune donnée privée) : ' + JSON.stringify(liveChecks.map(row => row.functional_evidence).filter(Boolean))] : []),
+    'PROPOSITION DU MODÈLE (non exécutée, ni preuve de tests ; juger les reçus indépendants ci-dessus) :',
     String(implementation?.selected?.text || '').slice(0, 20_000),
   ].join('\n');
   const result = await review(env, { diff: evidence, goal: `${job.id} : ${String(job.goal || '')}`, timeoutMs: 45_000, now, attempts, system: VERIFY_SYSTEM });
-  const record = { decision: result.decision, mode: 'VERIFY_EXISTING', head, base: head, jobs: [job.id], ci_run_id: Number(ciRunId), live_checks: liveChecks, mission_test_digest: founder ? missionTestProof.digest : null, reviews: result.reviews, reviewed_at: now, attempts: attempts + 1 };
+  const record = { decision: result.decision, mode: 'VERIFY_EXISTING', evidence_revision: profile?.revision || null, head, base: head, jobs: [job.id], ci_run_id: Number(ciRunId), live_checks: liveChecks, mission_test_digest: (founder || profile) ? missionTestProof.digest : null, reviews: result.reviews, reviewed_at: now, attempts: attempts + 1 };
   await env.DB.prepare(`INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?)
     ON CONFLICT(bridge_id) DO UPDATE SET last_seen=excluded.last_seen,status=excluded.status,metadata_json=excluded.metadata_json`)
     .bind(key, now, result.decision, JSON.stringify(record)).run().catch(() => {});
@@ -341,13 +350,14 @@ export async function reviewVerificationEvidence(env, { job, implementation, ciR
     status: result.decision === 'APPROVED' ? 'COUNCIL_APPROVED' : 'COUNCIL_REVIEWED',
     objective_assessment: 'ALREADY_IMPLEMENTED_UNVERIFIED',
     code: result.decision === 'REJECTED' ? 'COUNCIL_REJECTED_VERIFY_EXISTING' : result.decision,
-    ci_run_id: Number(ciRunId), candidate_sha: head, live_checks: liveChecks,
+    ci_run_id: Number(ciRunId), candidate_sha: head, live_checks: liveChecks, evidence_revision: profile?.revision || null,
     observed_at: new Date(now).toISOString(),
   };
   if (result.decision === 'REJECTED') {
+    const repairStatus = job.requested_by === 'mel-autonomy' ? 'REPAIR_REQUIRED' : 'FAILED';
     const objections = result.reviews.filter(r => r.verdict === 'REJECT').flatMap(r => (r.blocking || []).map(b => String(r.model || '').split('/').pop() + ' : ' + b)).slice(0, 12);
-    await env.DB.prepare(`UPDATE dev_jobs SET result_json=json_set(COALESCE(result_json,'{}'),'$.council_review',json(?),'$.verify_existing',json(?)), error=?, status=CASE WHEN status='TEACHER_APPROVED' THEN 'FAILED' ELSE status END, updated_at=? WHERE id=?`)
-      .bind(JSON.stringify({ decision: result.decision, head, mode: 'VERIFY_EXISTING', objections, reviewed_at: now }), JSON.stringify(verificationEvidence), ('COUNCIL_REJECTED_VERIFY_EXISTING: ' + objections.join(' | ')).slice(0, 900), now, job.id)
+    await env.DB.prepare(`UPDATE dev_jobs SET result_json=json_set(COALESCE(result_json,'{}'),'$.council_review',json(?),'$.verify_existing',json(?)), error=?, status=CASE WHEN status='TEACHER_APPROVED' THEN ? ELSE status END, updated_at=? WHERE id=?`)
+      .bind(JSON.stringify({ decision: result.decision, head, mode: 'VERIFY_EXISTING', repair_required: false, verification_repair_required: job.requested_by === 'mel-autonomy', objections, reviewed_at: now }), JSON.stringify(verificationEvidence), ('COUNCIL_REJECTED_VERIFY_EXISTING: ' + objections.join(' | ')).slice(0, 900), repairStatus, now, job.id)
       .run().catch(() => {});
   } else if (result.decision === OWNER_APPROVAL_REQUIRED) {
     // [Codex] An unavailable Council leaves the active job resumable; the

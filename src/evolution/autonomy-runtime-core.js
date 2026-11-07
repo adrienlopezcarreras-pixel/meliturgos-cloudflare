@@ -1,3 +1,5 @@
+import { objectiveVerificationProfile, isFounderVerificationGoal } from './objective-verification-profiles.js';
+import { fetchObjectiveMissionTestEvidence } from './roadmap-test-evidence.js';
 import { recoverNoopReview } from './noop-review-recovery.js';
 import { computeRoadmapTruth } from '../roadmap/roadmap-truth.js';
 import { withRuntimeRecertification, executeRuntimeRecertification } from '../roadmap/runtime-recertification.js';
@@ -972,9 +974,13 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       });
       const nextAttempt = maxAutonomy === true ? decision.attempts : previousAttempts + 1;
       const councilRejected = councilRejectedApprovedPackage(job);
-      const executorFailure = jobStatus === 'REPAIR_REQUIRED' && !councilRejected
+      const verificationRejected = result.council_review?.mode === 'VERIFY_EXISTING'
+        && result.council_review?.decision === 'REJECTED' && result.council_review?.verification_repair_required === true
+        && !result.council_review?.addressed_in_repair_at;
+      const executorFailure = jobStatus === 'REPAIR_REQUIRED' && !councilRejected && !verificationRejected
         && (failedTests.length === 0 || bridgePublicationFailureOnly(failedTests));
-      const failureSource = executorFailure ? 'DEV_BRIDGE_EXECUTOR_FAILURE' : 'DEV_BRIDGE_TEST_FAILURE';
+      const failureSource = verificationRejected ? 'COUNCIL_VERIFICATION_REJECTED'
+        : executorFailure ? 'DEV_BRIDGE_EXECUTOR_FAILURE' : 'DEV_BRIDGE_TEST_FAILURE';
 
       if (maxAutonomy === true && decision.action === 'EXHAUST') {
         result.repair_cycle = {
@@ -1005,7 +1011,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         const requestedAt = new Date().toISOString();
         result.repair_cycle = {
           status: 'REQUESTED',
-          source: maxAutonomy === true
+          source: verificationRejected ? 'COUNCIL_VERIFICATION_REJECTED' : maxAutonomy === true
             ? (executorFailure ? 'OWNER_MAX_EXECUTOR_FAILURE' : 'OWNER_MAX_TEST_FAILURE')
             : failureSource,
           attempts: nextAttempt,
@@ -1055,6 +1061,11 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
           delete result.implementation_proposal;
           delete result.bridge_package;
           delete result.bridge_preparation;
+          if (verificationRejected) {
+            result.verify_existing_rejection = { head: result.council_review.head,
+              objections: result.council_review.objections || [], repair_required: true, observed_at: requestedAt };
+            result.council_review = { ...result.council_review, addressed_in_repair_at: requestedAt };
+          }
           if (councilRejected) result.council_review = {
             ...result.council_review,
             addressed_in_repair_at: requestedAt,
@@ -1204,9 +1215,11 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       const required = requiredLiveChecks(job?.goal, implementation?.selected?.text);
       const liveChecks = ciRunId ? await runLiveChecks(env, required).catch(() => []) : [];
       const gate = ciLookupFailure ? { ok: false, code: ciLookupFailure }
-        : ciRunId ? liveProofGate(required, liveChecks, { goal: job?.goal }) : { ok: false, code: 'FULL_CANDIDATE_CI_REQUIRED' };
-      const founderProof = gate.ok && /MEL-FOUNDER-01/i.test(String(job?.goal || ''))
-        ? await fetchFounderMissionTestEvidence({
+        : ciRunId ? liveProofGate(required, liveChecks, { goal: job?.goal, candidateSha: implementation.candidate_sha }) : { ok: false, code: 'FULL_CANDIDATE_CI_REQUIRED' };
+      const needsMissionProof = isFounderVerificationGoal(job?.goal) || Boolean(objectiveVerificationProfile(job?.goal));
+      const fetchMissionProof = objectiveVerificationProfile(job?.goal) ? fetchObjectiveMissionTestEvidence : fetchFounderMissionTestEvidence;
+      const founderProof = gate.ok && needsMissionProof
+        ? await fetchMissionProof({ job,
           repository: String(env.MEL_GITHUB_REPOSITORY || 'adrienlopezcarreras-pixel/meliturgos-cloudflare'),
           candidateSha: implementation.candidate_sha, runId: ciRunId,
           token: env.MEL_GITHUB_TOKEN, fetchImpl,
@@ -1218,7 +1231,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       const proofFailureCode = council?.decision === 'MISSION_TEST_EVIDENCE_REQUIRED' && founderProof?.ok === false && /^MISSION_TEST_[A-Z0-9_]+$/.test(String(founderProof.code || ''))
         ? founderProof.code : null;
       const verificationCode = !gate.ok ? gate.code : (proofFailureCode || council?.decision || 'COUNCIL_REVIEW_UNAVAILABLE');
-      if (job && (!gate.ok || !council || ['COUNCIL_UNAVAILABLE', 'INSUFFICIENT_REVIEWERS', 'REVIEW_INPUT_INVALID', 'MISSION_TEST_EVIDENCE_REQUIRED'].includes(council.decision))) {
+      if (job && (!gate.ok || !council || ['COUNCIL_UNAVAILABLE', 'INSUFFICIENT_REVIEWERS', 'REVIEW_INPUT_INVALID', 'MISSION_TEST_EVIDENCE_REQUIRED', 'OBJECTIVE_FUNCTIONAL_EVIDENCE_REQUIRED'].includes(council.decision))) {
         await persistVerificationWait(jobRepository, job.id, {
           code: verificationCode,
           liveChecks, ciRunId, candidateSha: implementation.candidate_sha,
