@@ -55,7 +55,11 @@ export async function completeVerifiedRepair(db,repository,{deployedSha,releaseV
   // AND its tests must be unchanged in the exact deployed tree.
   const equivalent=typeof verifyDescendant==='function'
     && await verifyDescendant({acceptedSha:receipt.candidate_sha,deployedSha,protectedPaths});
-  if(equivalent!==true)return reject('REPAIR_ACCEPTED_SHA_NOT_DEPLOYED');
+  if(equivalent!==true && equivalent?.ok!==true) {
+   const safeCode=equivalent&&typeof equivalent==='object'&&/^REPAIR_COMPARE_(?:INPUT_INVALID|FETCH_FAILED|HTTP_[0-9]{3}|JSON_INVALID|ANCESTRY_INVALID|TRUNCATED|PROTECTED_PATH_CHANGED)$/.test(String(equivalent.diagnostic||''))
+    ? equivalent.diagnostic : null;
+   return {...reject('REPAIR_ACCEPTED_SHA_NOT_DEPLOYED'),...(safeCode?{diagnostic:safeCode}:{})};
+  }
  }
  const updated=await setAutonomyControl(db,{paused:false,max_autonomy:true,source:'verified-repair-completed',reason:'verified-repair-delivered',repair:null,expected_updated_at:control.updated_at,memoryState});
  return {ok:true,status:'AUTONOMOUS_REPAIR_COMPLETED',resumed:true,control:updated};
@@ -68,28 +72,38 @@ export async function completeVerifiedRepair(db,repository,{deployedSha,releaseV
  * Any GitHub failure, missing token, pagination ambiguity or changed file
  * fails closed. No user-supplied repository URL is accepted.
  */
-export async function verifyUnchangedRepairDescendant({acceptedSha,deployedSha,protectedPaths,token,fetchImpl=fetch}={}) {
+
+export async function diagnoseUnchangedRepairDescendant({acceptedSha,deployedSha,protectedPaths,token,fetchImpl=fetch}={}) {
+ const bad=diagnostic=>({ok:false,diagnostic});
  const validSha=x=>/^[a-f0-9]{40}$/.test(String(x||''));
  if(!validSha(acceptedSha)||!validSha(deployedSha)||acceptedSha===deployedSha
    ||!Array.isArray(protectedPaths)||!protectedPaths.length||protectedPaths.length>100
    ||protectedPaths.some(p=>typeof p!=='string'||p.length>240||p.startsWith('/')||p.split('/').some(x=>x==='..'||x==='.'||!x))
-   ||typeof token!=='string'||token.length<8)return false;
+   ||typeof token!=='string'||token.length<8)return bad('REPAIR_COMPARE_INPUT_INVALID');
  try {
   const url='https://api.github.com/repos/adrienlopezcarreras-pixel/meliturgos-cloudflare/compare/'
     +acceptedSha+'...'+deployedSha;
   const res=await fetchImpl(url,{headers:{Authorization:'Bearer '+token,Accept:'application/vnd.github+json'},redirect:'error',signal:AbortSignal.timeout(15000)});
-  if(!res.ok)return false;
-  const data=await res.json();
-  // GitHub Compare caps its files at 300 and its commits at 250.
-  // Reject capped evidence rather than treating a partial diff as complete.
-  if(data.status!=='ahead'||!Number.isInteger(data.ahead_by)||data.ahead_by<1
-    ||data.behind_by!==0||!Number.isInteger(data.total_commits)
-    ||data.total_commits<1||data.total_commits>250
+  if(!res.ok)return bad('REPAIR_COMPARE_HTTP_'+String(res.status).padStart(3,'0'));
+  let data;
+  try { data=await res.json(); }catch { return bad('REPAIR_COMPARE_JSON_INVALID'); }
+  if(data?.status!=='ahead'||!Number.isInteger(data.ahead_by)||data.ahead_by<1||data.behind_by!==0)
+   return bad('REPAIR_COMPARE_ANCESTRY_INVALID');
+  // The GitHub Compare endpoint may return partial evidence. Refuse it.
+  if(!Number.isInteger(data.total_commits)||data.total_commits<1||data.total_commits>250
     ||!Array.isArray(data.commits)||data.commits.length!==data.total_commits
-    ||!Array.isArray(data.files)||data.files.length>=300)return false;
+    ||!Array.isArray(data.files)||data.files.length>=300)return bad('REPAIR_COMPARE_TRUNCATED');
   const protectedSet=new Set(protectedPaths);
-  return data.files.every(file=>file&&typeof file.filename==='string'
+  if(!data.files.every(file=>file&&typeof file.filename==='string'
     && !protectedSet.has(file.filename)
-    && !(typeof file.previous_filename==='string'&&protectedSet.has(file.previous_filename)));
- }catch{return false;}
+    && !(typeof file.previous_filename==='string'&&protectedSet.has(file.previous_filename))))
+   return bad('REPAIR_COMPARE_PROTECTED_PATH_CHANGED');
+  return {ok:true};
+ }catch{return bad('REPAIR_COMPARE_FETCH_FAILED');}
+}
+
+// Keep the public boolean contract for existing callers; the production
+// repair endpoint uses fixed-code diagnostics without exposing SHA or token.
+export async function verifyUnchangedRepairDescendant(args={}) {
+ return (await diagnoseUnchangedRepairDescendant(args)).ok===true;
 }
