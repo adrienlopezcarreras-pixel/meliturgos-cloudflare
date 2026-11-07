@@ -106,7 +106,7 @@ export const ROADMAP_PROOF_SOURCES = Object.freeze({
   'MEL-RES-05': { capabilities: ['memory.export.verify'] },
   'MEL-SOV-02': { capabilities: ['resilience.cold-standby.prepare.latest'] },
   'MEL-EVAL-03': { capabilities: ['conversation.quality.recent'] },
-  'GEN2-53': { capabilities: ['cloudflare.deployments.read', 'skill.rollback'] },
+  'GEN2-53': { capabilities: ['cloudflare.canary-rollback.verify'] },
   'GEN2-63': { capabilities: ['autonomy.tick'] },
   'MEL-UI-05': { capabilities: ['self.state'] },
   'MEL-REL-01': { capabilities: ['cloudflare.deployments.read'] },
