@@ -453,8 +453,11 @@ export function visibleActiveAutonomyMission(holder, control) {
     const status = String(holder.status || '').toUpperCase();
     if (status !== 'COMMITTED') return null;
   }
-  // Queued jobs are not yet executing.
-  return String(holder.status || '').toUpperCase() === 'QUEUED' ? null : holder;
+  // Terminal jobs are historical evidence, not an executing mission.
+  // COMMITTED remains visible pending supervised release/runtime verification.
+  const status = String(holder.status || '').toUpperCase();
+  if (new Set(['QUEUED', 'COMPLETED', 'FAILED', 'CANCELLED']).has(status)) return null;
+  return holder;
 }
 
 // The plan shown in the Code chat: the mission in progress with its steps,
