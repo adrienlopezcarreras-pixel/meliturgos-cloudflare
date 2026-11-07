@@ -100,6 +100,19 @@ export class CapabilityBus {
   }
   enable(id, context) { authorize(['capabilities.manage'],context); this.records.get(this.describe(id).id).record.enabled = true; }
   disable(id, context) { authorize(['capabilities.manage'],context); this.records.get(this.describe(id).id).record.enabled = false; }
+  // Enregistre une capacité manquante ou versionnée sur le bus canonique.
+  // Utilisé lorsqu’un écart prouvé ouvre un objectif reprenable.
+  // Le handler fourni doit être une fonction async retournant le résultat attendu.
+  // Si aucun handler n’est fourni, une erreur générique est levée à l’exécution.
+  deliverCapability(id, record, handler = async () => { throw new Error('CAPABILITY_NOT_IMPLEMENTED'); }) {
+    if (this.records.has(id)) throw new Error('CAPABILITY_ALREADY_EXISTS');
+    const entry = {
+      record: { ...record, id, enabled: true },
+      execute: handler,
+    };
+    this.records.set(id, entry);
+    return true;
+  }
   // MEL-CHAT-08: one execution identifier runs through validation, permission,
   // dispatch, the typed result and the render. Callers read it from
   // executeDetailed(); the audit rows of one call all carry it.

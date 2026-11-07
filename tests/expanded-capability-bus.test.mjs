@@ -131,3 +131,30 @@ test('MEL-CHAT-08: Google quota and timeout are typed and say whether the action
   assert.match(source, /retryable: true, action_may_have_run: false/);
   assert.match(source, /retryable: method === 'GET', action_may_have_run: method !== 'GET'/);
 });
+
+test('deliverCapability registers a new capability on the bus', async () => {
+  const { CapabilityBus } = await import('../src/capabilities/capability-bus.js');
+  const bus = new CapabilityBus({ audit: async () => {} });
+  const record = {
+    name: 'test.missing',
+    category: 'test',
+    version: '1.0.0',
+    provider: 'test',
+    description: 'missing capability',
+    input_schema: { type: 'object', properties: {}, additionalProperties: false },
+    output_schema: {
+      type: 'object',
+      properties: { ok: { type: 'boolean' } },
+      required: ['ok'],
+      additionalProperties: false,
+    },
+    risk: 'LOW',
+    permissions: [],
+    health: 'OK',
+    enabled: true,
+  };
+  bus.deliverCapability('test.missing', record);
+  const desc = bus.describe('test.missing');
+  assert.equal(desc.id, 'test.missing');
+  assert.equal(desc.enabled, true);
+});
