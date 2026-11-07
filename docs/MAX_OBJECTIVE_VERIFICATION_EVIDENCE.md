@@ -42,3 +42,12 @@ individuelle autorisée.
 Ce lot doit passer sa CI exacte, sa revue Council et sa release avant de pouvoir
 certifier MANIFEST-01. Respecter aussi `WORKERS_AI_DEPRECATION_20261106.md` pour
 les modèles et déploiements ; aucun quorum ni contrôle de coût n'est modifié.
+
+
+## Tous les points de la roadmap
+
+Le catalogue d’activité utilise la même vérité D1 récente que MAX, pas les anciens statuts déclarés. Une recette sûre existante donne une mission `VERIFY_RUNTIME`. Une recette absente ouvre un lot auxiliaire `ROADMAP-PROOF-<ID>` avec fichiers, régression, prérequis et interdiction du no-op; le parent attend sa vérification réelle. Livrer ce lot ne valide ni le parent ni un appareil physique. Ces missions partagent le créneau unique et les budgets existants. La sonde de production conserve son ancien nom de fichier pour compatibilité, mais vérifie les identifiants et la révision du registre courant.
+
+Les reçus logiciels indépendants restent utilisables pour les prérequis de développement. Ils ne masquent pas une recertification manquante, y compris pour un objectif déjà livré dont le registre est encore `PLANNED`. Une régression explicite conserve son autorité.
+
+Une recertification acceptée débloque immédiatement ses dépendants, sans attendre un cycle supplémentaire de lecture de la vérité runtime.

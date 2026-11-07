@@ -1089,16 +1089,17 @@ function activityMarkup(a){
   const awaiting=(a.jobs||[]).filter(j=>j.queue_state==='WAITING');
   // Canonical roadmap definitions are informational, not QUEUED D1 jobs.
   const passiveRoadmap=Array.isArray(a.passive_roadmap?.items)?a.passive_roadmap.items:null;
-  const roadmapStateLabels={MISSION_REGISTERED:'Mission D1 enregistrée',BLOCKED_HUMAN:'Bloqué : intervention humaine',BLOCKED_EXTERNAL:'Bloqué : dépendance externe',WAITING_PREREQUISITES:'En attente de prérequis',CODE_DELIVERED_UNVERIFIED:'Code livré, preuve finale manquante',ROADMAP_DEFINED:'Défini dans la roadmap'};
+  const roadmapStateLabels={PROOF_RECIPE_REQUIRED:'Recette de vérification à coder par MAX',READY_FOR_RUNTIME_VERIFICATION:'Recette prête : vérification réelle à exécuter',PROOF_STATUS_UNAVAILABLE:'Preuves actuelles indisponibles',MISSION_REGISTERED:'Mission D1 enregistrée',BLOCKED_HUMAN:'Bloqué : intervention humaine',BLOCKED_EXTERNAL:'Bloqué : dépendance externe',WAITING_PREREQUISITES:'En attente de prérequis',CODE_DELIVERED_UNVERIFIED:'Code livré, preuve finale manquante',ROADMAP_DEFINED:'Défini dans la roadmap'};
   const passiveRoadmapPanel=passiveRoadmap===null
     ?'<div class="muted">Catalogue roadmap non disponible sur cette version.</div>'
-    :'<details class="act-roadmap-passive"><summary><strong>Objectifs roadmap à venir ('+esc(a.passive_roadmap.remaining)+')</strong> · '+esc(a.passive_roadmap.verified)+' vérifiés</summary>'
+    :'<details class="act-roadmap-passive"><summary><strong>Objectifs roadmap à venir ('+esc(a.passive_roadmap.remaining)+')</strong> · '+esc(a.passive_roadmap.verified)+(a.passive_roadmap.verification_source==='production_d1_audit'?' vérifiés par preuves récentes':' statuts historiques, recertification non mesurée')+'</summary>'
       +'<div class="muted">Catalogue passif, distinct des missions D1 : aucun appel IA, aucune réservation de créneau. « Défini » ne signifie pas exécuté.</div>'
       +'<div style="max-height:450px;overflow:auto;margin-top:8px" aria-label="Tous les objectifs non vérifiés de la roadmap">'
       +passiveRoadmap.map(item=>'<div class="act-kv"><strong>'+esc(item.id)+'</strong> · '+esc(item.title)
         +'<div class="muted">'+esc(item.priority||'')+' · '+esc(roadmapStateLabels[item.state]||item.state)
         +(item.mission_status?' · D1 : '+esc(item.mission_status):' · pas de mission D1')
         +(item.contract_defined?' · contrat technique défini':'')
+        +(item.proof_recipe_mission?' · mission de recette : '+esc(item.proof_recipe_mission.id)+' ; livrer le test ne valide pas encore le point':'')
         +(item.unmet_prerequisites?.length?' · prérequis : '+item.unmet_prerequisites.map(esc).join(', '):'')
         +'</div></div>').join('')+'</div></details>';
 

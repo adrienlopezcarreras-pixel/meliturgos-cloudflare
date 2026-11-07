@@ -89,7 +89,11 @@ test('activity reset hides the old mission card while retaining truthful catalog
   await f.DB.prepare('INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?)').bind('activity-list-epoch',2000,'RESET','{}').run();
   const activity=await buildAutonomyActivity({DB:f.DB},{repository:f.repo});
   assert.ok(!activity.jobs.some(job=>job.id==='old-accepted-parent'));
-  assert.ok(!activity.passive_roadmap.items.some(item=>item.id===f.parent.id));
+  assert.ok(activity.passive_roadmap.items.some(item=>item.id===f.parent.id),
+    'old software acceptance remains a prerequisite proof, not fresh runtime certification');
+  const recertification=activity.passive_roadmap.items.find(item=>item.id===f.parent.id);
+  assert.equal(recertification.proof_recipe_mission.id,'ROADMAP-PROOF-'+f.parent.id);
+  assert.equal(activity.passive_roadmap.verification_source,'production_d1_audit');
   const child=activity.passive_roadmap.items.find(item=>item.id===f.child.id);
   assert.ok(!child.unmet_prerequisites.includes(f.parent.id));
   assert.ok(!activity.plan.next.some(item=>item.id===f.parent.id));

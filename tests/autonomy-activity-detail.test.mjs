@@ -412,8 +412,19 @@ test('MAX passive catalog never truncates roadmap to 3, 30, 60 or 100 items',asy
   assert.equal(a.counts.waiting,0);
   assert.equal(a.counts.active,0);
   assert.equal(a.scheduler_slot.reserved,false);
-  assert.equal(a.passive_roadmap.remaining,open.length);
-  assert.equal(a.passive_roadmap.items.length,open.length);
+  assert.equal(a.passive_roadmap.remaining,full.length,'empty live audits must reopen historical DONE points too');
+  assert.equal(a.passive_roadmap.items.length,full.length);
+  assert.equal(a.passive_roadmap.verified,0);
+  assert.equal(a.passive_roadmap.verification_source,'production_d1_audit');
+  assert.equal(a.plan.next[0].status,'RECERTIFICATION_REQUIRED','the plan and actual scheduler both see historical points needing runtime proofs');
+});
+
+test('the plan uses canonical execution state rather than calling a passive queued mission current',async()=>{
+  const {buildCodePlan}=await import('../src/evolution/autonomy-activity.js');
+  const roadmap=[{id:'MEL-A',status:'PLANNED',depends_on:[]}];
+  const passive={roadmap_id:'MEL-A',status:'QUEUED',queue_state:'WAITING'};
+  assert.equal(buildCodePlan([passive],{roadmap}).current,null);
+  assert.equal(buildCodePlan([{...passive,status:'PLANNING',queue_state:'ACTIVE'}],{roadmap}).current.roadmap_id,'MEL-A');
 });
 
 test('MAX passive UI shows catalog separate from true D1 QUEUED missions',async()=>{

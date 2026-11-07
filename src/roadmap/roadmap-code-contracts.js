@@ -1,3 +1,4 @@
+import { proofRecipeContract } from './proof-recipe-contracts.js';
 // Every scheduled roadmap objective is a bounded software deliverable, never a declaration.
 export const ROADMAP_CODE_CONTRACT_REVISION = '2026-10-29-code-v1';
 // Historical IDs remain traceable, but never schedule or certify their replacement.
@@ -671,12 +672,17 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
 // revision: its old failures stop counting and it is retried, while every
 // other objective (and its accepted evidence) keeps the global revision.
 export function roadmapContractRevision(roadmapId) {
-  return ROADMAP_CODE_CONTRACTS[roadmapId]?.revision || ROADMAP_CODE_CONTRACT_REVISION;
+  return roadmapCodeContract(roadmapId)?.revision || ROADMAP_CODE_CONTRACT_REVISION;
+}
+
+export function roadmapCodeContract(id) {
+  const parentId = String(id || '').slice('ROADMAP-PROOF-'.length);
+  return ROADMAP_CODE_CONTRACTS[id] || proofRecipeContract(id, ROADMAP_CODE_CONTRACTS[parentId]);
 }
 
 export function codeContractForRoadmapJob(job) {
   if (job?.requested_by !== 'mel-autonomy') return null;
-  return ROADMAP_CODE_CONTRACTS[job?.optional_context?.roadmap_id] || null;
+  return roadmapCodeContract(job?.optional_context?.roadmap_id);
 }
 
 // A manifest/accounting objective must not edit its own declaration to pass.

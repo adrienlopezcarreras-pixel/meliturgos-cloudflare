@@ -20,7 +20,7 @@ export function autonomyQueueCategory(job) {
 }
 
 const TERMINAL_JOB = new Set(['COMPLETED', 'CANCELLED', 'FAILED', 'DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED']);
-const BLOCKED_ROADMAP = new Set([ROADMAP_STATUSES.BLOCKED_HUMAN, ROADMAP_STATUSES.BLOCKED_EXTERNAL]);
+const BLOCKED_ROADMAP = new Set([ROADMAP_STATUSES.BLOCKED_HUMAN, ROADMAP_STATUSES.BLOCKED_EXTERNAL, 'WAITING_PROOF_RECIPE']);
 function isVerifiedRoadmap(item) { return isClosedRoadmapStatus(item?.status); }
 const PRIORITY_WEIGHT = Object.freeze({ P0: 0, P1: 10, P2: 20, P3: 30 });
 const STATUS_WEIGHT = Object.freeze({ IN_PROGRESS: 0, PARTIAL: 1, PLANNED: 2 });
@@ -362,24 +362,32 @@ export class AutonomySupervisor {
     if (this.evolutionLoader && supervisedJobs.some(job => String(roadmapIdFromJob(job) || '').startsWith('EVOLUTION-'))) await readEvolution();
     const contractRevisions = Object.fromEntries(this.roadmap.filter(row => row.contract_revision).map(row => [row.id, row.contract_revision]));
     const verifiedRoadmapIds = new Set(this.roadmap.filter(isVerifiedRoadmap).map(item => item.id));
+    const recertificationIds = new Set(this.roadmap.filter(row => row.recertification_only === true || row.mode === 'VERIFY_RUNTIME').map(row => row.id));
+    const softwareVerifiedIds = new Set();
     for (const job of jobs) if (isAcceptedRoadmapCodeJob(job)
-      && this.roadmap.find(row => row.id === roadmapIdFromJob(job))?.status !== 'REGRESSED') verifiedRoadmapIds.add(roadmapIdFromJob(job));
+      && this.roadmap.find(row => row.id === roadmapIdFromJob(job))?.status !== 'REGRESSED') {
+      softwareVerifiedIds.add(roadmapIdFromJob(job));
+      if (!recertificationIds.has(roadmapIdFromJob(job))) verifiedRoadmapIds.add(roadmapIdFromJob(job));
+    }
+    for (const job of jobs) if (recertificationIds.has(roadmapIdFromJob(job))
+      && isAcceptedRuntimeRecertificationJob(job)
+      && this.roadmap.find(row => row.id === roadmapIdFromJob(job))?.status !== 'REGRESSED')
+      verifiedRoadmapIds.add(roadmapIdFromJob(job));
     for (const item of evolutionItems || []) if (isClosedRoadmapStatus(item.status)) verifiedRoadmapIds.add('EVOLUTION-' + item.id);
     const reopenedIds = new Set(this.roadmap.filter(item => String(item.status).toUpperCase() === 'REGRESSED').map(item => item.id));
     for (const item of evolutionItems || []) if (item.status === 'REGRESSED') reopenedIds.add('EVOLUTION-' + item.id);
-    const recertificationIds = new Set(this.roadmap.filter(row => row.recertification_only === true || row.mode === 'VERIFY_RUNTIME').map(row => row.id));
     const completedIds = [...new Set([
       ...supervisedJobs
         .filter(job => recertificationIds.has(roadmapIdFromJob(job)) ? isAcceptedRuntimeRecertificationJob(job) : contractRevisions[roadmapIdFromJob(job)] ? isAcceptedRoadmapCodeJob(job) : ['COMPLETED'].includes(String(job.status).toUpperCase()) || isClosedRoadmapStatus(job.status))
         .map(roadmapIdFromJob),
       // Resetting the activity view cannot erase independently verified code.
       // The unchanged contract/SHA/CI checks still run; REGRESSED wins below.
-      ...jobs.filter(isAcceptedRoadmapCodeJob).map(roadmapIdFromJob),
+      ...jobs.filter(job => isAcceptedRoadmapCodeJob(job) && !recertificationIds.has(roadmapIdFromJob(job))).map(roadmapIdFromJob),
     ].filter(id => id && !reopenedIds.has(id)))];
     const completedSet = new Set(completedIds);
     // Terminal code delivery is not an acceptance verdict. Only exact roadmap
     // DONE_VERIFIED proof may unlock an objective that depends on this one.
-    const verifiedDependencyIds = [...verifiedRoadmapIds];
+    const verifiedDependencyIds = [...new Set([...verifiedRoadmapIds, ...softwareVerifiedIds])];
     const waiting = supervisedJobs.filter(job => String(job.status || '').toUpperCase() === 'WAITING_DEPENDENCY');
     const active = supervisedJobs.filter(job => !TERMINAL_JOB.has(String(job.status || '').toUpperCase())
       && String(job.status || '').toUpperCase() !== 'WAITING_DEPENDENCY')
