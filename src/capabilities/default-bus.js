@@ -564,9 +564,11 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     try{
       raw=(await db.prepare(
         "SELECT operation,status,input_json,result_json,created_at,completed_at FROM cloudflare_api_relay_jobs"
-        +" WHERE operation IN ('deployments.create','deployments.list') AND status IN ('COMPLETE','FAILED')"
-        +" AND completed_at>=? AND completed_at<=? ORDER BY completed_at DESC LIMIT 120"
-      ).bind(now-ROADMAP_TRUTH_WINDOW_MS,now).all())?.results||[];
+        +" WHERE operation IN ('deployments.create','deployments.list')"
+        +" AND ((completed_at>=? AND completed_at<=?)"
+        +" OR (status IN ('QUEUED','CLAIMED') AND created_at>=? AND created_at<=?))"
+        +" ORDER BY COALESCE(completed_at,created_at) DESC LIMIT 120"
+      ).bind(now-ROADMAP_TRUTH_WINDOW_MS,now,now-ROADMAP_TRUTH_WINDOW_MS,now).all())?.results||[];
     }catch{fail('CLOUDFLARE_ROLLBACK_RECEIPTS_UNAVAILABLE');}
     const parse=s=>{try{return JSON.parse(s||'null');}catch{return null;}};
     const uuid=v=>/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(String(v||''));
@@ -581,15 +583,22 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     const bound=r=>String(r.input?.message||'').split(/\s+/).includes('sha:'+sha);
     const executed=r=>r.operation==='deployments.create'&&r.status==='COMPLETE'&&
       uuid(r.result?.deployment?.id)&&same(r.input?.versions,r.result?.deployment?.versions)&&bound(r);
-    const readback=rows.find(r=>r.operation==='deployments.list'&&r.status==='COMPLETE');
-    if(!readback||!Array.isArray(readback.result?.deployments)||!readback.result.deployments.length)
+    // A failed or pending newer read cannot be hidden behind older successes.
+    // Require a recently observed current provider state, not a week-old cache.
+    const latestAttempt=raw.find(r=>r.operation==='deployments.list'&&parse(r.input_json)?.script===script);
+    const readback=rows.find(r=>r.operation==='deployments.list'&&
+      r.status==='COMPLETE'&&r.at===Number(latestAttempt?.completed_at));
+    if(!latestAttempt||latestAttempt.status!=='COMPLETE'||!readback||
+      readback.at<now-15*60*1000||!Array.isArray(readback.result?.deployments)||
+      !readback.result.deployments.length)
       fail('CLOUDFLARE_ROLLBACK_READBACK_MISSING');
     const current=readback.result.deployments[0];
     for(const restored of rows.filter(r=>executed(r)&&vs(r.input.versions).length===1&&
       uuid(r.input.versions[0].version_id)&&Number(r.input.versions[0].percentage)===100&&
       r.at<readback.created)){
       const stable=restored.input.versions[0].version_id;
-      if(rows.some(r=>r.operation==='deployments.create'&&r.created>restored.at))continue;
+      if(raw.some(r=>r.operation==='deployments.create'&&
+        parse(r.input_json)?.script===script&&Number(r.created_at)>restored.at))continue;
       if(current.id!==restored.result.deployment.id||
         !same(current.versions,restored.result.deployment.versions))continue;
       const canary=rows.find(r=>executed(r)&&r.at<restored.created&&
