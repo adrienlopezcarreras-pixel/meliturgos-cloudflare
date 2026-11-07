@@ -910,7 +910,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   }
   const initialJobId = job?.id || null;
   const initialJobStatus = String(job?.status || '').toUpperCase() || null;
-  const initialCompletedCount = Array.isArray(stateBefore?.completedIds) ? stateBefore.completedIds.length : 0;
+  const initialCompletedCount = Array.isArray(stateBefore?.completedIds) ? stateBefore.completedIds.filter(id => !id.startsWith('ROADMAP-PROOF-')).length : 0;
   if (maxAutonomy && job?.status === 'READY_FOR_REVIEW') {
     // The supervisor already selected the unique current-epoch holder.
     const recovered = await recoverNoopReview({ env, repository: currentRepository, job, fetchImpl }).catch(() => null);

@@ -108,13 +108,21 @@ async function inspectSources(env, proposal, { fetchImpl = fetch } = {}) {
   }
 
   const files = [];
+  const contract = roadmapCodeContract(String(proposal?.roadmap_id || ''));
   for (const path of uniquePaths(proposal)) {
     try {
       const source = await reader.read(path);
       const content = String(source.content || '');
       if (content.length > MAX_SOURCE) continue;
       files.push({ path: source.path, content });
-    } catch {}
+    } catch (error) {
+      // A new contract test is a known, empty creation target only after an
+      // immutable 404. A timeout/503 never authorizes overwriting unknown code.
+      if (contract?.test_paths.includes(path)) {
+        if (Number(error?.status) === 404) files.push({ path, content: '', absent_at_candidate: true });
+        else throw Object.assign(new Error('BRIDGE_PREPARATION_TEST_CONTEXT_UNAVAILABLE'), {code:'BRIDGE_PREPARATION_TEST_CONTEXT_UNAVAILABLE'});
+      }
+    }
   }
   if (!files.length) throw Object.assign(new Error('BRIDGE_PREPARATION_SOURCE_REQUIRED'), { code: 'BRIDGE_PREPARATION_SOURCE_REQUIRED' });
 

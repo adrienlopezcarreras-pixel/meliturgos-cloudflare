@@ -8,6 +8,7 @@ import { buildPassiveRoadmapCatalog } from '../src/evolution/autonomy-activity.j
 import { AutonomySupervisor } from '../src/evolution/autonomy-supervisor.js';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
+import { hasObjectiveBoundVerificationChecks } from '../src/evolution/verify-existing-live-checks.js';
 
 const unproven = items => ({available:true,items:Object.fromEntries(items.map(row=>[row.id,{truth:'UNPROVEN'}]))});
 test('every canonical point without a live proof has executable work or a bounded recipe-code mission', () => {
@@ -56,6 +57,8 @@ test('the real scheduler admits one recipe mission, keeps its target unverified 
   assert.equal((await supervisor.state()).completedIds.includes(original.id),false);
   assert.throws(()=>assertRoadmapCodeChanges(first.job,[{path:'src/roadmap/master-roadmap.js',content:'fake green'}]),{code:'ROADMAP_CODE_SCOPE_VIOLATION'});
   assert.equal(roadmapCodeContract('ROADMAP-PROOF-not-a-roadmap-point'),null);
+  assert.equal(hasObjectiveBoundVerificationChecks('[ROADMAP-PROOF-GEN2-33] Vérifier Gmail','LIVE_CHECKS: gmail.messages.search'),false,
+    'a generic successful read cannot stand in for delivery of a missing verification recipe');
 });
 
 test('a recipe for a dependent objective waits for its real prerequisite', async t => {

@@ -1,4 +1,4 @@
-import { ROADMAP_CODE_CONTRACTS } from '../roadmap/roadmap-code-contracts.js';
+import { roadmapCodeContract } from '../roadmap/roadmap-code-contracts.js';
 import { objectiveVerificationProfile, isFounderVerificationGoal } from './objective-verification-profiles.js';
 // VERIFY_EXISTING production proof: before the Council judges "already done",
 // MEL runs the read-only capabilities the plan names, through the same
@@ -102,7 +102,7 @@ export function objectiveLiveChecks(goal) {
  */
 export function hasObjectiveBoundVerificationChecks(goal, planText) {
   const id = /^\s*\[([A-Z0-9-]+)\]/i.exec(String(goal || ''))?.[1]?.toUpperCase();
-  if (Object.hasOwn(ROADMAP_CODE_CONTRACTS, id || '') && !isFounderVerificationGoal(goal) && !objectiveVerificationProfile(goal)) return false;
+  if (roadmapCodeContract(id || '') && !isFounderVerificationGoal(goal) && !objectiveVerificationProfile(goal)) return false;
   const relevant = objectiveLiveChecks(goal);
   if (!relevant.length) return false;
   return requestedLiveChecks(planText).every((id) => relevant.includes(id));

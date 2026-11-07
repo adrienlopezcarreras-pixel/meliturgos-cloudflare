@@ -7,6 +7,7 @@ import { MentorMemoryRepository } from '../src/learning/mentor-memory.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import { devRuntime } from '../src/dev/runtime-api.js';
 import { maybeDispatchCloudBridge, CLOUD_BRIDGE_WORKFLOW } from '../src/evolution/cloud-bridge-dispatch.js';
+import { roadmapCodeContract, roadmapContractRevision } from '../src/roadmap/roadmap-code-contracts.js';
 
 const SHA = 'cccccccccccccccccccccccccccccccccccccccc';
 const BRANCH = 'candidate/augmentio-core';
@@ -70,6 +71,33 @@ function mentorEngine(calls) {
     },
   };
 }
+
+test('a roadmap recipe can create and reuse its exact contract test only after a confirmed immutable 404', async () => {
+  const repository=await approvedRepository(), id='ROADMAP-PROOF-GEN2-06', contract=roadmapCodeContract(id);
+  const before=await repository.get('bridge-prep-job');
+  const job=await repository.update(before.id,{optional_context:{roadmap_id:id,roadmap_contract_revision:roadmapContractRevision(id)},
+    result_json:{...before.result_json,implementation_proposal:{...before.result_json.implementation_proposal,roadmap_id:id}}});
+  let calls=0;
+  const fetcher=async url=>{
+    const target=String(url);
+    if(target.includes('/commits/'))return Response.json({sha:SHA});
+    if(contract.code_paths.some(path=>target.includes(path)))return Response.json({type:'file',sha:'b'.repeat(40),content:Buffer.from('export const ready = false;\n').toString('base64')});
+    return new Response('missing',{status:404});
+  };
+  const engine={async propose(input){calls++;
+    assert.equal(input.inspectedFiles.find(row=>row.path===contract.test_paths[0]).absent_at_candidate,true);
+    return {proposal:{summary:'Add real verification regression',changes:[{path:contract.code_paths[0],content:'export const ready = true;\n'},
+      {path:contract.test_paths[0],content:"import test from 'node:test'; import assert from 'node:assert/strict'; test('verification',()=>assert.ok(true));"}],tests:['test'],provenance:{provider:'fixture',model:'fixture'}}};
+  }};
+  const env={MEL_GITHUB_REPOSITORY:'owner/repo',MEL_TEACHER_BRANCH:BRANCH};
+  await prepareApprovedBridgePackage({env,repository,job,fetchImpl:fetcher,mentorEngine:engine});
+  await prepareApprovedBridgePackage({env,repository,job:await repository.get(job.id),fetchImpl:fetcher,mentorEngine:engine});
+  assert.equal(calls,1,'reuse must not reject a genuinely new contract test as uninspected');
+  const networkFailure=async url=>String(url).includes(contract.test_paths[0])?new Response('',{status:503}):fetcher(url);
+  await assert.rejects(prepareApprovedBridgePackage({env,repository,job:await repository.get(job.id),fetchImpl:networkFailure,mentorEngine:engine}),
+    {code:'BRIDGE_PREPARATION_TEST_CONTEXT_UNAVAILABLE'});
+  assert.equal(calls,1,'unknown test contents stop before code generation');
+});
 
 test('approved Teacher + multi-AI plan becomes an applyable structured bridge package', async () => {
   const repository = await approvedRepository();
