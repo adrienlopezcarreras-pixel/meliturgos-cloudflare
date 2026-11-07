@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {sqliteD1} from './helpers/sqlite-d1.mjs';
 import {D1DevJobRepository} from '../src/dev/d1-dev-job-repository.js';
 import {setAutonomyControl,getAutonomyControl} from '../src/evolution/autonomy-control.js';
-import {beginAutomaticRepair,scopeRepairRepository,completeVerifiedRepair,repairLane} from '../src/evolution/autonomy-repair.js';
+import {beginAutomaticRepair,scopeRepairRepository,completeVerifiedRepair,repairLane,verifyUnchangedRepairDescendant} from '../src/evolution/autonomy-repair.js';
 import {verifyRepairRelease,REPAIR_RELEASE_GATES} from '../src/evolution/verified-repair-release.js';
 import {maybeHandleReleaseLaunchBootstrap} from '../src/evolution/release-launch-bootstrap.js';
 import {flattenRoadmap} from '../src/roadmap/master-roadmap.js';
@@ -95,6 +95,24 @@ test('only accepted exact-SHA delivery and verified deployment release the held 
  assert.equal(wrongSha.resumed,false);
  assert.equal(wrongSha.reason,'REPAIR_ACCEPTED_SHA_NOT_DEPLOYED');
  assert.equal((await getAutonomyControl(db)).repair.job_id,a.id);
+ const stillHeld=await completeVerifiedRepair(db,repo,{deployedSha:'b'.repeat(40),releaseVerified:true,
+  verifyDescendant:async()=>false});
+ assert.equal(stillHeld.resumed,false);
+ const descendant=await completeVerifiedRepair(db,repo,{deployedSha:'b'.repeat(40),releaseVerified:true,
+  verifyDescendant:async({acceptedSha,deployedSha,protectedPaths})=>{
+   assert.equal(acceptedSha,sha);
+   assert.equal(deployedSha,'b'.repeat(40));
+   assert.ok(protectedPaths.includes(item.code_paths[0]));
+   assert.ok(protectedPaths.includes(item.test_paths[0]));
+   return true;
+  }});
+ assert.equal(descendant.resumed,true);
+ assert.equal(descendant.control.repair,null);
+ // Recreate the held repair to retain the original exact-SHA acceptance regression.
+ const updated=await setAutonomyControl(db,{paused:false,max_autonomy:true,source:'bridge-repair-lane',
+  repair:{schema:'mel.autonomy-repair/v1',job_id:a.id,
+   owner_control_version:descendant.control.owner_control_version,started_at:Date.now()}});
+ assert.ok(repairLane(updated));
  const done=await completeVerifiedRepair(db,repo,{deployedSha:sha,releaseVerified:true});
  assert.equal(done.resumed,true);assert.equal(done.control.repair,null);assert.equal(done.control.max_autonomy,true);
  assert.equal((await repo.get('waiting-b')).status,'QUEUED','no callback invents a next execution');
@@ -207,4 +225,37 @@ test('full candidate CI failure reserves repair before any next mission selectio
  assert.equal((await getAutonomyControl(db)).repair.job_id,'published');
  assert.equal((await repository.get('published')).status,'REPAIR_REQUIRED');
  assert.deepEqual(await repository.get(other.id),before);
+});
+
+test('descendant compare requires complete immutable ancestry and unchanged mission files',async()=>{
+ const acceptedSha='a'.repeat(40),deployedSha='b'.repeat(40),token='fixture-read-token';
+ const protectedPaths=['src/mission.js','tests/mission.test.mjs'];
+ const good={status:'ahead',ahead_by:3,behind_by:0,total_commits:3,
+  commits:[{sha:'1'},{sha:'2'},{sha:'3'}],
+  files:[{filename:'src/unrelated.js',status:'modified'}]};
+ const verify=async(data,options={})=>verifyUnchangedRepairDescendant({
+  acceptedSha,deployedSha,protectedPaths,token,
+  fetchImpl:async(url,request)=>{
+   assert.ok(url.includes(acceptedSha+'...'+deployedSha));
+   assert.ok(request.headers.Authorization.includes(token));
+   return Response.json(data,options);
+  },
+ });
+ assert.equal(await verify(good),true);
+ for(const modified of [
+  {...good,status:'diverged'},
+  {...good,behind_by:1},
+  {...good,total_commits:251},
+  {...good,total_commits:4},
+  {...good,files:[{filename:'src/mission.js'}]},
+  {...good,files:[{filename:'src/new.js',previous_filename:'tests/mission.test.mjs'}]},
+  {...good,files:Array.from({length:300},(_,i)=>({filename:'other/'+i}))},
+ ])assert.equal(await verify(modified),false);
+ assert.equal(await verifyUnchangedRepairDescendant({
+  acceptedSha,deployedSha,protectedPaths,token,
+  fetchImpl:async()=>new Response('unauthorized',{status:403})}),false);
+ assert.equal(await verifyUnchangedRepairDescendant({
+  acceptedSha,deployedSha,protectedPaths,token,
+  fetchImpl:async()=>{throw new Error('unavailable')} }),false);
+ assert.equal(await verifyUnchangedRepairDescendant({acceptedSha,deployedSha,protectedPaths,token:''}),false);
 });
