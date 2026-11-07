@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import vm from 'node:vm';
 
 const workflow = fs.readFileSync('.github/workflows/council-rich-ui-production-proof.yml','utf8');
 
@@ -81,7 +82,7 @@ test('Normal and Full rich UI proofs use independent sessions while each surface
   assert.match(workflow, /id:'submit-full'/);
   assert.match(workflow, /id:'wait-full-submit'/);
   assert.match(workflow, /id:'wait-full'/);
-  assert.match(workflow, /selector:'#chatStatus',text:'Réponse reçue\.'/);
+  assert.doesNotMatch(workflow, /selector:'#chatStatus',text:'Réponse reçue\.'/);
   assert.match(workflow, /id:'read-full-rich'/);
   assert.ok(workflow.includes("Number(r?.steps_completed||0)===6"));
   assert.ok(workflow.includes("Number(r?.steps_completed||0)===8"));
@@ -116,9 +117,33 @@ test('Full chat uses a semantic form submit path for click and keyboard reliabil
   assert.doesNotMatch(page,/qs\('#chatSend'\)\.onclick=/);
 });
 
-test('Full chat exposes a deterministic completion marker after rendering MEL response', async () => {
+test('Full chat retains its rendered response and informational model status', async () => {
   const page=fs.readFileSync(new URL('../../src/pages/full-interface-v2.js',import.meta.url),'utf8');
   assert.equal(page.includes("addMsg('mel',d.text||d.response||'Réponse vide.',d)"),true);
   assert.equal(page.includes("d?.computer_command?.command_id?'Capture en cours…':"),true);
   assert.equal(page.includes("'Modèle réel : '+actualModel"),true);
+});
+
+test('Full browser proof waits for the actual rich assistant response independently of informational status labels', () => {
+  const body = workflow.match(/FULL_BODY="\$\(node - <<'NODE'\n([\s\S]*?)\n\s*NODE\n/)[1];
+  let payload;
+  vm.runInNewContext(body, { process: {
+    env: { FULL_SESSION: 'proof-session', TOKEN: 'test-proof-token' },
+    stdout: { write(value) { payload = JSON.parse(value); } },
+  } });
+  const steps = payload.input.steps;
+  const waited = steps.find(step => step.id === 'wait-full');
+  const rendered = steps.find(step => step.id === 'read-full-rich');
+  assert.equal(waited.selector, rendered.selector, 'the awaited node is the rich renderer output that is subsequently asserted');
+  assert.equal(waited.text, 'RELEASE_CODE_SMOKE_OK');
+  assert.equal(waited.action, 'browser.wait-text');
+  assert.equal(waited.timeout_ms, 60000);
+  assert.ok(waited.selector.includes('.msg.mel[data-rich-rendered="true"]'));
+  assert.ok(!waited.selector.includes('#chatStatus'));
+  assert.equal(steps.length, 8, 'submission, rendering and readback checks stay present');
+  assert.ok(steps.findIndex(step => step.id === 'wait-full-submit') < steps.indexOf(waited));
+  assert.ok(steps.indexOf(waited) < steps.indexOf(rendered));
+  assert.equal(payload.id, 'browser.execute');
+  const page = fs.readFileSync('src/pages/full-interface-v2.js', 'utf8');
+  assert.ok(page.includes("'Modèle réel : '+actualModel"), 'the actual production presentation label remains valid');
 });
