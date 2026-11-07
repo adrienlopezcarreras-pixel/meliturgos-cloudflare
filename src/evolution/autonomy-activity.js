@@ -381,16 +381,19 @@ export function scheduledCycles(now = Date.now()) {
 // reserves MAX's single-flight slot or triggers a model call.
 export function buildPassiveRoadmapCatalog(roadmap = flattenRoadmap(), jobs = [], { acceptanceJobs = [], truth = null } = {}) {
   const rows = Array.isArray(roadmap) ? roadmap : [];
-  const executionRows = truth?.available === true ? withRuntimeRecertification(rows, truth) : rows;
+  const acceptedCodeIds = [...jobs, ...acceptanceJobs].filter(isAcceptedRoadmapCodeJob).map(job => job.optional_context.roadmap_id);
+  const executionRows = truth?.available === true ? withRuntimeRecertification(rows, truth, {acceptedCodeIds}) : rows;
   const visibleRows = executionRows.filter(row => row.proof_recipe_only !== true);
   const recipeByTarget = new Map(executionRows.filter(row => row.proof_recipe_only === true).map(row => [row.verification_target_id, row]));
   const verifiedIds = new Set(rows.filter(row => truth ? truth.available === true && truth.items?.[row.id]?.truth === 'VERIFIED_LIVE'
     : isClosedRoadmapStatus(row?.status)).map(row => row.id));
+  const softwareVerifiedIds = new Set(verifiedIds);
   for (const job of [...jobs, ...acceptanceJobs]) {
     const acceptedId = job?.optional_context?.roadmap_id;
-    if (!truth && acceptedId && isAcceptedRoadmapCodeJob(job)
+    if (acceptedId && isAcceptedRoadmapCodeJob(job)
         && !rows.some(row => row.id === acceptedId && String(row.status || '').toUpperCase() === 'REGRESSED')) {
-      verifiedIds.add(acceptedId);
+      softwareVerifiedIds.add(acceptedId);
+      if (!truth) verifiedIds.add(acceptedId);
     }
   }
   const latestJobs = new Map();
@@ -408,7 +411,7 @@ export function buildPassiveRoadmapCatalog(roadmap = flattenRoadmap(), jobs = []
     const recipe = recipeByTarget.get(row.id);
     const mission = latestJobs.get(row.id) || latestJobs.get(recipe?.id) || null;
     const missionStatus = mission ? String(mission.status || 'UNKNOWN').toUpperCase() : null;
-    const blockers = unmetSoftwarePrerequisites(row, executionRows, [...verifiedIds]);
+    const blockers = unmetSoftwarePrerequisites(row, executionRows, [...softwareVerifiedIds]);
     const status = String(row.status || 'PLANNED').toUpperCase();
     const external = status === 'BLOCKED_HUMAN' || status === 'BLOCKED_EXTERNAL';
     const missionOpen = mission && !['COMPLETED','FAILED','CANCELLED','DONE','DONE_VERIFIED','VERIFIED','ACCEPTED'].includes(missionStatus);

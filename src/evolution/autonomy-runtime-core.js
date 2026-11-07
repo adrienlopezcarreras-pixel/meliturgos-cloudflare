@@ -1,4 +1,5 @@
 import { objectiveVerificationProfile, isFounderVerificationGoal } from './objective-verification-profiles.js';
+import { isAcceptedRoadmapCodeJob } from '../roadmap/roadmap-code-acceptance.js';
 import { fetchObjectiveMissionTestEvidence } from './roadmap-test-evidence.js';
 import { recoverNoopReview } from './noop-review-recovery.js';
 import { computeRoadmapTruth } from '../roadmap/roadmap-truth.js';
@@ -832,7 +833,9 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   }
 
   const recertificationRoadmap = !roadmap && maxAutonomy && !repairOnly && env?.DB
-    ? withRuntimeRecertification(currentRoadmap(), await computeRoadmapTruth(env.DB, [{ items: currentRoadmap() }])) : null;
+    ? withRuntimeRecertification(currentRoadmap(), await computeRoadmapTruth(env.DB, [{ items: currentRoadmap() }]), {
+      acceptedCodeIds: (await listAutonomySchedulerJobs(jobRepository)).filter(isAcceptedRoadmapCodeJob).map(job => job.optional_context.roadmap_id),
+    }) : null;
   const evolutionLoader = !roadmap ? createRuntimeEvolutionLoader(env) : null;
   const supervisor = new AutonomySupervisor({
     singleFlight: true,

@@ -9,6 +9,7 @@ import { AutonomySupervisor } from '../src/evolution/autonomy-supervisor.js';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import { hasObjectiveBoundVerificationChecks } from '../src/evolution/verify-existing-live-checks.js';
+import { createRoadmapCodeAcceptance } from '../src/roadmap/roadmap-code-acceptance.js';
 
 const unproven = items => ({available:true,items:Object.fromEntries(items.map(row=>[row.id,{truth:'UNPROVEN'}]))});
 test('every canonical point without a live proof has executable work or a bounded recipe-code mission', () => {
@@ -68,4 +69,31 @@ test('a recipe for a dependent objective waits for its real prerequisite', async
   const roadmap=withRuntimeRecertification([child,parent],unproven([child,parent]));
   const supervisor=new AutonomySupervisor({repository:new D1DevJobRepository(db),roadmap});
   assert.equal((await supervisor.ensureNextJob()).job.optional_context.roadmap_id,proofRecipeMissionId(parent.id));
+});
+
+test('an accepted code objective with stale runtime evidence receives proof work without losing its software prerequisite', async t => {
+  const db=sqliteD1();t.after(()=>db.close());
+  const repository=new D1DevJobRepository(db), parent=flattenRoadmap().find(row=>row.id==='MEL-FOUNDER-02');
+  let job=await repository.create({id:'accepted-software',requested_by:'mel-autonomy',goal:parent.title,
+    optional_context:{roadmap_id:parent.id,roadmap_contract_revision:parent.contract_revision}});
+  job=await repository.update(job.id,{status:'COMPLETED',files_json:[...parent.code_paths,...parent.test_paths].map(path=>({path,content:'verified source'}))});
+  const sha='a'.repeat(40), branch='candidate/mel-clean-autonomy';
+  const completion={status:'VERIFIED',candidate_sha:sha,candidate_branch:branch,ci_run_id:42,
+    mel_implementation:{verified:true,providers_attempted:2},
+    ci:{verified:true,workflow:'full-candidate-ci',conclusion:'success',head_sha:sha,head_branch:branch,run_id:42}};
+  job=await repository.update(job.id,{result_json:{autonomy_completion:completion,
+    roadmap_code_acceptance:createRoadmapCodeAcceptance(job,completion,completion.ci)}});
+  const truth=unproven([parent]);
+  const expanded=withRuntimeRecertification([parent],truth,{acceptedCodeIds:[parent.id]});
+  const state=await new AutonomySupervisor({repository,roadmap:expanded}).state();
+  assert.ok(state.verifiedDependencyIds.includes(parent.id),'the independently accepted software is still usable by dependent code');
+  assert.ok(!state.completedIds.includes(parent.id),'it is not fresh verification of the reopened point');
+  assert.equal(state.next.id,proofRecipeMissionId(parent.id));
+  assert.ok(roadmapCodeContract(state.next.id),'code-only objectives without a capability mapping also get a bounded recipe contract');
+  const catalog=buildPassiveRoadmapCatalog([parent],[],{truth,acceptanceJobs:[job]});
+  assert.equal(catalog.verified,0);assert.equal(catalog.remaining,1);
+  assert.equal(catalog.items[0].proof_recipe_mission.id,state.next.id);
+  const regressed={...parent,status:'REGRESSED'};
+  assert.equal(withRuntimeRecertification([regressed],truth,{acceptedCodeIds:[parent.id]})[0],regressed,
+    'an explicit regression cannot be hidden by a historical code receipt');
 });

@@ -5,10 +5,11 @@ export const proofRecipeMissionId = id => 'ROADMAP-PROOF-' + id;
 
 // Instrumentation is a separate delivery. Its CI may close this auxiliary
 // mission, never certify the original product objective or a physical device.
-export function proofRecipeContract(id) {
+export function proofRecipeContract(id, parentContract = null) {
   if (!String(id).startsWith('ROADMAP-PROOF-')) return null;
   const target = String(id).slice('ROADMAP-PROOF-'.length);
-  const sources = ROADMAP_PROOF_SOURCES[target];
+  const sources = ROADMAP_PROOF_SOURCES[target] || (parentContract?.code_paths?.length && parentContract?.test_paths?.length
+    ? { code_paths: parentContract.code_paths, test_paths: parentContract.test_paths } : null);
   if (!sources || !/^(?:MEL|GEN2)-[A-Z0-9-]{1,70}$/.test(target)) return null;
   return {
     title: `Rendre vérifiable ${target}`,
@@ -27,7 +28,7 @@ export function proofRecipeContract(id) {
 }
 
 export function proofRecipeRoadmapItem(item) {
-  const id = proofRecipeMissionId(item.id), contract = proofRecipeContract(id);
+  const id = proofRecipeMissionId(item.id), contract = proofRecipeContract(id, item);
   if (!contract) return null;
   return { ...contract, id, title: `${contract.title} : ${item.title}`, status: 'PLANNED', priority: item.priority,
     phase_id: item.phase_id, phase: item.phase, depends_on: [...(item.depends_on || [])],

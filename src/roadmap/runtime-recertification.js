@@ -40,11 +40,13 @@ export const ROADMAP_RECERTIFICATION_PROFILES = Object.freeze({
 });
 export const ROADMAP_RECERTIFICATION_REVISION = '2026-11-06-runtime-v1';
 
-export function withRuntimeRecertification(roadmap, truth) {
+export function withRuntimeRecertification(roadmap, truth, { acceptedCodeIds = [] } = {}) {
   if (truth?.available !== true) return roadmap;
+  const codeDelivered = new Set(acceptedCodeIds);
   const recipeWork = [];
   const items = roadmap.map(item => {
-    if (item.status !== 'DONE_VERIFIED' || truth.items?.[item.id]?.truth === 'VERIFIED_LIVE') return item;
+    if (String(item.status).toUpperCase() === 'REGRESSED') return item;
+    if ((item.status !== 'DONE_VERIFIED' && !codeDelivered.has(item.id)) || truth.items?.[item.id]?.truth === 'VERIFIED_LIVE') return item;
     const capability = ROADMAP_RECERTIFICATION_PROFILES[item.id];
     if (!capability) {
       const recipe = proofRecipeRoadmapItem(item);

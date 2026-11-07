@@ -676,7 +676,8 @@ export function roadmapContractRevision(roadmapId) {
 }
 
 export function roadmapCodeContract(id) {
-  return ROADMAP_CODE_CONTRACTS[id] || proofRecipeContract(id);
+  const parentId = String(id || '').slice('ROADMAP-PROOF-'.length);
+  return ROADMAP_CODE_CONTRACTS[id] || proofRecipeContract(id, ROADMAP_CODE_CONTRACTS[parentId]);
 }
 
 export function codeContractForRoadmapJob(job) {
