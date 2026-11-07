@@ -445,10 +445,7 @@ export function buildPassiveRoadmapCatalog(roadmap = flattenRoadmap(), jobs = []
 // render a running mission until the owner explicitly resumes autonomy.
 export function visibleActiveAutonomyMission(holder, control) {
   if (!holder || control?.paused === true || isLegacyOwnerMaxStop(control)) return null;
-  const status = String(holder.status || '').toUpperCase();
-  const terminal = new Set(['COMPLETED', 'FAILED', 'CANCELLED', 'DONE', 'DONE_VERIFIED', 'VERIFIED', 'ACCEPTED']);
-  if (status === 'QUEUED' || terminal.has(status)) return null;
-  return holder;
+  return String(holder.status || '').toUpperCase() === 'QUEUED' ? null : holder;
 }
 
 // The plan shown in the Code chat: the mission in progress with its steps,
