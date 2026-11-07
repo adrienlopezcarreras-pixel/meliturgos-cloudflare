@@ -444,7 +444,16 @@ export function buildPassiveRoadmapCatalog(roadmap = flattenRoadmap(), jobs = []
 // The legacy owner-ui MAX-off representation has paused=false. It must not
 // render a running mission until the owner explicitly resumes autonomy.
 export function visibleActiveAutonomyMission(holder, control) {
-  if (!holder || control?.paused === true || isLegacyOwnerMaxStop(control)) return null;
+  if (!holder) return null;
+  // If the system is paused, never show an active mission.
+  if (control?.paused === true) return null;
+  // Legacy owner‑MAX stop hides missions except when the mission is already
+  // committed (the owner cannot retroactively cancel a committed supervised job).
+  if (isLegacyOwnerMaxStop(control)) {
+    const status = String(holder.status || '').toUpperCase();
+    if (status !== 'COMMITTED') return null;
+  }
+  // Queued jobs are not yet executing.
   return String(holder.status || '').toUpperCase() === 'QUEUED' ? null : holder;
 }
 

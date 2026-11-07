@@ -20,8 +20,20 @@ test('legacy owner MAX-off never displays an executing mission', async () => {
   assert.equal(visibleActiveAutonomyMission(job, ownerStopped), null);
   assert.equal(visibleActiveAutonomyMission(job, { ...ownerStopped, paused: true }), null);
   assert.equal(visibleActiveAutonomyMission({ ...job, status: 'QUEUED' }, { paused: false, max_autonomy: true }), null);
-  assert.equal(visibleActiveAutonomyMission(job, { source: 'owner-ui', paused: false, max_autonomy: true }), job);
-  assert.equal(visibleActiveAutonomyMission(job, { paused: false, max_autonomy: true }), job);
+assert.equal(visibleActiveAutonomyMission(job, { source: 'owner-ui', paused: false, max_autonomy: true }), job);
+assert.equal(visibleActiveAutonomyMission(job, { paused: false, max_autonomy: true }), job);
+});
+test('COMMITTED job remains visible despite legacy owner MAX‑off', async () => {
+  const { visibleActiveAutonomyMission } = await import('../src/evolution/autonomy-activity.js');
+  const job = { id: 'j-committed', status: 'COMMITTED' };
+  const control = {
+    source: 'owner-ui',
+    paused: false,
+    max_autonomy: false,
+    max_remembered: false,
+    reason: 'owner-stop',
+  };
+  assert.equal(visibleActiveAutonomyMission(job, control), job);
 });
 
 test('pipeline shows where a MAX job stands', () => {
