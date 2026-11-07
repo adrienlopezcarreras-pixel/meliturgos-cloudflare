@@ -225,7 +225,7 @@ jobs:
             {id:'type-full',action:'browser.type',selector:'.view.active[data-panel="chat"] #chatInput',text:'lis src/index.js dans ton code'},
             {id:'submit-full',action:'browser.submit',selector:'#chatForm'},
             {id:'wait-full-submit',action:'browser.wait-text',selector:'#chatlog .msg.user',text:'lis src/index.js dans ton code',timeout_ms:5000},
-            {id:'wait-full',action:'browser.wait-text',selector:'#chatStatus',text:'Réponse reçue.',timeout_ms:60000},
+            {id:'wait-full',action:'browser.wait-text',selector:'#chatlog .msg.mel[data-rich-rendered="true"]:last-child',text:'RELEASE_CODE_SMOKE_OK',timeout_ms:60000},
             {id:'read-full-rich',action:'browser.read-text',selector:'#chatlog .msg.mel[data-rich-rendered="true"]:last-child'},
           ];
           process.stdout.write(JSON.stringify({id:'browser.execute',input:{
@@ -349,7 +349,7 @@ jobs:
           if(normal?.kind!=='text'||!String(normal?.text||'').includes('RELEASE_CODE_SMOKE_OK')) throw new Error('NORMAL_RICH_RENDER_NOT_PROVED');
           if(submitted?.kind!=='wait'||submitted?.matched!==true) throw new Error('FULL_RICH_SUBMIT_NOT_PROVED');
           if(waited?.kind!=='wait'||waited?.matched!==true) throw new Error('FULL_RICH_WAIT_NOT_PROVED');
-          if(full?.kind!=='text'||!String(full?.text||'').trim()) throw new Error('FULL_RICH_RENDER_NOT_PROVED');
+          if(full?.kind!=='text'||!String(full?.text||'').includes('RELEASE_CODE_SMOKE_OK')) throw new Error('FULL_RICH_RENDER_NOT_PROVED');
           const cr=council?.result||{};
           const proof={
             schema:'mel.council-rich-ui-production-proof/v3',
@@ -366,7 +366,7 @@ jobs:
               independent_surface_sessions:true,
               monolithic_per_surface:true,
               normal:{rendered:true,marker:'RELEASE_CODE_SMOKE_OK'},
-              full:{rendered:true,completion_marker:'Réponse reçue.',response_nonempty:true},
+              full:{rendered:true,completion_marker:'RELEASE_CODE_SMOKE_OK',completion_source:'rich-rendered-assistant-message',response_nonempty:true},
             },
             secret_values_exposed:false,
           };
