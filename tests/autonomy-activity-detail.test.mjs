@@ -35,6 +35,17 @@ test('terminal jobs cannot masquerade as the active MAX mission', async () => {
     assert.equal(visibleActiveAutonomyMission(job, control), job, status);
   }
   assert.equal(visibleActiveAutonomyMission({ id: 'job-1', status: 'COMMITTED' }, { ...control, paused: true }), null);
+  const ownerStopped = {
+    source: 'owner-ui', paused: false, max_autonomy: false,
+    max_remembered: false, reason: 'owner-stop',
+  };
+  const committed = { id: 'job-committed', status: 'COMMITTED' };
+  assert.equal(visibleActiveAutonomyMission(committed, ownerStopped), committed);
+  for (const status of ['QUEUED', 'COMPLETED', 'FAILED', 'CANCELLED', 'PLANNING']) {
+    assert.equal(visibleActiveAutonomyMission({ id: 'job-owner-stop', status }, ownerStopped), null, status);
+  }
+  assert.equal(visibleActiveAutonomyMission(committed, { ...ownerStopped, paused: true }), null);
+
 });
 
 test('pipeline shows where a MAX job stands', () => {
