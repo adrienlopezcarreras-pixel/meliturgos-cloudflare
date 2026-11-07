@@ -538,6 +538,71 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     return { ok: true, verified_actions: 3 };
   });
 
+
+  // GEN2-53: never infer Worker rollback from CI success or skill.rollback.
+  // Only recent, actually executed Cloudflare relay jobs and later provider
+  // readback may certify a canary -> restored-stable transition. Read-only.
+  bus.discover({
+    id:'cloudflare.canary-rollback.verify', name:'Canary Cloudflare — rollback réel',
+    category:'diagnostic', version:'1.0.0', provider:'core',
+    description:'Reconciles fresh, SHA-bound Cloudflare deployment/rollback receipts with actual provider readback.',
+    input_schema:{type:'object',additionalProperties:false},
+    output_schema:{type:'object',properties:{ok:{type:'boolean'},verified_steps:{type:'integer'}},
+      required:['ok','verified_steps'],additionalProperties:false},
+    risk:'LOW',permissions:[],health:'HEALTHY',enabled:true,
+  },async()=>{
+    const fail=code=>{throw Object.assign(new Error(code),{code});};
+    const db=runtimeEnv.DB;
+    if(!db?.prepare)fail('CLOUDFLARE_ROLLBACK_DB_UNAVAILABLE');
+    const script=String(runtimeEnv.MEL_CLOUDFLARE_SCRIPT||'').trim();
+    const compiled=typeof MEL_DEPLOYED_GIT_SHA!=='undefined'?String(MEL_DEPLOYED_GIT_SHA||''):'';
+    const sha=String(compiled||runtimeEnv.MEL_DEPLOYED_GIT_SHA||'').toLowerCase();
+    if(!/^[A-Za-z0-9_.:@-]{1,128}$/.test(script)||!/^[0-9a-f]{40}$/.test(sha))
+      fail('CLOUDFLARE_ROLLBACK_IDENTITY_UNAVAILABLE');
+    const now=Date.now();
+    let raw;
+    try{
+      raw=(await db.prepare(
+        "SELECT operation,status,input_json,result_json,created_at,completed_at FROM cloudflare_api_relay_jobs"
+        +" WHERE operation IN ('deployments.create','deployments.list') AND status IN ('COMPLETE','FAILED')"
+        +" AND completed_at>=? AND completed_at<=? ORDER BY completed_at DESC LIMIT 120"
+      ).bind(now-ROADMAP_TRUTH_WINDOW_MS,now).all())?.results||[];
+    }catch{fail('CLOUDFLARE_ROLLBACK_RECEIPTS_UNAVAILABLE');}
+    const parse=s=>{try{return JSON.parse(s||'null');}catch{return null;}};
+    const uuid=v=>/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(String(v||''));
+    const vs=v=>Array.isArray(v)?v:[];
+    const same=(a,b)=>vs(a).length===vs(b).length&&vs(a).every(x=>
+      vs(b).some(y=>x.version_id===y.version_id&&Number(x.percentage)===Number(y.percentage)));
+    const rows=raw.map(r=>({operation:r.operation,status:r.status,
+      input:parse(r.input_json),result:parse(r.result_json),created:Number(r.created_at),at:Number(r.completed_at)
+    })).filter(r=>r.created>0&&r.at>=r.created&&r.at<=now&&r.input?.script===script&&
+      r.result?.script===script&&r.result?.provider==='cloudflare'&&
+      r.result?.transport==='github-actions-relay');
+    const bound=r=>String(r.input?.message||'').split(/\s+/).includes('sha:'+sha);
+    const executed=r=>r.operation==='deployments.create'&&r.status==='COMPLETE'&&
+      uuid(r.result?.deployment?.id)&&same(r.input?.versions,r.result?.deployment?.versions)&&bound(r);
+    const readback=rows.find(r=>r.operation==='deployments.list'&&r.status==='COMPLETE');
+    if(!readback||!Array.isArray(readback.result?.deployments)||!readback.result.deployments.length)
+      fail('CLOUDFLARE_ROLLBACK_READBACK_MISSING');
+    const current=readback.result.deployments[0];
+    for(const restored of rows.filter(r=>executed(r)&&vs(r.input.versions).length===1&&
+      uuid(r.input.versions[0].version_id)&&Number(r.input.versions[0].percentage)===100&&
+      r.at<readback.created)){
+      const stable=restored.input.versions[0].version_id;
+      if(rows.some(r=>r.operation==='deployments.create'&&r.created>restored.at))continue;
+      if(current.id!==restored.result.deployment.id||
+        !same(current.versions,restored.result.deployment.versions))continue;
+      const canary=rows.find(r=>executed(r)&&r.at<restored.created&&
+        r.result.deployment.id!==restored.result.deployment.id&&vs(r.input.versions).length===2&&
+        r.input.versions.some(v=>v.version_id===stable&&Number(v.percentage)>=90)&&
+        r.input.versions.some(v=>v.version_id!==stable&&uuid(v.version_id)&&
+          Number(v.percentage)>0&&Number(v.percentage)<=10)&&
+        Math.abs(r.input.versions.reduce((sum,v)=>sum+Number(v.percentage),0)-100)<0.001);
+      if(canary)return {ok:true,verified_steps:3};
+    }
+    fail('CLOUDFLARE_ROLLBACK_LIVE_PROOF_NOT_FOUND');
+  });
+
   // GEN2-11: exercise real KnowledgeGraph port, validators and supersession.
   bus.discover({
     id: 'knowledge.graph.verify', name: 'Knowledge Graph — vérification',
