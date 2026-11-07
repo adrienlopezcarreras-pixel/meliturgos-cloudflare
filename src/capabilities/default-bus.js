@@ -592,7 +592,19 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
       readback.at<now-15*60*1000||!Array.isArray(readback.result?.deployments)||
       !readback.result.deployments.length)
       fail('CLOUDFLARE_ROLLBACK_READBACK_MISSING');
+    // Corroborate SHA and stable version from an independent production
+    // observation, not from the untrusted deployment annotation message.
+    const provenance=readback.result.production_provenance;
+    const observed=Date.parse(String(provenance?.observed_at||''));
+    if(provenance?.proof_source!=='live-worker-and-cloudflare-deployment'||
+      provenance?.deployed_sha!==sha||
+      !Number.isFinite(observed)||observed<readback.created||
+      observed>readback.at||observed<now-15*60*1000||
+      !uuid(provenance?.cloudflare_version_id))
+      fail('CLOUDFLARE_ROLLBACK_SOURCE_IDENTITY_UNPROVEN');
     const current=readback.result.deployments[0];
+    if(!same(current?.versions,[{version_id:provenance.cloudflare_version_id,percentage:100}]))
+      fail('CLOUDFLARE_ROLLBACK_SOURCE_IDENTITY_UNPROVEN');
     for(const restored of rows.filter(r=>executed(r)&&vs(r.input.versions).length===1&&
       uuid(r.input.versions[0].version_id)&&Number(r.input.versions[0].percentage)===100&&
       r.at<readback.created)){
