@@ -55,7 +55,7 @@ export async function completeVerifiedRepair(db,repository,{deployedSha,releaseV
   // AND its tests must be unchanged in the exact deployed tree.
   const equivalent=typeof verifyDescendant==='function'
     && await verifyDescendant({acceptedSha:receipt.candidate_sha,deployedSha,protectedPaths});
-  if(equivalent!==true) {
+  if(equivalent!==true && equivalent?.ok!==true) {
    const safeCode=equivalent&&typeof equivalent==='object'&&/^REPAIR_COMPARE_(?:INPUT_INVALID|FETCH_FAILED|HTTP_[0-9]{3}|JSON_INVALID|ANCESTRY_INVALID|TRUNCATED|PROTECTED_PATH_CHANGED)$/.test(String(equivalent.diagnostic||''))
     ? equivalent.diagnostic : null;
    return {...reject('REPAIR_ACCEPTED_SHA_NOT_DEPLOYED'),...(safeCode?{diagnostic:safeCode}:{})};
