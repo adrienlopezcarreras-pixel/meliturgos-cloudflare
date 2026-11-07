@@ -17,7 +17,8 @@ import { generateFinalStatusReport, FINAL_STATUS_REPORT_SCHEMA } from '../roadma
 import { buildMelIdentityPrompt, MEL_IDENTITY } from '../identity/mel-persona.js';
 import { systemPrompt } from '../identity/identity.js';
 import { councilOperationalCatalog } from '../council/operational-catalog.js';
-import { computeRoadmapTruth } from '../roadmap/roadmap-truth.js';
+import { computeRoadmapTruth, ROADMAP_TRUTH_WINDOW_MS } from '../roadmap/roadmap-truth.js';
+import { selectAuthorizedWindowsCompanion } from '../devices/companion-relay-selection.js';
 import { registerDeclaredRoadmapProofs } from '../roadmap/declared-roadmap-proofs.js';
 import { createCompleteEvidenceLedger } from '../../scripts/roadmap-complete-evidence-ledger.mjs';
 import { CapabilityBus } from './capability-bus.js';
@@ -496,6 +497,45 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
       return { ok:true, live_records:conflicts.conflicts.length + 2 };
     }
     throw Object.assign(new Error('MEMORY_LIVE_PROOF_INSUFFICIENT_DATA'), { code:'MEMORY_LIVE_PROOF_INSUFFICIENT_DATA' });
+  });
+
+  // Read existing physical receipts only: never queue a command or infer a
+  // working Windows device from a software fixture / inventory declaration.
+  bus.discover({
+    id: 'windows.companion-live.verify', name: 'Compagnon Windows — preuves réelles',
+    category: 'diagnostic', version: '1.0.0', provider: 'core',
+    description: 'Reads authorized live Windows presence and recent successful system/process/screen receipts on that same device.',
+    input_schema: { type: 'object', additionalProperties: false },
+    output_schema: { type: 'object', properties: { ok: { type: 'boolean' }, verified_actions: { type: 'integer' } },
+      required: ['ok', 'verified_actions'], additionalProperties: false },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async () => {
+    const fail = code => { throw Object.assign(new Error(code), { code }); };
+    const db = runtimeEnv.DB;
+    if (!db?.prepare) fail('WINDOWS_COMPANION_PROOF_DB_UNAVAILABLE');
+    const now = Date.now();
+    const rows = (await db.prepare(`SELECT id,platform,halted,last_seen_at,metadata FROM computer_devices
+      WHERE lower(platform)='windows' ORDER BY last_seen_at DESC LIMIT 20`).all())?.results || [];
+    const devices = rows.map(row => {
+      let metadata; try { metadata = JSON.parse(row.metadata || '{}'); } catch { metadata = {}; }
+      return { ...row, metadata, halted: row.halted !== 0, online: true };
+    });
+    const { device } = selectAuthorizedWindowsCompanion(devices, now);
+    if (!device) fail('WINDOWS_COMPANION_OFFLINE_OR_NOT_AUTHORIZED');
+    const proofs = (await db.prepare(`SELECT json_extract(step.value,'$.action') AS action,
+        MAX(CASE WHEN c.status='SUCCEEDED' THEN c.finished_at END) AS last_ok,
+        MAX(CASE WHEN c.status='FAILED' AND CAST(step.key AS INTEGER)=0 THEN c.finished_at END) AS last_ko
+      FROM computer_commands c JOIN json_each(CASE WHEN json_valid(c.plan_json) THEN c.plan_json ELSE '{}' END,'$.steps') step
+      WHERE c.device_id=? AND c.created_at>=? AND c.created_at<=c.finished_at AND c.finished_at<=?
+        AND c.status IN ('SUCCEEDED','FAILED')
+        AND json_extract(step.value,'$.action') IN ('system.info','process.list','screen.capture')
+      GROUP BY action`).bind(device.id, now - ROADMAP_TRUTH_WINDOW_MS, now).all())?.results || [];
+    const verified = ['system.info','process.list','screen.capture'].every(action => {
+      const row = proofs.find(proof => proof.action === action);
+      return Number(row?.last_ok) > 0 && (!row?.last_ko || Number(row.last_ok) > Number(row.last_ko));
+    });
+    if (!verified) fail('WINDOWS_COMPANION_LIVE_PROOF_INCOMPLETE');
+    return { ok: true, verified_actions: 3 };
   });
 
   // GEN2-11: exercise real KnowledgeGraph port, validators and supersession.

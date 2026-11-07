@@ -5,6 +5,7 @@ import { proofRecipeRoadmapItem } from './proof-recipe-contracts.js';
 // Reviewed core-only diagnostics. No tool inferred from risk alone, no arbitrary
 // input, connector mutation, model call, physical action or adapter activation.
 export const ROADMAP_RECERTIFICATION_PROFILES = Object.freeze({
+  "GEN2-28": "windows.companion-live.verify",
   "GEN2-02": "identity.portability.verify",
   "GEN2-61": "roadmap.final-report.verify",
   "GEN2-51": "api.versioning.verify",

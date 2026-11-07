@@ -56,7 +56,7 @@ test('every allowlisted recipe is a registered no-argument core diagnostic with 
     const record=bus.describe(capability);
     assert.equal(record.provider,'core',capability);assert.equal(record.category,'diagnostic',capability);
     assert.equal(record.risk,'LOW',capability);assert.deepEqual(record.permissions,[],capability);
-    if (capability === 'memory.contradiction.provenance.verify') {
+    if (['memory.contradiction.provenance.verify','windows.companion-live.verify'].includes(capability)) {
       await assert.rejects(() => bus.execute(capability,{}, {owner:'test',permissions:[]}), error => /^[A-Z_]*DB_UNAVAILABLE$/.test(error.code));
     } else assert.equal((await bus.execute(capability,{}, {owner:'test',permissions:[]})).ok,true,capability);
   }
