@@ -115,7 +115,7 @@ export const ROADMAP_PROOF_SOURCES = Object.freeze({
   'GEN2-22': { capabilities: ['media.audio.transcribe', 'media.audio.synthesize'] },
   'GEN2-23': { capabilities: ['media.video.analyze'] },
   'MEL-MEDIA-02': { capabilities: ['media.image.analyze', 'media.image.process', 'media.image.generate', 'media.audio.transcribe', 'media.audio.synthesize', 'media.audio.analyze', 'media.audio.generate', 'media.music.analyze', 'media.music.generate', 'media.video.analyze', 'media.video.process', 'media.video.generate'] },
-  'GEN2-28': { computerActions: ['system.info', 'process.list', 'screen.capture'] },
+  'GEN2-28': { capabilities: ['windows.companion-live.verify'], computerActions: ['system.info', 'process.list', 'screen.capture'] },
   'GEN2-30': { computerActions: ['pointer.click', 'keyboard.type', 'ui.snapshot'] },
   'MEL-DEVICE-01': { computerActions: ['app.open', 'app.close'] },
   'GEN2-31': { capabilities: ['browser.execute'] },
