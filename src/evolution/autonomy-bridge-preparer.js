@@ -1,5 +1,5 @@
 import { isCouncilRejectedPackage } from './council-rejected-package.js';
-import { assertRoadmapCodeChanges, ROADMAP_CODE_CONTRACTS } from '../roadmap/roadmap-code-contracts.js';
+import { assertRoadmapCodeChanges, roadmapCodeContract } from '../roadmap/roadmap-code-contracts.js';
 import { createGitHubCodeReader } from '../capabilities/github-code-capabilities.js';
 import { assertMentorCodeContract } from '../learning/mentor-code-contract.js';
 import { createMentorEngine } from '../learning/mentor-engine.js';
@@ -54,7 +54,7 @@ export function uniquePaths(proposal) {
   // The roadmap contract's files come first: the coder may only edit files it
   // was shown. 30/10: FOUNDER-07's planner inspected neighbours but not
   // src/backup/restore-service.js, so every edit of it was refused.
-  const contract = ROADMAP_CODE_CONTRACTS[String(proposal?.roadmap_id || '')];
+  const contract = roadmapCodeContract(String(proposal?.roadmap_id || ''));
   const contractRows = contract ? [...contract.code_paths, ...contract.test_paths].map(path => ({ path })) : [];
   for (const row of [...contractRows, ...(Array.isArray(proposal?.inspected_files) ? proposal.inspected_files : [])]) {
     const value = String(row?.path || '').trim();
@@ -294,7 +294,7 @@ export async function prepareApprovedBridgePackage({
     // Rounds already lost on this mission: repairs that failed their tests,
     // or proposal attempts MEL refused. Two lost rounds call the large coder.
     // A roadmap contract names the only editable files.
-    allowedPaths: (() => { const c = ROADMAP_CODE_CONTRACTS[String(current?.optional_context?.roadmap_id || '')]; return c ? [...c.code_paths, ...c.test_paths] : null; })(),
+    allowedPaths: (() => { const c = roadmapCodeContract(String(current?.optional_context?.roadmap_id || '')); return c ? [...c.code_paths, ...c.test_paths] : null; })(),
     failedRounds: repairFor
       ? Number(current?.result_json?.repair_cycle?.attempts || 0)
       // A round where every coder timed out is not counted in the history (our
@@ -386,7 +386,7 @@ async function sha256Hex(text) {
 
 export async function preparedMissionPackage(env, code, job, inspectedFiles = [], fetchImpl = fetch, { required = false } = {}) {
   const roadmapId = String(job?.optional_context?.roadmap_id || '');
-  const contract = ROADMAP_CODE_CONTRACTS[roadmapId];
+  const contract = roadmapCodeContract(roadmapId);
   if (!contract || !/^MEL-[A-Z0-9-]+$/.test(roadmapId)) return null;
   let pkg;
   try {

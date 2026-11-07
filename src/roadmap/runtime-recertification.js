@@ -1,5 +1,6 @@
 import { ROADMAP_TRUTH_WINDOW_MS } from './roadmap-truth.js';
 import { getAutonomyControl } from '../evolution/autonomy-control.js';
+import { proofRecipeRoadmapItem } from './proof-recipe-contracts.js';
 
 // Reviewed core-only diagnostics. No tool inferred from risk alone, no arbitrary
 // input, connector mutation, model call, physical action or adapter activation.
@@ -41,17 +42,24 @@ export const ROADMAP_RECERTIFICATION_REVISION = '2026-11-06-runtime-v1';
 
 export function withRuntimeRecertification(roadmap, truth) {
   if (truth?.available !== true) return roadmap;
-  return roadmap.map(item => {
+  const recipeWork = [];
+  const items = roadmap.map(item => {
     if (item.status !== 'DONE_VERIFIED' || truth.items?.[item.id]?.truth === 'VERIFIED_LIVE') return item;
     const capability = ROADMAP_RECERTIFICATION_PROFILES[item.id];
-    if (!capability) return { ...item, status: 'BLOCKED_EXTERNAL', recertification_only: true,
+    if (!capability) {
+      const recipe = proofRecipeRoadmapItem(item);
+      if (recipe) recipeWork.push(recipe);
+      return { ...item, status: 'WAITING_PROOF_RECIPE', recertification_only: true,
+      proof_recipe_mission_id: recipe?.id || null,
       required_proof: 'RUNTIME_RECEIPT_REQUIRED',
-      next: 'Recertification requise : recette réelle ou reçu externe manquant. Ne pas appeler un outil arbitraire ni déduire une preuve du statut historique.' };
+      next: 'Recette de vérification à implémenter avant toute recertification. La mission auxiliaire ne certifie pas ce point; ne pas appeler un outil arbitraire ni déduire une preuve du statut historique.' };
+    }
     return { ...item, status: 'RECERTIFICATION_REQUIRED', mode: 'VERIFY_RUNTIME', recertification_only: true,
       required_proof: 'AUDITED_EXACT_DEPLOYMENT_RUNTIME_RESULT',
       verification_capability: capability,
       next: 'Exécuter la recette logicielle existante '+capability+' et conserver son reçu audité récent. Aucune réécriture de fonctionnalité ni acceptation physique implicite.' };
   });
+  return [...items, ...recipeWork];
 }
 
 export function isAcceptedRuntimeRecertificationJob(job, { now = Date.now() } = {}) {

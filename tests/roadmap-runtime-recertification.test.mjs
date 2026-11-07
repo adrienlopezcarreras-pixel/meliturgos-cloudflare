@@ -29,8 +29,9 @@ test('orange historical software becomes verification work, while physical and u
   const mapped=withRuntimeRecertification(items, stale(items.map(row=>row.id)));
   assert.equal(mapped[0].mode,'VERIFY_RUNTIME');assert.equal(mapped[0].verification_capability,'models.registry.verify');
   assert.equal(mapped[1].mode,'VERIFY_RUNTIME');
-  assert.equal(mapped[2].status,'BLOCKED_EXTERNAL','Gmail must not be invoked with guessed permissions or inputs');
-  assert.equal(mapped[3].status,'BLOCKED_EXTERNAL','a software fixture cannot train an adapter');
+  assert.equal(mapped[2].status,'WAITING_PROOF_RECIPE','Gmail must not be invoked with guessed permissions or inputs');
+  assert.equal(mapped.find(row=>row.id==='ROADMAP-PROOF-GEN2-33').verify_existing,false,'a code mission must implement the missing proof first');
+  assert.equal(mapped[3].status,'WAITING_PROOF_RECIPE','a software fixture cannot train an adapter');
   assert.ok(items.every(row=>row.status==='DONE_VERIFIED'),'historical registry is not rewritten');
   const fresh={available:true,items:{'GEN2-03':{truth:'VERIFIED_LIVE'}}};
   assert.equal(withRuntimeRecertification([items[0]],fresh)[0],items[0]);
@@ -111,9 +112,9 @@ test('blocked recertification obligations never make an empty runnable queue com
   const f=await fixture(t);await f.repository.update(f.job.id,{status:'CANCELLED'});
   const rows=withRuntimeRecertification([historical('GEN2-33')],stale(['GEN2-33']));
   const supervisor=new AutonomySupervisor({repository:f.repository,roadmap:rows});
-  const state=await supervisor.state();assert.equal(state.next,null);
-  assert.deepEqual(state.outstandingRoadmapIds,['GEN2-33']);assert.equal(autonomyWorkRemaining(state),true);
-  assert.equal((await supervisor.ensureNextJob()).complete,false);
+  const state=await supervisor.state();assert.equal(state.next.id,'ROADMAP-PROOF-GEN2-33');
+  assert.deepEqual(state.outstandingRoadmapIds,['GEN2-33','ROADMAP-PROOF-GEN2-33']);assert.equal(autonomyWorkRemaining(state),true);
+  assert.equal((await supervisor.ensureNextJob()).created,true,'the missing recipe is real code work, not a completed parent');
 });
 
 test('a queued or terminal receipt cannot bypass the existing execution admission',async t=>{
@@ -140,5 +141,5 @@ test('old COMPLETED work cannot discharge an orange obligation lacking a safe ru
   const rows=withRuntimeRecertification([historical('GEN2-33')],stale(['GEN2-33']));
   const state=await new AutonomySupervisor({repository:f.repository,roadmap:rows}).state();
   assert.equal(state.completedIds.includes('GEN2-33'),false);
-  assert.deepEqual(state.outstandingRoadmapIds,['GEN2-33']);
+  assert.deepEqual(state.outstandingRoadmapIds,['GEN2-33','ROADMAP-PROOF-GEN2-33']);
 });

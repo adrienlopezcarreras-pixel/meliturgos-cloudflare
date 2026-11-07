@@ -53,6 +53,9 @@ test('physical acceptance cannot be certified by completion of the software harn
 test('the exact observed generated P4 declaration fails validation and cannot be shipped as a Manifest code patch',async t=>{
   const dir=await mkdtemp(join(tmpdir(),'mel-roadmap-p4-'));t.after(()=>rm(dir,{recursive:true,force:true}));
   for(const name of ['roadmap-dependencies.js','roadmap-code-contracts.js'])await cp(new URL('../src/roadmap/'+name,import.meta.url),join(dir,name));
+  // Keep the new canonical recipe factory when evaluating the isolated bad registry.
+  const contractSource=await readFile(join(dir,'roadmap-code-contracts.js'),'utf8');
+  await writeFile(join(dir,'roadmap-code-contracts.js'),contractSource.replace("'./proof-recipe-contracts.js'",JSON.stringify(new URL('../src/roadmap/proof-recipe-contracts.js',import.meta.url).href)));
   await writeFile(join(dir,'package.json'),'{"type":"module"}');
   const source=await readFile(new URL('../src/roadmap/master-roadmap.js',import.meta.url),'utf8');
   const bad="item('MEL-MANIFEST-01-P4', 'Priorité matérielle 4 du manifeste', 'BLOCKED_HUMAN', 'En pause, pas d’attente ni de programmation dans MAX.', 'P4'),\n    ";

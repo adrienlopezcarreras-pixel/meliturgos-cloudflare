@@ -4,7 +4,7 @@ import { unmetRoadmapPrerequisites } from '../roadmap/roadmap-dependencies.js';
 
 export function roadmapCodeMissionContext(item) {
   if (!item?.id || item.contract_revision !== roadmapContractRevision(item.id)) return {};
-  return { roadmap_contract_revision: item.contract_revision, code_paths: [...item.code_paths],
+  return { ...(item.proof_recipe_only ? { proof_recipe_only: true, verification_target_id: item.verification_target_id } : {}), roadmap_contract_revision: item.contract_revision, code_paths: [...item.code_paths],
     test_paths: [...item.test_paths], acceptance: [...item.acceptance], max_attempts: 3 };
 }
 

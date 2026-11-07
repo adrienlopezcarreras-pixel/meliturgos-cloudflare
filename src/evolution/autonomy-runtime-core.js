@@ -903,7 +903,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       progress: { advanced: verified, events: verified ? ['JOB_COMPLETED','ROADMAP_RUNTIME_RECERTIFIED'] : [],
         work_remaining: true, waiting_external: !verified, block_reason: verification.code,
         active_jobs: verification.status === 'BLOCKED' ? 1 : 0,
-        completed_roadmap_items: after.completedIds.length, next_roadmap_id: after.next?.id || null,
+        completed_roadmap_items: after.completedIds.filter(id => !id.startsWith('ROADMAP-PROOF-')).length, next_roadmap_id: after.next?.id || null,
         job_id: verification.job.id, job_status: verification.job.status } };
   }
   const initialJobId = job?.id || null;
@@ -1293,7 +1293,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   if (initialJobId && job?.id === initialJobId && initialJobStatus && finalJobStatus && initialJobStatus !== finalJobStatus) {
     progressEvents.push('JOB_STATE_ADVANCED');
   }
-  if ((Array.isArray(state?.completedIds) ? state.completedIds.length : 0) > initialCompletedCount) {
+  if ((Array.isArray(state?.completedIds) ? state.completedIds.filter(id => !id.startsWith('ROADMAP-PROOF-')).length : 0) > initialCompletedCount) {
     progressEvents.push('ROADMAP_COMPLETION_ADVANCED');
   }
   const activeCount = activeAutonomyMission(Array.isArray(state?.active) ? state.active : []) ? 1 : 0;
@@ -1334,7 +1334,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       waiting_external: waitingExternal,
       block_reason: blockReason,
       active_jobs: activeCount,
-      completed_roadmap_items: Array.isArray(state?.completedIds) ? state.completedIds.length : 0,
+      completed_roadmap_items: Array.isArray(state?.completedIds) ? state.completedIds.filter(id => !id.startsWith('ROADMAP-PROOF-')).length : 0,
       next_roadmap_id: state?.next?.id || null,
       evolution_queue: state?.evolution || null,
       job_id: job?.id || null,
