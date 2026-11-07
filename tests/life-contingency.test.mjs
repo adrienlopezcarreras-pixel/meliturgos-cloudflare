@@ -2,6 +2,29 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { actionsRelayDecision, allLifeEvents, applyCoreMigration, applyDueLifeCountermeasures, applyLifeCountermeasure, dueLifeEvents, lifeFactsFromSignals, respondToLifeEvent, trialReplacement } from '../src/continuity/life-contingency.js';
 
+for (const facts of [
+  { pausedBySafety: true, pausedByMistake: true, ownerAbsent: true },
+  { paused_by_safety: true, paused_by_mistake: true, owner_absent: true },
+  { detected: ['MAX_PAUSED_BY_MISTAKE', 'OWNER_ABSENT', 'MAX_PAUSED_BY_SAFETY'] },
+]) {
+  test('a safety pause wins over contradictory recovery facts: ' + JSON.stringify(facts), async () => {
+    const calls = [];
+    const result = await applyDueLifeCountermeasures({ ...facts, updateCiFailed: true }, {
+      restoreMax: async () => { calls.push('restore'); return { ok: true }; },
+      keepMax: async () => { calls.push('keep-running'); return { ok: true }; },
+      keepPrevious: async () => { calls.push('keep-previous'); return { ok: true }; },
+    });
+    assert.deepEqual(calls, ['keep-previous']);
+    assert.equal(result.find(row => row.id === 'MAX_PAUSED_BY_SAFETY').applied, true);
+    for (const id of ['MAX_PAUSED_BY_MISTAKE', 'OWNER_ABSENT']) {
+      const row = result.find(row => row.id === id);
+      assert.equal(row.applied, false);
+      assert.equal(row.activation_performed, false);
+      assert.equal(row.reason, 'SAFETY_PAUSE_PRESERVED');
+    }
+  });
+}
+
 test('every survival, evolution, upgrade and migration failure has a tested countermeasure', () => {
   const events = allLifeEvents();
   assert.equal(new Set(events.map(row => row.id)).size, events.length);

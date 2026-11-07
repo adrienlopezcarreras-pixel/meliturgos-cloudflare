@@ -32,8 +32,18 @@ function fail(code) {
 
 export async function applyDueLifeCountermeasures(facts = {}, actions = {}) {
   const applied = [];
-  for (const id of dueLifeEvents(facts)) {
+  const due = dueLifeEvents(facts);
+  const safetyPaused = due.includes('MAX_PAUSED_BY_SAFETY');
+  for (const id of due) {
     try {
+      const plan = respondToLifeEvent(id);
+      // Evaluate the whole batch before any executor: a later safety signal
+      // must prevent an earlier, contradictory recovery from resuming MAX.
+      if (safetyPaused && ['RESTORE_MAX', 'KEEP_MAX_RUNNING'].includes(plan.countermeasure)) {
+        applied.push(Object.freeze({ ...plan, applied: false, activation_performed: false,
+          reason: 'SAFETY_PAUSE_PRESERVED' }));
+        continue;
+      }
       applied.push(await applyLifeCountermeasure(id, actions));
     } catch (error) {
       applied.push(Object.freeze({
