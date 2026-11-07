@@ -117,3 +117,22 @@ export async function getEvolutionDashboard(db, owner, initial, incidents=null) 
  const snapshot=evolutionSnapshot({initial:verifiedInitial,items,incidents});
  return Object.freeze({...snapshot,initial_scope:archive?'ARCHIVED_VERIFIED':'CURRENT_REGISTRY_NOT_ARCHIVED',archive:archive??null});
 }
+
+// MEL-MANIFEST-09: a measured gap opens one idempotent evolution. Without
+// measured evidence nothing is opened; the previous competence version stays
+// active until the new one's delivery is verified (DONE_VERIFIED).
+export async function openEvolutionFromMeasuredGap(db, owner, gap = {}) {
+ const evidence=Array.isArray(gap.evidence)?gap.evidence.filter(row=>row&&row.metric&&Number.isFinite(Number(row.measured))):[];
+ if (!evidence.length) throw new Error('EVOLUTION_GAP_EVIDENCE_REQUIRED');
+ const capability=String(gap.capability||'').trim();
+ if (!capability) throw new Error('EVOLUTION_GAP_CAPABILITY_REQUIRED');
+ const slug=capability.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,40);
+ const saved=await saveEvolutionProposal(db,owner,{id:`GAP-${slug}`.toUpperCase(),title:`Combler l'écart mesuré de ${capability}`,origin:'audit',priority:gap.priority||'P2'});
+ if (!saved.created) return {created:false,duplicate_of:saved.duplicate_of};
+ const item={...saved.item,gap:{capability,evidence:evidence.slice(0,10)},previous_version:String(gap.current_version||'')||null,next_version:String(gap.next_version||'')||null};
+ await database(db).prepare('UPDATE mel_evolution_items SET payload = ? WHERE owner_scope = ? AND id = ?').bind(JSON.stringify(item),ownerScope(owner),item.id).run();
+ return {created:true,item};
+}
+export function activeCompetenceVersion(item) {
+ return item?.status==='DONE_VERIFIED' && item?.next_version ? item.next_version : (item?.previous_version || null);
+}
