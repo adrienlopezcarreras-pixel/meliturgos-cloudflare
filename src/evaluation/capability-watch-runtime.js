@@ -672,6 +672,27 @@ export async function runEcosystemCapabilityWatch(
   };
 }
 
+const _pendingAdmissions = new Map();
+
+export async function admitDiscoveryCandidate(env, candidate, options = {}, queueFn) {
+  const key = candidate?.fingerprint;
+  if (!key) throw new Error('DISCOVERY_CANDIDATE_FINGERPRINT_REQUIRED');
+  if (_pendingAdmissions.has(key)) return _pendingAdmissions.get(key);
+  const promise = (async () => {
+    const result = await queueFn(env, candidate);
+    _pendingAdmissions.delete(key);
+    return result;
+  })();
+  _pendingAdmissions.set(key, promise);
+  return promise;
+}
+
+export function discoveryHandoffAllowed({ roadmapMissionAvailable = false, allowHandoff = true } = {}) {
+  if (!allowHandoff) return false;
+  if (roadmapMissionAvailable) return false;
+  return true;
+}
+
 export async function applyEcosystemProposalDecision(
   env,
   {
