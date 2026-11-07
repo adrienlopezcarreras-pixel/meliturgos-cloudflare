@@ -547,7 +547,7 @@ function buildRepairPrompt({ goal, files, raw, failure, failureDetail = '', mode
     ...(uninspectedEdit ? [
       'Le SEARCH précédent ne correspond pas aux lignes réellement montrées ou à un fragment exact et unique du fichier. Recopie un bloc SEARCH contigu directement depuis SOURCES_INSPECTÉES; ne devine pas les lignes cachées et ne réutilise pas le SEARCH refusé.',
     ] : []),
-    uninspected ? 'Le chemin ou SEARCH précédent était hors du périmètre inspecté ; repars uniquement des extraits visibles.' : 'RÉPONSE_INVALIDE_À_RÉPARER:'
+    uninspected ? 'Le chemin ou SEARCH précédent était hors du périmètre inspecté ; repars uniquement des extraits visibles.' : 'RÉPONSE_INVALIDE_À_RÉPARER:',
     uninspected ? '' : bounded(raw || '', 2500),
     reference,
     'SOURCES_INSPECTÉES (base candidate actuelle; appliquer edits ici):',
