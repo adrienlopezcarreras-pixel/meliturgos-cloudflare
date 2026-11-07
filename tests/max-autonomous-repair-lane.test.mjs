@@ -98,13 +98,18 @@ test('only accepted exact-SHA delivery and verified deployment release the held 
  const stillHeld=await completeVerifiedRepair(db,repo,{deployedSha:'b'.repeat(40),releaseVerified:true,
   verifyDescendant:async()=>false});
  assert.equal(stillHeld.resumed,false);
+ const diagnosticRejected=await completeVerifiedRepair(db,repo,{deployedSha:'b'.repeat(40),releaseVerified:true,
+  verifyDescendant:async()=>({ok:false,diagnostic:'REPAIR_COMPARE_HTTP_403'})});
+ assert.equal(diagnosticRejected.resumed,false);
+ assert.equal(diagnosticRejected.diagnostic,'REPAIR_COMPARE_HTTP_403');
+ assert.equal((await getAutonomyControl(db)).repair.job_id,a.id);
  const descendant=await completeVerifiedRepair(db,repo,{deployedSha:'b'.repeat(40),releaseVerified:true,
   verifyDescendant:async({acceptedSha,deployedSha,protectedPaths})=>{
    assert.equal(acceptedSha,sha);
    assert.equal(deployedSha,'b'.repeat(40));
    assert.ok(protectedPaths.includes(item.code_paths[0]));
    assert.ok(protectedPaths.includes(item.test_paths[0]));
-   return true;
+   return {ok:true};
   }});
  assert.equal(descendant.resumed,true);
  assert.equal(descendant.control.repair,null);
