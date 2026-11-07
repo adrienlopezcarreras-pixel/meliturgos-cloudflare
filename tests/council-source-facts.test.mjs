@@ -18,6 +18,13 @@ test('a real duplicate export is invalid rather than dismissed as a snapshot art
   assert.equal(councilSourceFacts('export function same() {}\nexport function same() {}').syntax_status, 'INVALID_MODULE');
 });
 
+test('destructured exports and wildcard reexports are explicit rather than falsely absent', () => {
+  const fact = councilSourceFacts("export const {a, b:c, ...rest}=source; export * from './more.js';");
+  assert.equal(fact.syntax_status, 'VALID_MODULE');
+  assert.deepEqual(fact.exports, ['*:./more.js','a','c','rest']);
+  assert.deepEqual(fact.local_imports, ['./more.js']);
+});
+
 test('bounded full-file omissions retain syntax facts and resolve unchanged local imports', async () => {
   const head = 'a'.repeat(40), path = 'src/large.js';
   const content = "import { decode } from './unchanged.js';\nexport const valid=1;\n" + '// padding\n'.repeat(1800);

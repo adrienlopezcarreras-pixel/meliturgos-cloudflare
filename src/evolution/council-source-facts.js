@@ -19,12 +19,15 @@ export function councilSourceFacts(content) {
     if (node.type === 'ImportDeclaration' || node.type.startsWith('Export') && node.source)
       imports.add(node.source.value);
     if (node.type === 'ExportDefaultDeclaration') exports.add('default');
+    if (node.type === 'ExportAllDeclaration') exports.add(node.exported?.name || '*:' + node.source.value);
     for (const spec of node.type === 'ExportNamedDeclaration' ? node.specifiers : []) exports.add(spec.exported.name || spec.exported.value);
     const decl = node.declaration || node;
     if (decl.id) { bind(decl.id); if (node.type === 'ExportNamedDeclaration') exports.add(decl.id.name); }
     for (const row of decl.declarations || []) {
+      const before = new Set(declarations.keys());
       bind(row.id);
-      if (node.type === 'ExportNamedDeclaration' && row.id.type === 'Identifier') exports.add(row.id.name);
+      if (node.type === 'ExportNamedDeclaration') for (const name of declarations.keys())
+        if (!before.has(name)) exports.add(name);
     }
   }
   const pending = [tree];
