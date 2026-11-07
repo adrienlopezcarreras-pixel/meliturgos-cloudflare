@@ -53,3 +53,24 @@ test('independent GitHub reads start together rather than stacking per-file time
   pending.forEach(resolve=>resolve(response('export const value=1;')));
   assert.equal((await result).files.length,2);
 });
+
+test('Council sees added files as post-change snapshots rather than a second patch application', async () => {
+  const patch = 'diff --git a/src/new-check.js b/src/new-check.js\nnew file mode 100644\n--- /dev/null\n+++ b/src/new-check.js\n@@ -0,0 +1 @@\n+export function check() { return true; }\n';
+  const snapshot = 'export function check() { return true; }\n';
+  const context = await resolveCouncilFileContext({}, { head, diff: patch,
+    fetchImpl: async () => response(snapshot) });
+  assert.equal(context.snapshot_role, 'POST_CHANGE_HEAD');
+  assert.equal(context.head, head);
+  assert.equal(context.files[0].content, snapshot);
+  const asked = [];
+  await runCouncilReview({ AI: { async run(_model, input) {
+    asked.push(input.messages[1].content);
+    return { response: '{"verdict":"APPROVE","blocking":[],"summary":"Post-change snapshot and patch examined separately"}' };
+  } } }, { diff: patch, models: ['a', 'b', 'c'], dependencyContext: context });
+  assert.ok(asked.length >= 2);
+  assert.ok(asked.every(prompt => prompt.includes('POST_CHANGE_HEAD')
+    && prompt.includes('Ne pas réappliquer le diff')
+    && prompt.includes('ne prouve pas sa présence dans la base')
+    && prompt.includes('Signaler tout vrai doublon ou conflit démontré')
+    && prompt.includes('--- /dev/null')));
+});

@@ -32,3 +32,19 @@ silencieux, surcoût, changement de quorum ou redémarrage fondé sur l'alerte s
 Validation : tests fonctionnels `manifest-objective-live-proof.test.mjs`,
 `noop-review-recovery.test.mjs`, régressions existantes Bridge/runtime/completion.
 Cette modification ne prouve pas encore la clôture en production de MANIFEST-01.
+
+## Distinguer le snapshot final du patch pendant la revue
+
+Le premier vote sur `36d626006c574f738b6ec7c4e839b0ebc4411078` a signalé
+une double définition et deux fichiers supposés déjà présents dans la base.
+La base `975e8549318f34ab81bea8f2c05ce055ed20fc23` ne contient aucun des
+deux nouveaux tests ; le HEAD contient une seule définition de
+`objectiveLiveChecks` et sa syntaxe ainsi que sa CI complète sont validées.
+Le fichier complet transmis au Council était déjà le résultat du diff.
+
+Le contexte porte désormais le rôle `POST_CHANGE_HEAD`. Le prompt distingue
+explicitement snapshot et patch : la présence d'un nouveau fichier au HEAD
+n'est pas un conflit avec la base, et un ajout montré dans le diff et dans
+le snapshot n'est pas deux ajouts. Les vrais doublons et conflits restent
+à signaler. Ce changement n'annule aucun veto et ne change pas le quorum :
+un nouveau vote indépendant sur le nouveau SHA reste nécessaire.
