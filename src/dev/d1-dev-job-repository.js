@@ -161,8 +161,14 @@ const LIGHT_LIST_SQL = `SELECT id,created_at,updated_at,status,requested_by,goal
   CASE WHEN ${TERMINAL_SQL} THEN NULL ELSE patch_json END AS patch_json,
   CASE WHEN ${TERMINAL_SQL} THEN NULL ELSE tests_json END AS tests_json,
   CASE WHEN ${TERMINAL_SQL} AND json_valid(result_json)
-    THEN json_remove(result_json,'$.teacher_bridge.request','$.teacher_bridge_history',
-      '$.dev_bridge_history','$.implementation_proposal','$.bridge_package')
+    THEN json_set(json_remove(result_json,'$.teacher_bridge.request','$.teacher_bridge_history',
+      '$.dev_bridge_history','$.implementation_proposal','$.bridge_package',
+      '$.verification_evidence_repairs','$.noop_review_recovery.previous'),
+      '$.teacher_bridge.request',json_object('request_id',json_extract(result_json,'$.teacher_bridge.request.request_id')),
+      '$.implementation_proposal',json_object('status',json_extract(result_json,'$.implementation_proposal.status'),
+        'decision',json_extract(result_json,'$.implementation_proposal.decision'),
+        'candidate_sha',json_extract(result_json,'$.implementation_proposal.candidate_sha'),
+        'teacher_request_id',json_extract(result_json,'$.implementation_proposal.teacher_request_id')))
     ELSE result_json END AS result_json,
   candidate_branch,approval_status,error
   FROM dev_jobs ORDER BY created_at DESC LIMIT 100`;
