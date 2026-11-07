@@ -22,7 +22,7 @@ export function measureOutcomeRepairs(ledger = {}, findings = [], { measured = f
   const escalated = [];
   for (const [code, entry] of Object.entries(ledger || {})) {
     if (measured && !present.has(code)) {
-      resolved.push({ code, attempts: entry.attempts, repaired_at: entry.repaired_at, resolved_at: now });
+      resolved.push({ code, attempts: entry.attempts, repaired_at: entry.repaired_at, resolved_at: now, job_id: entry.job_id || null });
       continue;
     }
     next[code] = entry;
@@ -44,8 +44,12 @@ export function findingsForRepair(findings = [], { persisting = [], escalated = 
       : row));
 }
 
-/** Records the codes a queued repair mission targets. */
-export function recordRepairs(ledger = {}, findings = [], { now = Date.now() } = {}) {
+/**
+ * Records the codes a queued repair mission targets. MEL-AUDIT-07: each
+ * finding is linked to exactly one repair job; inside its grace week the same
+ * finding stays on that job instead of opening another.
+ */
+export function recordRepairs(ledger = {}, findings = [], { now = Date.now(), jobId = null } = {}) {
   const next = { ...ledger };
   for (const row of findings) {
     const code = String(row?.code || '');
@@ -53,11 +57,16 @@ export function recordRepairs(ledger = {}, findings = [], { now = Date.now() } =
     const previous = next[code];
     // Only a new attempt counts: a finding still inside its grace week keeps its date.
     if (previous && now - Number(previous.repaired_at || 0) < REPAIR_GRACE_MS) continue;
-    next[code] = { repaired_at: now, attempts: Number(previous?.attempts || 0) + 1 };
+    next[code] = { repaired_at: now, attempts: Number(previous?.attempts || 0) + 1, ...(jobId ? { job_id: String(jobId) } : {}) };
   }
   return next;
 }
 
 export function appendResolved(history = [], resolved = []) {
   return [...(Array.isArray(history) ? history : []), ...resolved].slice(-MAX_RESOLVED);
+}
+
+/** The single repair job a finding is linked to, or null. */
+export function repairJobFor(ledger = {}, code = '') {
+  return ledger?.[String(code)]?.job_id || null;
 }

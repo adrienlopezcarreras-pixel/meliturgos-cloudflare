@@ -49,3 +49,21 @@ test('the self-audit supervisor measures, reopens and persists the loop', async 
   assert.match(source, /outcome_repairs: outcomeRepairs/);
   assert.match(source, /outcome_loop: \{/);
 });
+
+// MEL-AUDIT-07: one job per persistent finding; resolved only by a measure.
+test('a persistent finding is linked to a single job and resolved only when a later measure confirms it is gone', async () => {
+  const { recordRepairs, measureOutcomeRepairs, repairJobFor, REPAIR_GRACE_MS } = await import('../src/diagnostics/outcome-loop.js');
+  const finding = { code: 'CHAT_OFF_TOPIC', detail: 'hors sujet' };
+  let ledger = recordRepairs({}, [finding], { now: 1000, jobId: 'job-a' });
+  ledger = recordRepairs(ledger, [finding], { now: 2000, jobId: 'job-b' });
+  assert.equal(repairJobFor(ledger, 'CHAT_OFF_TOPIC'), 'job-a', 'inside its grace week the finding keeps one job');
+  assert.equal(ledger.CHAT_OFF_TOPIC.attempts, 1);
+  const unmeasured = measureOutcomeRepairs(ledger, [], { measured: false, now: 3000 });
+  assert.deepEqual(unmeasured.resolved, [], 'no measure, no resolution');
+  const stillThere = measureOutcomeRepairs(ledger, [finding], { measured: true, now: 1000 + REPAIR_GRACE_MS + 1 });
+  assert.deepEqual(stillThere.resolved, []);
+  assert.equal(stillThere.persisting[0].code, 'CHAT_OFF_TOPIC');
+  const gone = measureOutcomeRepairs(ledger, [], { measured: true, now: 5000 });
+  assert.deepEqual(gone.resolved.map(row => [row.code, row.job_id]), [['CHAT_OFF_TOPIC', 'job-a']]);
+  assert.equal(repairJobFor(gone.ledger, 'CHAT_OFF_TOPIC'), null);
+});
