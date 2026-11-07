@@ -22,11 +22,14 @@ export function changedLocalImports(diff) {
   return [...paths].sort();
 }
 
-export async function resolveCouncilImportContext(env, { head, diff, fetchImpl = fetch } = {}) {
+export async function resolveCouncilImportContext(env, { head, diff, sourceImports = [], fetchImpl = fetch } = {}) {
   const fail = code => { throw Object.assign(new Error(code), { code }); };
   if (!/^[a-f0-9]{40}$/.test(String(head))) fail('COUNCIL_IMPORT_HEAD_INVALID');
-  const paths = changedLocalImports(diff);
-  const proof = { schema:'mel.council-import-context/v1', head, source:'github-immutable-tree', scope:'added-single-line-static-local-imports', imports:[] };
+  const paths = [...new Set([...changedLocalImports(diff), ...sourceImports])].sort();
+  if (paths.length > 160 || paths.some(path => typeof path !== 'string' || path.length > 240
+      || !path.split('/').every(part => /^[A-Za-z0-9_.-]+$/.test(part) && part !== '..' && part !== '.')))
+    fail('COUNCIL_IMPORT_CONTEXT_TOO_LARGE');
+  const proof = { schema:'mel.council-import-context/v1', head, source:'github-immutable-tree', scope:'changed-imports-and-static-imports-of-reviewed-files', imports:[] };
   if (!paths.length) return proof;
   const repository = String(env?.MEL_GITHUB_REPOSITORY || 'adrienlopezcarreras-pixel/meliturgos-cloudflare');
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) fail('COUNCIL_IMPORT_REPOSITORY_INVALID');
