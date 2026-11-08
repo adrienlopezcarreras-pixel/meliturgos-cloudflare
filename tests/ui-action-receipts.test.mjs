@@ -103,3 +103,18 @@ test('real LoRA button double click shares the launch acknowledgement',async()=>
   await Promise.all([qs('#freeLoraTrain').onclick(),qs('#freeLoraTrain').onclick()]);
   assert.equal(calls,1);assert.match(qs('#freeLoraTrainResult').textContent,/Entraînement demandé/);assert.match(ui.text(),/DISPATCH_ACCEPTED/);
 });
+test('GitHub redirects fail closed and a pre-dispatch failure releases the launch guard',async t=>{
+  const DB=sqliteD1({maintenanceFence:true});t.after(()=>DB.close());
+  const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original;});let calls=0;
+  globalThis.fetch=async(url,opts)=>{
+    calls++;assert.match(String(url),/^https:\/\/api\.github\.com\/repos\/adrienlopezcarreras-pixel\/meliturgos-cloudflare\//);
+    assert.equal(opts.redirect,'manual');assert.ok(opts.signal instanceof AbortSignal);
+    return new Response(null,{status:302,headers:{location:'https://foreign.example/never-follow'}});
+  };
+  const env={DB,MELITURGOS_PASSWORD:'fixture-password',MEL_GITHUB_TOKEN:'fixture'};
+  for(let n=0;n<2;n++){
+    const response=await entry.fetch(request(),env,{});assert.equal(response.status,502);assert.equal((await response.json()).error,'GITHUB_TRAINING_API_FAILED');
+  }
+  assert.equal(calls,2);
+  assert.equal(await DB.prepare('SELECT count(*) AS n FROM work_dag_run_leases').first('n'),0);
+});

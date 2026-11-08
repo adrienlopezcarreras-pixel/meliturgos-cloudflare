@@ -72,15 +72,16 @@ async function experimentalGitHub(request,env,method,url,body){
   if(!auth.ok)return {denied:auth.response};
   const token=String(env?.MEL_GITHUB_TOKEN||'').trim();
   if(!token)return {denied:json({ok:false,error:'GITHUB_DISPATCH_TOKEN_NOT_CONFIGURED'},503)};
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);
   try{
     const response=await fetch(url,{
-      method,redirect:'manual',headers:{'accept':'application/vnd.github+json','authorization':'Bearer '+token,'user-agent':'mel-professor-training/1.0','content-type':'application/json'},
+      method,redirect:'manual',signal:controller.signal,headers:{'accept':'application/vnd.github+json','authorization':'Bearer '+token,'user-agent':'mel-professor-training/1.0','content-type':'application/json'},
       ...(body?{body:JSON.stringify(body)}:{})
     });
     const data=response.status===204?{}:await response.json().catch(()=>({}));
     if(!response.ok)return {denied:json({ok:false,error:'GITHUB_TRAINING_API_FAILED',http_status:response.status},response.status===401||response.status===403?503:502)};
     return {data};
-  }catch{return {denied:json({ok:false,error:'GITHUB_TRAINING_API_UNREACHABLE'},503)};}
+  }catch{return {denied:json({ok:false,error:'GITHUB_TRAINING_API_UNREACHABLE'},503)};}finally{clearTimeout(timer);}
 }
 async function dispatchExperimentalTraining(request,env,body,track,markDispatchAttempt){
   if(body.mode==='gpu'){
@@ -135,7 +136,7 @@ async function experimentalTrainingResponse(request,env){
   if(!String(env?.MEL_GITHUB_TOKEN||'').trim())return json({ok:false,error:'GITHUB_DISPATCH_TOKEN_NOT_CONFIGURED'},503);
   let lease,attempted=false;
   try{
-    lease=await acquireD1WorkRunLease(env.DB,'experimental-training:'+track+':'+body.mode,{ttlMs:60000});
+    lease=await acquireD1WorkRunLease(env.DB,'experimental-training:'+track+':'+body.mode,{ttlMs:15*60*1000});
     if(!lease)return json({ok:true,dispatched:false,status:'TRAINING_LAUNCH_PENDING',track,mode:body.mode,gpu_training_performed:false},202);
     return await dispatchExperimentalTraining(request,env,body,track,()=>{attempted=true;});
   }catch{
