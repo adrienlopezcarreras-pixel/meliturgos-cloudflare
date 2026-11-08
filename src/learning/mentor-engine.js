@@ -1,4 +1,4 @@
-import { preferTopModels } from '../models/ModelRegistry.js';
+import { preferTopModels, topModelIds } from '../models/ModelRegistry.js';
 import { assertMentorCodeContract } from './mentor-code-contract.js';
 import { createMentorCompanionFallback } from './mentor-companion-provider.js';
 import { MentorMemoryRepository } from './mentor-memory.js';
@@ -655,7 +655,12 @@ export class MentorEngine {
     const coders = preferTopModels([...large, ...small], env, { min: 1 });
     // No code model answers the zero-cost proof: keep MAX moving with the
     // general models; the weekly development audit reports the exclusion.
-    const cloud = coders.length ? coders : pool.list({ capability: 'CODE' }).filter(provider => governor.allows(provider)).slice(0, codeCouncil ? 16 : 6);
+    // A configured top CODE model remains a valid fallback even without the
+    // CODE_SPECIALIST label. Do not silently reduce the owner's top pair to one.
+    const top = new Set(topModelIds(env));
+    const topCoders = pool.list({ capability: 'CODE' }).filter(provider => top.has(provider.modelId) && governor.allows(provider));
+    const cloud = topCoders.length ? preferTopModels(topCoders, env)
+      : coders.length ? coders : pool.list({ capability: 'CODE' }).filter(provider => governor.allows(provider)).slice(0, codeCouncil ? 16 : 6);
     const companion = await createMentorCompanionFallback(env);
     const pcCoder = await createLocalPcCoderProvider(env);
     if (codeCouncil) return cloud;
@@ -744,8 +749,12 @@ export class MentorEngine {
     const problem = mode === 'repair' || previousAttempts.length > 0 || codeCouncil;
     const tiers = !problem && localProviders.length ? [localProviders, cloudProviders] : [cloudProviders];
     const providerWaves = [];
+    // Normal generation spends another model call only if the preferred coder
+    // and its bounded repair could not deliver. A code Council still compares
+    // independent candidates in its existing bounded parallel waves.
+    const waveSize = codeCouncil ? 3 : 1;
     for (const tier of tiers) {
-      for (let offset = 0; offset < tier.length; offset += 3) providerWaves.push(tier.slice(offset, offset + 3));
+      for (let offset = 0; offset < tier.length; offset += waveSize) providerWaves.push(tier.slice(offset, offset + waveSize));
     }
     const startedAt = this.now();
     const remaining = () => this.proposeBudgetMs - (this.now() - startedAt);

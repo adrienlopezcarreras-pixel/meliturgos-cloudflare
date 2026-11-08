@@ -190,6 +190,7 @@ test('mentor engine selects a valid multi-provider code proposal and stores it a
     const result = await engine.propose({
       env: {},
       jobId: 'job-1',
+      mode: 'repair',
       goal: 'Développer une vraie capacité autonome testable',
       inspectedFiles: [{ path: 'src/example.js', content: 'export const ready = false;\n' }],
     });
@@ -208,7 +209,7 @@ test('mentor engine selects a valid multi-provider code proposal and stores it a
     assert.equal(rows[0].outcome, 'OBSERVED');
     const evidence = JSON.parse(rows[0].evidence_json);
     assert.equal(evidence.experience.validated, false);
-    assert.equal(evidence.experience.source_type, 'MENTOR_COUNCIL_CODE_PROPOSAL');
+    assert.equal(evidence.experience.source_type, 'MENTOR_COUNCIL_REPAIR_PROPOSAL');
   } finally { DB.close(); }
 });
 
@@ -232,6 +233,7 @@ test('mentor engine performs one bounded structured repair pass when every initi
   const result = await engine.propose({
     env: {},
     jobId: 'job-repair',
+    mode: 'repair',
     goal: 'Corriger un composant existant sans créer de doublon',
     inspectedFiles: [{ path: 'src/example.js', content: 'export const ready = false;\n' }],
   });
@@ -606,7 +608,7 @@ test('mentor does not invoke fallback models when its first wave already contain
     env: {}, goal: 'Make an inspected file ready',
     inspectedFiles: [{ path: 'src/example.js', content: 'export const ready = false;\n' }],
   });
-  assert.deepEqual(result.council.providers_attempted, ['first-valid', 'bad-a', 'bad-b']);
+  assert.deepEqual(result.council.providers_attempted, ['first-valid']);
   assert.equal(result.council.selected_provider, 'first-valid');
   assert.equal(calls.length, 1);
 });
@@ -757,7 +759,7 @@ test('ordinary Mentor stops after a valid initial wave without deep CODE council
     inspectedFiles:[{path:'src/example.js',content:'export const value = 1;\n'}],
   });
   assert.equal(result.code_council.triggered,false);
-  assert.equal(calls.length,3);
+  assert.equal(calls.length,1);
 });
 
 test('mentor gives each model 80 s but keeps the whole proposal inside its time budget', async () => {

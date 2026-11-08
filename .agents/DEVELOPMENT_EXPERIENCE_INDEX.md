@@ -236,3 +236,5 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 - `codex-domain-findings-keep-durable-row-references-20261106` — conserver des références bornées aux lignes SQL qui justifient les constats, avec omissions explicites et sans contenu privé; valider sur de vraies tables. Preuves locales, livraison de mission encore requise.
 
 - `claude-roadmap-contract-must-allow-verified-existing-20261030` — clôturer l’existant seulement avec reçus fonctionnels et cas CI réels au SHA exact, distincts du plan du modèle ; toute correction de preuve après veto reste bornée et repasse les gates. Extension validée localement le 07/11/2026.
+
+- `mentor-top-code-fallback-without-specialist-label-20261108` — conserver les modèles prioritaires CODE réellement autorisés même sans étiquette spécialiste ; secours séquentiel après refus, premier succès seul et Council difficile inchangé. Preuves locales du vrai pool/adapter avec AI mock, sans certification production.
