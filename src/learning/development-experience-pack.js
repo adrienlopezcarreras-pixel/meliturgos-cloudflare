@@ -1710,12 +1710,14 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "task": "Vérifier une lecture GitHub critique dans le runtime Workers réel sans affaiblir les preuves ni le confinement du jeton.",
     "input": "Le vérificateur de release échoue avec RUN_FETCH_FAILED avant toute réponse HTTP, alors que ses mocks Node passent.",
     "before": "Les mocks Node acceptent redirect:error, mais Workers lève un TypeError avant tout envoi réseau ; des redéploiements identiques ne corrigent pas cette incompatibilité.",
-    "after": "Tester les options du transport critique sous workerd. Employer un mode de redirection supporté et refuser explicitement les 3xx ; conserver URL fixe, timeout et vérification intégrale des preuves pour empêcher tout transfert du jeton vers une redirection.",
+    "after": "Tester chaque consommateur du transport critique sous workerd : lectures RUN, JOBS et comparaison de descendant COMPARE. Les centraliser dans un même lecteur GitHub borné pour éviter qu’un correctif local laisse un autre chemin cassé. Employer un mode de redirection supporté et refuser explicitement les 3xx ; conserver URL fixe, timeout et vérification intégrale des preuves pour empêcher tout transfert du jeton vers une redirection.",
     "rationale": "Une exception pré-HTTP peut être une incompatibilité locale du runtime plutôt qu’une panne réseau ; la reproduction workerd distingue les deux sans lire ni exposer les secrets.",
     "tests": [
       "tests/verified-repair-workers-transport.test.mjs: vérificateur réel exécuté sous workerd, deux lectures GitHub locales exactes",
       "tests/verified-repair-workers-transport.test.mjs: refus RUN/JOBS 301/302/303/307/308 sans suivi ni fuite du jeton",
-      "reproduction locale b51b7345d: RUN_FETCH_FAILED et zéro requête émise ; preuve locale uniquement, aucune certification production"
+      "reproduction locale b51b7345d: RUN_FETCH_FAILED et zéro requête émise ; preuve locale uniquement, aucune certification production",
+      "release42480989260 : REPAIR_COMPARE_FETCH_FAILED avant correction du second lecteur; test workerd réel reproduit zéro requête HTTP, puis valide RUN/JOBS/COMPARE et les 15 redirections refusées",
+      "tests/repair-proof-workers-transport.test.mjs : transport partagé, URL GitHub fixe et aucun transfert de jeton; aucune certification production annoncée avant déploiement"
     ],
     "tags": [
       "workers",
