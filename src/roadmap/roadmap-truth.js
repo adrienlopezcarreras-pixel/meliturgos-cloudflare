@@ -98,7 +98,7 @@ export const ROADMAP_PROOF_SOURCES = Object.freeze({
   'GEN2-46': { capabilities: ['system.bindings'] },
   'MEL-SEC-02': { capabilities: ['capability.audit.status'] },
   'MEL-SEC-03': { capabilities: ['github.actions.runs.read'] },
-  'MEL-SEC-04': { capabilities: ['autonomy.pause'] },
+  'MEL-SEC-04': { capabilities: ['policy.owner-stop.verify'] },
   'GEN2-47': { capabilities: ['memory.export'] },
   'GEN2-49': { capabilities: ['portability.escape.plan'] },
   'MEL-RES-01': { capabilities: ['self.state'] },

@@ -45,6 +45,7 @@ import { createProceduralAudioCapabilities } from '../media/procedural-audio-cap
 import { createLocalPcMediaCapabilities } from '../models/local-pc-media.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { verifyZeroEuroPolicy } from '../augmentio/zero-euro-policy-proof.js';
+import { verifyOwnerStopPolicy } from '../evolution/owner-stop-policy-proof.js';
 import { Augmentio } from '../augmentio/augmentio.js';
 import { ParallelScheduler } from '../augmentio/parallel-scheduler.js';
 import { inspectZeroCostProviderReadiness } from '../augmentio/zero-cost-readiness.js';
@@ -469,6 +470,16 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
       required: ['ok', 'negative_checks', 'authorized_providers'], additionalProperties: false },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
   }, () => verifyZeroEuroPolicy(runtimeEnv));
+
+  bus.discover({
+    id: 'policy.owner-stop.verify', name: 'Priorité à l’arrêt propriétaire — preuve runtime',
+    category: 'diagnostic', version: '1.0.0', provider: 'core',
+    description: 'Checks the shared owner-stop policy and actual D1 CAS predicate without writing production control.',
+    input_schema: { type: 'object', additionalProperties: false },
+    output_schema: { type: 'object', properties: { ok: { type: 'boolean' }, policy_checks: { type: 'integer' }, cas_checks: { type: 'integer' } },
+      required: ['ok', 'policy_checks', 'cas_checks'], additionalProperties: false },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, () => verifyOwnerStopPolicy(runtimeEnv));
 
   // GEN2-10: genuine live D1 evidence, no fabricated fixture or inserted memories.
   // A missing contradiction/provenance/expired record fails closed.

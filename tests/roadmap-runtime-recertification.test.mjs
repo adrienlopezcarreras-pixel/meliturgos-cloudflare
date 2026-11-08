@@ -58,6 +58,8 @@ test('every allowlisted recipe is a registered no-argument core diagnostic with 
     assert.equal(record.risk,'LOW',capability);assert.deepEqual(record.permissions,[],capability);
     if (['memory.contradiction.provenance.verify','windows.companion-live.verify','cloudflare.canary-rollback.verify'].includes(capability)) {
       await assert.rejects(() => bus.execute(capability,{}, {owner:'test',permissions:[]}), error => /^[A-Z_]*DB_UNAVAILABLE$/.test(error.code));
+    } else if (capability === 'policy.owner-stop.verify') {
+      await assert.rejects(() => bus.execute(capability,{}, {owner:'test',permissions:[]}), { code: 'OWNER_STOP_PROOF_DB_UNAVAILABLE' });
     } else if (capability === 'policy.zero-euro-governor.verify') {
       await assert.rejects(() => bus.execute(capability,{}, {owner:'test',permissions:[]}), { code: 'ZERO_EURO_RUNTIME_PROOF_REQUIRED' });
     } else assert.equal((await bus.execute(capability,{}, {owner:'test',permissions:[]})).ok,true,capability);
@@ -155,4 +157,29 @@ test('old COMPLETED work cannot discharge an orange obligation lacking a safe ru
   const state=await new AutonomySupervisor({repository:f.repository,roadmap:rows}).state();
   assert.equal(state.completedIds.includes('GEN2-33'),false);
   assert.deepEqual(state.outstandingRoadmapIds,['GEN2-33','ROADMAP-PROOF-GEN2-33']);
+});
+
+test('the normal MAX tick recertifies owner-stop through its real bus without changing owner control', async t => {
+  const f=await fixture(t,{id:'MEL-SEC-04'});
+  const {setAutonomyControl}=await import('../src/evolution/autonomy-control.js');
+  await setAutonomyControl(f.db,{paused:false,max_autonomy:true,source:'owner-ui',reason:'owner-max-autonomy'});
+  const snapshot=()=>f.db.prepare("SELECT * FROM dev_bridge_state WHERE bridge_id='mel-autonomy-control'").first();
+  const before=await snapshot(),network=[];
+  const result=await runAutonomyRuntimeTick(f.env,{repository:f.repository,maxAutonomy:true,epochMs:0,
+    fetchImpl:async(url,options={})=>{network.push({url:String(url),method:options.method||'GET'});throw Error('metadata unavailable');}});
+  assert.equal(result.runtime_recertification?.status,'VERIFIED');
+  assert.equal(result.job.status,'COMPLETED');
+  assert.equal(result.job.optional_context.roadmap_id,'MEL-SEC-04');
+  assert.ok(result.progress.events.includes('ROADMAP_RUNTIME_RECERTIFIED'));
+  const proof=result.job.result_json.runtime_recertification;
+  assert.equal(proof.capability,'policy.owner-stop.verify');
+  assert.equal(proof.deployed_sha,sha);
+  const audit=await f.db.prepare('SELECT details_json FROM audit_logs WHERE id=?').bind(proof.audit_id).first();
+  assert.equal(JSON.parse(audit.details_json).capability,'policy.owner-stop.verify');
+  assert.equal(isAcceptedRuntimeRecertificationJob(result.job),true);
+  assert.deepEqual(await snapshot(),before);
+  assert.equal((await f.repository.list()).length,1);
+  assert.ok(network.every(call=>call.method==='GET'));
+  const truth=await computeRoadmapTruth(f.db,[{items:[historical('MEL-SEC-04')]}]);
+  assert.equal(truth.items['MEL-SEC-04'].truth,'VERIFIED_LIVE');
 });

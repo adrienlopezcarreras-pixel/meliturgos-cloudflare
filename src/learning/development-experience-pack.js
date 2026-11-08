@@ -1145,12 +1145,15 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "task": "Préserver un arrêt propriétaire pendant une release malgré les écritures techniques de pause.",
     "input": "La release capture un état initial, écrit plusieurs pauses techniques, puis vérifie le contrôle final avant reprise.",
     "before": "Comparer uniquement la révision finale permet de reprendre après un arrêt propriétaire antérieur à cette vérification ; comparer uniquement le timestamp initial confond arrêt et pause technique.",
-    "after": "Conserver dans le contrôle canonique une version du choix propriétaire indépendante du compteur CAS ; les pauses de release la préservent, les actions propriétaire et sécurité la changent. Comparer le choix au snapshot pré-déploiement et conserver le CAS final atomique. Toute preuve absente ou périmée doit empêcher la reprise.",
+    "after": "Conserver dans le contrôle canonique une version du choix propriétaire indépendante du compteur CAS ; les pauses de release la préservent, les actions propriétaire et sécurité la changent. Comparer le choix au snapshot pré-déploiement et conserver le CAS final atomique. Toute preuve absente ou périmée doit empêcher la reprise. Persister un verrou owner_stopped qui survit aux écritures techniques : seuls les chemins explicites du propriétaire peuvent le lever. Les écritures automatiques utilisent le CAS du snapshot D1 brut, distinct de sa projection normalisée. Vérifier la politique partagée sur états isolés et son prédicat CAS réel par SELECT sans arrêter MAX pour produire une preuve.",
     "rationale": "Un compteur technique indique une écriture, pas sa cause. Deux horloges dans le même contrôle distinguent le changement de décision de la persistance technique sans créer un moteur de reprise concurrent.",
     "tests": [
       "tests/release-launch-bootstrap.test.mjs: owner stop before the final release snapshot cannot be reclassified as an old pause (red on b05e2cb2, green with guard)",
       "tests/autonomy-control.test.mjs: persisted owner intent survives repeated technical pauses; owner/safety stops advance version; legacy fallback",
-      "54 targeted autonomy control/API/bootstrap/recovery tests passed"
+      "54 targeted autonomy control/API/bootstrap/recovery tests passed",
+      "tests/owner-stop-automatic-writers.test.mjs: vrai SQLite, arrêt explicite et legacy, provenance technique, verrou persistant et reprise explicite",
+      "tests/roadmap-recertification-mel-sec-04.test.mjs: bus réel, CAS SELECT seul, reçu runtime et admission unique; 135 tests ciblés réussis le 08/11/2026",
+      "tests/roadmap-runtime-recertification.test.mjs: vrai tick MAX complet, policy.owner-stop.verify, audit corrélé, contrôle propriétaire inchangé; rouge sans recette, vert avec elle"
     ],
     "tags": [
       "release",
