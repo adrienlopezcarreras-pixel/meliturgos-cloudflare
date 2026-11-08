@@ -33,6 +33,7 @@ for(const url of ['/api/work/jobs','/api/gen2/shardvault/snapshot','/api/gen2/mi
   });
 }
 for(const [status,code] of [[403,'PERMISSION_DENIED'],[503,'SERVICE_UNAVAILABLE']]){
+  // Verify that GET actions also display refusal correctly.
   test('emitted UI displays the actual refusal without invented reference: '+status,async()=>{
     const ui=await browser(async()=>Response.json({ok:false,code},{status}));
     await assert.rejects(ui.send('/api/learning/lora/train'),new RegExp(code));
