@@ -50,7 +50,7 @@ test('cloud workflow writes approved bytes, runs real syntax/tests and publishes
   run(stepScript(workflow, 'Run exact bounded requested tests'));
   const receipt = JSON.parse(await readFile(path.join(cwd, 'bridge-apply-result.json'), 'utf8'));
   assert.equal(receipt.mode, 'GITHUB_CLOUD_BRIDGE');
-  assert.equal(receipt.needs_repair, false);
+  assert.equal(receipt.needs_repair, false, JSON.stringify(receipt.tests));
   assert.ok(receipt.tests.length >= 2 && receipt.tests.every(row => row.passed && row.exit_code === 0));
   // Execute the original commit/push block against the local remote. Stop
   // before its GitHub HTTP dispatch, which requires real OIDC/Actions identity.

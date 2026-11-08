@@ -2,7 +2,7 @@
 
 - `codex-roadmap-expiry-recertification-not-reimplementation-20261106` — recertifier tous les points sans preuve récente dans le créneau MAX; une recette absente ouvre un lot de code/test séparé, qui ne valide pas le point parent; compteurs alignés sur les preuves et le registre courant; preuves SQLite, pas une certification production.
 
-- `codex-single-flight-lifecycle-all-entrypoints-20261028` — une sélection de mission unique doit couvrir admission, Teacher, reprise PC, claims atomiques Bridge et UI ; les lectures actives respectent aussi l’époque propriétaire. Preuves locales mémoire/SQLite, production à vérifier.
+- `codex-single-flight-lifecycle-all-entrypoints-20261028` — une sélection de mission unique doit couvrir admission, Teacher, reprise PC, claims atomiques Bridge et UI ; les lectures actives respectent aussi l’époque propriétaire. Une évolution du périmètre exige une révision ciblée : la CI compare la vraie base PR, le runtime archive les anciens essais une seule fois sans relancer les autres objectifs. Preuves locales mémoire/SQLite, production à vérifier.
 
 - `codex-powershell-typed-null-atomic-config-20261021` — utiliser une vraie chaîne .NET nulle pour File.Replace sous Windows PowerShell ; conserver l’atomicité et tester le clic avec processus/configuration réels.
 

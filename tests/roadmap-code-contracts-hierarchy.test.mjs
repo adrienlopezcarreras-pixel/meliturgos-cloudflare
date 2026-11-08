@@ -168,3 +168,23 @@ test('passive roadmap hides exact-SHA accepted objectives but reopens regressed 
   assert.deepEqual(regressed.items.find(x=>x.id==='CHILD').unmet_prerequisites,[id]);
   assert.equal(accepted.result_json.roadmap_code_acceptance.status,'VERIFIED','no D1 proof changed');
 });
+
+for(const storage of ['memory','sqlite'])test(`UI06 scope revision archives exhausted old attempts once without reviving other objectives on ${storage}`,async t=>{
+  const DB=storage==='sqlite'?sqliteD1():null;if(DB)t.after(()=>DB.close());
+  const repository=new D1DevJobRepository(DB,{memoryStore:new Map()});
+  const old=await repository.create({id:'ui06-old-contract',requested_by:'mel-autonomy',goal:'Old UI control scope',optional_context:{roadmap_id:'MEL-UI-AUDIT-06',roadmap_contract_revision:ROADMAP_CODE_CONTRACT_REVISION}});
+  await repository.update(old.id,{status:'TEACHER_APPROVED',files_json:[{path:'src/professor-live-learning-entry.js',content:'rejected receipt wrapper'}],result_json:{dev_bridge:{status:'REPAIR_REQUIRED',needs_repair:true},autonomy_deferral:{code:'MENTOR_NO_VALID_CODE_PROPOSAL',attempts:3,max_attempts:3},runtime_retry:{attempts:1}}});
+  assert.deepEqual(await refreshRoadmapCodeMissions(repository,await repository.list(),canonical),[old.id]);
+  const current=await repository.get(old.id);
+  assert.notEqual(current.optional_context.roadmap_contract_revision,ROADMAP_CODE_CONTRACT_REVISION);
+  assert.equal(current.optional_context.roadmap_contract_revision,roadmapContractRevision('MEL-UI-AUDIT-06'));
+  assert.equal(current.result_json.superseded_code_contract.deferral.attempts,3);
+  assert.equal(current.result_json.superseded_code_contract.runtime_retry.attempts,1);
+  assert.equal(current.result_json.superseded_code_contract.files[0].content,'rejected receipt wrapper');
+  assert.equal(current.result_json.autonomy_deferral,undefined);
+  assert.equal(current.status,'WAITING_DEPENDENCY');assert.equal(current.approval_status,'PENDING');
+  assert.match(current.goal,/action-receipt-runtime\.js/);assert.match(current.goal,/ui-action-receipts\.test\.mjs/);
+  assert.equal(roadmapContractRevision('MEL-UI-AUDIT-01'),ROADMAP_CODE_CONTRACT_REVISION);
+  assert.equal(roadmapContractRevision('MEL-FOUNDER-01'),ROADMAP_CODE_CONTRACT_REVISION);
+  assert.deepEqual(await refreshRoadmapCodeMissions(repository,await repository.list(),canonical),[]);
+});
