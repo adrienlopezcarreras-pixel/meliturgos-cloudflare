@@ -245,6 +245,10 @@ export async function setAutonomyControl(db, {
     ? max_autonomy
     : (typeof owner_override === 'boolean' ? owner_override : current.max_autonomy === true);
   const nextMax = nextPaused ? false : requestedMax;
+  // Initial supervised mode is not an emergency shutdown. Latch a MAX-off
+  // decision only when it actually disables a previously enabled/remembered MAX.
+  const ownerDisabledMax = (max_autonomy === false || owner_override === false)
+    && (current.max_autonomy === true || current.max_remembered === true);
   if (current.repair_invalid && repair === undefined && source !== 'owner-ui')
     throw Object.assign(new Error('AUTONOMY_REPAIR_SCOPE_INVALID'), {code:'AUTONOMY_REPAIR_SCOPE_INVALID',status:409});
   const nextRepair = repair === undefined
@@ -257,7 +261,7 @@ export async function setAutonomyControl(db, {
   const updatedAt = Math.max(Date.now(), Number(current.updated_at || 0) + 1);
   const next = {
     paused: nextPaused,
-    ...((ownerActor ? nextPaused || max_autonomy === false || owner_override === false : ownerStopped) ? { owner_stopped: true } : {}),
+    ...((ownerActor ? nextPaused || ownerDisabledMax : ownerStopped) ? { owner_stopped: true } : {}),
     repair: nextRepair, repair_invalid: false,
     max_autonomy: nextMax,
     max_remembered: nextMax || (releasePause && !protectedPause && rememberedReleaseMax(current)),

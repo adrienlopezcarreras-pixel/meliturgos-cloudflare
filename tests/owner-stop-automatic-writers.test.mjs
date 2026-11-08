@@ -71,3 +71,12 @@ test('a concurrent owner stop wins over an automatic restore without caller-supp
   assert.equal(current.max_autonomy, false);
   assert.equal(current.reason, 'owner-stop');
 });
+
+test('initial supervised mode remains running without an owner shutdown latch', async t => {
+  const db = sqliteD1(); t.after(() => db.close());
+  await setAutonomyControl(db, { paused: false, max_autonomy: false, source: 'owner-ui' });
+  const current = await getAutonomyControl(db);
+  assert.equal(current.paused, false);
+  assert.equal(current.status, 'RUNNING');
+  assert.notEqual(current.owner_stopped, true);
+});
