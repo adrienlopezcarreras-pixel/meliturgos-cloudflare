@@ -16,7 +16,7 @@ test('autonomy emergency pause persists only in explicitly injected fallback sta
   assert.equal(tick.paused, true);
   assert.equal(tick.advanced, false);
 
-  const resumed = await setAutonomyControl(null, { paused: false, source: 'owner-ui', reason: null, memoryState: autonomyControlState });
+  const resumed = await setAutonomyControl(null, { paused: false, source: 'test', reason: null, memoryState: autonomyControlState });
   assert.equal(resumed.paused, false);
   assert.equal((await getAutonomyControl(null, { memoryState: autonomyControlState })).status, 'RUNNING');
   resetAutonomyControlForTests(autonomyControlState);
@@ -36,12 +36,12 @@ test('emergency pause dominates MAX and resume stays normal until MAX is explici
   assert.equal(paused.owner_override, false);
   assert.equal(paused.status, 'PAUSED');
 
-  const resumed = await setAutonomyControl(null, { paused: false, source: 'owner-ui', reason: null, memoryState: autonomyControlState });
+  const resumed = await setAutonomyControl(null, { paused: false, source: 'test', reason: null, memoryState: autonomyControlState });
   assert.equal(resumed.paused, false);
   assert.equal(resumed.max_autonomy, false);
   assert.equal(resumed.status, 'RUNNING');
 
-  const maximumAgain = await setOwnerMaxAutonomy(null, { enabled: true, paused: false, source: 'owner-ui', memoryState: autonomyControlState });
+  const maximumAgain = await setOwnerMaxAutonomy(null, { enabled: true, paused: false, source: 'test', memoryState: autonomyControlState });
   assert.equal(maximumAgain.max_autonomy, true);
   assert.equal(maximumAgain.status, 'MAX_AUTONOMY');
   resetAutonomyControlForTests(autonomyControlState);
@@ -204,7 +204,6 @@ test('legacy MAX disabled by owner is reconciled into a durable pause before any
     // Reproduce the pre-fix /max {enabled:false} metadata written in production.
     await setOwnerMaxAutonomy(db, { enabled: true, paused: false, source: 'owner-ui-launch-gate', reason: 'owner-max-autonomy' });
     const legacy = await setOwnerMaxAutonomy(db, { enabled: false, source: 'owner-ui', reason: null });
-    await db.prepare("UPDATE dev_bridge_state SET metadata_json=json_remove(metadata_json,'$.owner_stopped') WHERE bridge_id='mel-autonomy-control'").run();
     assert.equal(legacy.paused, false);
     assert.equal(legacy.max_autonomy, false);
     assert.equal(isLegacyOwnerMaxStop(legacy), true);

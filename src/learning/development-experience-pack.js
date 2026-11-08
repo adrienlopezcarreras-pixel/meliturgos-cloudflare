@@ -1145,14 +1145,12 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "task": "Préserver un arrêt propriétaire pendant une release malgré les écritures techniques de pause.",
     "input": "La release capture un état initial, écrit plusieurs pauses techniques, puis vérifie le contrôle final avant reprise.",
     "before": "Comparer uniquement la révision finale permet de reprendre après un arrêt propriétaire antérieur à cette vérification ; comparer uniquement le timestamp initial confond arrêt et pause technique.",
-    "after": "Conserver dans le contrôle canonique une version du choix propriétaire indépendante du compteur CAS ; les pauses de release la préservent, les actions propriétaire et sécurité la changent. Comparer le choix au snapshot pré-déploiement et conserver le CAS final atomique. Toute preuve absente ou périmée doit empêcher la reprise. Persister un verrou owner_stopped qui survit aux écritures techniques : seuls les chemins explicites du propriétaire peuvent le lever. Les écritures automatiques utilisent le CAS du snapshot D1 brut, distinct de sa projection normalisée. Vérifier la politique partagée sur états isolés et son prédicat CAS réel par SELECT sans arrêter MAX pour produire une preuve.",
+    "after": "Conserver dans le contrôle canonique une version du choix propriétaire indépendante du compteur CAS ; les pauses de release la préservent, les actions propriétaire et sécurité la changent. Comparer le choix au snapshot pré-déploiement et conserver le CAS final atomique. Toute preuve absente ou périmée doit empêcher la reprise.",
     "rationale": "Un compteur technique indique une écriture, pas sa cause. Deux horloges dans le même contrôle distinguent le changement de décision de la persistance technique sans créer un moteur de reprise concurrent.",
     "tests": [
       "tests/release-launch-bootstrap.test.mjs: owner stop before the final release snapshot cannot be reclassified as an old pause (red on b05e2cb2, green with guard)",
       "tests/autonomy-control.test.mjs: persisted owner intent survives repeated technical pauses; owner/safety stops advance version; legacy fallback",
-      "54 targeted autonomy control/API/bootstrap/recovery tests passed",
-      "tests/owner-stop-automatic-writers.test.mjs: vrai SQLite, arrêt explicite et legacy, provenance technique, verrou persistant et reprise explicite",
-      "tests/roadmap-recertification-mel-sec-04.test.mjs: bus réel, CAS SELECT seul, reçu runtime et admission unique; 135 tests ciblés réussis le 08/11/2026"
+      "54 targeted autonomy control/API/bootstrap/recovery tests passed"
     ],
     "tags": [
       "release",
@@ -1712,12 +1710,14 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "task": "Vérifier une lecture GitHub critique dans le runtime Workers réel sans affaiblir les preuves ni le confinement du jeton.",
     "input": "Le vérificateur de release échoue avec RUN_FETCH_FAILED avant toute réponse HTTP, alors que ses mocks Node passent.",
     "before": "Les mocks Node acceptent redirect:error, mais Workers lève un TypeError avant tout envoi réseau ; des redéploiements identiques ne corrigent pas cette incompatibilité.",
-    "after": "Tester les options du transport critique sous workerd. Employer un mode de redirection supporté et refuser explicitement les 3xx ; conserver URL fixe, timeout et vérification intégrale des preuves pour empêcher tout transfert du jeton vers une redirection.",
+    "after": "Tester chaque consommateur du transport critique sous workerd : lectures RUN, JOBS et comparaison de descendant COMPARE. Les centraliser dans un même lecteur GitHub borné pour éviter qu’un correctif local laisse un autre chemin cassé. Employer un mode de redirection supporté et refuser explicitement les 3xx ; conserver URL fixe, timeout et vérification intégrale des preuves pour empêcher tout transfert du jeton vers une redirection.",
     "rationale": "Une exception pré-HTTP peut être une incompatibilité locale du runtime plutôt qu’une panne réseau ; la reproduction workerd distingue les deux sans lire ni exposer les secrets.",
     "tests": [
       "tests/verified-repair-workers-transport.test.mjs: vérificateur réel exécuté sous workerd, deux lectures GitHub locales exactes",
       "tests/verified-repair-workers-transport.test.mjs: refus RUN/JOBS 301/302/303/307/308 sans suivi ni fuite du jeton",
-      "reproduction locale b51b7345d: RUN_FETCH_FAILED et zéro requête émise ; preuve locale uniquement, aucune certification production"
+      "reproduction locale b51b7345d: RUN_FETCH_FAILED et zéro requête émise ; preuve locale uniquement, aucune certification production",
+      "release42480989260 : REPAIR_COMPARE_FETCH_FAILED avant correction du second lecteur; test workerd réel reproduit zéro requête HTTP, puis valide RUN/JOBS/COMPARE et les 15 redirections refusées",
+      "tests/repair-proof-workers-transport.test.mjs : transport partagé, URL GitHub fixe et aucun transfert de jeton; aucune certification production annoncée avant déploiement"
     ],
     "tags": [
       "workers",

@@ -242,7 +242,9 @@ test('descendant compare requires complete immutable ancestry and unchanged miss
   acceptedSha,deployedSha,protectedPaths,token,
   fetchImpl:async(url,request)=>{
    assert.ok(url.includes(acceptedSha+'...'+deployedSha));
-   assert.ok(request.headers.Authorization.includes(token));
+   assert.equal(new Headers(request.headers).get('authorization'),'Bearer '+token);
+   assert.equal(request.redirect,'manual');
+   assert.ok(new Headers(request.headers).get('user-agent'));
    return Response.json(data,options);
   },
  });

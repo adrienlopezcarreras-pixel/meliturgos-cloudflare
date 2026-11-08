@@ -1,3 +1,4 @@
+import { readRepairGitHubJson } from './repair-github-json.js';
 // Read-only verification of the *current* canonical release. The caller must
 // authenticate GitHub OIDC before supplying its ephemeral read-only token.
 const REPOSITORY = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
@@ -16,18 +17,9 @@ export async function verifyRepairRelease({oidc, deployedSha, token, fetchImpl=f
       || !/^[a-f0-9]{40}$/.test(String(deployedSha||''))
       || !Number.isSafeInteger(identity.run_id) || identity.run_id<=0 || !token) return denied('IDENTITY_OR_TOKEN_INVALID');
   const read=async (suffix,stage)=>{
-    let response;
-    try {
-      response=await fetchImpl(`https://api.github.com/repos/${REPOSITORY}/actions/runs/${identity.run_id}${suffix}`,{
-      // Workers rejects redirect:'error' with a TypeError before any HTTP
-      // request. Manual mode keeps the bearer on the fixed GitHub URL; the
-      // non-ok check below rejects every 3xx without following Location.
-      redirect:'manual', signal:AbortSignal.timeout(15000),
-      headers:{accept:'application/vnd.github+json',authorization:`Bearer ${token}`,'user-agent':'MEL-verified-repair-release'},
-      });
-    }catch {throw new Error(`${stage}_FETCH_FAILED`);}
-    if(!response?.ok)throw new Error(`${stage}_HTTP_${Number(response?.status)||0}`);
-    try{return await response.json();}catch{throw new Error(`${stage}_JSON_INVALID`);}
+    const result=await readRepairGitHubJson(`actions/runs/${identity.run_id}${suffix}`,{token,fetchImpl});
+    if(!result.ok)throw new Error(`${stage}_${result.code}`);
+    return result.data;
   };
   try {
     const run=await read('','RUN');

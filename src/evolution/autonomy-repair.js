@@ -1,3 +1,4 @@
+import { readRepairGitHubJson } from './repair-github-json.js';
 import {getAutonomyControl,setAutonomyControl,ownerControlVersion,normalizeRepairLane} from './autonomy-control.js';
 import {isAcceptedRoadmapCodeJob} from '../roadmap/roadmap-code-acceptance.js';
 
@@ -81,12 +82,9 @@ export async function diagnoseUnchangedRepairDescendant({acceptedSha,deployedSha
    ||protectedPaths.some(p=>typeof p!=='string'||p.length>240||p.startsWith('/')||p.split('/').some(x=>x==='..'||x==='.'||!x))
    ||typeof token!=='string'||token.length<8)return bad('REPAIR_COMPARE_INPUT_INVALID');
  try {
-  const url='https://api.github.com/repos/adrienlopezcarreras-pixel/meliturgos-cloudflare/compare/'
-    +acceptedSha+'...'+deployedSha;
-  const res=await fetchImpl(url,{headers:{Authorization:'Bearer '+token,Accept:'application/vnd.github+json'},redirect:'error',signal:AbortSignal.timeout(15000)});
-  if(!res.ok)return bad('REPAIR_COMPARE_HTTP_'+String(res.status).padStart(3,'0'));
-  let data;
-  try { data=await res.json(); }catch { return bad('REPAIR_COMPARE_JSON_INVALID'); }
+  const read=await readRepairGitHubJson('compare/'+acceptedSha+'...'+deployedSha,{token,fetchImpl});
+  if(!read.ok)return bad('REPAIR_COMPARE_'+read.code);
+  const data=read.data;
   if(data?.status!=='ahead'||!Number.isInteger(data.ahead_by)||data.ahead_by<1||data.behind_by!==0)
    return bad('REPAIR_COMPARE_ANCESTRY_INVALID');
   // The GitHub Compare endpoint may return partial evidence. Refuse it.

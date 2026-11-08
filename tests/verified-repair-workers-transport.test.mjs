@@ -77,14 +77,17 @@ for(const stage of ['RUN','JOBS'])for(const kind of ['timeout','connection','unk
 
 test('actual Workers runtime executes the verifier without unsupported redirect options or external traffic',async()=>{
   const {readFile}=await import('node:fs/promises');
+  const {build}=await import('esbuild');
+  const {fileURLToPath}=await import('node:url');
   const {Miniflare,convertV4MiniflareOptions}=await import('miniflare');
   const source=await readFile(new URL('../src/evolution/verified-repair-release.js',import.meta.url),'utf8');
   const f=fixture(),calls=[];
+  const bundled=await build({stdin:{contents:source+'\nexport default {async fetch(){return Response.json(await verifyRepairRelease('+JSON.stringify({oidc:f.oidc,deployedSha:f.deployedSha,token:f.token})+'));}}',resolveDir:fileURLToPath(new URL('../src/evolution/',import.meta.url))},bundle:true,write:false,format:'esm',platform:'browser',target:'es2022'});
   const options={
     modules:true,
     compatibilityDate:'2026-09-04',
     cf:false,
-    script:source+'\nexport default {async fetch(){return Response.json(await verifyRepairRelease('+JSON.stringify({oidc:f.oidc,deployedSha:f.deployedSha,token:f.token})+'));}}',
+    script:bundled.outputFiles[0].text,
     outboundService:async request=>{
       calls.push({url:request.url,authorization:request.headers.get('authorization')});
       assert.ok([ROOT,ROOT+'/jobs?per_page=100'].includes(request.url),'only the two fixed GitHub reads may leave the worker');
