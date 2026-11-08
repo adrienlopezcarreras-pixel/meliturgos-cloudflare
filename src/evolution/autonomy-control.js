@@ -161,6 +161,13 @@ function readMemoryControl(memoryState) {
   return control;
 }
 
+// The public getter retains migration behavior; verification uses the separate
+// read-only reader below. Each public function has one declaration/export.
+export async function getAutonomyControl(db, { memoryState = null } = {}) {
+  if (db) await migrate(db);
+  return readAutonomyControl(db, { memoryState });
+}
+
 export async function readAutonomyControl(db, { memoryState = null } = {}) {
   if (!db) return readMemoryControl(memoryState);
   const row = await db.prepare('SELECT status,last_seen,metadata_json FROM dev_bridge_state WHERE bridge_id=?')
@@ -195,11 +202,6 @@ export async function readAutonomyControl(db, { memoryState = null } = {}) {
   };
   Object.defineProperty(control, storedCas, { value: [CONTROL_ID, row.last_seen, row.status, metadata.source] });
   return control;
-}
-
-export async function getAutonomyControl(db, options = {}) {
-  if (db) await migrate(db);
-  return readAutonomyControl(db, options);
 }
 
 export async function setAutonomyControl(db, {
