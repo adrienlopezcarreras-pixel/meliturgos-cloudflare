@@ -43,3 +43,48 @@ export function isAcceptedRoadmapCodeJob(job) {
   return JSON.stringify(proof.code_paths) === JSON.stringify(contract.code_paths)
     && JSON.stringify(proof.test_paths) === JSON.stringify(contract.test_paths);
 }
+
+/**
+ * Explain which immutable acceptance gate is missing, without revealing D1 job
+ * identity, provider data, source paths, SHA, private reviews or receipts.
+ * This is observational only; it cannot change an acceptance decision.
+ */
+export function diagnoseRoadmapCodeAcceptance(job) {
+  const contract=codeContractForRoadmapJob(job);
+  if(!contract)return 'REPAIR_ACCEPTANCE_CONTRACT_MISSING';
+  if(job.status!=='COMPLETED')return 'REPAIR_ACCEPTANCE_JOB_NOT_COMPLETED';
+  const id=job.optional_context?.roadmap_id,revision=roadmapContractRevision(id);
+  if(job.optional_context?.roadmap_contract_revision!==revision)return 'REPAIR_ACCEPTANCE_CONTRACT_REVISION_STALE';
+  const result=job.result_json,proof=result?.roadmap_code_acceptance,completion=result?.autonomy_completion,ci=completion?.ci;
+  if(proof?.schema!=='mel.roadmap-code-acceptance/v1'||proof.status!=='VERIFIED')
+    return 'REPAIR_ACCEPTANCE_RECEIPT_MISSING';
+  if(proof.roadmap_id!==id||proof.contract_revision!==revision)
+    return 'REPAIR_ACCEPTANCE_RECEIPT_REVISION_MISMATCH';
+  if(!/^[a-f0-9]{40}$/.test(String(proof.candidate_sha||''))||
+     !Number.isSafeInteger(proof.ci_run_id)||proof.ci_run_id<=0)
+    return 'REPAIR_ACCEPTANCE_RECEIPT_IDENTITY_INVALID';
+  if(completion?.status!=='VERIFIED'||completion.candidate_sha!==proof.candidate_sha)
+    return 'REPAIR_ACCEPTANCE_COMPLETION_UNVERIFIED';
+  if(ci?.verified!==true||ci.workflow!=='full-candidate-ci'||ci.conclusion!=='success'||
+     ci.head_sha!==proof.candidate_sha||ci.run_id!==proof.ci_run_id)
+    return 'REPAIR_ACCEPTANCE_CI_UNVERIFIED';
+  if(!/^candidate\//.test(String(proof.candidate_branch||''))||
+     ci.head_branch!==proof.candidate_branch||completion.candidate_branch!==proof.candidate_branch)
+    return 'REPAIR_ACCEPTANCE_BRANCH_MISMATCH';
+  if(completion.mel_implementation?.verified!==true||
+     !Number.isInteger(completion.mel_implementation.providers_attempted)||
+     completion.mel_implementation.providers_attempted<2)
+    return 'REPAIR_ACCEPTANCE_IMPLEMENTATION_UNVERIFIED';
+  const verifiedExisting=proof.verification==='VERIFY_EXISTING'&&
+    result?.verify_existing?.status==='VERIFIED'&&
+    result.verify_existing.candidate_sha===proof.candidate_sha;
+  if(!verifiedExisting) {
+    try{assertRoadmapCodeChanges(job,job.files_json);}
+    catch{return 'REPAIR_ACCEPTANCE_CODE_SCOPE_UNVERIFIED';}
+  }
+  if(JSON.stringify(proof.code_paths)!==JSON.stringify(contract.code_paths)||
+     JSON.stringify(proof.test_paths)!==JSON.stringify(contract.test_paths))
+    return 'REPAIR_ACCEPTANCE_PROTECTED_PATHS_MISMATCH';
+  // Keep the canonical predicate authoritative if its contract evolves.
+  return isAcceptedRoadmapCodeJob(job)?null:'REPAIR_ACCEPTANCE_UNCLASSIFIED';
+}
