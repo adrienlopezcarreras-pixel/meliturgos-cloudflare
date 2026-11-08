@@ -61,6 +61,7 @@ function boundedNumber(value, min, max) {
 const COUNCIL_NON_REASONING_MODELS = new Set([
   '@cf/google/gemma-4-26b-a4b-it',
   '@cf/nvidia/nemotron-3-120b-a12b',
+  '@cf/zai-org/glm-4.7-flash',
 ]);
 
 const RESERVED_COUNCIL_PURPOSES = new Set([
@@ -89,7 +90,7 @@ function inferenceOptions(context = {}, modelId = '') {
     if (topP != null) out.top_p = topP;
     if (maxTokens != null) out.max_tokens = Math.round(maxTokens);
   }
-  // Cloudflare documents enable_thinking=false for Gemma 4 and Nemotron 3.
+  // Cloudflare documents enable_thinking=false for Gemma 4, Nemotron 3 and GLM 4.7.
   // Council probes and Mentor code proposals need the visible answer, not a
   // reasoning trace that leaves response empty. Ordinary chat is unchanged.
   if (

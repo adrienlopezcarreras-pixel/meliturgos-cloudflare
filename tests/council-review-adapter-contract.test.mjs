@@ -58,3 +58,22 @@ test('a fenced final JSON rejection preserves quoted channel markers as blocking
   assert.equal(result.decision, 'REJECTED');
   assert.ok(result.reviews.every(review => review.blocking[0] === 'Incorrect <|channel|>final handling'));
 });
+
+
+test('the full sensitive Council can obtain three visible votes while unanswered seats remain unanswered', async () => {
+  const models = ['@cf/google/gemma-4-26b-a4b-it', '@cf/nvidia/nemotron-3-120b-a12b',
+    '@cf/openai/gpt-oss-120b', '@cf/meta/llama-3.3-70b-instruct-fp8-fast', '@cf/zai-org/glm-4.7-flash'];
+  const calls = [];
+  const env = { AI: { async run(model, params) {
+    calls.push({ model, params });
+    return { response: params.chat_template_kwargs?.enable_thinking === false ? approve : '' };
+  } } };
+  const sensitive = 'diff --git a/src/security/example.js b/src/security/example.js\n+export const ready = true;\n';
+  const result = await runCouncilReview(env, { diff: sensitive, models });
+  assert.equal(result.decision, 'APPROVED');
+  assert.equal(result.reviews.filter(row => row.verdict === 'APPROVE').length, 3);
+  assert.equal(result.reviews.filter(row => row.verdict === null).length, 2);
+  assert.equal(calls.length, 5);
+  assert.deepEqual(calls.find(row => row.model.includes('glm-4.7')).params.chat_template_kwargs, { enable_thinking: false });
+  assert.ok(calls.every(row => row.params.max_tokens === 2400 && row.params.neuron_reserve === true));
+});
