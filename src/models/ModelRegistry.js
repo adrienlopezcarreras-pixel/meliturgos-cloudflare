@@ -46,13 +46,13 @@ export class ModelRegistry {
 
 // Configured IDs only. Availability deliberately remains UNKNOWN until a real successful call.
 export const standardRegistry = new ModelRegistry([
-  // Best free Workers AI model (120B open-weight reasoning, ~128k context); the others remain the fallback chain.
-  // MAX codes only with code-specialised models. Small ones first; the large
-  // ones (CODE_LARGE) spend far more of the free daily quota and are used only
-  // after three failed attempts (see MentorEngine._providers). Kimi K2.7 Code,
-  // GLM-5.3, GLM-5.3 Flash and DeepSeek V4 need the Workers Paid plan: on this
-  // free account GLM-5.3 Flash only returned empty answers or timeouts (25/10).
-  // gpt-oss-120b is the largest free model that writes code; it takes over.
+  // Registry labels and cost=0 are configuration, never authorization.
+  // Mentor prefers the owner's eligible TOP_MODELS with CODE capability;
+  // CODE_SPECIALIST/CODE_LARGE remain classifications, not an extra gate
+  // excluding a configured top fallback. Ordinary generation tries coders
+  // sequentially; difficult repairs retain the independent code Council.
+  // Every actual call still requires fresh zero-cost provenance, so a model
+  // needing a paid plan cannot become free merely by appearing here.
   { id: '@cf/qwen/qwen2.5-coder-32b-instruct', capabilities: ['CODE_SPECIALIST'], priority: 60, cost: 0 },
   { id: '@cf/openai/gpt-oss-120b', capabilities: ['GENERAL', 'REASONING', 'CODE', 'CODE_SPECIALIST', 'CODE_LARGE', 'FALLBACK'], priority: 50, cost: 0 },
   { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', capabilities: ['GENERAL', 'REASONING', 'CODE', 'FALLBACK'], priority: 40, cost: 0 },
