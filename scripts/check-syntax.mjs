@@ -1,3 +1,4 @@
+import { checkPullRequestContractRevisions } from './check-roadmap-contract-revisions.mjs';
 import { readdir, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { builtinModules } from 'node:module';
@@ -62,6 +63,9 @@ for (const file of files.filter(f => f === 'worker.js' || f.startsWith('src' + '
   failures += 1;
   process.stderr.write(`\nUnresolved import in ${file}: ${missing.join(', ')}\n`);
 }
+
+try { await checkPullRequestContractRevisions(); }
+catch (error) { failures += 1; console.error(error.message); }
 
 if (failures > 0) {
   console.error(`\n${failures} syntax/import check failure(s) across ${files.length} JavaScript modules.`);
