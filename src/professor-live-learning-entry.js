@@ -1,3 +1,4 @@
+import { acquireD1WorkRunLease, releaseD1WorkRunLease } from './work/d1-work-run-lease.js';
 import { maybeHandleArchitectureAuditInternal } from './diagnostics/architecture-audit-store.js';
 import app from './ui-entry.js';
 import { selectLatestCheckpointRelease, runLoraTrainingHeartbeat } from './learning/lora-training-heartbeat.js';
@@ -73,7 +74,7 @@ async function experimentalGitHub(request,env,method,url,body){
   if(!token)return {denied:json({ok:false,error:'GITHUB_DISPATCH_TOKEN_NOT_CONFIGURED'},503)};
   try{
     const response=await fetch(url,{
-      method,headers:{'accept':'application/vnd.github+json','authorization':'Bearer '+token,'user-agent':'mel-professor-training/1.0','content-type':'application/json'},
+      method,redirect:'manual',headers:{'accept':'application/vnd.github+json','authorization':'Bearer '+token,'user-agent':'mel-professor-training/1.0','content-type':'application/json'},
       ...(body?{body:JSON.stringify(body)}:{})
     });
     const data=response.status===204?{}:await response.json().catch(()=>({}));
@@ -81,10 +82,7 @@ async function experimentalGitHub(request,env,method,url,body){
     return {data};
   }catch{return {denied:json({ok:false,error:'GITHUB_TRAINING_API_UNREACHABLE'},503)};}
 }
-async function experimentalTrainingResponse(request,env){
-  const body=await safeJsonBody(request);
-  const track=experimentalTrack(body.track);
-  if(!track||!['preflight','gpu'].includes(body.mode))return json({ok:false,error:'UNSUPPORTED_EXPERIMENTAL_TRACK_OR_MODE'},400);
+async function dispatchExperimentalTraining(request,env,body,track,markDispatchAttempt){
   if(body.mode==='gpu'){
     if(track!=='qwen3')return json({ok:false,error:'ABLITERATION_GPU_DISPATCH_NOT_CONFIGURED',gpu_training_performed:false,runner:'scripts/abliteration-gpu-runner.py',required_inputs:['reviewed config JSON','positive dataset','negative dataset','matching SHA-256 digests','GPU with >=40 GiB VRAM'],next_step:'Configure an approved GPU execution backend and reviewed dataset files before enabling dispatch. The runner is present in main but cannot yet be launched by this endpoint.',checkpoint_verified:false,model_activated:false},409);
     const slug=String(env?.MEL_QWEN_KAGGLE_DATASET_SLUG||'').trim();
@@ -97,6 +95,7 @@ async function experimentalTrainingResponse(request,env){
     const ongoing=(active.data?.workflow_runs||[]).find(run=>
       ['queued','in_progress','waiting','requested','pending'].includes(run.status));
     if(ongoing)return json({ok:true,dispatched:false,status:'QWEN_GPU_CHAIN_ALREADY_RUNNING',run_id:ongoing.id,run_url:ongoing.html_url,gpu_training_performed:false});
+    markDispatchAttempt();
     const dispatch=await experimentalGitHub(request,env,'POST',api+'/dispatches',{ref:'main',inputs:{dataset_slug:slug}});
     if(dispatch.denied)return dispatch.denied;
     return json({ok:true,dispatched:true,status:'QWEN_KAGGLE_GPU_DISPATCH_ACCEPTED',track:'qwen3',mode:'gpu',gpu_training_performed:false,
@@ -119,9 +118,31 @@ async function experimentalTrainingResponse(request,env){
     if(names.includes('preflight-'+track)||names.length===0){existing=run;break;}
   }
   if(existing)return json({ok:true,dispatched:false,status:'TRAINING_PREFLIGHT_ALREADY_RUNNING_OR_UNVERIFIED',run_id:existing.id,run_url:existing.html_url});
+  markDispatchAttempt();
   const dispatched=await experimentalGitHub(request,env,'POST',api+'/dispatches',{ref:'main',inputs:{track,mode:'preflight'}});
   if(dispatched.denied)return dispatched.denied;
   return json({ok:true,dispatched:true,status:'PREFLIGHT_DISPATCH_ACCEPTED',track,mode:'preflight',gpu_training_performed:false,workflow_url:'https://github.com/'+FREE_LORA_GITHUB_REPO+'/actions/workflows/'+EXPERIMENTAL_TRAINING_WORKFLOW});
+}
+// The GitHub run index is eventually consistent. Keep the atomic lease after
+// any dispatch attempt, including a lost acknowledgement, to bridge that gap.
+async function experimentalTrainingResponse(request,env){
+  const auth=requireAuth(request,env);if(!auth.ok)return auth.response;
+  const body=await safeJsonBody(request),track=experimentalTrack(body.track);
+  if(!track||!['preflight','gpu'].includes(body.mode))return json({ok:false,error:'UNSUPPORTED_EXPERIMENTAL_TRACK_OR_MODE'},400);
+  // Configuration refusals do not need a database or any external request.
+  if(body.mode==='gpu'&&(track!=='qwen3'||!String(env?.MEL_QWEN_KAGGLE_DATASET_SLUG||'').trim().match(/^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/)))
+    return dispatchExperimentalTraining(request,env,body,track,()=>{});
+  if(!String(env?.MEL_GITHUB_TOKEN||'').trim())return json({ok:false,error:'GITHUB_DISPATCH_TOKEN_NOT_CONFIGURED'},503);
+  let lease,attempted=false;
+  try{
+    lease=await acquireD1WorkRunLease(env.DB,'experimental-training:'+track+':'+body.mode,{ttlMs:60000});
+    if(!lease)return json({ok:true,dispatched:false,status:'TRAINING_LAUNCH_PENDING',track,mode:body.mode,gpu_training_performed:false},202);
+    return await dispatchExperimentalTraining(request,env,body,track,()=>{attempted=true;});
+  }catch{
+    return json({ok:false,error:'TRAINING_LAUNCH_GUARD_UNAVAILABLE',gpu_training_performed:false},503);
+  }finally{
+    if(lease&&!attempted)await releaseD1WorkRunLease(env.DB,lease).catch(()=>{});
+  }
 }
 async function qwenGpuWorkflowStatus(request,env){
   const auth=requireAuth(request,env);if(!auth.ok)return auth.response;
