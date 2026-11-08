@@ -1,6 +1,12 @@
 import { migrate } from '../persistence/migrations.js';
 
+const storedCas = Symbol('autonomy-control-stored-cas');
+export function autonomyControlCasValues(control) {
+  return control[storedCas] || [CONTROL_ID, Number(control.updated_at), control.status, control.source];
+}
+
 const CONTROL_ID = 'mel-autonomy-control';
+export const AUTONOMY_CONTROL_CAS_PREDICATE = "bridge_id=? AND last_seen=? AND status=? AND json_extract(metadata_json,'$.source')=?";
 
 export function isReleaseAutonomyPause(control) {
   return control?.paused === true
@@ -16,6 +22,7 @@ export function isReleaseAutonomyPause(control) {
 // The pause stays; only the owner's intent now survives it.
 export const ROLLBACK_PAUSE_SOURCE = 'release-rollback-restore';
 export const ROLLBACK_PAUSE_REASON = 'restore-predeploy-autonomy-state';
+export const AUTOMATIC_AUTONOMY_CONTROL_SOURCES = Object.freeze(['bridge-repair-lane','verified-release-restore','verified-repair-completed','rollback-auto-resume','autonomous-launch-bind',ROLLBACK_PAUSE_SOURCE]);
 // A failed release rolls MAX back; MAX then resumes by itself. The only stop
 // that is never auto-resumed is one the OWNER sets by hand — their kill switch
 // must always win (MEL-SEC-04). The deploy pipeline (CI + Council review +
@@ -32,7 +39,8 @@ export function isRollbackAutonomyPause(control) {
 
 // An owner stop is the only pause MAX must not undo by itself.
 export function isOwnerAutonomyStop(control) {
-  return control?.source === 'owner-ui'
+  return control?.owner_stopped === true
+    || control?.source === 'owner-ui'
     || control?.reason === 'owner-emergency-stop'
     || control?.reason === 'owner-stop'
     || control?.reason === 'owner-pause';
@@ -147,15 +155,14 @@ function readMemoryControl(memoryState) {
     control.repair_invalid=!lane || lane.owner_control_version!==ownerControlVersion(control);
     control.repair=lane;
   }
-  if (control.paused === true) {
-    return { ...control, max_autonomy: false, owner_override: false, status: 'PAUSED' };
+  if (control.paused === true || control.owner_stopped === true) {
+    return { ...control, paused: true, max_autonomy: false, owner_override: false, status: 'PAUSED' };
   }
   return control;
 }
 
-export async function getAutonomyControl(db, { memoryState = null } = {}) {
+export async function readAutonomyControl(db, { memoryState = null } = {}) {
   if (!db) return readMemoryControl(memoryState);
-  await migrate(db);
   const row = await db.prepare('SELECT status,last_seen,metadata_json FROM dev_bridge_state WHERE bridge_id=?')
     .bind(CONTROL_ID)
     .first();
@@ -163,11 +170,12 @@ export async function getAutonomyControl(db, { memoryState = null } = {}) {
 
   const metadata = parseMetadata(row.metadata_json);
   const status = String(row.status || 'RUNNING').toUpperCase();
-  const paused = status === 'PAUSED' || metadata.paused === true;
+  const paused = status === 'PAUSED' || metadata.paused === true || metadata.owner_stopped === true;
   const storedMaxAutonomy = metadata.max_autonomy === true || metadata.owner_override === true || status === 'MAX_AUTONOMY';
   const maxAutonomy = paused ? false : storedMaxAutonomy;
-  return {
+  const control = {
     paused,
+    ...(metadata.owner_stopped === true ? { owner_stopped: true } : {}),
     repair: normalizeRepairLane(metadata.repair),
     repair_invalid: metadata.repair != null && (!normalizeRepairLane(metadata.repair)
       || normalizeRepairLane(metadata.repair).owner_control_version !== ownerControlVersion({...metadata,updated_at:metadata.updated_at??row.last_seen})),
@@ -185,6 +193,13 @@ export async function getAutonomyControl(db, { memoryState = null } = {}) {
     launch_approved_at: metadata.launch_approved_at || null,
     launch_gate_digest: /^[a-f0-9]{64}$/i.test(String(metadata.launch_gate_digest || '')) ? String(metadata.launch_gate_digest).toLowerCase() : null,
   };
+  Object.defineProperty(control, storedCas, { value: [CONTROL_ID, row.last_seen, row.status, metadata.source] });
+  return control;
+}
+
+export async function getAutonomyControl(db, options = {}) {
+  if (db) await migrate(db);
+  return readAutonomyControl(db, options);
 }
 
 export async function setAutonomyControl(db, {
@@ -211,18 +226,25 @@ export async function setAutonomyControl(db, {
   if (expected_updated_at !== undefined && current.updated_at !== expected_updated_at) {
     throw Object.assign(new Error('AUTONOMY_CONTROL_CHANGED'), { code: 'AUTONOMY_CONTROL_CHANGED', status: 409 });
   }
-  const releasePause = paused === true && ['release-predeploy-binder', 'release-launch-bootstrap', ROLLBACK_PAUSE_SOURCE].includes(source);
+  const releaseActor = ['release-predeploy-binder', 'release-launch-bootstrap', ROLLBACK_PAUSE_SOURCE].includes(source);
+  const releasePause = paused === true && releaseActor;
   const rollbackPause = paused === true && source === ROLLBACK_PAUSE_SOURCE;
+  const ownerActor = ['owner-ui', 'owner-ui-launch-gate', 'owner-release-command'].includes(source);
+  const automatic = AUTOMATIC_AUTONOMY_CONTROL_SOURCES.includes(source);
   // A release must not overwrite an owner stop. A previous rollback is not one:
   // treating it as protected cleared max_remembered on 02/11.
-  const protectedPause = (releasePause || source === ROLLBACK_PAUSE_SOURCE || source === 'verified-release-restore') && current.paused === true
-    && (isOwnerAutonomyStop(current) || isMissionRepairAutonomyPause(current));
-  const nextPaused = protectedPause ? true : (typeof paused === 'boolean' ? paused : current.paused === true);
+  const ownerStopped = current.owner_stopped === true || isLegacyOwnerMaxStop(current)
+    || (current.paused === true && isOwnerAutonomyStop(current));
+  const protectedPause = (releaseActor || automatic)
+    && ((current.paused === true && (isOwnerAutonomyStop(current) || isMissionRepairAutonomyPause(current))) || isLegacyOwnerMaxStop(current));
+  // Only a fresh explicit owner decision clears this stop. Technical writers may
+  // add their own safety pause, but cannot erase the owner's prior shutdown.
+  const preserveOwnerStop = !ownerActor && ownerStopped;
+  const nextPaused = protectedPause || preserveOwnerStop ? true : (typeof paused === 'boolean' ? paused : current.paused === true);
   const requestedMax = typeof max_autonomy === 'boolean'
     ? max_autonomy
     : (typeof owner_override === 'boolean' ? owner_override : current.max_autonomy === true);
   const nextMax = nextPaused ? false : requestedMax;
-  const automatic = ['bridge-repair-lane','verified-release-restore','verified-repair-completed','rollback-auto-resume','autonomous-launch-bind',ROLLBACK_PAUSE_SOURCE].includes(source);
   if (current.repair_invalid && repair === undefined && source !== 'owner-ui')
     throw Object.assign(new Error('AUTONOMY_REPAIR_SCOPE_INVALID'), {code:'AUTONOMY_REPAIR_SCOPE_INVALID',status:409});
   const nextRepair = repair === undefined
@@ -235,6 +257,7 @@ export async function setAutonomyControl(db, {
   const updatedAt = Math.max(Date.now(), Number(current.updated_at || 0) + 1);
   const next = {
     paused: nextPaused,
+    ...((ownerActor ? nextPaused || max_autonomy === false || owner_override === false : ownerStopped) ? { owner_stopped: true } : {}),
     repair: nextRepair, repair_invalid: false,
     max_autonomy: nextMax,
     max_remembered: nextMax || (releasePause && !protectedPause && rememberedReleaseMax(current)),
@@ -246,7 +269,7 @@ export async function setAutonomyControl(db, {
       : (String(source || '') === 'owner-ui' || nextMax === true ? 0 : Number(current.rollback_count || 0)),
     status: nextPaused ? 'PAUSED' : (nextMax ? 'MAX_AUTONOMY' : 'RUNNING'),
     updated_at: updatedAt,
-    owner_control_version: (releasePause || automatic) ? ownerControlVersion(current) : updatedAt,
+    owner_control_version: (releasePause || automatic || protectedPause) ? ownerControlVersion(current) : updatedAt,
     source: protectedPause ? current.source : String(source || 'owner-ui').slice(0, 100),
     reason: protectedPause ? current.reason : reason === undefined ? (current.reason || null) : (reason ? String(reason).slice(0, 500) : null),
     launch_approved_sha: launch_approved_sha === undefined
@@ -263,13 +286,11 @@ export async function setAutonomyControl(db, {
     return { ...next };
   }
 
-  if (expected_updated_at !== undefined || (releasePause && current.updated_at !== null)) {
+  if (expected_updated_at !== undefined || (!ownerActor && current.updated_at !== null)) {
     const result = await db.prepare(`UPDATE dev_bridge_state
       SET last_seen=?,status=?,metadata_json=?
-      WHERE bridge_id=? AND last_seen=? AND status=?
-        AND json_extract(metadata_json,'$.source')=?`)
-      .bind(next.updated_at, next.status, JSON.stringify(next), CONTROL_ID,
-        expected_updated_at ?? current.updated_at, current.status, current.source).run();
+      WHERE ${AUTONOMY_CONTROL_CAS_PREDICATE}`)
+      .bind(next.updated_at, next.status, JSON.stringify(next), ...autonomyControlCasValues(current)).run();
     if (Number(result?.meta?.changes ?? result?.changes ?? 0) !== 1) {
       throw Object.assign(new Error('AUTONOMY_CONTROL_CHANGED'), { code: 'AUTONOMY_CONTROL_CHANGED', status: 409 });
     }
