@@ -7,7 +7,7 @@ import {beginAutomaticRepair,scopeRepairRepository,completeVerifiedRepair,repair
 import {verifyRepairRelease,REPAIR_RELEASE_GATES} from '../src/evolution/verified-repair-release.js';
 import {maybeHandleReleaseLaunchBootstrap} from '../src/evolution/release-launch-bootstrap.js';
 import {flattenRoadmap} from '../src/roadmap/master-roadmap.js';
-import {createRoadmapCodeAcceptance} from '../src/roadmap/roadmap-code-acceptance.js';
+import {createRoadmapCodeAcceptance,diagnoseRoadmapCodeAcceptance,isAcceptedRoadmapCodeJob} from '../src/roadmap/roadmap-code-acceptance.js';
 const sha='a'.repeat(40),repoName='adrienlopezcarreras-pixel/meliturgos-cloudflare';
 async function fixture(t) {
  const db=sqliteD1();t.after(()=>db.close());const repo=new D1DevJobRepository(db);
@@ -75,7 +75,7 @@ test('unaccepted repair reports a safe reason and never releases another queued 
  const {db,repo,a,b}=await fixture(t);
  const waiting=await repo.get(b.id);
  const result=await completeVerifiedRepair(db,repo,{deployedSha:sha,releaseVerified:true});
- assert.deepEqual(result,{ok:false,status:'REPAIR_DELIVERY_NOT_VERIFIED',reason:'REPAIR_MISSION_ACCEPTANCE_NOT_VERIFIED',resumed:false});
+ assert.deepEqual(result,{ok:false,status:'REPAIR_DELIVERY_NOT_VERIFIED',reason:'REPAIR_MISSION_ACCEPTANCE_NOT_VERIFIED',resumed:false,diagnostic:'REPAIR_ACCEPTANCE_CONTRACT_MISSING'});
  assert.equal((await getAutonomyControl(db)).repair.job_id,a.id);
  assert.deepEqual(await repo.get(b.id),waiting);
  assert.doesNotMatch(JSON.stringify(result),/repair-a|waiting-b|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/);
@@ -288,4 +288,41 @@ test('production diagnostic distinguishes GitHub authorization, changed files an
   {ok:false,diagnostic:'REPAIR_COMPARE_FETCH_FAILED'});
  assert.deepEqual(await diagnoseUnchangedRepairDescendant({...base,token:''}),
   {ok:false,diagnostic:'REPAIR_COMPARE_INPUT_INVALID'});
+});
+
+test('safe repair diagnostics identify stale revision and missing evidence without releasing the lane',async t=>{
+ const {db,repo,a}=await fixture(t);
+ const item=flattenRoadmap().find(x=>x.id==='MEL-FOUNDER-02');
+ await repo.update(a.id,{status:'COMPLETED',optional_context:{roadmap_id:item.id,roadmap_contract_revision:'obsolete-private-revision'}});
+ let job=await repo.get(a.id);
+ assert.equal(diagnoseRoadmapCodeAcceptance(job),'REPAIR_ACCEPTANCE_CONTRACT_REVISION_STALE');
+ let result=await completeVerifiedRepair(db,repo,{deployedSha:sha,releaseVerified:true});
+ assert.equal(result.diagnostic,'REPAIR_ACCEPTANCE_CONTRACT_REVISION_STALE');
+ assert.equal(result.resumed,false);
+ assert.ok(!JSON.stringify(result).includes('obsolete-private-revision'));
+ await repo.update(a.id,{optional_context:{roadmap_id:item.id,roadmap_contract_revision:item.contract_revision}});
+ job=await repo.get(a.id);
+ assert.equal(diagnoseRoadmapCodeAcceptance(job),'REPAIR_ACCEPTANCE_RECEIPT_MISSING');
+ result=await completeVerifiedRepair(db,repo,{deployedSha:sha,releaseVerified:true});
+ assert.equal(result.diagnostic,'REPAIR_ACCEPTANCE_RECEIPT_MISSING');
+ assert.equal((await getAutonomyControl(db)).repair.job_id,a.id);
+});
+
+test('diagnostic stays equivalent to canonical acceptance and never exposes source or SHA',async t=>{
+ const {repo,a}=await fixture(t);
+ const item=flattenRoadmap().find(x=>x.id==='MEL-FOUNDER-02');
+ await repo.update(a.id,{status:'COMPLETED',optional_context:{roadmap_id:item.id,roadmap_contract_revision:item.contract_revision},
+  files_json:[...item.code_paths,...item.test_paths].map(path=>({path,content:'private-test-content'}))});
+ const ci={verified:true,workflow:'full-candidate-ci',head_sha:sha,head_branch:'candidate/mel-clean-autonomy',run_id:42,conclusion:'success'};
+ const completion={status:'VERIFIED',candidate_sha:sha,candidate_branch:ci.head_branch,ci_run_id:42,ci,mel_implementation:{verified:true,providers_attempted:2}};
+ const receipt=createRoadmapCodeAcceptance(await repo.get(a.id),completion,ci);
+ await repo.update(a.id,{result_json:{roadmap_code_acceptance:receipt,autonomy_completion:completion}});
+ const accepted=await repo.get(a.id);
+ assert.equal(isAcceptedRoadmapCodeJob(accepted),true);
+ assert.equal(diagnoseRoadmapCodeAcceptance(accepted),null);
+ const corrupt={...accepted,result_json:{...accepted.result_json,autonomy_completion:{...completion,mel_implementation:{verified:false,providers_attempted:1}}}};
+ assert.equal(isAcceptedRoadmapCodeJob(corrupt),false);
+ const diagnostic=diagnoseRoadmapCodeAcceptance(corrupt);
+ assert.equal(diagnostic,'REPAIR_ACCEPTANCE_IMPLEMENTATION_UNVERIFIED');
+ assert.doesNotMatch(JSON.stringify({diagnostic}),/private-test-content|candidate\/mel|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|MEL-FOUNDER-02/);
 });
