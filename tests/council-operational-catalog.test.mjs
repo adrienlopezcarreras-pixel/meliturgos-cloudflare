@@ -37,3 +37,20 @@ test('independent critiques and MEL synthesis receive the actual operation catal
  assert.equal(catalog.operations[0].availability,true);
  for(const call of calls)assert.match(JSON.stringify(call.input),/LIVE_CAPABILITY_BUS/);
 });
+
+// MEL-COUNCIL-OPS-02: recommendation → linked, idempotent, non-executing request.
+test('a LoRA, watch or WORK recommendation becomes a parent-linked idempotent request that authorizes nothing', async () => {
+  const { councilRecommendationRequest } = await import('../src/council/operational-catalog.js');
+  const lora = councilRecommendationRequest({ kind: 'lora', target: 'Corriger le  ton  des refus', summary: 'exemples' }, { parentId: 'job-1' });
+  assert.equal(lora.capability, 'learning.lora.request');
+  assert.equal(lora.parent_id, 'job-1');
+  assert.deepEqual([lora.status, lora.authorized, lora.execute, lora.activate], ['PROPOSED', false, false, false]);
+  const again = councilRecommendationRequest({ kind: 'LORA', target: 'corriger le ton des refus' }, { parentId: 'job-1' });
+  assert.equal(again.idempotency_key, lora.idempotency_key, 'the same recommendation keeps one key');
+  assert.notEqual(councilRecommendationRequest({ kind: 'LORA', target: 'corriger le ton des refus' }, { parentId: 'job-2' }).idempotency_key, lora.idempotency_key);
+  assert.equal(councilRecommendationRequest({ kind: 'watch', target: 'nouveaux modèles' }, { parentId: 'job-1' }).capability, 'watch.request');
+  assert.equal(councilRecommendationRequest({ kind: 'work', target: 'offre' }, { parentId: 'job-1' }).capability, 'work.create');
+  assert.throws(() => councilRecommendationRequest({ kind: 'lora', target: 'x' }), /PARENT_REQUIRED/);
+  assert.throws(() => councilRecommendationRequest({ kind: 'deploy', target: 'x' }, { parentId: 'job-1' }), /KIND_INVALID/);
+  assert.ok(Object.isFrozen(lora));
+});
