@@ -749,6 +749,31 @@ export class MentorEngine {
     }
     const startedAt = this.now();
     const remaining = () => this.proposeBudgetMs - (this.now() - startedAt);
+    // The initial and repaired proposals share the same completion path.
+    // Validate a separate test response, then compose files; concatenating JSON
+    // and EDIT blocks loses the implementation or makes the envelope invalid.
+    const completeRequiredTest = async (proposal, provider, visibleScope, raw) => {
+      try { return assertTestIncluded(proposal, mode, requireTest, scope); }
+      catch (error) {
+        if (error?.code !== 'MENTOR_TEST_REQUIRED' || remaining() < 10_000) throw error;
+      }
+      const output = await boundedMentorInvoke(provider, {
+        input: buildTestFollowUpPrompt({ goal: objective, change: bounded(typeof raw === 'string' ? raw : JSON.stringify(proposal), 12_000) })
+          + (scope ? '\nCHEMINS AUTORISÉS: ' + [...scope].filter(path => /^tests\//.test(path)).join(', ') : ''),
+        context: { purpose: 'mel-autonomous-development-test-completion', job_id: jobId || null, mode, inference_settings: learned.inference },
+      }, Math.max(10, Math.min(this.invokeTimeoutMs, remaining())));
+      const test = await assertImportsResolve(normalizeProposal(output?.text ?? output,
+        output?.provenance || proposal.provenance, files, previousAttempts, references, visibleScope), pathExists, files);
+      assertTestIncluded(test, mode, requireTest, scope);
+      const paths = new Set(proposal.changes.map(change => change.path));
+      if (proposal.changes.length + test.changes.length > MAX_CHANGES
+        || test.changes.some(change => !/^tests\/.+\.test\.mjs$/.test(change.path) || paths.has(change.path))) {
+        throw Object.assign(new Error('MENTOR_INVALID_CHANGE:test-completion'), { code: 'MENTOR_INVALID_CHANGE' });
+      }
+      const complete = { ...proposal, changes: [...proposal.changes, ...test.changes],
+        tests: [...new Set([...proposal.tests, ...test.tests])].slice(0, 4) };
+      return assertTestIncluded(complete, mode, requireTest, scope);
+    };
     // Keep a cloud retry window when the optional PC provider is slow or empty.
     // A failed local attempt must not consume the entire Mentor invocation budget.
     const cloudReserveMs = localProviders.length && cloudProviders.length && !problem
@@ -799,20 +824,7 @@ export class MentorEngine {
         try {
           const provenance = output?.provenance || { provider: provider.providerId, model: provider.modelId };
           let proposal = await assertImportsResolve(normalizeProposal(raw, provenance, files, previousAttempts, references, result.value.visibleScope), pathExists, files);
-          try {
-            assertTestIncluded(proposal, mode, requireTest, scope);
-          } catch (error) {
-            if (error?.code !== 'MENTOR_TEST_REQUIRED' || typeof raw !== 'string' || remaining() < 10_000) throw error;
-            // Models write the change and forget its test; ask the same model
-            // for the test alone instead of discarding a valid change.
-            const testOutput = await boundedMentorInvoke(provider, {
-              input: buildTestFollowUpPrompt({ goal: objective, change: bounded(raw, 12_000) }),
-              context: { purpose: 'mel-autonomous-development', job_id: jobId || null, mode, inference_settings: learned.inference },
-            }, Math.max(10, Math.min(this.invokeTimeoutMs, remaining())));
-            const combined = raw + '\n' + String(testOutput?.text ?? testOutput ?? '');
-            proposal = await assertImportsResolve(normalizeProposal(combined, provenance, files, previousAttempts, references, result.value.visibleScope), pathExists, files);
-            assertTestIncluded(proposal, mode, requireTest, scope);
-          }
+          proposal = await completeRequiredTest(proposal, provider, result.value.visibleScope, raw);
           proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: false });
         } catch (error) {
           const failure = mentorFailureCode(error, 'MENTOR_PROPOSAL_INVALID');
@@ -855,7 +867,7 @@ export class MentorEngine {
             continue;
           }
           try {
-            const proposal = await assertImportsResolve(normalizeProposal(
+            let proposal = await assertImportsResolve(normalizeProposal(
               result.value.output?.text ?? result.value.output,
               result.value.output?.provenance || { provider: provider.providerId, model: provider.modelId },
               files,
@@ -863,7 +875,7 @@ export class MentorEngine {
               references,
               result.value.visibleScope,
             ), pathExists, files);
-            assertTestIncluded(proposal, mode, requireTest, scope);
+            proposal = await completeRequiredTest(proposal, provider, result.value.visibleScope, result.value.output?.text ?? result.value.output);
             proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: true });
             repairValidProposals += 1;
           } catch (error) {
