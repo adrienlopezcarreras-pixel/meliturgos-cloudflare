@@ -1,3 +1,4 @@
+import { ACTION_RECEIPT_RUNTIME } from './action-receipt-runtime.js';
 import { isReleaseAutonomyPause } from '../evolution/autonomy-control.js';
 import { CHAT_RICH_RENDERER_CSS, CHAT_RICH_RENDERER_SOURCE } from './chat-rich-renderer.js';
 import { MEL_AUTO_RELAUNCH_SOURCE } from './mel-auto-relaunch.js';
@@ -136,7 +137,7 @@ function apiErrorMessage(payload,status){
   return code||('HTTP '+status);
 }
 function rawFetch(url,opts){return fetch(url,opts)}
-async function fetchJsonWithTimeout(url,opts={},timeoutMs=45000){
+async function fetchJsonWithTimeout(url,opts={},timeoutMs=45000,onResponse=null){
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeoutMs);
   const external=opts.signal;
   let onAbort=null;
@@ -147,6 +148,7 @@ async function fetchJsonWithTimeout(url,opts={},timeoutMs=45000){
   try{
     const r=await rawFetch(url,{...opts,signal:controller.signal}),t=await r.text();let d;
     try{d=t?JSON.parse(t):{}}catch{throw Error('Réponse serveur invalide')}
+    if(onResponse){try{onResponse({status:r.status,data:d});}catch{ /* Rendering cannot undo an API acknowledgement. */ }}
     if(!r.ok)throw Error(apiErrorMessage(d,r.status));
     return d;
   }catch(e){
@@ -157,6 +159,7 @@ async function fetchJsonWithTimeout(url,opts={},timeoutMs=45000){
     if(external&&onAbort)external.removeEventListener('abort',onAbort);
   }
 }
+${ACTION_RECEIPT_RUNTIME}
 async function jfetch(url,opts={}){
   const method=String(opts?.method||'GET').toUpperCase();
   const timeout=requestTimeoutMs(url,method);
@@ -167,7 +170,7 @@ async function jfetch(url,opts={}){
     getInflight.set(url,task);
     return task;
   }
-  return fetchJsonWithTimeout(url,opts,timeout);
+  return fetchActionWithReceipt(url,opts,timeout);
 }
 async function loadCapabilitiesData(force=false){
   if(!force&&capabilityCache&&Date.now()-capabilityCacheAt<PANEL_TTL_MS)return capabilityCache;
@@ -1381,7 +1384,7 @@ qs('#workComputerRevokeConsent').onclick=async e=>{
 qs('#workCreate').onclick=async()=>{const goal=qs('#workGoal').value.trim();if(!goal)return;qs('#workCreate').disabled=true;try{
  const pc=selectedWorkComputer();
  const capture=workComputerLastView?{computer_id:workComputerLastView.computer_id,command_id:workComputerLastView.command_id}:null;
- let interpretationId=workComputerInterpretation?.command_id===capture?.command_id?workComputerInterpretation.interpretation_id:null;
+ let interpretationId=capture&&workComputerInterpretation&&workComputerInterpretation.command_id===capture.command_id?workComputerInterpretation.interpretation_id:null;
  if(capture&&qs('#workComputerInterpretConsent')?.checked===true&&!interpretationId){
   const vision=await jfetch('/api/work/screen-interpretation',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({computer_id:capture.computer_id,command_id:capture.command_id,consent:'INTERPRET_SCREEN_WITH_WORKERS_AI',question:goal})});
   if(!vision?.ok||!vision.interpretation_id||!vision.analysis)throw Error(vision?.code||'WORK_SCREEN_INTERPRETATION_UNCONFIRMED');
@@ -1390,7 +1393,7 @@ qs('#workCreate').onclick=async()=>{const goal=qs('#workGoal').value.trim();if(!
   qs('#workComputerAnalysis').textContent='Lecture vérifiée ('+vision.model+') — texte observé, non exécuté : '+vision.analysis+' | sha256 image : '+vision.image_sha256;
  }
  const context={origin:'work-ui',computer:pc?{computer_id:pc.id}:null,screen_capture:capture,screen_interpretation:interpretationId,share_screen_interpretation_with_council:qs('#workComputerShareText')?.checked===true};
- const d=await jfetch('/api/work/jobs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({goal,mode:'prepare',context})});
+ const d=await jfetch('/api/work/jobs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({goal,mode:'prepare',context})});if(d?.ok===true&&d?.id&&qs('#workGoal').value.trim()===goal)qs('#workGoal').value='';
  qs('#workOut').textContent=JSON.stringify({work:d,screen_capture_verified_by_server:d?.computer_context?.screen_capture?.verified===true,screen_interpretation_verified_by_server:d?.computer_context?.screen_interpretation?.verified===true,executed:false},null,2);
 }catch(e){qs('#workOut').textContent='Erreur : '+e.message}finally{qs('#workCreate').disabled=false;qs('#workComputerInterpretConsent').checked=false;qs('#workComputerShareText').checked=false}};
 

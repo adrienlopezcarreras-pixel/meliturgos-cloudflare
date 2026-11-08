@@ -346,16 +346,18 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
     "required_proof": "DIFF_TESTS_EXACT_SHA_CI",
     "code_paths": [
       "scripts/ui-production-audit.mjs",
-      "src/professor-live-learning-entry.js"
+      "src/professor-live-learning-entry.js",
+      "src/pages/action-receipt-runtime.js"
     ],
     "test_paths": [
       "tests/full-interface-control-surface-audit.test.mjs",
-      "tests/coordination-cleanup.test.mjs"
+      "tests/coordination-cleanup.test.mjs",
+      "tests/ui-action-receipts.test.mjs"
     ],
     "acceptance": [
       "Chaque action affiche le reçu API réel, traite indisponibilité et refus, et ne double ni entraînement ni mission lors d’un second clic."
     ],
-    "focus_symbols": ["experimentalTrainingResponse", "qwenGpuWorkflowStatus", "experimentalTrainingStatus"],
+    "focus_symbols": ["experimentalTrainingResponse", "fetchActionWithReceipt", "showActionReceipt", "jfetch"],
     "max_attempts": 3
   },
   "MEL-UI-AUDIT-07": {
