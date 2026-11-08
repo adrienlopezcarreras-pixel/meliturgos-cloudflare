@@ -11,6 +11,7 @@ const councilPurposes = [
 const councilModels = [
   '@cf/google/gemma-4-26b-a4b-it',
   '@cf/nvidia/nemotron-3-120b-a12b',
+  '@cf/zai-org/glm-4.7-flash',
 ];
 
 for (const modelId of councilModels) {
@@ -41,7 +42,7 @@ for (const modelId of councilModels) {
   }
 }
 
-test('Mentor code proposals on Gemma and Nemotron also disable optional thinking', () => {
+test('Mentor code proposals on documented optional-thinking models request visible output', () => {
   for (const modelId of councilModels) {
     for (const purpose of ['mel-autonomous-development', 'mel-autonomous-development-structured-repair']) {
       const opts = inferenceOptions({ purpose, inference_settings: { max_tokens: 4096 } }, modelId);
@@ -55,9 +56,9 @@ test('ordinary chat and models without documented switch remain unchanged', () =
     assert.equal(opts.chat_template_kwargs, undefined);
   }
   const llama = inferenceOptions({ purpose: councilPurposes[0], inference_settings: { max_tokens: 384 } }, '@cf/meta/llama-3.3-70b-instruct-fp8-fast');
-  const glm = inferenceOptions({ purpose: councilPurposes[0] }, '@cf/zai-org/glm-4.7-flash');
+  const mandatory = inferenceOptions({ purpose: councilPurposes[0] }, '@cf/openai/gpt-oss-120b');
   assert.equal(llama.chat_template_kwargs, undefined);
-  assert.equal(glm.chat_template_kwargs, undefined);
+  assert.equal(mandatory.chat_template_kwargs, undefined);
 });
 test('nonreasoning mode never turns an empty provider response into an accepted critique', async () => {
   const env = { AI: { async run() { return { choices: [{ message: { content: '' } }] }; } } };

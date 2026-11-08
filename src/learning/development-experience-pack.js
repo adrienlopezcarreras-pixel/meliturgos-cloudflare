@@ -1145,14 +1145,12 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "task": "Préserver un arrêt propriétaire pendant une release malgré les écritures techniques de pause.",
     "input": "La release capture un état initial, écrit plusieurs pauses techniques, puis vérifie le contrôle final avant reprise.",
     "before": "Comparer uniquement la révision finale permet de reprendre après un arrêt propriétaire antérieur à cette vérification ; comparer uniquement le timestamp initial confond arrêt et pause technique.",
-    "after": "Conserver dans le contrôle canonique une version du choix propriétaire indépendante du compteur CAS ; les pauses de release la préservent, les actions propriétaire et sécurité la changent. Comparer le choix au snapshot pré-déploiement et conserver le CAS final atomique. Toute preuve absente ou périmée doit empêcher la reprise. Persister un verrou owner_stopped qui survit aux écritures techniques : seuls les chemins explicites du propriétaire peuvent le lever. Les écritures automatiques utilisent le CAS du snapshot D1 brut, distinct de sa projection normalisée.",
+    "after": "Conserver dans le contrôle canonique une version du choix propriétaire indépendante du compteur CAS ; les pauses de release la préservent, les actions propriétaire et sécurité la changent. Comparer le choix au snapshot pré-déploiement et conserver le CAS final atomique. Toute preuve absente ou périmée doit empêcher la reprise.",
     "rationale": "Un compteur technique indique une écriture, pas sa cause. Deux horloges dans le même contrôle distinguent le changement de décision de la persistance technique sans créer un moteur de reprise concurrent.",
     "tests": [
       "tests/release-launch-bootstrap.test.mjs: owner stop before the final release snapshot cannot be reclassified as an old pause (red on b05e2cb2, green with guard)",
       "tests/autonomy-control.test.mjs: persisted owner intent survives repeated technical pauses; owner/safety stops advance version; legacy fallback",
-      "54 targeted autonomy control/API/bootstrap/recovery tests passed",
-      "tests/owner-stop-automatic-writers.test.mjs: vrai SQLite, arrêt explicite et legacy, provenance technique, verrou persistant et reprise explicite",
-      "tests/autonomy-runtime-epoch.test.mjs et tests/max-autonomous-repair-lane.test.mjs: supervision initiale, reprise après réparation et arrêt propriétaire préservés"
+      "54 targeted autonomy control/API/bootstrap/recovery tests passed"
     ],
     "tags": [
       "release",
@@ -1463,11 +1461,13 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "task": "Mesurer MEL avec un modèle qui raisonne avant de répondre.",
     "input": "Le benchmark général appelait glm-4.7-flash avec max_tokens 512.",
     "before": "Toutes les mesures échouaient EMPTY_BENCHMARK_RESPONSE ; la page affichait un vieux 25,6 % comme score courant.",
-    "after": "max_tokens 2048 pour le benchmark ; la carte LoRA n'affiche plus le score général comme score du checkpoint.",
+    "after": "max_tokens 2048 pour le benchmark ; la carte LoRA n'affiche plus le score général comme score du checkpoint. Pour les critiques Council et propositions Mentor, demander une réponse visible avec enable_thinking=false uniquement sur les modèles dont Cloudflare documente ce réglage optionnel, dont GLM-4.7-Flash. Conserver le budget, le registre, la preuve zéro coût et le quorum ; un raisonnement sans réponse finale ne constitue jamais un vote. Le chat ordinaire et les modèles au raisonnement obligatoire restent inchangés.",
     "rationale": "Un modèle à raisonnement consomme son budget de tokens avant la réponse finale : un budget trop court donne une réponse vide, pas un mauvais score.",
     "tests": [
       "PR #2694",
-      "D1 mentor_lessons BENCHMARK_CADENCE : failure EMPTY_BENCHMARK_RESPONSE répété"
+      "D1 mentor_lessons BENCHMARK_CADENCE : failure EMPTY_BENCHMARK_RESPONSE répété",
+      "Cloudflare official schema src/content/workers-ai-models/glm-4.7-flash.json, blob f6716f080149dbc3734cf0886d9054b7593665a5: chat_template_kwargs.enable_thinking boolean default true",
+      "tests/council-nonreasoning-cloudflare-contract.test.mjs et tests/council-review-adapter-contract.test.mjs : réponse visible GLM, quorum complet réel et silences conservés; régression rouge avant réglage"
     ],
     "tags": [
       "benchmark",
