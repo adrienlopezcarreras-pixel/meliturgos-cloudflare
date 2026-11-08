@@ -2007,4 +2007,28 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1793943404341
   },
+  Object.freeze({
+    "id": "mentor-top-code-fallback-without-specialist-label-20261108",
+    "source": "codex",
+    "domain": "development-provider-selection",
+    "task": "Conserver le secours vers les modèles de code prioritaires autorisés sans multiplier les appels inutiles.",
+    "input": "Deux modèles prioritaires sont admissibles pour CODE, mais un seul porte CODE_SPECIALIST.",
+    "before": "Filtrer les spécialistes avant les modèles prioritaires exclut silencieusement le second modèle et répète les refus du premier.",
+    "after": "Construire la chaîne prioritaire depuis les modèles capables de CODE qui passent réellement le gouverneur zéro coût, dans l’ordre canonique configuré. Ne pas exiger une étiquette de spécialisation supplémentaire. En génération ordinaire, appeler les modèles séquentiellement et arrêter dès le premier paquet valide ; après échec et réparation refusée, essayer le suivant dans le même budget global. Conserver le vrai Council de code pour les cas difficiles et tous les refus de validation.",
+    "rationale": "La classification ne doit pas rendre inaccessible un secours pourtant autorisé. La priorité seule ne prouve ni la disponibilité ni la gratuité et ne justifie pas des appels parallèles redondants.",
+    "tests": [
+        "tests/mentor-top-coder-fallback.test.mjs: vrai pool/adapter avec AI mock et preuve locale bornée, second modèle admissible, secours après refus, primaire seul si succès, ordre configuré et exclusion sans preuve",
+        "tests/mentor-engine.test.mjs: Council difficile indépendant conservé, arrêt ordinaire après succès et observations non certifiées"
+    ],
+    "tags": [
+        "mentor",
+        "top-models",
+        "fallback",
+        "zero-cost",
+        "bounded-budget"
+    ],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1794119117970
+}),
 ]);
