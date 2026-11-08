@@ -9,6 +9,9 @@ on:
       # Review-only repair branches need exact-HEAD full evidence without manual dispatch.
       # Request-promotion below remains restricted to the candidate branch.
       - 'fix/council-*'
+      # Diagnostic repair PRs must obtain the same complete exact-SHA gate.
+      # Promotion remains exclusive to candidate/mel-clean-autonomy below.
+      - 'fix/max-repair-*'
   workflow_dispatch:
 
 permissions:
