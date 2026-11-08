@@ -19,7 +19,7 @@ async function browser(fetch){
   vm.runInContext('const getInflight=new Map();\n'+html.slice(start,end),context);
   return {send:(url,body='{}')=>context.jfetch(url,{method:'POST',body}),text:()=>receipt?.textContent,expire:()=>timers.splice(0).forEach(fn=>fn())};
 }
-for(const url of ['/api/work/jobs','/api/memory/consolidate','/api/gen2/augmentio/council','/api/learning/lora/train','/api/gen2/connections/link']){
+for(const url of ['/api/work/jobs','/api/gen2/shardvault/snapshot','/api/gen2/migration/chatgpt-memory-backfill','/api/gen2/augmentio/fanout','/api/learning/lora/train','/api/gen2/connections/google/save']){
   test('emitted UI shares the real acknowledgement on double click: '+url,async()=>{
     let release,started,calls=0;
     const reached=new Promise(resolve=>{started=resolve;});

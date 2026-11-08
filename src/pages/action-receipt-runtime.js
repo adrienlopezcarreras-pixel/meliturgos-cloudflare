@@ -16,7 +16,7 @@ function showActionReceipt(url,receipt){
   node.textContent='Reçu API HTTP '+receipt.status+' · '+safe(data.code||data.error||data.status||(data.ok===false?'REFUSED':'RESPONSE_RECEIVED'))+' · '+(reference?'référence '+safe(reference):'référence non fournie');
 }
 async function fetchActionWithReceipt(url,opts,timeout){
-  if(!/^\/api\/(work\/|memory\/|gen2\/(shardvault|augmentio|council|connections|oauth)\/|learning\/lora\/)/.test(url)||
+  if(!/^\/api\/(work\/|memory\/|gen2\/(shardvault|augmentio|council|connections|oauth|migration)\/|learning\/lora\/)/.test(url)||
       (opts.body!==undefined&&typeof opts.body!=='string'))return fetchJsonWithTimeout(url,opts,timeout);
   // Hash instead of retaining JSON keys containing connection credentials.
   const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(opts.body||''));
