@@ -341,6 +341,7 @@ export const ROADMAP_CODE_CONTRACTS = Object.freeze({
     "max_attempts": 3
   },
   "MEL-UI-AUDIT-06": {
+    "revision": "2026-11-08-ui-action-receipts-v2",
     "title": "Automatiser la recette des contrôles WORK, mémoire, Council, LoRA et connexions",
     "mode": "IMPLEMENT",
     "required_proof": "DIFF_TESTS_EXACT_SHA_CI",
