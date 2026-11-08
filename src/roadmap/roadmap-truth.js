@@ -79,7 +79,7 @@ export const ROADMAP_PROOF_SOURCES = Object.freeze({
   'MEL-MEM-10': { capabilities: ['memory.export.verify', 'resilience.recovery.drill.latest'] },
   'GEN2-15': { capabilities: ['evolution.plugin.propose'] },
   'GEN2-16': { capabilities: ['skill.module.candidate.register'] },
-  'MEL-AUG-02': { capabilities: ['augmentio.fanout'] },
+  'MEL-AUG-02': { capabilities: ['policy.zero-euro-governor.verify'] },
   'MEL-COUNCIL-01': { capabilities: ['council.state-of-play'] },
   'MEL-COUNCIL-05': { capabilities: ['conversation.quality.recent'] },
   'GEN2-17': { capabilities: ['autonomy.status', 'autonomy.activity'] },

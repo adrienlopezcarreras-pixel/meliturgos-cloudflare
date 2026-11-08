@@ -58,6 +58,8 @@ test('every allowlisted recipe is a registered no-argument core diagnostic with 
     assert.equal(record.risk,'LOW',capability);assert.deepEqual(record.permissions,[],capability);
     if (['memory.contradiction.provenance.verify','windows.companion-live.verify','cloudflare.canary-rollback.verify'].includes(capability)) {
       await assert.rejects(() => bus.execute(capability,{}, {owner:'test',permissions:[]}), error => /^[A-Z_]*DB_UNAVAILABLE$/.test(error.code));
+    } else if (capability === 'policy.zero-euro-governor.verify') {
+      await assert.rejects(() => bus.execute(capability,{}, {owner:'test',permissions:[]}), { code: 'ZERO_EURO_RUNTIME_PROOF_REQUIRED' });
     } else assert.equal((await bus.execute(capability,{}, {owner:'test',permissions:[]})).ok,true,capability);
   }
 });

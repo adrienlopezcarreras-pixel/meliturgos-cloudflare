@@ -118,7 +118,7 @@ Cette leçon est matérialisée dans `src/learning/runtime-operating-experience.
 - `bootstrap-explicit-approval-context-20260922` — une action sensible requiert une approbation propriétaire exacte et scoped; jamais un simple `confirm:true` agentique.
 - `bootstrap-live-user-path-capability-proof-20260922` — DONE_VERIFIED seulement après smoke exact-SHA sur le chemin utilisateur réellement déployé.
 - `bootstrap-observability-terminal-event-bounded-20260922` — un événement terminal corrélé et borné par exécution, sans entrée brute sensible.
-- `bootstrap-model-council-live-zero-cost-proof-20260922` — Council live multi-modèle + synthèse MEL + preuve zéro-coût runtime fail-closed.
+- `bootstrap-model-council-live-zero-cost-proof-20260922` — Council live multi-modèle + synthèse MEL + preuve zéro-coût runtime fail-closed. Distinguer recette de politique sans inférence et preuve de modèles réels ; vérifier les refus du gouverneur, une autorisation fraîche et l’audit durable adapté au point.
 
 Preuves principales : commits `04f6f5b`, `162914d`, `f464c50`, `01937da`, `4c213f4`, `f5f294b`, `77ddbfa`, `6c5d917`, `fe8ba9c`; runs `35691866943`, `35693911802`, `35705522236`, `35708004479`.
 
