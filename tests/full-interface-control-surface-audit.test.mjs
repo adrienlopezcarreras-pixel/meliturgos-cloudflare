@@ -20,7 +20,7 @@ function attr(attrs, name) {
 
 test('full control surface stays bounded and free of retired Vercel controls', () => {
   const rows = buttons();
-  assert.ok(rows.length <= 102, 'control surface grew beyond the new-conversation button, the neuron-day button, the LoRA mode button and the PC mode light');
+  assert.ok(rows.length <= 102, 'control surface grew beyond the new‑conversation button, the neuron‑day button, the LoRA mode button and the PC mode light');
   assert.equal(rows.filter(row => attr(row.attrs, 'id') === 'pcMode').length, 1, 'one PC mode light');
   assert.equal(rows.filter(row => attr(row.attrs, 'id') === 'chatLoraMode').length, 1, 'one canonical LoRA mode button');
   assert.equal(rows.filter(row => /id="melRole(?:Assistant|Code)"/.test(row.attrs)).length, 2, 'exactly two role controls in Professor');

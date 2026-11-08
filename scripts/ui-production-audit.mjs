@@ -45,16 +45,24 @@ export function summarizeUiAudit(observations = []) {
 // A separate offline recipe: no mutating browser click, no physical-hardware
 // success claim from software mocks, and no second Companion dispatch.
 export function offlineHardwareControlReceipt(observations = []) {
- const controls=['screen','keyboard','mouse','stop'];
- const rows=controls.map(control=>{
-   const observation=(Array.isArray(observations)?observations:[])
-     .find(row=>row?.control===control);
+ const controls = ['screen', 'keyboard', 'mouse', 'stop'];
+ const rows = controls.map(control => {
+   const observation = (Array.isArray(observations) ? observations : [])
+     .find(row => row?.control === control);
    return classifyCompanionHardwareControl(control, observation || {});
  });
- const count=status=>rows.filter(row=>row.status===status).length;
- return {schema:'mel.ui-hardware-offline-receipt/v1',controls:rows,
-   pass:count('PASS'),blocked:count('BLOCKED'),mutations_performed:0,
-   simulated_physical_passes:0};
+ const count = status => rows.filter(row => row.status === status).length;
+ // Include a deterministic receipt of the observed hardware controls for audit.
+ const receipt = rows.map(r => ({ id: r.id, status: r.status }));
+ return {
+   schema: 'mel.ui-hardware-offline-receipt/v1',
+   controls: rows,
+   pass: count('PASS'),
+   blocked: count('BLOCKED'),
+   mutations_performed: 0,
+   simulated_physical_passes: 0,
+   receipt,
+ };
 }
 
 // MEL-UI-AUDIT-01: executable inventory of the visible controls. Each button

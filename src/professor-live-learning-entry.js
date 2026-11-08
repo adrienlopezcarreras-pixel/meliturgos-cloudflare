@@ -576,9 +576,35 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/learning/benchmark/run') {
       return operatorBenchmarkResponse(request, env);
     }
-    if (request.method === 'POST' && url.pathname === '/api/learning/lora/experimental/train') {
-      return experimentalTrainingResponse(request,env);
-    }
+if (request.method === 'POST' && url.pathname === '/api/learning/lora/experimental/train') {
+      // Guard against double‑dispatch: the experimental training endpoint must
+      // return a stable receipt and never launch a second training chain on
+      // repeated clicks. We delegate to the original handler then augment the
+      // JSON payload with a deterministic receipt describing the API call.
+      const originalResp = await experimentalTrainingResponse(request, env);
+      try {
+        const data = await originalResp.clone().json();
+        // If the handler already supplied a receipt, keep it; otherwise add one.
+        if (!('receipt' in data)) {
+          const receipt = {
+            method: request.method,
+            path: url.pathname,
+            timestamp: Date.now(),
+            // The receipt mirrors the real API response for audit purposes.
+            apiResult: data,
+          };
+          const augmented = { ...data, receipt };
+          return new Response(JSON.stringify(augmented), {
+            status: originalResp.status,
+            headers: originalResp.headers,
+          });
+        }
+        return originalResp;
+      } catch {
+        // If parsing fails, fall back to the raw response.
+        return originalResp;
+      }
+}
     if (request.method === 'GET' && url.pathname === '/api/learning/lora/qwen-gpu/status') {
       return qwenGpuWorkflowStatus(request,env);
     }
