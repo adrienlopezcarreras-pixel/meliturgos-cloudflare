@@ -250,6 +250,12 @@ const allowed=new Set(['GEN2_42_HANDOFF_CONFLICT','GEN2_42_TEACHER_HANDOFF_READY
 const safe=v=>typeof v==='string' && allowed.has(v) ? v : null;
 const codes=['error','code','status','reason'].map(k=>safe(d?.[k])).filter(Boolean);
 console.log('GEN2-42 sanitized reason: '+(codes.length?codes.join(' / '):'UNCLASSIFIED_RESPONSE'));
+// Numbers only: never log job identifiers, payloads, tokens, or free-text statuses.
+// A 409 must reveal which kind of *aggregate* backlog blocked the proof.
+const countKeys=[['open_handoff_count','open'],['teacher_proven_handoff_count','teacher_proven'],['blocked_open_handoff_count','blocked'],['released_stale_teacher_requeue_count','stale_requeued']];
+const counts=countKeys.filter(([key])=>Number.isSafeInteger(d?.[key])&&d[key]>=0&&d[key]<=100000)
+  .map(([key,label])=>label+'='+d[key]);
+if(counts.length) console.log('GEN2-42 sanitized counts: '+counts.join(' '));
 NODE
   echo 'Production autonomy proof response withheld from CI logs; only bounded reason codes shown.'
   sleep 2
