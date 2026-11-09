@@ -75,7 +75,7 @@ test('unaccepted repair reports a safe reason and never releases another queued 
  const {db,repo,a,b}=await fixture(t);
  const waiting=await repo.get(b.id);
  const result=await completeVerifiedRepair(db,repo,{deployedSha:sha,releaseVerified:true});
- assert.deepEqual(result,{ok:false,status:'REPAIR_DELIVERY_NOT_VERIFIED',reason:'REPAIR_MISSION_ACCEPTANCE_NOT_VERIFIED',resumed:false});
+ assert.deepEqual(result,{ok:false,status:'REPAIR_DELIVERY_NOT_VERIFIED',reason:'REPAIR_MISSION_ACCEPTANCE_NOT_VERIFIED',resumed:false,diagnostic:'REPAIR_ACCEPTANCE_CONTRACT_MISSING'});
  assert.equal((await getAutonomyControl(db)).repair.job_id,a.id);
  assert.deepEqual(await repo.get(b.id),waiting);
  assert.doesNotMatch(JSON.stringify(result),/repair-a|waiting-b|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/);
