@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
-import { GEN2_42_HANDOFF_DIAGNOSTIC_SQL, sanitizeGen242Handoffs } from '../scripts/read-gen2-42-handoff-diagnostics.mjs';
+import { GEN2_42_HANDOFF_DIAGNOSTIC_SQL, sanitizeGen242Handoffs, GEN2_42_DEPENDENCY_REASON_SQL, sanitizeGen242DependencyReasons } from '../scripts/read-gen2-42-handoff-diagnostics.mjs';
 
 test('GEN2-42 D1 diagnostic only groups handoff status and never exports identifiers', async t=>{
  const db=sqliteD1(); t.after(()=>db.close());
@@ -27,4 +27,27 @@ test('GEN2-42 sanitization bounds values and drops raw payloads',()=>{
  const groups=sanitizeGen242Handoffs([{handoff_class:'SECRET',entries:-1,with_teacher_request:'8',retryable_entries:100001,stale_sha_entries:0,job_id:'PRIVATE'}]).groups;
  assert.deepEqual(groups,[{handoff_class:'OTHER',entries:null,with_teacher_request:null,retryable_entries:null,stale_sha_entries:0}]);
  assert.equal(sanitizeGen242Handoffs(Array.from({length:20},()=>({handoff_class:'FAILED',entries:1}))).groups.length,12);
+});
+
+test('GEN2-42 dependency reason query is read-only and exposes classifications only', async t=>{
+ const db=sqliteD1(); t.after(()=>db.close());
+ await db.prepare('CREATE TABLE dev_jobs(id TEXT,requested_by TEXT,status TEXT,optional_context TEXT,result_json TEXT)').run();
+ const records=[
+  ['PRIVATE_JOB_1','mel-autonomy','WAITING_DEPENDENCY',JSON.stringify({source:'ecosystem-watch'}),JSON.stringify({dependency_wait:{reason:'ROADMAP_PRIORITY_ABSOLUTE',prerequisites:['PRIVATE_FOUNDATION']},teacher_bridge:{request_id:'SECRET_TEACHER'}})],
+  ['PRIVATE_JOB_2','mel-autonomy','WAITING_DEPENDENCY',JSON.stringify({source:'ecosystem-watch'}),JSON.stringify({dependency_wait:{prerequisites:['PRIVATE_OTHER']}})],
+  ['PRIVATE_JOB_3','mel-autonomy','WAITING_DEPENDENCY',JSON.stringify({source:'unrelated'}),JSON.stringify({dependency_wait:{reason:'ROADMAP_PRIORITY_ABSOLUTE'}})],
+ ];
+ for(const record of records) await db.prepare('INSERT INTO dev_jobs VALUES(?,?,?,?,?)').bind(...record).run();
+ const before=(await db.prepare('SELECT * FROM dev_jobs').all()).results;
+ const diagnostic=sanitizeGen242DependencyReasons((await db.prepare(GEN2_42_DEPENDENCY_REASON_SQL).all()).results);
+ assert.equal(diagnostic.diagnostic_only,true);
+ assert.deepEqual(diagnostic.groups.map(g=>g.reason_class).sort(),['OTHER_OR_UNRECORDED','ROADMAP_PRIORITY_ABSOLUTE']);
+ assert.deepEqual(diagnostic.groups.map(g=>g.with_prerequisites),[1,1]);
+ assert.doesNotMatch(JSON.stringify(diagnostic),/PRIVATE|SECRET|TEACHER|job_id|request_id|prerequisites:/);
+ assert.deepEqual((await db.prepare('SELECT * FROM dev_jobs').all()).results,before);
+});
+
+test('GEN2-42 dependency reason sanitizer fails closed for raw inputs',()=>{
+ const x=sanitizeGen242DependencyReasons([{reason_class:'PRIVATE',entries:-2,with_prerequisites:'1',job_id:'SECRET'}]).groups;
+ assert.deepEqual(x,[{reason_class:'OTHER_OR_UNRECORDED',entries:null,with_prerequisites:null}]);
 });
