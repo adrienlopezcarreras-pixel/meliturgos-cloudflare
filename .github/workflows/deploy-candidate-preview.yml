@@ -696,6 +696,9 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+          # This POST is not safely repeatable: never retry a request after a
+          # dropped response. Preserve the curl exit code separately from HTTP.
+          WATCH_CURL_EXIT=0
           WATCH_HTTP_CODE="$(curl --show-error --silent \
             --max-time 240 \
             --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
@@ -703,7 +706,11 @@ jobs:
             --data '{"force":true,"wait":true,"heartbeat":true}' \
             "${BASE_URL}/api/mel/capability-watch/run" \
             --output capability-watch-run.json \
-            --write-out '%{http_code}' || true)"
+            --write-out '%{http_code}')" || WATCH_CURL_EXIT=$?
+          if [ "${WATCH_CURL_EXIT}" -ne 0 ]; then
+            echo "::error::PREVIEW_WATCH_TRANSPORT_FAILED curl_exit=${WATCH_CURL_EXIT} http=${WATCH_HTTP_CODE:-000}; remote execution state unknown; no automatic replay."
+            exit 1
+          fi
           if [ "${WATCH_HTTP_CODE}" != "200" ]; then
             WATCH_HTTP_CODE="${WATCH_HTTP_CODE}" node scripts/sanitize-preview-watch-http.mjs capability-watch-run.json
             exit 1
@@ -714,7 +721,10 @@ jobs:
           import os
           from pathlib import Path
 
-          payload = json.loads(Path('capability-watch-run.json').read_text(encoding='utf-8'))
+          try:
+              payload = json.loads(Path('capability-watch-run.json').read_text(encoding='utf-8'))
+          except (OSError, UnicodeError, json.JSONDecodeError):
+              raise SystemExit('PREVIEW_WATCH_INVALID_JSON_RESPONSE') from None
           if payload.get('ok') is not True:
               raise SystemExit('WATCH_RUN_FAILED: ' + str(payload.get('error') or payload.get('detail')))
           result = payload.get('result') or {}
