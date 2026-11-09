@@ -65,3 +65,13 @@ test('GEN2-42 redacted log counts jobs, not private job identifiers',()=>{
  assert.match(out,/GEN2-42 sanitized counts: distinct_jobs=2/);
  assert.doesNotMatch(out,/PRIVATE_INTERNAL_JOB|open_handoffs/);
 });
+
+test('409 diagnostic splits blocked durable job groups without leaking identities',()=>{
+ const out=diagnostic(JSON.stringify({status:'GEN2_42_TEACHER_HANDOFF_NOT_READY',blocked_other_handoff_count:3,blocked_failed_handoff_count:1,blocked_repair_required_handoff_count:1,blocked_waiting_dependency_handoff_count:1,open_handoffs:[{job_id:'SECRET_JOB',status:'REPAIR_REQUIRED'}],token:'PRIVATE'}));
+ assert.match(out,/blocked_other=3 blocked_failed=1 blocked_repair_required=1 blocked_waiting_dependency=1/);
+ assert.doesNotMatch(out,/SECRET_JOB|PRIVATE|job_id|open_handoffs|"status"/);
+});
+test('409 diagnostic rejects untrusted subgroup values',()=>{
+ const out=diagnostic(JSON.stringify({status:'GEN2_42_TEACHER_HANDOFF_NOT_READY',blocked_failed_handoff_count:'1',blocked_repair_required_handoff_count:-1,blocked_waiting_dependency_handoff_count:100001}));
+ assert.doesNotMatch(out,/blocked_failed=|blocked_repair_required=|blocked_waiting_dependency=/);
+});

@@ -536,6 +536,10 @@ export async function proveEcosystemTeacherHandoff(
     blocked_queued_handoff_count: blockedOpen.filter(item => String(item.handoff.status || '').toUpperCase() === 'QUEUED').length,
     blocked_council_complete_handoff_count: blockedOpen.filter(item => String(item.handoff.status || '').toUpperCase() === 'COUNCIL_COMPLETE').length,
     blocked_other_handoff_count: blockedOpen.filter(item => !['QUEUED','COUNCIL_COMPLETE'].includes(String(item.handoff.status || '').toUpperCase())).length,
+    // Bounded aggregate diagnostics only; never export blocked job identity or free text.
+    blocked_failed_handoff_count: blockedOpen.filter(item => String(item.handoff.status || '').toUpperCase() === 'FAILED').length,
+    blocked_repair_required_handoff_count: blockedOpen.filter(item => String(item.handoff.status || '').toUpperCase() === 'REPAIR_REQUIRED').length,
+    blocked_waiting_dependency_handoff_count: blockedOpen.filter(item => String(item.handoff.status || '').toUpperCase() === 'WAITING_DEPENDENCY').length,
     released_retryable_failure_count: releasedRetryableFailures.length,
     released_retryable_failures: releasedRetryableFailures.slice(0, 20).map(item => ({
       fingerprint: item.fingerprint,
