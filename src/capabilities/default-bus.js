@@ -165,6 +165,46 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ value: input.value }));
 
+  // GEN2-05 auxiliary proof: real Model Council logic under isolated, zero-cost
+  // in-memory adapters. Never call Workers AI or certify an external provider.
+  bus.discover({
+    id:'models.council-contract.verify', name:'Model Council isolated contract',
+    category:'diagnostic',version:'1.0.0',provider:'core',
+    description:'Exercises distinct independent critiques, separate synthesis, contradiction and zero-cost denial using in-memory adapters.',
+    input_schema:{type:'object',additionalProperties:false},
+    output_schema:{type:'object',properties:{ok:{type:'boolean'},critiques:{type:'integer'},syntheses:{type:'integer'},rejected:{type:'integer'}},required:['ok','critiques','syntheses','rejected'],additionalProperties:false},
+    risk:'LOW',permissions:[],health:'HEALTHY',enabled:true,
+  },async()=>{
+    const calls=[];
+    const mock=(id, stance, addedCost=0)=>({
+      id,providerId:id,modelId:'isolated-'+id,capabilities:['GENERAL'],enabled:true,
+      healthStatus:'HEALTHY',estimatedCost:addedCost,
+      costProvenance:{verified:true,source:'isolated-runtime-contract',addedCost,
+        authorization:{approved:true,policy:'MEL_ZERO_EURO_V1',authority:'local-diagnostic',adapter_id:id,provider:id,model:'isolated-'+id}},
+      async invoke({context}){
+        calls.push({id,purpose:context?.purpose});
+        return context?.purpose==='model-council-synthesis'
+          ? {text:'separate isolated synthesis'} : {text:'isolated critique '+id,stance};
+      },
+    });
+    const a=mock('council-proof-a','APPROVE');
+    const b=mock('council-proof-b','REJECT');
+    const paid=mock('council-proof-paid','APPROVE',1);
+    const pool={async refreshHealth(){},list(){return [a,b,paid];}};
+    const result=await runModelCouncil({pool,request:{prompt:'isolated council contract'},maxCandidates:3,timeoutMs:3000});
+    const critiques=calls.filter(row=>row.purpose==='model-council-independent-critique').length;
+    const syntheses=calls.filter(row=>row.purpose==='model-council-synthesis').length;
+    const rejected=result.rejections.filter(row=>row.identity==='council-proof-paid::isolated-council-proof-paid').length;
+    const ok=result.status==='COMPLETE' && result.independent_response_count===2
+      && result.unique_model_count===2 && result.consensus.status==='CONTRADICTORY'
+      && result.consensus.inferred_consensus===false && result.synthesis?.status==='COMPLETE'
+      && critiques===2 && syntheses===1 && rejected===1
+      && !calls.some(row=>row.id==='council-proof-paid')
+      && result.critiques.every(row=>row.cost?.allowed===true);
+    if(!ok)throw Object.assign(new Error('GEN2_05_COUNCIL_CONTRACT_FAILED'),{code:'GEN2_05_COUNCIL_CONTRACT_FAILED'});
+    return {ok:true,critiques,syntheses,rejected};
+  });
+
   // MEL-COUNCIL-03: verify the real Teacher escalation payload contract (not external round-trip).
   bus.discover({
     id:'council.teacher-escalation.verify',name:'Teacher escalation payload contract',
