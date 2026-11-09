@@ -502,6 +502,17 @@ function staleTeacherRequeue(job = {}) {
     return (state === 'STALE' || (isBridgeStale && state === 'ANSWERED'))
       && requestId === previousRequestId;
   }) || null;
+  if (isBridgeStale && stale) {
+    // The SHA diagnosis must identify the *same* approved candidate as the
+    // reviewed historical Teacher request, not an unrelated SHA drift.
+    const diagnosticApproved = String(result.implementation_planning_diagnostic.approved_candidate_sha).toLowerCase();
+    const historicalApproved = String(
+      stale?.request?.candidate?.sha
+      || stale?.request?.provenance?.candidate_sha
+      || ''
+    ).toLowerCase();
+    if (historicalApproved !== diagnosticApproved) return null;
+  }
   return stale ? { reason, previous_request_id: previousRequestId } : null;
 }
 
