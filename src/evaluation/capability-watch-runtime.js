@@ -529,6 +529,9 @@ export async function proveEcosystemTeacherHandoff(
     active_teacher_handoff_count: active.length,
     teacher_proven_handoff_count: teacherProven.length,
     blocked_open_handoff_count: blockedOpen.length,
+    // Aggregate distinct durable job identities: several fingerprints can point to one job.
+    // Never expose the identifiers themselves in the release diagnostic.
+    blocked_distinct_job_count: new Set(blockedOpen.map(item => String(item.handoff.job_id || '').trim()).filter(Boolean)).size,
     // Strict aggregate status categories; no fingerprints, IDs or free text in diagnostics.
     blocked_queued_handoff_count: blockedOpen.filter(item => String(item.handoff.status || '').toUpperCase() === 'QUEUED').length,
     blocked_council_complete_handoff_count: blockedOpen.filter(item => String(item.handoff.status || '').toUpperCase() === 'COUNCIL_COMPLETE').length,
