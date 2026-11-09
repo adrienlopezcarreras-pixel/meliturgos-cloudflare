@@ -264,6 +264,13 @@ jobs:
             kaggle quota 2>&1 | tee artifacts/kaggle-quota.txt || true
           fi
 
+      # Reject an explicitly exhausted free GPU quota before uploading the
+      # private training shard or submitting an impossible T4 kernel. Unknown
+      # quota remains distinguishable and uses the existing server-side guard.
+      - name: Fail fast when Kaggle free GPU quota is exhausted
+        shell: bash
+        run: node scripts/kaggle-gpu-quota-guard.mjs artifacts/kaggle-quota.json
+
       - name: Prepare deterministic training shard outside Kaggle
         shell: bash
         run: |
