@@ -529,6 +529,10 @@ export async function proveEcosystemTeacherHandoff(
     active_teacher_handoff_count: active.length,
     teacher_proven_handoff_count: teacherProven.length,
     blocked_open_handoff_count: blockedOpen.length,
+    // Strict aggregate status categories; no fingerprints, IDs or free text in diagnostics.
+    blocked_queued_handoff_count: blockedOpen.filter(item => String(item.handoff.status || '').toUpperCase() === 'QUEUED').length,
+    blocked_council_complete_handoff_count: blockedOpen.filter(item => String(item.handoff.status || '').toUpperCase() === 'COUNCIL_COMPLETE').length,
+    blocked_other_handoff_count: blockedOpen.filter(item => !['QUEUED','COUNCIL_COMPLETE'].includes(String(item.handoff.status || '').toUpperCase())).length,
     released_retryable_failure_count: releasedRetryableFailures.length,
     released_retryable_failures: releasedRetryableFailures.slice(0, 20).map(item => ({
       fingerprint: item.fingerprint,
