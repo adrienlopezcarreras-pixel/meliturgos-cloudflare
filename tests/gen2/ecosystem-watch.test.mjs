@@ -697,7 +697,7 @@ test('the watch covers what MEL depends on: its platform, model labs, local runt
 test('GEN2-42 reconciles Bridge SHA drift only with matching durable Teacher history and distinct SHAs', () => {
   const approved='a'.repeat(40), observed='b'.repeat(40);
   const item={fingerprint:'bridge-stale',handoff:{job_id:'job-bridge',status:'QUEUED',teacher_request_id:'req-reviewed',candidate_sha:approved,closed:false}};
-  const job={id:'job-bridge',status:'QUEUED',updated_at:100,plan_json:{preflight:null,revision:{reason:'BRIDGE_PREPARATION_CANDIDATE_STALE',previous_request_id:'req-reviewed'}},result_json:{teacher_bridge:null,teacher_bridge_history:[{status:'ANSWERED',request:{request_id:'req-reviewed'}}],implementation_planning_diagnostic:{code:'BRIDGE_PREPARATION_CANDIDATE_STALE',approved_candidate_sha:approved,observed_candidate_sha:observed}}};
+  const job={id:'job-bridge',status:'QUEUED',updated_at:100,plan_json:{preflight:null,revision:{reason:'BRIDGE_PREPARATION_CANDIDATE_STALE',previous_request_id:'req-reviewed'}},result_json:{teacher_bridge:null,teacher_bridge_history:[{status:'ANSWERED',request:{request_id:'req-reviewed',candidate:{sha:approved}}}],implementation_planning_diagnostic:{code:'BRIDGE_PREPARATION_CANDIDATE_STALE',approved_candidate_sha:approved,observed_candidate_sha:observed}}};
   const rec=reconcileEcosystemDiscoveryHandoffs({items:[item]},[job],101);
   const handoff=rec.ledger.items[0].handoff;
   assert.equal(rec.changed,true);
@@ -713,10 +713,12 @@ test('GEN2-42 reconciles Bridge SHA drift only with matching durable Teacher his
 test('GEN2-42 does not invalidate Bridge Teacher history without all SHA and request evidence', () => {
   const approved='a'.repeat(40),observed='b'.repeat(40);
   const item={fingerprint:'bridge-stale',handoff:{job_id:'job-bridge',status:'QUEUED',teacher_request_id:'req-reviewed',candidate_sha:approved,closed:false}};
-  const base={id:'job-bridge',status:'QUEUED',updated_at:100,plan_json:{preflight:null,revision:{reason:'BRIDGE_PREPARATION_CANDIDATE_STALE',previous_request_id:'req-reviewed'}},result_json:{teacher_bridge:null,teacher_bridge_history:[{status:'ANSWERED',request:{request_id:'req-reviewed'}}],implementation_planning_diagnostic:{code:'BRIDGE_PREPARATION_CANDIDATE_STALE',approved_candidate_sha:approved,observed_candidate_sha:observed}}};
+  const base={id:'job-bridge',status:'QUEUED',updated_at:100,plan_json:{preflight:null,revision:{reason:'BRIDGE_PREPARATION_CANDIDATE_STALE',previous_request_id:'req-reviewed'}},result_json:{teacher_bridge:null,teacher_bridge_history:[{status:'ANSWERED',request:{request_id:'req-reviewed',candidate:{sha:approved}}}],implementation_planning_diagnostic:{code:'BRIDGE_PREPARATION_CANDIDATE_STALE',approved_candidate_sha:approved,observed_candidate_sha:observed}}};
   const variations=[
     {...base,plan_json:{revision:{reason:'BRIDGE_PREPARATION_CANDIDATE_STALE',previous_request_id:'different'}}},
     {...base,result_json:{...base.result_json,teacher_bridge_history:[{status:'ANSWERED',request:{request_id:'different'}}]}},
+    {...base,result_json:{...base.result_json,teacher_bridge_history:[{status:'ANSWERED',request:{request_id:'req-reviewed',candidate:{sha:observed}}}]}},
+    {...base,result_json:{...base.result_json,teacher_bridge_history:[{status:'ANSWERED',request:{request_id:'req-reviewed'}}]}},
     {...base,result_json:{...base.result_json,implementation_planning_diagnostic:{code:'BRIDGE_PREPARATION_CANDIDATE_STALE',approved_candidate_sha:approved,observed_candidate_sha:approved}}},
     {...base,result_json:{...base.result_json,implementation_planning_diagnostic:{code:'BRIDGE_PREPARATION_CANDIDATE_STALE',approved_candidate_sha:approved}}},
     {...base,result_json:{...base.result_json,teacher_bridge:{request:{request_id:'req-current'}}}},
