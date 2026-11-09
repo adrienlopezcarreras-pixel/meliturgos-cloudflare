@@ -9,6 +9,9 @@ on:
       # Review-only repair branches need exact-HEAD full evidence without manual dispatch.
       # Request-promotion below remains restricted to the candidate branch.
       - 'fix/council-*'
+      # Review-only MAX repair diagnostics need full-suite proof on their exact SHA.
+      # Candidate promotion remains restricted to the canonical candidate branch.
+      - 'fix/max-repair-*'
       # LoRA quota preflight requires independent full-suite proof before owner Council.
       # Does not qualify this branch for candidate promotion.
       - 'fix/lora-kaggle-zero-gpu-quota-guard-*'
