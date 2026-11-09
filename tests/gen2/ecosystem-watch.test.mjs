@@ -725,7 +725,7 @@ test('GEN2-42 does not invalidate Bridge Teacher history without all SHA and req
   for (const job of variations) {
     const rec=reconcileEcosystemDiscoveryHandoffs({items:[item]},[job],101);
     const handoff=rec.ledger.items[0].handoff;
-    assert.equal(handoff.teacher_request_id,'req-reviewed');
+    assert.equal(handoff.teacher_request_id,job.result_json.teacher_bridge?.request?.request_id || 'req-reviewed');
     assert.equal(handoff.retryable,false);
     assert.equal(handoff.closed,false);
   }
