@@ -227,6 +227,7 @@ test('GEN2-42 production proof accepts a truly idle ledger without masking open 
     assert.equal(blocked.status,'GEN2_42_TEACHER_HANDOFF_NOT_READY');
     assert.equal(blocked.idle_verified,false);
     assert.equal(blocked.open_handoff_count,1);
+    assert.equal(blocked.blocked_distinct_job_count,1);
     assert.equal(blocked.blocked_queued_handoff_count,1);
     assert.equal(blocked.blocked_council_complete_handoff_count,0);
     assert.equal(blocked.blocked_other_handoff_count,0);
@@ -558,4 +559,25 @@ test('GEN2-42 release proof keeps a durably stale Teacher requeue observable but
   } finally {
     DB.close();
   }
+});
+
+test('GEN2-42 counts distinct blocked jobs, not duplicate capability fingerprints', async () => {
+  const DB=sqliteD1();
+  try {
+    await migrate(DB);
+    const ledger={items:[
+      ...['one','two','three'].map(fingerprint=>({fingerprint,handoff:{job_id:'shared-ui-job',status:'QUEUED',teacher_request_id:'old-request',closed:false}})),
+      {fingerprint:'four',handoff:{job_id:'other-job',status:'WAITING_DEPENDENCY',closed:false}},
+    ]};
+    await DB.prepare('INSERT INTO capability_watch_state(id,state_json,updated_at) VALUES(?,?,?)')
+      .bind('ecosystem-discoveries-canonical',JSON.stringify(ledger),Date.now()).run();
+    const repository={async get(id){return {id,status:id==='shared-ui-job'?'QUEUED':'WAITING_DEPENDENCY',requested_by:'mel-autonomy',optional_context:{source:'autonomy-supervisor'},result_json:{},created_at:1};}};
+    const proof=await proveEcosystemTeacherHandoff({DB},{developmentRepository:repository});
+    assert.equal(proof.ok,false);
+    assert.equal(proof.status,'GEN2_42_TEACHER_HANDOFF_NOT_READY');
+    assert.equal(proof.blocked_open_handoff_count,4);
+    assert.equal(proof.blocked_queued_handoff_count,3);
+    assert.equal(proof.blocked_distinct_job_count,2);
+    assert.equal(proof.teacher_proven_handoff_count,0);
+  } finally { DB.close(); }
 });
