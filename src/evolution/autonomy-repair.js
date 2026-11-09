@@ -1,6 +1,6 @@
 import { readRepairGitHubJson } from './repair-github-json.js';
 import {getAutonomyControl,setAutonomyControl,ownerControlVersion,normalizeRepairLane} from './autonomy-control.js';
-import {isAcceptedRoadmapCodeJob} from '../roadmap/roadmap-code-acceptance.js';
+import {isAcceptedRoadmapCodeJob,diagnoseRoadmapCodeAcceptance} from '../roadmap/roadmap-code-acceptance.js';
 
 export {MAX_AUTONOMOUS_REPAIR_ATTEMPTS} from './autonomy-repair-policy.js';
 const fail = code => Object.assign(new Error(code),{code,status:409});
@@ -48,7 +48,7 @@ export async function completeVerifiedRepair(db,repository,{deployedSha,releaseV
  // None of these failures is permitted to release the repair lane.
  const reject=reason=>({ok:false,status:'REPAIR_DELIVERY_NOT_VERIFIED',reason,resumed:false});
  if(releaseVerified!==true)return reject('REPAIR_RELEASE_HEALTH_NOT_VERIFIED');
- if(!isAcceptedRoadmapCodeJob(job))return reject('REPAIR_MISSION_ACCEPTANCE_NOT_VERIFIED');
+ if(!isAcceptedRoadmapCodeJob(job))return {...reject('REPAIR_MISSION_ACCEPTANCE_NOT_VERIFIED'),diagnostic:diagnoseRoadmapCodeAcceptance(job)||'REPAIR_ACCEPTANCE_UNCLASSIFIED'};
  const receipt=job.result_json.roadmap_code_acceptance;
  if(receipt.candidate_sha!==deployedSha) {
   const protectedPaths=[...receipt.code_paths,...receipt.test_paths];
