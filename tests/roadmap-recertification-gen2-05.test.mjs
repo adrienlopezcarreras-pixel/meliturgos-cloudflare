@@ -6,11 +6,11 @@ import { proofRecipeContract } from '../src/roadmap/proof-recipe-contracts.js';
 
 const CAPABILITY='models.council-contract.verify';
 
-test('GEN2-05 diagnostic uses only core, low-risk, no-input local contract',async()=>{
+test('GEN2-05 auxiliary diagnostic is isolated and cannot certify live roadmap',async()=>{
   let externalCalls=0;
   const bus=createDefaultCapabilityBus({env:{AI:{async run(){externalCalls++;throw Error('EXTERNAL_AI_MUST_NOT_BE_CALLED');}}}});
   const record=bus.describe(CAPABILITY);
-  assert.equal(ROADMAP_RECERTIFICATION_PROFILES['GEN2-05'],CAPABILITY);
+  assert.equal(ROADMAP_RECERTIFICATION_PROFILES['GEN2-05'],undefined);
   assert.equal(record.provider,'core');
   assert.equal(record.category,'diagnostic');
   assert.equal(record.risk,'LOW');
