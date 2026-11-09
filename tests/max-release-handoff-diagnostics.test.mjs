@@ -59,3 +59,9 @@ test('409 diagnostic classifies blocked backlog without leaking statuses or ids'
  assert.match(out,/blocked_queued=2 blocked_council_complete=1 blocked_other=4/);
  assert.doesNotMatch(out,/PRIVATE|job_id/);
 });
+
+test('GEN2-42 redacted log counts jobs, not private job identifiers',()=>{
+ const out=diagnostic(JSON.stringify({status:'GEN2_42_TEACHER_HANDOFF_NOT_READY',blocked_distinct_job_count:2,open_handoffs:[{job_id:'PRIVATE_INTERNAL_JOB'}]}));
+ assert.match(out,/GEN2-42 sanitized counts: distinct_jobs=2/);
+ assert.doesNotMatch(out,/PRIVATE_INTERNAL_JOB|open_handoffs/);
+});
