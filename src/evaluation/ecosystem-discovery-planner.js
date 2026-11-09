@@ -471,7 +471,21 @@ function staleTeacherRequeue(job = {}) {
   const result = job?.result_json || {};
   const reason = String(plan?.revision?.reason || '').toUpperCase();
   const previousRequestId = String(plan?.revision?.previous_request_id || '').trim();
-  if (reason !== 'TEACHER_REQUEST_STALE_SHA' || !previousRequestId) return null;
+  const isLegacyStale = reason === 'TEACHER_REQUEST_STALE_SHA';
+  // Bridge preparation can independently prove the approved candidate became
+  // stale. This path must have immutable two-SHA evidence; a reason code alone
+  // cannot invalidate a historical Teacher approval.
+  const isBridgeStale = reason === 'BRIDGE_PREPARATION_CANDIDATE_STALE';
+  if ((!isLegacyStale && !isBridgeStale) || !previousRequestId) return null;
+  if (isBridgeStale) {
+    const diagnosis = result?.implementation_planning_diagnostic || {};
+    const approved = String(diagnosis.approved_candidate_sha || '').toLowerCase();
+    const observed = String(diagnosis.observed_candidate_sha || '').toLowerCase();
+    if (diagnosis.code !== 'BRIDGE_PREPARATION_CANDIDATE_STALE'
+        || !/^[a-f0-9]{40}$/.test(approved)
+        || !/^[a-f0-9]{40}$/.test(observed)
+        || approved === observed) return null;
+  }
   if (result?.teacher_bridge?.request?.request_id || result?.teacher_bridge?.review?.request_id) return null;
   if (plan?.preflight?.council) return null;
   const history = Array.isArray(result?.teacher_bridge_history) ? result.teacher_bridge_history : [];
@@ -483,8 +497,22 @@ function staleTeacherRequeue(job = {}) {
       || entry?.request_id
       || ''
     ).trim();
-    return state === 'STALE' && requestId === previousRequestId;
+    // requeueStaleTeacherApproval preserves the reviewed ANSWERED bridge in
+    // history; it does not mutate that historical vote into a STALE verdict.
+    return (state === 'STALE' || (isBridgeStale && state === 'ANSWERED'))
+      && requestId === previousRequestId;
   }) || null;
+  if (isBridgeStale && stale) {
+    // The SHA diagnosis must identify the *same* approved candidate as the
+    // reviewed historical Teacher request, not an unrelated SHA drift.
+    const diagnosticApproved = String(result.implementation_planning_diagnostic.approved_candidate_sha).toLowerCase();
+    const historicalApproved = String(
+      stale?.request?.candidate?.sha
+      || stale?.request?.provenance?.candidate_sha
+      || ''
+    ).toLowerCase();
+    if (historicalApproved !== diagnosticApproved) return null;
+  }
   return stale ? { reason, previous_request_id: previousRequestId } : null;
 }
 
