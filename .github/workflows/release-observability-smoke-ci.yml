@@ -30,6 +30,7 @@ on:
       - 'scripts/verify-downstream-proof-attestation.mjs'
       - 'scripts/check-release-proof-shell.mjs'
       - 'scripts/release-autonomy-deep-proof.sh'
+      - 'tests/max-release-handoff-diagnostics.test.mjs'
       - 'tests/shardvault-release-request-budget.test.mjs'
       - 'scripts/check-release-council-proof.mjs'
       - 'tests/release-council-proof.test.mjs'
@@ -75,6 +76,7 @@ jobs:
           tests/predeploy-d1-backup-large-table.test.mjs
           tests/release-predeploy-backup-reuse.test.mjs
           tests/release-production-smoke-routes.test.mjs
+          tests/max-release-handoff-diagnostics.test.mjs
           tests/release-council-proof.test.mjs
           tests/shardvault-release-request-budget.test.mjs
           tests/release-media-bootstrap-propagation.test.mjs
