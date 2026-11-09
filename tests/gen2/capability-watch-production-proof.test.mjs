@@ -227,6 +227,9 @@ test('GEN2-42 production proof accepts a truly idle ledger without masking open 
     assert.equal(blocked.status,'GEN2_42_TEACHER_HANDOFF_NOT_READY');
     assert.equal(blocked.idle_verified,false);
     assert.equal(blocked.open_handoff_count,1);
+    assert.equal(blocked.blocked_queued_handoff_count,1);
+    assert.equal(blocked.blocked_council_complete_handoff_count,0);
+    assert.equal(blocked.blocked_other_handoff_count,0);
 
     // A fresh owner approval still QUEUED is backlog, not a broken handoff;
     // the same approval left untouched for over a day blocks again.
