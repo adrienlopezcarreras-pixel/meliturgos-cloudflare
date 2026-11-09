@@ -21,7 +21,6 @@ export const ROADMAP_RECERTIFICATION_PROFILES = Object.freeze({
   "GEN2-43": "evaluation.model-watch.verify",
   "GEN2-03": "models.registry.verify",
   "GEN2-04": "models.router-fallback.verify",
-  "GEN2-05": "models.council-contract.verify",
   "MEL-CONTEXT-02": "context.long-decisions.verify",
   "MEL-CONTEXT-04": "context.interpreter.verify",
   "MEL-MEM-02": "memory.exchange-sync.verify",
