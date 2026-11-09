@@ -41,3 +41,15 @@ test('unknown all-uppercase codes fail closed',()=>{
 test('the actual NOT_READY release status is reported without exposing its handoff payload',()=>{
   assert.equal(diagnostic(JSON.stringify({status:'GEN2_42_TEACHER_HANDOFF_NOT_READY',open_handoffs:[{job_id:'private'}]})),'GEN2-42 sanitized reason: GEN2_42_TEACHER_HANDOFF_NOT_READY');
 });
+
+test('409 diagnostic exposes only bounded aggregate handoff counts, never identifiers',()=>{
+  const out=diagnostic(JSON.stringify({status:'GEN2_42_TEACHER_HANDOFF_NOT_READY',open_handoff_count:3,teacher_proven_handoff_count:0,blocked_open_handoff_count:3,released_stale_teacher_requeue_count:1,open_handoffs:[{job_id:'private-id',teacher_request_id:'secret'}],token:'DO_NOT_LOG'}));
+  assert.match(out,/GEN2-42 sanitized reason: GEN2_42_TEACHER_HANDOFF_NOT_READY/);
+  assert.match(out,/GEN2-42 sanitized counts: open=3 teacher_proven=0 blocked=3 stale_requeued=1/);
+  assert.doesNotMatch(out,/private-id|DO_NOT_LOG|secret/);
+});
+test('409 diagnostic rejects malformed or excessive count values',()=>{
+  const out=diagnostic(JSON.stringify({status:'GEN2_42_TEACHER_HANDOFF_NOT_READY',open_handoff_count:'3',teacher_proven_handoff_count:-1,blocked_open_handoff_count:100001,released_stale_teacher_requeue_count:2}));
+  assert.match(out,/GEN2-42 sanitized counts: stale_requeued=2/);
+  assert.doesNotMatch(out,/open=|teacher_proven=|blocked=/);
+});
