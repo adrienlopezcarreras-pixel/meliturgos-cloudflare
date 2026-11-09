@@ -53,3 +53,9 @@ test('409 diagnostic rejects malformed or excessive count values',()=>{
   assert.match(out,/GEN2-42 sanitized counts: stale_requeued=2/);
   assert.doesNotMatch(out,/open=|teacher_proven=|blocked=/);
 });
+
+test('409 diagnostic classifies blocked backlog without leaking statuses or ids',()=>{
+ const out=diagnostic(JSON.stringify({status:'GEN2_42_TEACHER_HANDOFF_NOT_READY',blocked_queued_handoff_count:2,blocked_council_complete_handoff_count:1,blocked_other_handoff_count:4,open_handoffs:[{job_id:'PRIVATE'}]}));
+ assert.match(out,/blocked_queued=2 blocked_council_complete=1 blocked_other=4/);
+ assert.doesNotMatch(out,/PRIVATE|job_id/);
+});
