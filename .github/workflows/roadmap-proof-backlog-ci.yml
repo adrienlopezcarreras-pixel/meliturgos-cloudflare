@@ -32,6 +32,8 @@ on:
       - "tests/mel-council-04-runtime-proof.test.mjs"
       - "tests/gen2-32-runtime-proof.test.mjs"
       - "tests/mel-council-03-runtime-proof.test.mjs"
+      - "tests/roadmap-recertification-gen2-05.test.mjs"
+      - "src/roadmap/runtime-recertification.js"
       - "src/pages/service-worker.js"
       - "tests/gen2-26-pwa-offline.test.mjs"
       - "src/roadmap/master-roadmap.js"
@@ -54,6 +56,8 @@ jobs:
       - run: npm ci
       - name: Verify inventory and non-regression
         run: node --test tests/roadmap-proof-backlog.test.mjs tests/roadmap-truth.test.mjs tests/gen2-02-runtime-proof.test.mjs tests/gen2-61-runtime-proof.test.mjs tests/gen2-51-runtime-proof.test.mjs tests/gen2-52-runtime-proof.test.mjs tests/gen2-11-runtime-proof.test.mjs tests/gen2-10-live-memory-proof.test.mjs tests/gen2-50-mcp-runtime-proof.test.mjs tests/mel-sec-01-runtime-proof.test.mjs tests/mel-eval-01-runtime-proof.test.mjs tests/gen2-43-runtime-proof.test.mjs tests/gen2-03-runtime-proof.test.mjs tests/gen2-04-runtime-proof.test.mjs tests/mel-context-02-runtime-proof.test.mjs tests/mel-context-04-runtime-proof.test.mjs tests/mel-mem-02-runtime-proof.test.mjs tests/mel-council-04-runtime-proof.test.mjs tests/gen2-32-runtime-proof.test.mjs tests/mel-council-03-runtime-proof.test.mjs
+      - name: Verify GEN2-05 isolated Model Council runtime recipe (not production proof)
+        run: node --test tests/roadmap-recertification-gen2-05.test.mjs
       - name: Verify GEN2-11 Knowledge Graph contract (code evidence, not live production)
         run: node --test tests/gen2/gen2-11-knowledge-graph-contract.test.mjs
       - name: Verify GEN2-10 contradictions provenance and temporal contract
