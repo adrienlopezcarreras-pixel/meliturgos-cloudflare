@@ -33,7 +33,8 @@ test('GEN2-05 recipe remains auxiliary, not a certification of the parent',()=>{
 
 test('GEN2-05 runtime cannot certify without a planning job and owner/runtime evidence',async()=>{
   const job={id:'gen2-05-test',requested_by:'mel-autonomy',status:'WAITING_DEPENDENCY',optional_context:{roadmap_id:'GEN2-05',work_mode:'VERIFY_RUNTIME'}};
-  const result=await executeRuntimeRecertification({}, {},job);
-  assert.equal(result.status,'BLOCKED');
-  assert.equal(result.code,'ROADMAP_RECERTIFICATION_ADMISSION_REQUIRED');
+  await assert.rejects(
+    () => executeRuntimeRecertification({}, {},job),
+    error => error?.code==='ROADMAP_RECERTIFICATION_RECIPE_REQUIRED'
+  );
 });
