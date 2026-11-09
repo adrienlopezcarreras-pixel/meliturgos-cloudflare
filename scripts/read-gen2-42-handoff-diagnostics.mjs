@@ -40,6 +40,37 @@ export function sanitizeGen242Handoffs(rows) {
       stale_sha_entries:safeCount(row?.stale_sha_entries),
     }))};
 }
+
+ 
+// Independent SELECT-only check of why ecosystem-watch jobs are parked.
+// Labels are fixed, with no prerequisite IDs, goals, Teacher payloads or job IDs.
+export const GEN2_42_DEPENDENCY_REASON_SQL = `SELECT
+ CASE UPPER(COALESCE(json_extract(
+   CASE WHEN json_valid(result_json) THEN result_json ELSE '{}' END,
+   '$.dependency_wait.reason'),''))
+  WHEN 'ROADMAP_PRIORITY_ABSOLUTE' THEN 'ROADMAP_PRIORITY_ABSOLUTE'
+  WHEN 'ROADMAP_PREREQUISITES_PENDING' THEN 'ROADMAP_PREREQUISITES_PENDING'
+  ELSE 'OTHER_OR_UNRECORDED'
+ END AS reason_class,
+ COUNT(*) AS entries,
+ SUM(CASE WHEN json_array_length(
+   CASE WHEN json_valid(result_json) THEN result_json ELSE '{}' END,
+   '$.dependency_wait.prerequisites') > 0 THEN 1 ELSE 0 END) AS with_prerequisites
+ FROM dev_jobs
+ WHERE requested_by='mel-autonomy' AND status='WAITING_DEPENDENCY'
+ AND json_extract(CASE WHEN json_valid(optional_context) THEN optional_context ELSE '{}' END,'$.source')='ecosystem-watch'
+ GROUP BY reason_class ORDER BY entries DESC LIMIT 4`;
+
+const allowedReasons=new Set(['ROADMAP_PRIORITY_ABSOLUTE','ROADMAP_PREREQUISITES_PENDING','OTHER_OR_UNRECORDED']);
+export function sanitizeGen242DependencyReasons(rows) {
+  return {schema:'mel.gen2-42-readonly-dependency-reasons/v1',diagnostic_only:true,
+    groups:(Array.isArray(rows)?rows:[]).slice(0,4).map(row=>({
+      reason_class:allowedReasons.has(row?.reason_class)?row.reason_class:'OTHER_OR_UNRECORDED',
+      entries:safeCount(row?.entries),
+      with_prerequisites:safeCount(row?.with_prerequisites),
+    }))};
+}
+
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const raw=JSON.parse(readFileSync(0,'utf8'));
   const result=Array.isArray(raw)?raw[0]:raw;
