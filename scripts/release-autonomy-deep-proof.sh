@@ -252,7 +252,7 @@ const codes=['error','code','status','reason'].map(k=>safe(d?.[k])).filter(Boole
 console.log('GEN2-42 sanitized reason: '+(codes.length?codes.join(' / '):'UNCLASSIFIED_RESPONSE'));
 // Numbers only: never log job identifiers, payloads, tokens, or free-text statuses.
 // A 409 must reveal which kind of *aggregate* backlog blocked the proof.
-const countKeys=[['open_handoff_count','open'],['teacher_proven_handoff_count','teacher_proven'],['blocked_open_handoff_count','blocked'],['released_stale_teacher_requeue_count','stale_requeued']];
+const countKeys=[['open_handoff_count','open'],['teacher_proven_handoff_count','teacher_proven'],['blocked_open_handoff_count','blocked'],['released_stale_teacher_requeue_count','stale_requeued'],['blocked_queued_handoff_count','blocked_queued'],['blocked_council_complete_handoff_count','blocked_council_complete'],['blocked_other_handoff_count','blocked_other']];
 const counts=countKeys.filter(([key])=>Number.isSafeInteger(d?.[key])&&d[key]>=0&&d[key]<=100000)
   .map(([key,label])=>label+'='+d[key]);
 if(counts.length) console.log('GEN2-42 sanitized counts: '+counts.join(' '));
