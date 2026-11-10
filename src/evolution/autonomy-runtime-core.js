@@ -415,6 +415,7 @@ export async function markBridgePreparationAttempt(repository, jobId, { now = Da
     };
     // Exhausted: the supervisor moves to the next mission instead of looping.
     result.autonomy_deferral = { code: 'BRIDGE_PREPARATION_KILLED', phase: 'bridge', observed_at: now,
+      context: providerRetryContext(latest),
       retry_after: now + 60 * 60_000, attempts: killed, max_attempts: BRIDGE_ATTEMPT_MAX_KILLED, exhausted: true };
     const job = await persistDiagnosticResult(repository, latest, result, 'bridge_preparation_diagnostic');
     return { job, killed, exhausted: true };
@@ -1372,6 +1373,9 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       evolution_queue: state?.evolution || null,
       job_id: job?.id || null,
       job_status: finalJobStatus,
+      ...(Number.isFinite(Number(ensured?.external_progress?.retry_after))
+        ? { provider_retry_after: Number(ensured.external_progress.retry_after) }
+        : {}),
     },
     reconciliation,
     candidate_ci: candidateCI,

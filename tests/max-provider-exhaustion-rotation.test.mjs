@@ -81,6 +81,21 @@ for (const invalid of [
   assert.equal((await repository.list()).length, 1);
 });
 
+test('a bridge killed three times rotates even when the old row has no context', async t => {
+  const DB = sqliteD1();
+  t.after(() => DB.close());
+  const repository = new D1DevJobRepository(DB);
+  const id = await setup(repository, { context: false });
+  const job = await repository.get(id);
+  await repository.update(id, { result_json: { ...job.result_json, autonomy_deferral: {
+    ...job.result_json.autonomy_deferral, code: 'BRIDGE_PREPARATION_KILLED', phase: 'bridge',
+  } } });
+  assert.equal(isRotatableProviderExhaustion(await repository.get(id)), true);
+  const next = await new AutonomySupervisor({ repository, roadmap }).ensureNextJob();
+  assert.equal(next.created, true);
+  assert.equal(next.job.optional_context.roadmap_id, 'TEST-NEXT');
+});
+
 test('two competing D1 supervisors still admit only one replacement after provider exhaustion', async t => {
   const DB = sqliteD1();
   t.after(() => DB.close());
