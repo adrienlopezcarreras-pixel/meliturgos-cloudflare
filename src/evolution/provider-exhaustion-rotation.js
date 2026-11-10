@@ -20,9 +20,10 @@ export function isRotatableProviderExhaustion(job) {
   if (!Number.isFinite(Number(delay.attempts)) || Number(delay.attempts) < 3
       || !Number.isFinite(Number(delay.max_attempts)) || Number(delay.max_attempts) < 3
       || Number(delay.attempts) < Number(delay.max_attempts)) return false;
-  // Never free a lane for a stale or absent context, where an old deferral
-  // might otherwise conceal a newly approved job.
-  if (typeof delay.context !== 'string' || delay.context !== providerRetryContext(job)) return false;
+  // A bridge cut three times is already the bounded failure. Older rows omitted
+  // the context, and that omission kept the lane forever (the next mission never started).
+  const killedBridge = delay.code === 'BRIDGE_PREPARATION_KILLED';
+  if (!killedBridge && (typeof delay.context !== 'string' || delay.context !== providerRetryContext(job))) return false;
   const bridge = String(job?.result_json?.dev_bridge?.status || '').toUpperCase();
   if (['RUNNING', 'IN_PROGRESS', 'CLAIMED', 'READY_FOR_REVIEW'].includes(bridge)) return false;
   return true;
@@ -41,13 +42,18 @@ export const ROTATABLE_PROVIDER_EXHAUSTION_SQL = `(
   AND json_extract(result_json,'$.autonomy_deferral.max_attempts') >= 3
   AND json_extract(result_json,'$.autonomy_deferral.attempts') >=
       json_extract(result_json,'$.autonomy_deferral.max_attempts')
-  AND json_type(result_json,'$.autonomy_deferral.context') = 'text'
-  AND json_extract(result_json,'$.autonomy_deferral.context') = json_array(
-    candidate_branch,
-    json_extract(result_json,'$.teacher_bridge.review.target_sha'),
-    json_extract(result_json,'$.teacher_bridge.review.request_id'),
-    json_extract(result_json,'$.implementation_proposal.candidate_sha'),
-    json_extract(result_json,'$.implementation_proposal.teacher_request_id')
+  AND (
+    json_extract(result_json,'$.autonomy_deferral.code') = 'BRIDGE_PREPARATION_KILLED'
+    OR (
+      json_type(result_json,'$.autonomy_deferral.context') = 'text'
+      AND json_extract(result_json,'$.autonomy_deferral.context') = json_array(
+        candidate_branch,
+        json_extract(result_json,'$.teacher_bridge.review.target_sha'),
+        json_extract(result_json,'$.teacher_bridge.review.request_id'),
+        json_extract(result_json,'$.implementation_proposal.candidate_sha'),
+        json_extract(result_json,'$.implementation_proposal.teacher_request_id')
+      )
+    )
   )
   AND UPPER(COALESCE(json_extract(result_json,'$.dev_bridge.status'),'')) NOT IN
     ('RUNNING','IN_PROGRESS','CLAIMED','READY_FOR_REVIEW')

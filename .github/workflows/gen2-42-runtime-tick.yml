@@ -237,6 +237,21 @@ jobs:
             echo "AUTONOMY_CHAIN_IDLE advanced=$ADVANCED paused=$PAUSED bridge_ready=$READY work_remaining=$WORK_REMAINING depth=$CHAIN_DEPTH"
             exit 0
           fi
+          if [ "$MAX" = "true" ] && [ "$WAITING_EXTERNAL" = "true" ] && [ "$BLOCK" = "DEFERRED_PROVIDER_RETRY_PENDING" ] && [ "$CHAIN_DEPTH" -lt 2 ]; then
+            # A five-minute model cooldown is not a cloud proof. Wait it out once
+            # and continue; do not hold the runner for the hour-long killed park.
+            WAIT="$(node -e 'const p=JSON.parse(require("fs").readFileSync("gen2-42-runtime-tick-proof.json","utf8")); const wait=Number(p?.progress?.provider_retry_after||0)-Date.now(); process.stdout.write(Number.isFinite(wait)&&wait>0&&wait<=6*60*1000?String(Math.ceil(wait/1000)+2):"0")')"
+            if [ "$WAIT" != "0" ]; then
+              echo "AUTONOMY_CHAIN_PROVIDER_RETRY_WAIT seconds=$WAIT"
+              sleep "$WAIT"
+              NEXT_DEPTH="$((CHAIN_DEPTH + 1))"
+              NEXT_DEPTH="$NEXT_DEPTH" node -e "process.stdout.write(JSON.stringify({ref:'main',inputs:{chain_depth:process.env.NEXT_DEPTH}}))" > autonomy-next-dispatch.json
+              CODE="$(curl --silent --show-error --max-time 30 --request POST --header "Authorization: Bearer $GH_TOKEN" --header "Accept: application/vnd.github+json" --header "X-GitHub-Api-Version: 2022-11-28" --header "Content-Type: application/json" --data-binary @autonomy-next-dispatch.json --output autonomy-next-dispatch-response.txt --write-out '%{http_code}' "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/gen2-42-runtime-tick.yml/dispatches")"
+              test "$CODE" = "204"
+              echo "AUTONOMY_CHAIN_CONTINUED depth=$NEXT_DEPTH"
+              exit 0
+            fi
+          fi
           if [ "$MAX" = "true" ] && [ "$WAITING_EXTERNAL" = "true" ]; then
             # CODEX: pending Council/CI/cloud receipts are passive lanes. The
             # persistent runtime continues other work, independently of a PC.

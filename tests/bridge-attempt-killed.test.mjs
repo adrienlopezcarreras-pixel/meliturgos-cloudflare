@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { markBridgePreparationAttempt, persistBridgePreparationDiagnostic, BRIDGE_ATTEMPT_KILLED_AFTER_MS } from '../src/evolution/autonomy-runtime-core.js';
+import { isRotatableProviderExhaustion, providerRetryContext } from '../src/evolution/provider-exhaustion-rotation.js';
 
 function repo(job) {
   let row = structuredClone(job);
@@ -12,7 +13,7 @@ function repo(job) {
 }
 
 test('a Mentor attempt cut by the platform is counted, and three cuts move MAX to the next mission', async () => {
-  const r = repo({ id: 'j', status: 'TEACHER_APPROVED', result_json: {} });
+  const r = repo({ id: 'j', status: 'TEACHER_APPROVED', requested_by: 'mel-autonomy', result_json: {} });
   let now = 1_000_000;
   const first = await markBridgePreparationAttempt(r, 'j', { now });
   assert.equal(first.exhausted, false);
@@ -28,6 +29,8 @@ test('a Mentor attempt cut by the platform is counted, and three cuts move MAX t
   assert.equal(last.exhausted, true);
   assert.equal(r.row.result_json.bridge_preparation_diagnostic.code, 'BRIDGE_PREPARATION_KILLED');
   assert.equal(r.row.result_json.autonomy_deferral.exhausted, true);
+  assert.equal(r.row.result_json.autonomy_deferral.context, providerRetryContext(r.row));
+  assert.equal(isRotatableProviderExhaustion(r.row), true);
   assert.equal(r.row.result_json.bridge_preparation_attempt, undefined);
 });
 
