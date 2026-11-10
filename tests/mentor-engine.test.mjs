@@ -57,6 +57,43 @@ test('mentor rejects conflicting duplicate paths instead of dropping the second 
   });
 });
 
+test('a refused search line is shown on the next attempt', async () => {
+  const line = 'export const missedLessonTarget = 1;';
+  const source = 'export const start = 1;\n' + '// kept padding\n'.repeat(1500) + line + '\n';
+  const seen = [];
+  const engine = new MentorEngine({
+    providerFactory: async () => [{
+      id: 'editor',
+      providerId: 'test',
+      modelId: 'editor',
+      async invoke(input) {
+        seen.push(String(input?.input || ''));
+        return { text: JSON.stringify({
+          summary: 'Corrige la ligne manquée.',
+          edits: [{ path: 'src/example.js', find: line, replace: 'export const missedLessonTarget = 2;' }],
+          tests: ['test:smoke'],
+          confidence: 0.8,
+        }) };
+      },
+    }],
+  });
+  const blind = new MentorEngine({
+    providerFactory: async () => [{
+      id: 'blind', providerId: 'test', modelId: 'blind',
+      async invoke(input) { seen.push('BLIND\n' + String(input?.input || '')); return { text: JSON.stringify({ summary: 'x', edits: [{ path: 'src/example.js', find: 'export const start = 1;', replace: 'export const start = 2;' }], tests: ['test:smoke'], confidence: 0.8 }) }; },
+    }],
+  });
+  await blind.propose({ env: {}, goal: 'Changer le debut', inspectedFiles: [{ path: 'src/example.js', content: source }] });
+  assert.equal(seen[0].includes('missedLessonTarget'), false);
+  await engine.propose({
+    env: {},
+    goal: 'Changer le debut',
+    inspectedFiles: [{ path: 'src/example.js', content: source }],
+    previousAttempts: [{ stderr: 'MENTOR_UNINSPECTED_EDIT:src/example.js — SEARCH absent de l\'extrait ; ligne introuvable : ' + JSON.stringify(line) }],
+  });
+  assert.match(seen[1], /missedLessonTarget/);
+});
+
 test('mentor applies one unique edit onto the inspected file instead of requiring the whole file', async () => {
   const source = 'export function read() {\n  return "old";\n}\n';
   const engine = new MentorEngine({

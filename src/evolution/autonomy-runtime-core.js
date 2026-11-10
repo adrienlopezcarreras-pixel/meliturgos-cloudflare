@@ -384,6 +384,13 @@ async function requeueStaleTeacherApproval(repository, jobId, diagnosticCode, st
 export const BRIDGE_ATTEMPT_KILLED_AFTER_MS = 3 * 60_000;
 export const BRIDGE_ATTEMPT_MAX_KILLED = 3;
 
+export function bridgePreparationHold(attempt) {
+  if (attempt?.exhausted) return { status: 'NOT_READY', code: 'BRIDGE_PREPARATION_KILLED' };
+  if (attempt?.claimed) return null;
+  if (attempt?.in_progress) return { status: 'NOT_READY', code: 'BRIDGE_PREPARATION_IN_PROGRESS' };
+  return { status: 'NOT_READY', code: 'BRIDGE_PREPARATION_CLAIM_NOT_PERSISTED' };
+}
+
 export async function markBridgePreparationAttempt(repository, jobId, { now = Date.now() } = {}) {
   const latest = await repository.get(jobId);
   if (latest?.status !== 'TEACHER_APPROVED') return { job: latest, killed: 0, exhausted: false };
@@ -1258,13 +1265,22 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     if (implementation?.status === 'READY' && job && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED') {
       attempt = await markBridgePreparationAttempt(jobRepository, job.id).catch(() => null);
       if (attempt?.job) job = attempt.job;
+      // One lost write is not a stall. Retry once when nobody else holds the claim.
+      if (attempt && !attempt.claimed && !attempt.in_progress && !attempt.exhausted) {
+        const retry = await markBridgePreparationAttempt(jobRepository, job.id).catch(() => null);
+        if (retry) {
+          attempt = retry;
+          if (attempt.job) job = attempt.job;
+        }
+      }
     }
-    if (attempt?.exhausted) {
+    const hold = attempt && !attempt.claimed ? bridgePreparationHold(attempt) : null;
+    if (hold?.code === 'BRIDGE_PREPARATION_KILLED') {
       bridgePreparation = { status: 'NOT_READY', code: 'BRIDGE_PREPARATION_KILLED', failures: [] };
-    } else if (implementation?.status === 'READY' && job && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED' && !attempt?.claimed) {
-      // An exception or a losing CAS must never launch a second expensive
-      // Mentor/Bridge call on a stale job. Retry with the next scheduled tick.
-      bridgePreparation = { status: 'NOT_READY', code: 'BRIDGE_PREPARATION_CLAIM_NOT_PERSISTED', failures: [] };
+    } else if (hold?.code === 'BRIDGE_PREPARATION_IN_PROGRESS') {
+      bridgePreparation = { status: 'NOT_READY', code: 'BRIDGE_PREPARATION_IN_PROGRESS', failures: [] };
+    } else if (implementation?.status === 'READY' && job && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED' && hold) {
+      bridgePreparation = { status: 'NOT_READY', code: hold.code, failures: [] };
     } else if (implementation?.status === 'READY' && job && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED' && attempt?.claimed) {
       try {
         globalThis.__melTickStage = 'bridge-package';
@@ -1325,6 +1341,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     || finalJobStatus === 'WAITING_TEACHER'
     || awaitingCandidateReview
     || bridgePreparation?.status === 'AWAITING_LIVE_EVIDENCE'
+    || bridgePreparation?.code === 'BRIDGE_PREPARATION_IN_PROGRESS'
     || String(ensured?.external_progress?.status || '').length > 0;
   const blockReason = teacher?.status === 'NOT_READY' ? teacher.code : bridgePreparation?.status === 'NOT_READY'
     ? (bridgePreparation.code || 'BRIDGE_PREPARATION_NOT_READY')

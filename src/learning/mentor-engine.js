@@ -316,11 +316,10 @@ function applyInspectedEdits(edits, inspectedFiles, repairReferences = [], visib
     }
     if (!byPath.has(path)) throw Object.assign(new Error(`MENTOR_INVALID_CHANGE:${path} — fichier non inspecté : seuls les fichiers de SOURCES_INSPECTÉES ou un nouveau tests/<nom>.test.mjs directement dans tests/ (imports en ../src/...)`), { code: 'MENTOR_INVALID_CHANGE' });
     const visible = visibleFiles.find(file => file.path === path);
-    const find = resolveFind(visible?.content, String(edit?.find ?? ''));
-    // A SEARCH copied verbatim from the real file, once, is not invented code even
-    // when it sits outside the excerpt (31/10: FOUNDER-07 refused 4x on the real
-    // first import line of restore-service.js). The uniqueness check below holds.
     const realSource = String(byPath.get(path) || '');
+    // A unique trim match in the whole inspected file is the same line, even
+    // when the excerpt did not show it. Guessed or repeated text still fails.
+    const find = resolveFind(realSource, String(edit?.find ?? ''));
     const verbatimInFile = find.trim().length >= 20 && realSource.indexOf(find) >= 0 && realSource.indexOf(find, realSource.indexOf(find) + find.length) < 0;
     if (!verbatimInFile && !visibleFiles.some(file => file.path === path && file.content.includes(find))) {
       // Name the first SEARCH line the model did not copy verbatim; a bare code
@@ -480,11 +479,33 @@ function focusTerms(goal) {
   return [...new Set(String(goal || '').toLowerCase().match(/[a-z_][a-z0-9_]{4,}/g) || [])].slice(0, 40);
 }
 
-function focusedWindow(content, share, terms) {
-  if (content.length <= share || !terms.length) return content.slice(0, share);
+function missedSearchLines(previousAttempts, extra = '') {
+  const texts = [
+    ...(Array.isArray(previousAttempts) ? previousAttempts : []).map(row => String(row?.stderr || row?.detail || row?.error || '')),
+    String(extra || ''),
+  ];
+  const lines = [];
+  for (const text of texts) {
+    const match = text.match(/ligne introuvable : ("(?:\\.|[^"\\])*")/);
+    if (!match) continue;
+    try {
+      const line = JSON.parse(match[1]);
+      if (typeof line === 'string' && line.trim().length >= 8) lines.push(line.trim().slice(0, 160));
+    } catch { /* a broken quote is not a lesson */ }
+  }
+  return [...new Set(lines)].slice(0, 4);
+}
+
+function focusedWindow(content, share, terms, anchors = []) {
+  if (content.length <= share || (!terms.length && !anchors.length)) return content.slice(0, share);
   const lines = content.split('\n');
   // Earlier terms weigh more: test-imported symbols come first (31/10).
-  const scores = lines.map(line => { const low = line.toLowerCase(); return terms.reduce((n, term, rank) => n + (low.includes(term) ? terms.length - rank : 0), 0); });
+  // A line named by the previous refusal is shown next, or the same miss repeats.
+  const scores = lines.map(line => {
+    const low = line.toLowerCase();
+    const termsScore = terms.reduce((n, term, rank) => n + (low.includes(term) ? terms.length - rank : 0), 0);
+    return termsScore + (anchors.some(anchor => line.includes(anchor)) ? 1000 : 0);
+  });
   let best = 0, bestScore = -1;
   for (let start = 0; start < lines.length; start += 1) {
     let size = 0, score = 0;
@@ -498,14 +519,14 @@ function focusedWindow(content, share, terms) {
 }
 
 // Fit the prompt to one provider: the frame is kept, sources share the rest.
-function promptWithinLimit(build, files, limit, visibleScope = [], goal = '') {
+function promptWithinLimit(build, files, limit, visibleScope = [], goal = '', anchors = []) {
   const terms = focusTerms(goal);
   const frame = build([]).length;
   let budget = Math.max(0, Math.min(MAX_TOTAL_SOURCE_CHARS, limit - frame - 120 * files.length));
   const excerpts = files.map((file, index) => {
     // sourceBlock shows at most EXCERPT_CHARS of each file, never past this budget.
     const share = Math.min(MAX_FILE_CHARS, EXCERPT_CHARS, Math.floor(budget / (files.length - index)));
-    const visible = focusedWindow(file.content, share, terms);
+    const visible = focusedWindow(file.content, share, terms, anchors);
     budget -= visible.length;
     const excerpt = visible.length < file.content.length
       ? `${visible}\n[EXTRAIT TRONQUÉ: ${file.content.length} caractères au total. Modifie ce fichier par edits avec un find copié de cet extrait.]`
@@ -707,7 +728,8 @@ export class MentorEngine {
     // FOUNDER-02's 60 KB runtime core is otherwise centered on goal words.
     const contractFocus = (String(goal || '').match(/FOCUS_CODE ([^|]+)/)?.[1] || '').trim().split(/\s+/).filter(Boolean);
     const leading = [...new Set([...contractFocus, ...importedSymbols])];
-    const focusGoal = leading.length ? leading.join(' ') + '\n' + objective : objective;
+    const missed = missedSearchLines(previousAttempts);
+    const focusGoal = leading.length || missed.length ? [...leading, ...missed].join(' ') + '\n' + objective : objective;
     if (!objective) throw Object.assign(new Error('MENTOR_GOAL_REQUIRED'), { code: 'MENTOR_GOAL_REQUIRED', status: 400 });
     const files = normalizeInspectedFiles(inspectedFiles);
     if (!files.length) throw Object.assign(new Error('MENTOR_INSPECTION_REQUIRED'), { code: 'MENTOR_INSPECTION_REQUIRED', status: 422 });
@@ -807,6 +829,7 @@ export class MentorEngine {
             promptLimit(provider),
             visibleScope,
             focusGoal,
+            missed,
           ),
           context: {
             purpose: 'mel-autonomous-development',
@@ -855,6 +878,7 @@ export class MentorEngine {
               promptLimit(provider),
               visibleScope,
               focusGoal,
+              missedSearchLines(previousAttempts, failureDetail),
             ),
             context: {
               purpose: 'mel-autonomous-development-structured-repair',

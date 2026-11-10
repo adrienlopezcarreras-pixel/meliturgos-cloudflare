@@ -162,11 +162,27 @@ for (const changed of ['src/unrelated.js', 'src/work/work-dag.js']) {
   });
 }
 
-test('a find in the complete file but outside the actual prompt excerpt is refused', async () => {
+test('a unique real line outside the excerpt is applied, a repeated one is not', async () => {
+  const line = 'export const hiddenTarget = false;';
+  const source = 'export const visible = 1;\n' + '// kept padding\n'.repeat(1200) + '  ' + line + '\n';
+  const result = await engineFor({ edits: [{ path, find: line, replace: 'export const hiddenTarget = true;' }] })
+    .propose({ env: {}, goal: 'Edit the real unique line', inspectedFiles: [{ path, content: source }] });
+  assert.match(result.proposal.changes[0].content, /hiddenTarget = true/);
+  const twice = source + line + '\n';
+  await assert.rejects(engineFor({ edits: [{ path, find: line, replace: 'export const hiddenTarget = true;' }] })
+    .propose({ env: {}, goal: 'Do not guess a repeated line', inspectedFiles: [{ path, content: twice }] }),
+  error => error.failures.every(row => row.error === 'MENTOR_UNINSPECTED_EDIT' || row.error === 'MENTOR_INVALID_CHANGE'));
+});
+
+test('a short find outside the excerpt is refused until the refusal shows that line', async () => {
   const source = 'export const visible = 1;\n' + '// kept padding\n'.repeat(1200) + 'export const hidden = false;\n';
-  await assert.rejects(engineFor({ edits: [{ path, find: 'hidden = false', replace: 'hidden = true' }] })
-    .propose({ env: {}, goal: 'Edit only what this provider saw', inspectedFiles: [{ path, content: source }] }),
-  error => error.failures.every(row => row.error === 'MENTOR_UNINSPECTED_EDIT'));
+  const calls = [];
+  const result = await engineFor({ edits: [{ path, find: 'hidden = false', replace: 'hidden = true' }] }, calls)
+    .propose({ env: {}, goal: 'Edit only what this provider saw', inspectedFiles: [{ path, content: source }] });
+  const text = call => String(call.input?.input ?? call.input);
+  assert.equal(text(calls[0]).includes('hidden = false'), false);
+  assert.equal(calls.length >= 2 && text(calls[1]).includes('hidden = false'), true);
+  assert.match(result.proposal.changes[0].content, /hidden = true/);
 });
 
 test('the seventh inspected file is not writable when the prompt exposed only six files', async () => {
