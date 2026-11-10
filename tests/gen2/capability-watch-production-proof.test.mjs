@@ -575,9 +575,27 @@ test('GEN2-42 counts distinct blocked jobs, not duplicate capability fingerprint
     const proof=await proveEcosystemTeacherHandoff({DB},{developmentRepository:repository});
     assert.equal(proof.ok,false);
     assert.equal(proof.status,'GEN2_42_TEACHER_HANDOFF_NOT_READY');
-    assert.equal(proof.blocked_open_handoff_count,4);
+    assert.equal(proof.blocked_open_handoff_count,3);
     assert.equal(proof.blocked_queued_handoff_count,3);
-    assert.equal(proof.blocked_distinct_job_count,2);
+    assert.equal(proof.blocked_distinct_job_count,1);
+    assert.equal(proof.released_waiting_dependency_count,1);
     assert.equal(proof.teacher_proven_handoff_count,0);
+  } finally { DB.close(); }
+});
+
+test('a handoff that is only waiting on a dependency does not block the release', async () => {
+  const DB=sqliteD1();
+  try {
+    await migrate(DB);
+    const ledger={items:[{fingerprint:'wait',handoff:{job_id:'revenue-watch',status:'WAITING_DEPENDENCY',closed:false}}]};
+    await DB.prepare('INSERT INTO capability_watch_state(id,state_json,updated_at) VALUES(?,?,?)')
+      .bind('ecosystem-discoveries-canonical',JSON.stringify(ledger),Date.now()).run();
+    const repository={async get(){return {id:'revenue-watch',status:'WAITING_DEPENDENCY',requested_by:'mel-autonomy',optional_context:{source:'autonomy-supervisor'},result_json:{},created_at:1};}};
+    const proof=await proveEcosystemTeacherHandoff({DB},{developmentRepository:repository});
+    assert.equal(proof.ok,true);
+    assert.equal(proof.status,'GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED');
+    assert.equal(proof.open_handoff_count,0);
+    assert.equal(proof.released_waiting_dependency_count,1);
+    assert.equal(proof.production_activation_allowed,false);
   } finally { DB.close(); }
 });

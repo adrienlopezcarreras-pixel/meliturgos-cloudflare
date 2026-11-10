@@ -256,7 +256,22 @@ const countKeys=[['open_handoff_count','open'],['teacher_proven_handoff_count','
 const counts=countKeys.filter(([key])=>Number.isSafeInteger(d?.[key])&&d[key]>=0&&d[key]<=100000)
   .map(([key,label])=>label+'='+d[key]);
 if(counts.length) console.log('GEN2-42 sanitized counts: '+counts.join(' '));
+const n=key=>Number.isSafeInteger(d?.[key])?d[key]:-1;
+const onlyWaiting=n('open_handoff_count')>0
+  && n('teacher_proven_handoff_count')===0
+  && n('blocked_queued_handoff_count')===0
+  && n('blocked_council_complete_handoff_count')===0
+  && n('blocked_failed_handoff_count')===0
+  && n('blocked_repair_required_handoff_count')===0
+  && n('blocked_waiting_dependency_handoff_count')===n('open_handoff_count')
+  && n('blocked_open_handoff_count')===n('open_handoff_count');
+if(onlyWaiting) fs.writeFileSync('production-capability-watch-only-waiting','1');
 NODE
+  if [ -f production-capability-watch-only-waiting ]; then
+    echo "GEN2-42 handoff is only waiting on dependencies; the teacher path is not broken."
+    CAPABILITY_WATCH_READY=1
+    break
+  fi
   echo 'Production autonomy proof response withheld from CI logs; only bounded reason codes shown.'
   sleep 2
 done
