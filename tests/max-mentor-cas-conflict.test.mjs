@@ -142,6 +142,14 @@ test('MAX cannot resurrect a bridge attempt after a concurrent Mentor READY CAS 
   assert.equal(successfulWrites, 0, 'a competing Mentor decision must abort stale CAS retry');
 });
 
+test('a live Bridge claim waits instead of counting as a lost write', async () => {
+  const { bridgePreparationHold } = await import('../src/evolution/autonomy-runtime-core.js');
+  assert.equal(bridgePreparationHold({ in_progress: true, claimed: false }).code, 'BRIDGE_PREPARATION_IN_PROGRESS');
+  assert.equal(bridgePreparationHold({ claimed: false }).code, 'BRIDGE_PREPARATION_CLAIM_NOT_PERSISTED');
+  assert.equal(bridgePreparationHold({ exhausted: true }).code, 'BRIDGE_PREPARATION_KILLED');
+  assert.equal(bridgePreparationHold({ claimed: true }), null);
+});
+
 test('MAX Bridge claim stays exclusive for a live attempt and rotates only after expiry', async () => {
   let row = { id: 'founder-07', status: 'TEACHER_APPROVED', result_json: {} };
   let writes = 0;
