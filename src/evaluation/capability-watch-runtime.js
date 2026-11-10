@@ -484,11 +484,15 @@ export async function proveEcosystemTeacherHandoff(
       && item.decided_at > 0
       && now - item.decided_at < FRESH_OWNER_QUEUED_MS
   );
+  const releasedWaitingDependency = rawOpen.filter(item =>
+    String(item.handoff.status || '').toUpperCase() === 'WAITING_DEPENDENCY'
+  );
   const releasedNonBlocking = new Set([
     ...releasedRetryableFailures,
     ...releasedStaleTeacherRequeues,
     ...releasedCancelled,
     ...releasedFreshOwnerQueued,
+    ...releasedWaitingDependency,
   ]);
   const open = rawOpen.filter(item => !releasedNonBlocking.has(item));
 
@@ -551,6 +555,7 @@ export async function proveEcosystemTeacherHandoff(
     })),
     released_cancelled_count: releasedCancelled.length,
     released_fresh_owner_queued_count: releasedFreshOwnerQueued.length,
+    released_waiting_dependency_count: releasedWaitingDependency.length,
     released_stale_teacher_requeue_count: releasedStaleTeacherRequeues.length,
     released_stale_teacher_requeues: releasedStaleTeacherRequeues.slice(0, 20).map(item => ({
       fingerprint: item.fingerprint,
