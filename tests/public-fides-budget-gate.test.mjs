@@ -43,3 +43,37 @@ test('FIDES fails closed if durable rate-limit DB throws', async () => {
   assert.equal((await response.json()).error, 'PUBLIC_RATE_LIMIT_UNAVAILABLE');
   assert.equal(calls, 0);
 });
+
+test('invalid JSON never consumes a global daily AI quota slot', async () => {
+  const inserted = [];
+  const db = {
+    prepare(sql) {
+      let values = [];
+      return {
+        bind(...args) { values = args; return this; },
+        async run() {
+          if (sql.startsWith('INSERT INTO public_rate_limits')) inserted.push(values[0]);
+          return {};
+        },
+        async first() { return { window_started: Date.now(), count: 1 }; },
+      };
+    },
+  };
+  let aiCalls = 0;
+  const env = {
+    FIDES_PUBLIC_CHAT_ENABLED: 'true',
+    AI: { run: async () => { aiCalls++; return { response: 'unexpected' }; } },
+    DB: db,
+  };
+  const invalid = new Request('https://mel.example/api/public/fides/chat', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'cf-connecting-ip': '192.0.2.99' },
+    body: '{invalid-json',
+  });
+  const response = await handlePublicFidesChat(invalid, env);
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).error, 'FIDES_BODY_INVALID');
+  assert.equal(aiCalls, 0);
+  assert.equal(inserted.length, 1, 'only the per-IP limiter must be updated');
+  assert.ok(inserted[0].startsWith('fides-guest-chat:'), 'global daily cap must not be consumed');
+});
