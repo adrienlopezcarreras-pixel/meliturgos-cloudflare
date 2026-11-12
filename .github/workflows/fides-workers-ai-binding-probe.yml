@@ -42,47 +42,72 @@ jobs:
             echo "temporary_worker_delete_http=${code}"
           }
           trap cleanup EXIT
-          mkdir -p /tmp/fides-probe
+          mkdir -p /tmp/fides-probe .tmp-fides-probe
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           fs.writeFileSync('/tmp/fides-probe/wrangler.json', JSON.stringify({
-            name:process.env.PROBE_NAME,main:'/tmp/fides-probe/worker.mjs',
+            name:process.env.PROBE_NAME,main:'./.tmp-fides-probe/worker.mjs',
             compatibility_date:'2026-11-01',workers_dev:true,
             account_id:process.env.CLOUDFLARE_ACCOUNT_ID,
             ai:{binding:'AI'}
           }));
           NODE
-          cat > /tmp/fides-probe/worker.mjs <<'JS'
+          cat > .tmp-fides-probe/worker.mjs <<'JS'
+          import {handlePublicFidesChat} from '../src/api/public-fides-chat.js';
+
+          const rateRows=new Map();
+          const DB={
+            prepare(sql){
+              let args=[];
+              return {
+                bind(...values){args=values;return this;},
+                async run(){
+                  if(sql.startsWith('INSERT INTO public_rate_limits')){
+                    const [key,now,,resetBefore]=args;
+                    const row=rateRows.get(key);
+                    rateRows.set(key,!row||row.window_started<=resetBefore
+                      ?{window_started:now,count:1}
+                      :{window_started:row.window_started,count:row.count+1});
+                  }
+                  return {};
+                },
+                async first(){return rateRows.get(args[0])||null;}
+              };
+            }
+          };
           export default {
-            async fetch(request, env) {
+            async fetch(request,env){
               if(request.headers.get('x-probe-secret')!==env.FIDES_PROBE_TOKEN)
                 return new Response('Not found',{status:404});
-              const model='@cf/zai-org/glm-4.7-flash';
-              try {
-                const out=await env.AI.run(model,{
-                  messages:[{role:'user',content:'Dis bonjour.'}],
-                  max_tokens:80,
-                  chat_template_kwargs:{enable_thinking:false}
-                });
-                const response=typeof out?.response==='string'?out.response:'';
-                const choice=typeof out?.choices?.[0]?.message?.content==='string'
-                  ?out.choices[0].message.content:'';
+              const failures=[];
+              const original=console.error;
+              console.error=(...args)=>{
+                if(args[0]==='[FIDES public] inference failure')failures.push(String(args[1]||'').slice(0,50));
+                if(args[0]==='[FIDES public] primary inference failed; trying bounded free-model fallback')failures.push('PRIMARY_FAILED_FALLBACK_STARTED');
+              };
+              try{
+                const result=await handlePublicFidesChat(
+                  new Request('https://mel.example/api/public/fides/chat',{
+                    method:'POST',headers:{
+                      'content-type':'application/json','cf-connecting-ip':'127.0.0.1'
+                    },
+                    body:JSON.stringify({message:'Qui est saint Jean l Evangéliste ?'})
+                  }),
+                  {AI:env.AI,DB,FIDES_PUBLIC_CHAT_ENABLED:'true'}
+                );
+                const data=await result.json().catch(()=>({}));
+                const text=typeof data.answer==='string'?data.answer:'';
                 return Response.json({
-                  ok:true,shape:out&&typeof out==='object'?Object.keys(out):[],
-                  response_length:response.length,choice_length:choice.length,
-                  output_text_length:typeof out?.output_text==='string'?out.output_text.length:0
+                  handler_http:result.status,ok:data.ok===true,
+                  error_code:String(data.error||'').slice(0,50),
+                  failure_kinds:failures,
+                  answer_length:text.length,
+                  provider:String(data.provider||'').slice(0,40),
+                  model:String(data.model||'').slice(0,80),
+                  isolation:data.private_data_access===false&&data.action_access===false
+                    &&data.mel_memory_persistence===false
                 });
-              }catch(e){
-                const code=String(e?.code??'').slice(0,60);
-                const status=Number(e?.status||0);
-                // Never emit exception messages, model output, prompts, or account details.
-                return Response.json({
-                  ok:false,error_name:String(e?.name||'').slice(0,40),
-                  error_code:code,error_status:status,
-                  error_kind:status===429?'RATE_OR_QUOTA':status===403?'FORBIDDEN':
-                    status===400?'INVALID_REQUEST':status>=500?'PROVIDER_SERVER':'OTHER'
-                });
-              }
+              }finally{console.error=original;}
             }
           };
           JS
