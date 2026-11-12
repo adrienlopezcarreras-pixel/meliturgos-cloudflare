@@ -17,7 +17,28 @@ test('MEL FIDES guest page clearly exposes an isolated presentation mode', () =>
 
 test('MEL FIDES guest chat is stateless and sends doctrinal guardrails to Workers AI', async () => {
   let call = null;
+  const rows = new Map();
   const env = {
+    FIDES_PUBLIC_CHAT_ENABLED: 'true',
+    DB: {
+      prepare(sql) {
+        let args = [];
+        return {
+          bind(...next) { args = next; return this; },
+          async run() {
+            if (sql.startsWith('INSERT INTO public_rate_limits')) {
+              const [key, now, , resetBefore] = args;
+              const previous = rows.get(key);
+              rows.set(key, !previous || previous.window_started <= resetBefore
+                ? { window_started: now, count: 1 }
+                : { window_started: previous.window_started, count: previous.count + 1 });
+            }
+            return {};
+          },
+          async first() { return rows.get(args[0]) || null; },
+        };
+      },
+    },
     AI: {
       async run(model, payload) {
         call = { model, payload };
@@ -43,11 +64,13 @@ test('MEL FIDES guest chat is stateless and sends doctrinal guardrails to Worker
   const messages = call.payload.messages;
   assert.equal(messages.at(-1).content, 'Que signifie le baptême ?');
   const system = messages[0].content;
-  assert.match(system, /aucune mémoire privée/i);
-  assert.match(system, /aucune capacité d action/i);
-  assert.match(system, /ne prétends jamais être prêtre/i);
-  assert.match(system, /Ne fabrique jamais une citation/i);
-  assert.match(system, /catholiques.*orthodoxes/i);
+  assert.match(system, /Aucune donnee personnelle du proprietaire/i);
+  assert.match(system, /aucun outil et aucune action administrative/i);
+  assert.match(system, /Ne te presente pas comme autorite ecclesiale, pretre/i);
+  assert.match(system, /Ne fabrique jamais verset, paragraphe, citation/i);
+  assert.match(system, /dialogue catholique-orthodoxe/i);
+  assert.equal(call.payload.max_tokens, 500);
+  assert.equal(rows.size, 2, 'both per-IP and global 24-hour quota must be written');
 });
 
 test('public FIDES routes are placed before owner authentication', async () => {
