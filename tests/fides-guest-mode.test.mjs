@@ -83,3 +83,86 @@ test('public FIDES routes are placed before owner authentication', async () => {
   assert.ok(fidesPage < ownerAuth);
   assert.ok(fidesApi < ownerAuth);
 });
+
+test('MEL FIDES falls back once to a second Workers Free model after transient primary error', async () => {
+  const calls = [];
+  const rows = new Map();
+  const env = {
+    FIDES_PUBLIC_CHAT_ENABLED: 'true',
+    DB: { prepare(sql) {
+      let args = [];
+      return {
+        bind(...values) { args = values; return this; },
+        async run() {
+          if (sql.startsWith('INSERT INTO public_rate_limits')) {
+            const [key, now, , resetBefore] = args;
+            const previous = rows.get(key);
+            rows.set(key, !previous || previous.window_started <= resetBefore
+              ? { window_started: now, count: 1 }
+              : { window_started: previous.window_started, count: previous.count + 1 });
+          }
+          return {};
+        },
+        async first() { return rows.get(args[0]) || null; },
+      };
+    } },
+    AI: { async run(model, payload) {
+      calls.push({ model, payload });
+      if (model === '@cf/zai-org/glm-4.7-flash') throw Object.assign(new Error('capacity unavailable'), { status: 503 });
+      return { response: 'Saint Jean est traditionnellement identifié comme un apôtre et évangéliste.' };
+    } },
+  };
+  const response = await handlePublicFidesChat(new Request('https://mel.example/api/public/fides/chat', {
+    method: 'POST', body: JSON.stringify({ message: 'Qui est saint Jean ?' }),
+  }), env);
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.model, '@cf/google/gemma-4-26b-a4b-it');
+  assert.equal(body.private_data_access, false);
+  assert.equal(body.action_access, false);
+  assert.equal(body.mel_memory_persistence, false);
+  assert.deepEqual(calls.map(row => row.model), ['@cf/zai-org/glm-4.7-flash', '@cf/google/gemma-4-26b-a4b-it']);
+  assert.deepEqual(calls[0].payload.messages, calls[1].payload.messages);
+  assert.equal(rows.size, 2, 'fallback does not bypass guest rate accounting');
+});
+
+test('MEL FIDES never retries with fallback on quota, billing or authentication denial', async () => {
+  const calls = [];
+  const rows = new Map();
+  const env = {
+    FIDES_PUBLIC_CHAT_ENABLED: 'true',
+    DB: { prepare(sql) {
+      let args = [];
+      return {
+        bind(...values) { args = values; return this; },
+        async run() {
+          if (sql.startsWith('INSERT INTO public_rate_limits')) {
+            const [key, now, , resetBefore] = args;
+            const previous = rows.get(key);
+            rows.set(key, !previous || previous.window_started <= resetBefore
+              ? { window_started: now, count: 1 }
+              : { window_started: previous.window_started, count: previous.count + 1 });
+          }
+          return {};
+        },
+        async first() { return rows.get(args[0]) || null; },
+      };
+    } },
+    AI: { async run(model) {
+      calls.push(model);
+      throw Object.assign(new Error('quota exceeded'), { status: 429, code: 'RATE_LIMIT' });
+    } },
+  };
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    const response = await handlePublicFidesChat(new Request('https://mel.example/api/public/fides/chat', {
+      method: 'POST', body: JSON.stringify({ message: 'Qui est saint Jean ?' }),
+    }), env);
+    assert.equal(response.status, 502);
+    assert.deepEqual(calls, ['@cf/zai-org/glm-4.7-flash']);
+  } finally {
+    console.error = originalError;
+  }
+});
