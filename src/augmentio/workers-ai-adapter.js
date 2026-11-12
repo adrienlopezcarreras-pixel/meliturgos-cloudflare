@@ -74,6 +74,7 @@ const NON_REASONING_PURPOSES = new Set([
   ...RESERVED_COUNCIL_PURPOSES,
   'mel-autonomous-development',
   'mel-autonomous-development-structured-repair',
+  'fides-public-chat',
 ]);
 
 function inferenceOptions(context = {}, modelId = '') {
