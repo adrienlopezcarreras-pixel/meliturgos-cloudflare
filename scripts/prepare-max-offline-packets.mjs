@@ -8,7 +8,7 @@ import { flattenRoadmap, ROADMAP_REGISTRY_REVISION, isClosedRoadmapStatus } from
 export function buildOfflinePackets(rows = flattenRoadmap()) {
   const ids = new Set();
   return rows.filter(row => {
-    if (!row?.id || ids.has(row.id)) throw new Error('INVALID_OR_DUPLICATE_ROADMAP_ID');
+    if (typeof row?.id !== 'string' || !row.id.trim() || ids.has(row.id)) throw new Error('INVALID_OR_DUPLICATE_ROADMAP_ID');
     ids.add(row.id);
     return !isClosedRoadmapStatus(row.status);
   }).map(row => ({
