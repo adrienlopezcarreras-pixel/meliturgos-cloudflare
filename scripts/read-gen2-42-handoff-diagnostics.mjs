@@ -45,6 +45,11 @@ export function sanitizeGen242Handoffs(rows) {
 // Independent SELECT-only check of why ecosystem-watch jobs are parked.
 // Labels are fixed, with no prerequisite IDs, goals, Teacher payloads or job IDs.
 export const GEN2_42_DEPENDENCY_REASON_SQL = `SELECT
+ CASE json_extract(CASE WHEN json_valid(optional_context) THEN optional_context ELSE '{}' END,'$.source')
+  WHEN 'ecosystem-watch' THEN 'ecosystem-watch'
+  WHEN 'autonomy-supervisor' THEN 'autonomy-supervisor'
+  ELSE 'OTHER'
+ END AS source_class,
  CASE UPPER(COALESCE(json_extract(
    CASE WHEN json_valid(result_json) THEN result_json ELSE '{}' END,
    '$.dependency_wait.reason'),''))
@@ -58,13 +63,15 @@ export const GEN2_42_DEPENDENCY_REASON_SQL = `SELECT
    '$.dependency_wait.prerequisites') > 0 THEN 1 ELSE 0 END) AS with_prerequisites
  FROM dev_jobs
  WHERE requested_by='mel-autonomy' AND status='WAITING_DEPENDENCY'
- AND json_extract(CASE WHEN json_valid(optional_context) THEN optional_context ELSE '{}' END,'$.source')='ecosystem-watch'
- GROUP BY reason_class ORDER BY entries DESC LIMIT 4`;
+ AND json_extract(CASE WHEN json_valid(optional_context) THEN optional_context ELSE '{}' END,'$.source') IN ('ecosystem-watch','autonomy-supervisor')
+ GROUP BY source_class,reason_class ORDER BY source_class,entries DESC LIMIT 8`;
 
+const allowedSources=new Set(['ecosystem-watch','autonomy-supervisor']);
 const allowedReasons=new Set(['ROADMAP_PRIORITY_ABSOLUTE','ROADMAP_PREREQUISITES_PENDING','OTHER_OR_UNRECORDED']);
 export function sanitizeGen242DependencyReasons(rows) {
   return {schema:'mel.gen2-42-readonly-dependency-reasons/v1',diagnostic_only:true,
-    groups:(Array.isArray(rows)?rows:[]).slice(0,4).map(row=>({
+    groups:(Array.isArray(rows)?rows:[]).slice(0,8).map(row=>({
+      source_class:allowedSources.has(row?.source_class)?row.source_class:'OTHER',
       reason_class:allowedReasons.has(row?.reason_class)?row.reason_class:'OTHER_OR_UNRECORDED',
       entries:safeCount(row?.entries),
       with_prerequisites:safeCount(row?.with_prerequisites),
