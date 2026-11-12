@@ -78,9 +78,9 @@ jobs:
       # Automatic release-pointer pushes preserve the owner's prior MAX choice.
       # Explicit manual dispatch may request restoration; owner/safety pauses remain authoritative.
       OWNER_MAX_AUTORELEASE: ${{ github.event_name != 'workflow_dispatch' && 'false' || (inputs.owner_max_autorelease && 'true' || 'false') }}
-      # TEMPORARY DEV-LIGHT MODE: ShardVault 7/7/code-sync proof paused to finish downstream release validation.
-      # MUST be restored to 'false' before final validation/closure.
-      MEL_ROADMAP_SHARDVAULT_PAUSED: 'true'
+      # Final-roadmap release candidate: require external ShardVault quorum and code reconstruction.
+      # Merge/deploy only after roadmap closeout is approved; failure must block production.
+      MEL_ROADMAP_SHARDVAULT_PAUSED: 'false'
       # TEMPORARY DEV-LIGHT MODE: keep external/deep AI proofs out of the blocking release path.
       # MUST be restored to 'false' before final roadmap closure.
       MEL_RELEASE_DEEP_AI_PROOFS_PAUSED: 'false'
