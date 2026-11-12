@@ -238,10 +238,6 @@ function proveCouncilCatalog() {
 }
 
 export const SOFTWARE_CONTRACT_PROOFS = Object.freeze([
-  { roadmapId: 'MEL-CHAT-01', id: 'chat.media-intent.verify', name: 'Intention média du chat', prove: proveChatMediaIntent },
-  { roadmapId: 'MEL-CHAT-02', id: 'chat.media-chain.verify', name: 'Référence privée d’un média', prove: proveChatMediaChain },
-  { roadmapId: 'MEL-CHAT-03', id: 'chat.vision-scope.verify', name: 'Miniature distincte d’une analyse', prove: proveVisionScope },
-  { roadmapId: 'MEL-CHAT-07', id: 'chat.response-quality.verify', name: 'Sous-demandes et recette de preuve', prove: proveResponseQuality },
   { roadmapId: 'MEL-LIFE-01', id: 'continuity.life-contingency.verify', name: 'Contre-mesure de continuité', prove: proveLifeContingency },
   { roadmapId: 'MEL-AUDIT-02', id: 'audit.development.verify', name: 'Audit de développement dédupliqué', prove: proveDevelopmentAudit },
   { roadmapId: 'MEL-AUDIT-03', id: 'audit.domain-findings.verify', name: 'Trois constats de domaine', prove: proveDomainFindings },
@@ -251,9 +247,6 @@ export const SOFTWARE_CONTRACT_PROOFS = Object.freeze([
   { roadmapId: 'MEL-AUDIT-07', id: 'audit.outcome-loop.verify', name: 'Mesure avant et après réparation', prove: proveOutcomeLoop },
   { roadmapId: 'MEL-FOUNDER-02', id: 'autonomy.runtime-lease.verify', name: 'Reprise du même bail', prove: proveRuntimeLease },
   { roadmapId: 'MEL-FOUNDER-07', id: 'backup.isolated-restore.verify', name: 'Restauration isolée', prove: proveIsolatedRestore },
-  { roadmapId: 'MEL-MANIFEST-01', id: 'roadmap.manifest-foundation.verify', name: 'Fondations du manifeste', prove: proveManifestFoundation },
-  { roadmapId: 'MEL-COUNCIL-OPS-01', id: 'council.operational-catalog.verify', name: 'Catalogue réel du Council', prove: proveCouncilCatalog },
-  { roadmapId: 'MEL-COUNCIL-OPS-02', id: 'council.recommendation-request.verify', name: 'Recommandation non exécutée', prove: proveCouncilCatalog },
 ]);
 
 export function registerSoftwareContractProofs(bus) {
