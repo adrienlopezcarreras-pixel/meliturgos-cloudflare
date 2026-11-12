@@ -17,10 +17,10 @@ button,textarea{font:inherit}.shell{min-height:100vh;display:grid;grid-template-
 <div class="shell">
 <aside>
   <div class="brand"><div class="mark">✝</div><div><strong>MEL FIDES</strong><small>Foi &amp; conversion</small></div></div>
-  <div class="guest">MODE INVITÉ · PRÉSENTATION</div>
+  <div class="guest">MODE INVITÉ · CHAT CATHOLIQUE</div>
   <nav class="nav" aria-label="Navigation MEL FIDES">
-    <button class="active" data-view="presentation">Présentation</button>
-    <button data-view="chat">Essayer MEL FIDES</button>
+    <button data-view="presentation">Présentation</button>
+    <button class="active" data-view="chat">💬 Discuter avec MEL FIDES</button>
     <button data-view="method">Méthode & garanties</button>
   </nav>
   <div class="privacy">Cet espace invité est isolé de MEL personnel. Il n'expose ni mémoire privée, ni fichiers, ni messagerie, ni commandes système.</div>
@@ -33,7 +33,7 @@ button,textarea{font:inherit}.shell{min-height:100vh;display:grid;grid-template-
   </header>
   <div class="notice"><strong>Prototype de présentation.</strong> MEL FIDES n'est pas à ce stade un outil officiellement approuvé par l'Église catholique. L'objectif est précisément de construire son cadre doctrinal et pastoral avec des relecteurs compétents.</div>
 
-  <section class="view active" data-panel="presentation">
+  <section class="view" data-panel="presentation">
     <div class="grid">
       <article class="card wide">
         <span class="pill">Pourquoi MEL FIDES ?</span>
@@ -53,12 +53,12 @@ button,textarea{font:inherit}.shell{min-height:100vh;display:grid;grid-template-
     </div>
   </section>
 
-  <section class="view" data-panel="chat">
+  <section class="view active" data-panel="chat">
     <article class="card wide chat-card">
       <div class="chat-head">
-        <span class="pill">Démonstration isolée</span>
-        <h2>Posez une question à MEL FIDES</h2>
-        <p>Cette démonstration n'utilise aucune donnée personnelle de MEL.</p>
+        <span class="pill">Conversation · Doctrine catholique</span>
+        <h2>Discutez avec MEL FIDES</h2>
+        <p>Questions sur la Bible de Jérusalem, le Catéchisme, le Vatican, les saints, l’histoire du catholicisme et le dialogue catholique–orthodoxe. Aucune donnée personnelle de MEL.</p>
         <div class="suggestions">
           <button type="button">Pourquoi les catholiques croient-ils à la Résurrection ?</button>
           <button type="button">Je voudrais être baptisé adulte, par où commencer ?</button>
@@ -67,11 +67,11 @@ button,textarea{font:inherit}.shell{min-height:100vh;display:grid;grid-template-
         </div>
       </div>
       <div class="chatlog" id="chatlog" aria-live="polite">
-        <div class="msg mel">Bonjour. Je suis MEL FIDES en mode invité. Vous pouvez me poser une question sur la foi catholique, la conversion d'un adulte ou le dialogue avec les Églises orthodoxes. Je préciserai mes limites lorsque nécessaire.</div>
+        <div class="msg mel">Bonjour ! Je suis MEL FIDES. Interrogez-moi sur la doctrine catholique, la Bible de Jérusalem, les textes du Vatican, les Pères de l’Église, les sacrements, l’histoire du catholicisme ou le dialogue avec les orthodoxes.</div>
       </div>
       <form class="composer" id="chatForm">
-        <textarea id="message" aria-label="Votre question à Fidès" maxlength="1800" required placeholder="Votre question…"></textarea>
-        <button class="send" id="send" type="submit">Envoyer</button>
+        <textarea id="message" aria-label="Votre question à Fidès" maxlength="1800" required placeholder="Écrivez votre question sur la foi catholique…"></textarea>
+        <button class="send" id="send" type="submit">Envoyer à MEL FIDES →</button>
       </form>
       <div class="status" id="status">Mode invité : <span class="tag-good">aucun accès aux données privées ni aux actions de MEL · aucun enregistrement dans la mémoire personnelle de MEL.</span></div>
     </article>
@@ -95,7 +95,7 @@ button,textarea{font:inherit}.shell{min-height:100vh;display:grid;grid-template-
   const nav=[...document.querySelectorAll('[data-view]')];
   const panels=[...document.querySelectorAll('[data-panel]')];
   function open(name){nav.forEach(b=>b.classList.toggle('active',b.dataset.view===name));panels.forEach(p=>p.classList.toggle('active',p.dataset.panel===name));}
-  nav.forEach(b=>b.addEventListener('click',()=>open(b.dataset.view)));
+  nav.forEach(b=>b.addEventListener('click',()=>open(b.dataset.view))); open('chat');
   const input=document.getElementById('message'),form=document.getElementById('chatForm'),log=document.getElementById('chatlog'),send=document.getElementById('send'),status=document.getElementById('status');
   document.querySelectorAll('.suggestions button').forEach(b=>b.addEventListener('click',()=>{input.value=b.textContent;input.focus()}));
   function add(kind,text){const el=document.createElement('div');el.className='msg '+kind;el.textContent=text;log.appendChild(el);log.scrollTop=log.scrollHeight;}
