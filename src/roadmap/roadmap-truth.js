@@ -157,10 +157,21 @@ export const ROADMAP_PROOF_SOURCES = Object.freeze({
   'GEN2-57': { capabilities: ['migration.gen1-contract.verify'] },
   'MEL-REL-03': { capabilities: ['release.smoke-contract.verify'] },
   'MEL-CHAT-01': { capabilities: ['chat.media-intent.verify'] },
+  'MEL-CHAT-02': { capabilities: ['chat.media-chain.verify'] },
+  'MEL-CHAT-03': { capabilities: ['chat.vision-scope.verify'] },
   'MEL-CHAT-07': { capabilities: ['chat.response-quality.verify'] },
   'MEL-LIFE-01': { capabilities: ['continuity.life-contingency.verify'] },
+  'MEL-AUDIT-02': { capabilities: ['audit.development.verify'] },
+  'MEL-AUDIT-03': { capabilities: ['audit.domain-findings.verify'] },
+  'MEL-AUDIT-04': { capabilities: ['audit.architecture-report.verify'] },
+  'MEL-AUDIT-05': { capabilities: ['audit.core-clock.verify'] },
+  'MEL-AUDIT-06': { capabilities: ['audit.new-model.verify'] },
   'MEL-AUDIT-07': { capabilities: ['audit.outcome-loop.verify'] },
+  'MEL-FOUNDER-02': { capabilities: ['autonomy.runtime-lease.verify'] },
+  'MEL-FOUNDER-07': { capabilities: ['backup.isolated-restore.verify'] },
   'MEL-MANIFEST-01': { capabilities: ['roadmap.manifest-foundation.verify'] },
+  'MEL-COUNCIL-OPS-01': { capabilities: ['council.operational-catalog.verify'] },
+  'MEL-COUNCIL-OPS-02': { capabilities: ['council.recommendation-request.verify'] },
 });
 
 export const ROADMAP_TRUTH = Object.freeze({
