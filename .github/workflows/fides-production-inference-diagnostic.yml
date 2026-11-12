@@ -52,11 +52,15 @@ jobs:
           // Never print raw Cloudflare trace/log lines: they can include unrelated visitors.
           const allowed=['EMPTY_MODEL_RESPONSE','WORKERS_AI_INVOCATION_FAILED','PROVIDER_ABORTED','PRIMARY_FAILED_FALLBACK_STARTED'];
           const detected=allowed.filter(k=>lines.some(l=>l.includes(k) || (k==='PRIMARY_FAILED_FALLBACK_STARTED' && l.includes('primary inference failed; trying bounded free-model fallback'))));
+          const fidesLines=lines.filter(l=>l.includes('[FIDES public]'));
+          const fidesNormalized=fidesLines.map(l=>l.replace(/\\\\\"/g,'"'));
+          const providerCodes=[...new Set(fidesNormalized.flatMap(l=>[...l.matchAll(/"code"\\s*:\\s*"([a-zA-Z0-9_-]{1,48})"/g)].map(m=>m[1])))];
+          const providerStatuses=[...new Set(fidesNormalized.flatMap(l=>[...l.matchAll(/"status"\\s*:\\s*(4\\d\\d|5\\d\\d)/g)].map(m=>Number(m[1]))))];
           const response=typeof d.answer==='string'?d.answer:'';
           console.log(JSON.stringify({
             http:Number(process.env.FIDES_LIVE_HTTP||0),ok:d.ok===true,
             answer_chars:response.length,error_code:String(d.error||'').slice(0,70),
-            fides_failure_categories:detected,
+            fides_failure_categories:detected, provider_codes:providerCodes, provider_statuses:providerStatuses,
             tail_received:lines.filter(Boolean).length>0,
             tail_subscription_failed:fs.existsSync('/tmp/fides-tail-errors.txt')
               && /error|failed|unauthorized/i.test(fs.readFileSync('/tmp/fides-tail-errors.txt','utf8'))
