@@ -5,6 +5,14 @@ const MODEL = '@cf/zai-org/glm-4.7-flash';
 const FALLBACK_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 const MAX_QUERY = 1200;
 
+// Only provider status/code are diagnostic, never its message, response, prompt or request.
+function safeInferenceFailure(error) {
+  const rawStatus = Number(error?.status || error?.statusCode || 0);
+  const status = Number.isInteger(rawStatus) && rawStatus >= 400 && rawStatus <= 599 ? rawStatus : 0;
+  const code = String(error?.code || 'UNKNOWN').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48) || 'UNKNOWN';
+  return { status, code };
+}
+
 function json(payload, status = 200, extra = {}) {
   return new Response(JSON.stringify(payload), {
     status,
@@ -99,7 +107,7 @@ export async function handlePublicFidesChat(request, env) {
       if (budgetDenied) throw primaryError;
       // One bounded failover to another Workers Free model. The same guest
       // isolation, prompts, 24-hour cap and no-private-data boundary apply.
-      console.error('[FIDES public] primary inference failed; trying bounded free-model fallback');
+      console.error('[FIDES public] primary inference failed; trying bounded free-model fallback', safeInferenceFailure(primaryError));
       result = await infer(FALLBACK_MODEL);
     }
 
@@ -121,7 +129,7 @@ export async function handlePublicFidesChat(request, env) {
     const failureKind = providerCode === 'EMPTY_WORKERS_AI_RESPONSE'
       ? 'EMPTY_MODEL_RESPONSE'
       : providerCode === 'PROVIDER_ABORTED' ? 'PROVIDER_ABORTED' : 'WORKERS_AI_INVOCATION_FAILED';
-    console.error('[FIDES public] inference failure', failureKind);
+    console.error('[FIDES public] inference failure', failureKind, safeInferenceFailure(error));
     return json({ ok: false, error: 'FIDES_CHAT_FAILED' }, 502);
   }
 }
