@@ -77,3 +77,25 @@ test('invalid JSON never consumes a global daily AI quota slot', async () => {
   assert.equal(inserted.length, 1, 'only the per-IP limiter must be updated');
   assert.ok(inserted[0].startsWith('fides-guest-chat:'), 'global daily cap must not be consumed');
 });
+
+test('public AI failures never leak provider internals', async () => {
+  const db = {
+    prepare(sql) {
+      return {
+        bind() { return this; },
+        async run() { return {}; },
+        async first() { return { window_started: Date.now(), count: 1 }; },
+      };
+    },
+  };
+  const env = {
+    FIDES_PUBLIC_CHAT_ENABLED: 'true',
+    DB: db,
+    AI: { run: async () => { throw new Error('PRIVATE_PROVIDER_KEY_DO_NOT_DISCLOSE'); } },
+  };
+  const response = await handlePublicFidesChat(request('Que dit le Catéchisme sur la charité ?'), env);
+  assert.equal(response.status, 502);
+  const payload = await response.json();
+  assert.equal(payload.error, 'FIDES_CHAT_FAILED');
+  assert.ok(!JSON.stringify(payload).includes('PRIVATE_PROVIDER_KEY_DO_NOT_DISCLOSE'));
+});
