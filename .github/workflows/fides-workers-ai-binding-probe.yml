@@ -1,0 +1,104 @@
+name: fides-workers-ai-binding-probe
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/fides-workers-ai-binding-probe.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  binding-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Probe isolated Workers AI binding and delete temporary script
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          PROBE_NAME="mel-fides-probe-${GITHUB_RUN_ID}"
+          PROBE_TOKEN="$(openssl rand -hex 24)"
+          echo "::add-mask::${PROBE_TOKEN}"
+          export PROBE_NAME
+          cleanup() {
+            set +e
+            code="$(curl --silent --show-error --max-time 25 -X DELETE \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -o /tmp/fides-probe-delete-response.json -w '%{http_code}' \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${PROBE_NAME}")"
+            echo "temporary_worker_delete_http=${code}"
+          }
+          trap cleanup EXIT
+          mkdir -p /tmp/fides-probe
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          fs.writeFileSync('/tmp/fides-probe/wrangler.json', JSON.stringify({
+            name:process.env.PROBE_NAME,main:'/tmp/fides-probe/worker.mjs',
+            compatibility_date:'2026-11-01',workers_dev:true,
+            account_id:process.env.CLOUDFLARE_ACCOUNT_ID,
+            ai:{binding:'AI'}
+          }));
+          NODE
+          cat > /tmp/fides-probe/worker.mjs <<'JS'
+          export default {
+            async fetch(request, env) {
+              if(request.headers.get('x-probe-secret')!==env.FIDES_PROBE_TOKEN)
+                return new Response('Not found',{status:404});
+              const model='@cf/zai-org/glm-4.7-flash';
+              try {
+                const out=await env.AI.run(model,{
+                  messages:[{role:'user',content:'Dis bonjour.'}],
+                  max_tokens:80,
+                  chat_template_kwargs:{enable_thinking:false}
+                });
+                const response=typeof out?.response==='string'?out.response:'';
+                const choice=typeof out?.choices?.[0]?.message?.content==='string'
+                  ?out.choices[0].message.content:'';
+                return Response.json({
+                  ok:true,shape:out&&typeof out==='object'?Object.keys(out):[],
+                  response_length:response.length,choice_length:choice.length,
+                  output_text_length:typeof out?.output_text==='string'?out.output_text.length:0
+                });
+              }catch(e){
+                const code=String(e?.code??'').slice(0,60);
+                const status=Number(e?.status||0);
+                // Never emit exception messages, model output, prompts, or account details.
+                return Response.json({
+                  ok:false,error_name:String(e?.name||'').slice(0,40),
+                  error_code:code,error_status:status,
+                  error_kind:status===429?'RATE_OR_QUOTA':status===403?'FORBIDDEN':
+                    status===400?'INVALID_REQUEST':status>=500?'PROVIDER_SERVER':'OTHER'
+                });
+              }
+            }
+          };
+          JS
+          npx wrangler deploy --config /tmp/fides-probe/wrangler.json \
+            --var "FIDES_PROBE_TOKEN:${PROBE_TOKEN}" >/tmp/fides-probe-deploy.log 2>&1 || {
+              echo "temporary_worker_deploy_failed"; exit 1;
+            }
+          sleep 3
+          http="$(curl --silent --show-error --max-time 60 \
+            -H "x-probe-secret: ${PROBE_TOKEN}" \
+            -o /tmp/fides-probe-result.json -w '%{http_code}' \
+            "https://${PROBE_NAME}.adrien-lopezcarreras.workers.dev")"
+          export PROBE_HTTP="$http"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let d={};try{d=JSON.parse(fs.readFileSync('/tmp/fides-probe-result.json','utf8'))}catch{}
+          console.log(JSON.stringify({http:Number(process.env.PROBE_HTTP),...d}));
+          if(Number(process.env.PROBE_HTTP)!==200)process.exit(1);
+          NODE
