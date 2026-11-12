@@ -86,7 +86,7 @@ export async function handlePublicFidesChat(request, env) {
         { role: 'system', content: system },
         { role: 'user', content: query },
       ],
-      context: { inference_settings: { temperature: 0.2, max_tokens: 500 } },
+      context: { purpose: 'fides-public-chat', inference_settings: { temperature: 0.2, max_tokens: 500 } },
     });
 
     return json({
