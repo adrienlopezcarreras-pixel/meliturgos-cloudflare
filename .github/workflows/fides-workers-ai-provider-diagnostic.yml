@@ -41,6 +41,14 @@ jobs:
           const answer = typeof result?.response === 'string' ? result.response
             : typeof result?.output_text === 'string' ? result.output_text : '';
           const safeErrorCodes = errors.map(e => String(e?.code ?? '').slice(0,24));
+          // Structure-only diagnostics: no generated text or user content is printed.
+          const shallowShape = obj => obj && typeof obj === 'object'
+            ? Object.fromEntries(Object.entries(obj).map(([key,value]) => [key,
+              Array.isArray(value) ? {kind:'array',count:value.length,first_keys:value[0] && typeof value[0] === 'object' ? Object.keys(value[0]) : []}
+              : value && typeof value === 'object' ? {kind:'object',keys:Object.keys(value)}
+              : {kind:typeof value,length:typeof value === 'string' ? value.length : null}]))
+            : {kind:typeof obj};
+          console.log(JSON.stringify({model_result_shape:shallowShape(result)}));
           console.log(JSON.stringify({
             http_status:Number(process.env.MODEL_PROBE_HTTP||0),
             cloudflare_success:d?.success === true,
