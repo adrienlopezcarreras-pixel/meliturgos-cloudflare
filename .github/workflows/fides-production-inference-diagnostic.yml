@@ -1,0 +1,64 @@
+name: fides-production-inference-diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/fides-production-inference-diagnostic.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Capture only scrubbed FIDES error category during one live request
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          # Raw tail is ephemeral and NEVER uploaded or printed.
+          timeout 65s npx wrangler tail meliturgos --format json > /tmp/fides-tail-raw.jsonl 2>/tmp/fides-tail-errors.txt &
+          TAIL_PID=$!
+          trap 'kill "${TAIL_PID}" 2>/dev/null || true; rm -f /tmp/fides-tail-raw.jsonl /tmp/fides-tail-errors.txt /tmp/fides-live-probe.json' EXIT
+          sleep 8
+          http="$(curl --silent --show-error --connect-timeout 10 --max-time 60 \
+            --request POST -H 'content-type: application/json' \
+            -H 'origin: https://verite-interdite.fr' \
+            --data '{"message":"Qui est saint Jean l Evangéliste ?"}' \
+            --output /tmp/fides-live-probe.json -w '%{http_code}' \
+            'https://meliturgos.adrien-lopezcarreras.workers.dev/api/public/fides/chat')"
+          export FIDES_LIVE_HTTP="$http"
+          sleep 5
+          kill "${TAIL_PID}" 2>/dev/null || true
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let d={};
+          try{d=JSON.parse(fs.readFileSync('/tmp/fides-live-probe.json','utf8'))}catch{}
+          const lines=fs.existsSync('/tmp/fides-tail-raw.jsonl')
+            ?fs.readFileSync('/tmp/fides-tail-raw.jsonl','utf8').split('\n'):[];
+          // Never print raw Cloudflare trace/log lines: they can include unrelated visitors.
+          const allowed=['EMPTY_MODEL_RESPONSE','WORKERS_AI_INVOCATION_FAILED','PROVIDER_ABORTED','PRIMARY_FAILED_FALLBACK_STARTED'];
+          const detected=allowed.filter(k=>lines.some(l=>l.includes(k) || (k==='PRIMARY_FAILED_FALLBACK_STARTED' && l.includes('primary inference failed; trying bounded free-model fallback'))));
+          const response=typeof d.answer==='string'?d.answer:'';
+          console.log(JSON.stringify({
+            http:Number(process.env.FIDES_LIVE_HTTP||0),ok:d.ok===true,
+            answer_chars:response.length,error_code:String(d.error||'').slice(0,70),
+            fides_failure_categories:detected,
+            tail_received:lines.filter(Boolean).length>0,
+            tail_subscription_failed:fs.existsSync('/tmp/fides-tail-errors.txt')
+              && /error|failed|unauthorized/i.test(fs.readFileSync('/tmp/fides-tail-errors.txt','utf8'))
+          }));
+          NODE
