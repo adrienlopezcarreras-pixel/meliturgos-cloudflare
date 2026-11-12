@@ -100,10 +100,11 @@ export async function handlePublicFidesChat(request, env) {
       provider: result.provenance?.provider || 'workers-ai',
       model: result.provenance?.model || MODEL,
     });
-  } catch (error) {
+  } catch {
+    // Never expose provider errors, secrets or infrastructure details to public callers.
     return json({
       ok: false,
-      error: String(error?.code || error?.message || 'FIDES_CHAT_FAILED').slice(0, 160),
+      error: 'FIDES_CHAT_FAILED',
     }, 502);
   }
 }
