@@ -48,7 +48,7 @@ jobs:
               : value && typeof value === 'object' ? {kind:'object',keys:Object.keys(value)}
               : {kind:typeof value,length:typeof value === 'string' ? value.length : null}]))
             : {kind:typeof obj};
-          console.log(JSON.stringify({model_result_shape:shallowShape(result)}));
+          console.log(JSON.stringify({model_result_shape:shallowShape(result), choice_message_shape:shallowShape(result?.choices?.[0]?.message), finish_reason:String(result?.choices?.[0]?.finish_reason ?? '').slice(0,40), completion_tokens:Number(result?.usage?.completion_tokens ?? 0)}));
           console.log(JSON.stringify({
             http_status:Number(process.env.MODEL_PROBE_HTTP||0),
             cloudflare_success:d?.success === true,
