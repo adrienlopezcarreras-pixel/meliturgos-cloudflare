@@ -70,6 +70,7 @@ test('MEL FIDES guest chat is stateless and sends doctrinal guardrails to Worker
   assert.match(system, /Ne fabrique jamais verset, paragraphe, citation/i);
   assert.match(system, /dialogue catholique-orthodoxe/i);
   assert.equal(call.payload.max_tokens, 500);
+  assert.deepEqual(call.payload.chat_template_kwargs, { enable_thinking: false }, 'public FIDES needs a visible answer, not a reasoning-only result');
   assert.equal(rows.size, 2, 'both per-IP and global 24-hour quota must be written');
 });
 
