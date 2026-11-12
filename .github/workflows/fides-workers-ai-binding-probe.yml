@@ -46,7 +46,7 @@ jobs:
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           fs.writeFileSync('/tmp/fides-probe/wrangler.json', JSON.stringify({
-            name:process.env.PROBE_NAME,main:'./.tmp-fides-probe/worker.mjs',
+            name:process.env.PROBE_NAME,main:process.cwd()+'/.tmp-fides-probe/worker.mjs',
             compatibility_date:'2026-11-01',workers_dev:true,
             account_id:process.env.CLOUDFLARE_ACCOUNT_ID,
             ai:{binding:'AI'}
