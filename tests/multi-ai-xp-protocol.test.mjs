@@ -165,6 +165,7 @@ test('public FIDES meter and answer-ceiling lessons are validated for MEL', asyn
   const ids = [
     'grok-fides-502-is-internal-neuron-meter-20261112',
     'grok-fides-guest-answer-ceiling-20261112',
+    'grok-use-verified-software-roadmap-20261112',
   ];
   const engine = new LearningEngine({ memory: new MemoryStub() });
   const corrections = await engine.corrections({ limit: null });

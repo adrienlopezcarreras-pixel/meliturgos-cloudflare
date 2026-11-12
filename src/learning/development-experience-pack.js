@@ -2076,4 +2076,23 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1794507601000
 }),
+  Object.freeze({
+    "id": "grok-use-verified-software-roadmap-20261112",
+    "source": "grok",
+    "domain": "roadmap",
+    "task": "Utiliser les compétences logicielles déjà vérifiées au lieu de les recoder.",
+    "input": "35 contrats logiciels ont leurs tests et la CI full-candidate-ci 43278792406 au SHA 9ee50c7. Cinq preuves restent ouvertes.",
+    "before": "Laisser MAX rouvrir Gmail, le chat, les audits ou le Council, ou attendre Companion et MINI pour s'en servir.",
+    "after": "Sers-toi des 35 compétences déjà en code. Lectures Gmail, Agenda et Drive : passe par le connecteur réel ou rends l'erreur d'authentification typée, sans JSON brut. Chat : distingue une demande d'image d'une explication, garde la référence privée du média, et ne présente pas une miniature comme une analyse. Council : enregistre une demande liée, n'active rien tout seul. Audits, restauration isolée et reprise de MAX : utilise les modules déjà testés. Ne touche pas aux cinq qui restent ouverts : MEL-FOUNDER-06 et MEL-UI-AUDIT-05 attendent un vrai appareil ; MEL-FOUNDER-08, MEL-LORA-CHAT-01 et MEL-LORA-MODE-01 attendent un vrai essai LoRA et l'accord du propriétaire. Un point vert veut dire utiliser le code existant, pas lancer un modèle pour le réécrire.",
+    "rationale": "Recoder une compétence déjà testée consomme des neurones et peut casser ce qui marche. Le vert du registre autorise l'usage, il ne remplace pas l'appareil ni le modèle LoRA.",
+    "tests": [
+      "tests des 35 contrats logiciels verts localement le 12/11/2026",
+      "full-candidate-ci 43278792406 succès au SHA 9ee50c7fa033319082f0df469ece10caf5b3b8a2",
+      "cinq points laissés PLANNED : MEL-FOUNDER-06, MEL-UI-AUDIT-05, MEL-FOUNDER-08, MEL-LORA-CHAT-01, MEL-LORA-MODE-01"
+    ],
+    "tags": ["roadmap", "skills", "fides", "council", "device"],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1794509000000
+}),
 ]);
