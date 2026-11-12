@@ -28,9 +28,9 @@ export async function handlePublicFidesChat(request, env) {
   if (!env?.AI || typeof env.AI.run !== 'function') {
     return json({ ok: false, error: 'FIDES_AI_UNAVAILABLE' }, 503);
   }
-  const rate = await enforcePublicRateLimit(request, env, { scope: 'fides-guest-chat', limit: 3, windowMs: 60_000 });
+  const rate = await enforcePublicRateLimit(request, env, { scope: 'fides-guest-chat', limit: 3, windowMs: 60_000, failClosed: true });
   if (!rate.ok) {
-    return json({ ok: false, error: 'PUBLIC_RATE_LIMITED' }, 429, { 'retry-after': String(rate.retry_after_seconds) });
+    return json({ ok: false, error: rate.code }, rate.status, { 'retry-after': String(rate.retry_after_seconds) });
   }
 
   let body;
