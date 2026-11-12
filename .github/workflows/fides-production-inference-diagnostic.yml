@@ -45,29 +45,24 @@ jobs:
           try{d=JSON.parse(fs.readFileSync('/tmp/fides-live-probe.json','utf8'))}catch{}
           const lines=fs.existsSync('/tmp/fides-tail-raw.jsonl')
             ?fs.readFileSync('/tmp/fides-tail-raw.jsonl','utf8').split('\n'):[];
-          const unescapeTail=line=>{
-            let value=String(line||'');
-            for(let i=0;i<6;i++){
-              const next=value.replace(/\\u0022/g,'"').replace(/\\"/g,'"');
-              if(next===value) break;
-              value=next;
-            }
-            return value;
-          };
-          const text=lines.map(unescapeTail).join('\n');
-          const fides=text.split('\n').filter(l=>l.includes('FIDES public'));
-          const scope=fides.join('\n');
-          const uniq=re=>[...new Set([...scope.matchAll(re)].map(m=>m[1]))].slice(0,8);
+          const text=lines.join('\n');
+          const has=s=>text.includes(s);
           const response=typeof d.answer==='string'?d.answer:'';
           console.log(JSON.stringify({
-            http:Number(process.env.FIDES_LIVE_HTTP||0),ok:d.ok===true,
-            answer_chars:response.length,error_code:String(d.error||'').slice(0,70),
-            fides_lines:fides.length,
-            saw_fallback:text.includes('trying bounded free-model fallback'),
-            message_kinds:uniq(/messageKind\W{0,4}(EMPTY_MODEL_RESPONSE|TIMEOUT|QUOTA_OR_BUDGET|AUTHORIZATION|UNCLASSIFIED)/g),
-            provider_codes:uniq(/\bcode\W{0,4}['"]?([A-Za-z0-9_-]{1,48})/g),
-            provider_names:uniq(/\bname\W{0,4}['"]?([A-Za-z_]{1,40})/g),
-            provider_statuses:uniq(/\bstatus\W{0,4}(\d{1,3})/g).map(Number),
-            tail_received:lines.filter(Boolean).length>0
+            http:Number(process.env.FIDES_LIVE_HTTP||0),
+            error_code:String(d.error||'').slice(0,70),
+            fides_lines:lines.filter(l=>l.includes('FIDES public')).length,
+            saw_fallback:has('trying bounded free-model fallback'),
+            saw_object_object:has('[object Object]'),
+            saw_neuron:has('neuron')||has('Neurons')||has('10,000'),
+            saw_account_limited:has('Account limited'),
+            saw_paid_plan:has('Workers Paid'),
+            saw_no_such_model:has('No such model'),
+            saw_3036:has('3036'),
+            saw_3040:has('3040'),
+            saw_5035:has('5035'),
+            saw_5007:has('5007'),
+            saw_429:has('429'),
+            saw_403:has('403')
           }));
           NODE
