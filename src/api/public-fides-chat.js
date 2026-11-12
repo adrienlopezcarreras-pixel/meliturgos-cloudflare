@@ -5,12 +5,23 @@ const MODEL = '@cf/zai-org/glm-4.7-flash';
 const FALLBACK_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 const MAX_QUERY = 1200;
 
-// Only provider status/code are diagnostic, never its message, response, prompt or request.
+// Never log arbitrary provider error messages: they may contain a prompt,
+// account identifier, request URL, or authentication material.
 function safeInferenceFailure(error) {
-  const rawStatus = Number(error?.status || error?.statusCode || 0);
+  const rawStatus = Number(error?.status ?? error?.statusCode ?? 0);
   const status = Number.isInteger(rawStatus) && rawStatus >= 400 && rawStatus <= 599 ? rawStatus : 0;
-  const code = String(error?.code || 'UNKNOWN').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48) || 'UNKNOWN';
-  return { status, code };
+  const code = String(error?.code || error?.name || 'UNKNOWN')
+    .replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48) || 'UNKNOWN';
+  const name = String(error?.name || 'UNKNOWN')
+    .replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || 'UNKNOWN';
+  const message = String(error?.message || '');
+  // Structured, allowlisted message class instead of copying untrusted text.
+  const messageKind = /EMPTY_WORKERS_AI_RESPONSE/.test(message) ? 'EMPTY_MODEL_RESPONSE'
+    : /(?:timed?\s*out|timeout)/i.test(message) ? 'TIMEOUT'
+    : /(?:rate.?limit|quota|budget|neuron|billing)/i.test(message) ? 'QUOTA_OR_BUDGET'
+    : /(?:authorization|authentication|unauthoriz|forbidden)/i.test(message) ? 'AUTHORIZATION'
+    : 'UNCLASSIFIED';
+  return { status, code, name, messageKind };
 }
 
 function json(payload, status = 200, extra = {}) {
@@ -99,15 +110,18 @@ export async function handlePublicFidesChat(request, env) {
     try {
       result = await infer(MODEL);
     } catch (primaryError) {
+      const safe = safeInferenceFailure(primaryError);
+      console.error('[FIDES public] primary inference failed', safe);
       // Never bypass provider authentication, account/budget exhaustion or rate limits.
-      const status = Number(primaryError?.status || 0);
-      const code = String(primaryError?.code || '').toUpperCase();
-      const budgetDenied = [401, 402, 403, 429].includes(status)
-        || /(?:QUOTA|BUDGET|BILLING|NEURON|RATE_LIMIT|AUTH|LIMIT_EXCEEDED)/.test(code);
+      const code = safe.code.toUpperCase();
+      const budgetDenied = [401, 402, 403, 429].includes(safe.status)
+        || /(?:QUOTA|BUDGET|BILLING|NEURON|RATE_LIMIT|AUTH|LIMIT_EXCEEDED)/.test(code)
+        || ['QUOTA_OR_BUDGET', 'AUTHORIZATION'].includes(safe.messageKind);
       if (budgetDenied) throw primaryError;
-      // One bounded failover to another Workers Free model. The same guest
-      // isolation, prompts, 24-hour cap and no-private-data boundary apply.
-      console.error('[FIDES public] primary inference failed; trying bounded free-model fallback', safeInferenceFailure(primaryError));
+
+      // Exactly one bounded attempt on any other failure, preserving the same
+      // visitor isolation, prompt, 24-hour cap and no-private-data boundary.
+      console.error('[FIDES public] trying bounded free-model fallback');
       result = await infer(FALLBACK_MODEL);
     }
 
