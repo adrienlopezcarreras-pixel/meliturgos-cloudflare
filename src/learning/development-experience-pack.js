@@ -2038,4 +2038,42 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     "quality": 1,
     "created_at": 1794119117970
 }),
+  Object.freeze({
+    "id": "grok-fides-502-is-internal-neuron-meter-20261112",
+    "source": "grok",
+    "domain": "workers-ai-budget",
+    "task": "Diagnostiquer un 502 du chat public sans lancer un second modèle.",
+    "input": "MEL FIDES répond FIDES_CHAT_FAILED en HTTP 502. Le chat propriétaire affiche WORKERS_AI_DAILY_NEURON_BUDGET_EXHAUSTED.",
+    "before": "Ajouter un modèle de secours et redéployer, alors que le compteur D1 a déjà refusé l'appel avant le fournisseur.",
+    "after": "Si le propriétaire voit WORKERS_AI_DAILY_NEURON_BUDGET_EXHAUSTED, ne pas appeler d'autre modèle : le plafond interne de 9 000 neurones est atteint. Seul un bonus propriétaire déjà écrit dans mel_ai_neuron_bonus autorise la suite. Les allers-retours du Council passent par le cron, plafonnés à 60 % ; les arrêter se fait en coupant MAX (paused, max_autonomy off), pas en peignant la roadmap en vert.",
+    "rationale": "Un second modèle paie le même refus. Le bouton +1 jour est l'autorisation de dépense ; le Council n'est pas un correctif.",
+    "tests": [
+      "Interface professeur 12/11/2026 : Erreur WORKERS_AI_DAILY_NEURON_BUDGET_EXHAUSTED",
+      "POST /api/public/fides/chat le 12/11/2026 18:04 UTC : HTTP 200 après bonus propriétaire",
+      "src/augmentio/neuron-budget.js : refus à DEFAULT_DAILY_NEURON_CAP 9000, cron background 0.6"
+    ],
+    "tags": ["fides", "neurons", "budget", "council", "max"],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1794507600000
+}),
+  Object.freeze({
+    "id": "grok-fides-guest-answer-ceiling-20261112",
+    "source": "grok",
+    "domain": "public-fides",
+    "task": "Empêcher une réponse publique coupée au milieu d'une phrase sans réserver tout le plafond.",
+    "input": "Une réponse sur saint Jean s'arrête sur « C'est ». max_tokens du chat invité vaut 500.",
+    "before": "Prendre 500 pour une consommation obligatoire, ou allonger sans exiger une phrase finale fermée.",
+    "after": "500 puis 1 800 sont un plafond, pas une consommation. La réponse s'arrête plus tôt si elle est finie. Le chat invité demande une dernière phrase fermée et plafonne à 1 800 tokens. Ne pas marquer les points de roadmap ouverts DONE_VERIFIED : le registre seul ne les termine pas.",
+    "rationale": "Une coupure nette au milieu d'une phrase est le plafond de sortie, pas une panne réseau. Peindre le registre ferait échouer les tests qui exigent ces points encore ouverts.",
+    "tests": [
+      "PR #3229 fusionnée, SHA e6aa3a6b70ac167a445a8799bacaaf313dd0d3b3",
+      "tests/public-fides-budget-gate.test.mjs et tests/fides-guest-mode.test.mjs : max_tokens 1800",
+      "13 tests FIDES locaux verts avant fusion ; déploiement 43276983188 lancé, pas encore une preuve HTTP de réponse longue"
+    ],
+    "tags": ["fides", "max-tokens", "roadmap", "truth"],
+    "validated": true,
+    "quality": 1,
+    "created_at": 1794507601000
+}),
 ]);

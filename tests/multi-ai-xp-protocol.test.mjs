@@ -160,3 +160,23 @@ test('owner-intent release safety lesson is validated and exposed through the ca
   const corrections=await engine.corrections({limit:500});
   assert.ok(corrections.some(item=>item.id===id));
 });
+
+test('public FIDES meter and answer-ceiling lessons are validated for MEL', async () => {
+  const ids = [
+    'grok-fides-502-is-internal-neuron-meter-20261112',
+    'grok-fides-guest-answer-ceiling-20261112',
+  ];
+  const engine = new LearningEngine({ memory: new MemoryStub() });
+  const corrections = await engine.corrections({ limit: null });
+  const bundle = await engine.trainingBundle({ minQuality: 0.95, limit: null });
+  for (const id of ids) {
+    const row = DEVELOPMENT_EXPERIENCE_PACK.find(item => item.id === id);
+    assert.equal(validateAgentExperience(row).ok, true);
+    assert.equal(row.validated, true);
+    assert.equal(BOOTSTRAP_CORRECTIONS.filter(item => item.id === id).length, 1);
+    assert.ok(corrections.some(item => item.id === id));
+    const pair = bundle.preference.find(item => item.id === id);
+    assert.equal(pair.chosen, row.after);
+    assert.equal(pair.rejected, row.before);
+  }
+});
