@@ -1,9 +1,6 @@
 name: fides-production-inference-diagnostic
 
 on:
-  push:
-    branches: [main]
-    paths: ['.github/workflows/fides-production-inference-diagnostic.yml']
   workflow_dispatch:
 
 permissions:
@@ -58,27 +55,19 @@ jobs:
             return value;
           };
           const text=lines.map(unescapeTail).join('\n');
-          const fides=text.split('\n').filter(l=>l.includes('[FIDES public]')||l.includes('FIDES public'));
-          const scope=fides.length?fides.join('\n'):text;
-          const kinds=['EMPTY_MODEL_RESPONSE','TIMEOUT','QUOTA_OR_BUDGET','AUTHORIZATION','UNCLASSIFIED'];
-          const pick=(re,source)=>[...new Set([...source.matchAll(re)].map(m=>m[1]))];
+          const fides=text.split('\n').filter(l=>l.includes('FIDES public'));
+          const scope=fides.join('\n');
+          const uniq=re=>[...new Set([...scope.matchAll(re)].map(m=>m[1]))].slice(0,8);
           const response=typeof d.answer==='string'?d.answer:'';
           console.log(JSON.stringify({
             http:Number(process.env.FIDES_LIVE_HTTP||0),ok:d.ok===true,
             answer_chars:response.length,error_code:String(d.error||'').slice(0,70),
-            tail_lines:lines.filter(Boolean).length,
             fides_lines:fides.length,
-            saw_fides_marker:text.includes('[FIDES public]')||text.includes('FIDES public'),
-            saw_invocation_failed:text.includes('WORKERS_AI_INVOCATION_FAILED'),
-            saw_empty_model:text.includes('EMPTY_MODEL_RESPONSE')||text.includes('EMPTY_WORKERS_AI_RESPONSE'),
             saw_fallback:text.includes('trying bounded free-model fallback'),
-            message_kinds:pick(new RegExp('messageKind"?\\s*:\\s*"('+kinds.join('|')+')','g'),scope),
-            provider_codes:pick(/"code"\s*:\s*"([A-Za-z0-9_-]{1,48})"/g,scope).slice(0,8),
-            provider_names:pick(/"name"\s*:\s*"([A-Za-z0-9_-]{1,40})"/g,scope).slice(0,8),
-            provider_statuses:pick(/"status"\s*:\s*(\d{1,3})/g,scope).map(Number).slice(0,8),
-            internal_codes:pick(/\b(3036|3040|5007|5035|5016|3006|3007|3042)\b/g,scope),
-            tail_received:lines.filter(Boolean).length>0,
-            tail_subscription_failed:fs.existsSync('/tmp/fides-tail-errors.txt')
-              && /error|failed|unauthorized/i.test(fs.readFileSync('/tmp/fides-tail-errors.txt','utf8'))
+            message_kinds:uniq(/messageKind\W{0,4}(EMPTY_MODEL_RESPONSE|TIMEOUT|QUOTA_OR_BUDGET|AUTHORIZATION|UNCLASSIFIED)/g),
+            provider_codes:uniq(/\bcode\W{0,4}['"]?([A-Za-z0-9_-]{1,48})/g),
+            provider_names:uniq(/\bname\W{0,4}['"]?([A-Za-z_]{1,40})/g),
+            provider_statuses:uniq(/\bstatus\W{0,4}(\d{1,3})/g).map(Number),
+            tail_received:lines.filter(Boolean).length>0
           }));
           NODE
