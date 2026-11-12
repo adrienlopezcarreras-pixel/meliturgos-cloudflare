@@ -99,3 +99,51 @@ test('public AI failures never leak provider internals', async () => {
   assert.equal(payload.error, 'FIDES_CHAT_FAILED');
   assert.ok(!JSON.stringify(payload).includes('PRIVATE_PROVIDER_KEY_DO_NOT_DISCLOSE'));
 });
+
+test('enabled FIDES sends only scoped system and visitor messages, with bounded output', async () => {
+  const rows = new Map();
+  const db = {
+    prepare(sql) {
+      let values = [];
+      return {
+        bind(...args) { values = args; return this; },
+        async run() {
+          if (sql.startsWith('CREATE TABLE')) return {};
+          if (sql.startsWith('INSERT INTO public_rate_limits')) {
+            const [key, now, , before] = values;
+            const prev = rows.get(key);
+            rows.set(key, !prev || prev.window_started <= before
+              ? { window_started: now, count: 1 }
+              : { window_started: prev.window_started, count: prev.count + 1 });
+          }
+          return {};
+        },
+        async first() { return rows.get(values[0]) || null; },
+      };
+    },
+  };
+  const invocations = [];
+  const env = {
+    FIDES_PUBLIC_CHAT_ENABLED: 'true',
+    DB: db,
+    AI: { run: async (model, input) => {
+      invocations.push({ model, input });
+      return { response: 'La foi catholique enseigne la charité.' };
+    } },
+  };
+  const response = await handlePublicFidesChat(
+    request('Que dit le Catéchisme sur la charité ?'), env
+  );
+  const json = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(json.ok, true);
+  assert.equal(json.private_data_access, false);
+  assert.equal(json.action_access, false);
+  assert.equal(invocations.length, 1);
+  assert.deepEqual(invocations[0].input.messages.map(m => m.role), ['system', 'user']);
+  assert.equal(invocations[0].input.messages[1].content, 'Que dit le Catéchisme sur la charité ?');
+  assert.match(invocations[0].input.messages[0].content, /Bible de Jerusalem/);
+  assert.match(invocations[0].input.messages[0].content, /Vatican/);
+  assert.equal(invocations[0].input.max_tokens, 500);
+  assert.equal(rows.size, 2, 'per-IP and global D1 quota counters must both be persisted');
+});
