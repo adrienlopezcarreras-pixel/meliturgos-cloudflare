@@ -21,6 +21,10 @@ function cleanQuery(value = '') {
 }
 
 export async function handlePublicFidesChat(request, env) {
+  // Public inference is opt-in: an unpaid or paused Cloudflare account must not incur surprise charges.
+  if (String(env?.FIDES_PUBLIC_CHAT_ENABLED || '').toLowerCase() !== 'true') {
+    return json({ ok: false, error: 'FIDES_PUBLIC_CHAT_PAUSED' }, 503);
+  }
   if (!env?.AI || typeof env.AI.run !== 'function') {
     return json({ ok: false, error: 'FIDES_AI_UNAVAILABLE' }, 503);
   }
