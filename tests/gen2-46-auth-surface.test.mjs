@@ -156,3 +156,30 @@ test('MEL-MEM-05 release smoke may read only the exact ChatGPT archive status ro
   assert.equal(isReleaseSmokeRequest(req('/api/gen2/import/chatgpt-coverage',{headers}),env),false);
   assert.equal(isReleaseSmokeRequest(req('/api/gen2/import/chatgpt-status',{headers:{...headers,'x-mel-launch-bootstrap':'x'.repeat(64)}}),env),false);
 });
+
+
+test('FIDES exact POST bypasses owner password but still fails closed without public AI opt-in', async () => {
+  const request = req('/api/public/fides/chat', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ message: 'Qui est saint Jean ?' }),
+  });
+  assert.equal(classifyHttpAuthSurface(request).kind, 'PUBLIC_SANITIZED');
+  assert.equal(enforceHttpAuthPolicy(request, ownerEnv), null);
+
+  // Never make the public endpoint an escape hatch for other methods or routes.
+  for (const [method, path] of [
+    ['GET', '/api/public/fides/chat'],
+    ['PUT', '/api/public/fides/chat'],
+    ['DELETE', '/api/public/fides/chat'],
+    ['POST', '/api/public/fides/admin'],
+    ['POST', '/api/memory/status'],
+  ]) {
+    assert.equal(classifyHttpAuthSurface(req(path, { method })).kind, 'OWNER_AUTH', method + ' ' + path);
+  }
+
+  // The public route is reachable but inference remains disabled unless explicitly enabled.
+  const response = await app.fetch(request, ownerEnv, {});
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error, 'FIDES_PUBLIC_CHAT_PAUSED');
+});
