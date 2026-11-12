@@ -1,0 +1,50 @@
+name: fides-public-live-smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fides-public-live-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fides-public-chat:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: One bounded, public-only Catholic chat request
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error --connect-timeout 10 --max-time 75 \
+            --request POST \
+            --header 'content-type: application/json' \
+            --header 'origin: https://verite-interdite.fr' \
+            --data '{"message":"Qui est saint Jean l Evangéliste ?"}' \
+            --output /tmp/fides-smoke-response.json \
+            --write-out '%{http_code}' \
+            'https://meliturgos.adrien-lopezcarreras.workers.dev/api/public/fides/chat')"
+          export FIDES_HTTP_STATUS="$status"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const status = Number(process.env.FIDES_HTTP_STATUS || 0);
+          let data = {};
+          try { data = JSON.parse(fs.readFileSync('/tmp/fides-smoke-response.json', 'utf8')); } catch {}
+          const answer = typeof data?.answer === 'string' ? data.answer.trim() : '';
+          const result = {
+            http_status: status,
+            ok: data?.ok === true,
+            answer_present: answer.length >= 30,
+            answer_chars: answer.length,
+            error_code: String(data?.error || '').slice(0, 80) || null,
+            private_data_access: data?.private_data_access,
+            action_access: data?.action_access,
+            memory_persistence: data?.mel_memory_persistence,
+          };
+          console.log(JSON.stringify(result));
+          if (status !== 200 || data?.ok !== true || answer.length < 30) process.exit(1);
+          if (data?.private_data_access !== false || data?.action_access !== false || data?.mel_memory_persistence !== false) process.exit(1);
+          NODE
