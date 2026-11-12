@@ -156,6 +156,11 @@ export const ROADMAP_PROOF_SOURCES = Object.freeze({
   'MEL-UI-06': { capabilities: ['ui.file-paste.verify'] },
   'GEN2-57': { capabilities: ['migration.gen1-contract.verify'] },
   'MEL-REL-03': { capabilities: ['release.smoke-contract.verify'] },
+  'MEL-CHAT-01': { capabilities: ['chat.media-intent.verify'] },
+  'MEL-CHAT-07': { capabilities: ['chat.response-quality.verify'] },
+  'MEL-LIFE-01': { capabilities: ['continuity.life-contingency.verify'] },
+  'MEL-AUDIT-07': { capabilities: ['audit.outcome-loop.verify'] },
+  'MEL-MANIFEST-01': { capabilities: ['roadmap.manifest-foundation.verify'] },
 });
 
 export const ROADMAP_TRUTH = Object.freeze({

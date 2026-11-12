@@ -20,6 +20,7 @@ import { councilOperationalCatalog } from '../council/operational-catalog.js';
 import { computeRoadmapTruth, ROADMAP_TRUTH_WINDOW_MS } from '../roadmap/roadmap-truth.js';
 import { selectAuthorizedWindowsCompanion } from '../devices/companion-relay-selection.js';
 import { registerDeclaredRoadmapProofs } from '../roadmap/declared-roadmap-proofs.js';
+import { registerSoftwareContractProofs, runSoftwareContractProofs } from '../roadmap/software-contract-proofs.js';
 import { createCompleteEvidenceLedger } from '../../scripts/roadmap-complete-evidence-ledger.mjs';
 import { CapabilityBus } from './capability-bus.js';
 import { registerGitHubCodeCapabilities } from './github-code-capabilities.js';
@@ -1024,7 +1025,10 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async () => {
     const payload = getRoadmapPayload();
-    // Real status from production executions (7 days), next to the declared one.
+    // Opening the roadmap re-runs the bounded software proofs. Each success
+    // is a real capability_bus row, so the journal can show them without a
+    // model call. A failed proof does not hide the roadmap.
+    try { await runSoftwareContractProofs(bus); } catch { /* the page still returns the registry */ }
     try { payload.truth = await computeRoadmapTruth(env?.DB, payload.phases); }
     catch (error) { payload.truth = { available: false, reason: String(error?.code || error?.message || 'ROADMAP_TRUTH_FAILED').slice(0, 120) }; }
     return payload;
@@ -1188,5 +1192,6 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   registerSkillRegistryCapabilities(bus, { env: runtimeEnv });
   registerSelfAuditCapabilities(bus, runtimeEnv);
   registerDeclaredRoadmapProofs(bus);
+  registerSoftwareContractProofs(bus);
   return bus;
 }
