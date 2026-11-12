@@ -100,11 +100,14 @@ export async function handlePublicFidesChat(request, env) {
       provider: result.provenance?.provider || 'workers-ai',
       model: result.provenance?.model || MODEL,
     });
-  } catch {
-    // Never expose provider errors, secrets or infrastructure details to public callers.
-    return json({
-      ok: false,
-      error: 'FIDES_CHAT_FAILED',
-    }, 502);
+  } catch (error) {
+    // Emit only a restricted diagnostic class; never log visitor content,
+    // provider response bodies, credentials, or private MEL data.
+    const providerCode = String(error?.code || '');
+    const failureKind = providerCode === 'EMPTY_WORKERS_AI_RESPONSE'
+      ? 'EMPTY_MODEL_RESPONSE'
+      : providerCode === 'PROVIDER_ABORTED' ? 'PROVIDER_ABORTED' : 'WORKERS_AI_INVOCATION_FAILED';
+    console.error('[FIDES public] inference failure', failureKind);
+    return json({ ok: false, error: 'FIDES_CHAT_FAILED' }, 502);
   }
 }
