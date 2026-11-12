@@ -33,6 +33,16 @@ export async function handlePublicFidesChat(request, env) {
     return json({ ok: false, error: rate.code }, rate.status, { 'retry-after': String(rate.retry_after_seconds) });
   }
 
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ ok: false, error: 'FIDES_BODY_INVALID' }, 400);
+  }
+
+  const query = cleanQuery(body?.message);
+  if (!query) return json({ ok: false, error: 'FIDES_MESSAGE_REQUIRED' }, 400);
+
   // Enforce a durable, shared 24-hour ceiling at the public API boundary.
   // This also covers callers that bypass the WordPress relay entirely.
   const daily = await enforcePublicRateLimit(request, env, {
@@ -46,15 +56,6 @@ export async function handlePublicFidesChat(request, env) {
     return json({ ok: false, error: daily.code }, daily.status, { 'retry-after': String(daily.retry_after_seconds) });
   }
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return json({ ok: false, error: 'FIDES_BODY_INVALID' }, 400);
-  }
-
-  const query = cleanQuery(body?.message);
-  if (!query) return json({ ok: false, error: 'FIDES_MESSAGE_REQUIRED' }, 400);
 
   const adapter = createWorkersAIAdapter({
     env,
