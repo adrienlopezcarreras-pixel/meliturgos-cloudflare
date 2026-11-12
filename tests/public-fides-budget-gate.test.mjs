@@ -144,6 +144,6 @@ test('enabled FIDES sends only scoped system and visitor messages, with bounded 
   assert.equal(invocations[0].input.messages[1].content, 'Que dit le Catéchisme sur la charité ?');
   assert.match(invocations[0].input.messages[0].content, /Bible de Jerusalem/);
   assert.match(invocations[0].input.messages[0].content, /Vatican/);
-  assert.equal(invocations[0].input.max_tokens, 500);
+  assert.equal(invocations[0].input.max_tokens, 1800);
   assert.equal(rows.size, 2, 'per-IP and global D1 quota counters must both be persisted');
 });
