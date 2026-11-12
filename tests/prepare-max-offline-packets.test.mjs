@@ -80,3 +80,9 @@ test('offline packet serialization includes no synthetic Council, Teacher or pro
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('blank or non-string roadmap identifiers are refused', () => {
+  for (const id of ['', '   ', null, 42]) {
+    assert.throws(() => buildOfflinePackets([{ id, status: 'PLANNED' }]), /INVALID_OR_DUPLICATE_ROADMAP_ID/);
+  }
+});
