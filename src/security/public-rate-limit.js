@@ -50,6 +50,7 @@ export async function enforcePublicRateLimit(request, env = {}, {
   scope = 'public',
   limit = 20,
   windowMs = 60_000,
+  failClosed = false,
 } = {}) {
   const boundedLimit = Math.max(1, Math.min(300, Number(limit) || 20));
   const boundedWindow = Math.max(10_000, Math.min(60 * 60_000, Number(windowMs) || 60_000));
@@ -73,9 +74,11 @@ export async function enforcePublicRateLimit(request, env = {}, {
       row = await env.DB.prepare('SELECT window_started,count FROM public_rate_limits WHERE key=? LIMIT 1')
         .bind(key).first();
     } catch {
+      if (failClosed) return { ok: false, code: 'PUBLIC_RATE_LIMIT_UNAVAILABLE', status: 503, retry_after_seconds: 60 };
       row = memoryLimit(key, now, boundedLimit, boundedWindow);
     }
   } else {
+    if (failClosed) return { ok: false, code: 'PUBLIC_RATE_LIMIT_UNAVAILABLE', status: 503, retry_after_seconds: 60 };
     row = memoryLimit(key, now, boundedLimit, boundedWindow);
   }
 
