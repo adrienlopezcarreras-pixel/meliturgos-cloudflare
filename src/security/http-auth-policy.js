@@ -3,7 +3,7 @@ import { authorizeDevBridge, isOidcBridgeCall } from '../core/dev-bridge-auth.js
 
 const PUBLIC_GET_PREFIXES = Object.freeze(['/api/teacher/']);
 const PUBLIC_GET_EXACT = Object.freeze(new Set(['/api/gen2/autonomy/control', '/api/public/contingency/heartbeat']));
-const PUBLIC_POST_EXACT = Object.freeze(new Set(['/api/public/wordpress/chat']));
+const PUBLIC_POST_EXACT = Object.freeze(new Set(['/api/public/wordpress/chat', '/api/public/fides/chat']));
 const PUBLIC_OPTIONS_EXACT = Object.freeze(new Set(['/api/public/wordpress/chat']));
 const DELEGATED_PREFIXES = Object.freeze([
   '/api/device/v1/',
