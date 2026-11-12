@@ -51,11 +51,12 @@ export async function enforcePublicRateLimit(request, env = {}, {
   limit = 20,
   windowMs = 60_000,
   failClosed = false,
+  sharedIdentity = false,
 } = {}) {
   const boundedLimit = Math.max(1, Math.min(300, Number(limit) || 20));
-  const boundedWindow = Math.max(10_000, Math.min(60 * 60_000, Number(windowMs) || 60_000));
+  const boundedWindow = Math.max(10_000, Math.min(sharedIdentity ? 24 * 60 * 60_000 : 60 * 60_000, Number(windowMs) || 60_000));
   const now = Date.now();
-  const identity = await digestKey(scope + '|' + clientIdentity(request));
+  const identity = await digestKey(scope + '|' + (sharedIdentity ? 'all-public-clients' : clientIdentity(request)));
   const key = clean(scope, 80) + ':' + identity;
   let row;
 
