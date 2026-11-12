@@ -36,18 +36,36 @@ test('GEN2-42 dependency reason query is read-only and exposes classifications o
   ['PRIVATE_JOB_1','mel-autonomy','WAITING_DEPENDENCY',JSON.stringify({source:'ecosystem-watch'}),JSON.stringify({dependency_wait:{reason:'ROADMAP_PRIORITY_ABSOLUTE',prerequisites:['PRIVATE_FOUNDATION']},teacher_bridge:{request_id:'SECRET_TEACHER'}})],
   ['PRIVATE_JOB_2','mel-autonomy','WAITING_DEPENDENCY',JSON.stringify({source:'ecosystem-watch'}),JSON.stringify({dependency_wait:{prerequisites:['PRIVATE_OTHER']}})],
   ['PRIVATE_JOB_3','mel-autonomy','WAITING_DEPENDENCY',JSON.stringify({source:'unrelated'}),JSON.stringify({dependency_wait:{reason:'ROADMAP_PRIORITY_ABSOLUTE'}})],
+  ['PRIVATE_JOB_4','mel-autonomy','WAITING_DEPENDENCY',JSON.stringify({source:'autonomy-supervisor'}),JSON.stringify({dependency_wait:{reason:'ROADMAP_PRIORITY_ABSOLUTE',prerequisites:['SECRET_ROADMAP_ID']}})],
  ];
  for(const record of records) await db.prepare('INSERT INTO dev_jobs VALUES(?,?,?,?,?)').bind(...record).run();
  const before=(await db.prepare('SELECT * FROM dev_jobs').all()).results;
  const diagnostic=sanitizeGen242DependencyReasons((await db.prepare(GEN2_42_DEPENDENCY_REASON_SQL).all()).results);
  assert.equal(diagnostic.diagnostic_only,true);
- assert.deepEqual(diagnostic.groups.map(g=>g.reason_class).sort(),['OTHER_OR_UNRECORDED','ROADMAP_PRIORITY_ABSOLUTE']);
- assert.deepEqual(diagnostic.groups.map(g=>g.with_prerequisites),[1,1]);
+ assert.deepEqual(diagnostic.groups.map(g=>[g.source_class,g.reason_class]).sort((a,b)=>a.join().localeCompare(b.join())),[
+  ['autonomy-supervisor','ROADMAP_PRIORITY_ABSOLUTE'],
+  ['ecosystem-watch','OTHER_OR_UNRECORDED'],
+  ['ecosystem-watch','ROADMAP_PRIORITY_ABSOLUTE']
+ ]);
+ assert.equal(diagnostic.groups.length,3);
+ assert.ok(diagnostic.groups.every(g=>g.with_prerequisites===1));
  assert.doesNotMatch(JSON.stringify(diagnostic),/PRIVATE|SECRET|TEACHER|job_id|request_id|prerequisites:/);
  assert.deepEqual((await db.prepare('SELECT * FROM dev_jobs').all()).results,before);
 });
 
 test('GEN2-42 dependency reason sanitizer fails closed for raw inputs',()=>{
  const x=sanitizeGen242DependencyReasons([{reason_class:'PRIVATE',entries:-2,with_prerequisites:'1',job_id:'SECRET'}]).groups;
- assert.deepEqual(x,[{reason_class:'OTHER_OR_UNRECORDED',entries:null,with_prerequisites:null}]);
+ assert.deepEqual(x,[{source_class:'OTHER',reason_class:'OTHER_OR_UNRECORDED',entries:null,with_prerequisites:null}]);
+});
+
+
+test('GEN2-42 dependency diagnostic rejects disguised source values',()=>{
+ const rows=[
+  {source_class:'autonomy-supervisor',reason_class:'ROADMAP_PRIORITY_ABSOLUTE',entries:1,with_prerequisites:1},
+  {source_class:'SECRET_ORIGIN',reason_class:'OTHER_OR_UNRECORDED',entries:1,with_prerequisites:0}
+ ];
+ const groups=sanitizeGen242DependencyReasons(rows).groups;
+ assert.equal(groups[0].source_class,'autonomy-supervisor');
+ assert.equal(groups[1].source_class,'OTHER');
+ assert.doesNotMatch(JSON.stringify(groups),/SECRET_ORIGIN/);
 });
