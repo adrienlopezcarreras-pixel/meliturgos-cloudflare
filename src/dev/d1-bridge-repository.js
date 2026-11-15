@@ -33,10 +33,16 @@ export class D1BridgeRepository {
       ? await this.db.prepare("SELECT * FROM dev_bridge_state WHERE bridge_id='primary'").first()
       : this.memoryState.row;
     if (!row) return { online: false, last_seen: null, status: 'OFFLINE' };
+    const lastSeen = Number(row.last_seen);
+    const ageMs = Date.now() - lastSeen;
+    const status = String(row.status || 'UNKNOWN').toUpperCase();
     return {
-      online: Date.now() - Number(row.last_seen) < 60000,
-      last_seen: Number(row.last_seen),
-      status: row.status,
+      // An old, missing, future-dated or explicitly offline heartbeat is not
+      // proof of a live local executor. Preserve the raw status for diagnosis.
+      online: status === 'ONLINE' && Number.isFinite(lastSeen) && lastSeen > 0
+        && ageMs >= 0 && ageMs < 60000,
+      last_seen: Number.isFinite(lastSeen) && lastSeen > 0 ? lastSeen : null,
+      status: row.status || 'UNKNOWN',
     };
   }
 }
