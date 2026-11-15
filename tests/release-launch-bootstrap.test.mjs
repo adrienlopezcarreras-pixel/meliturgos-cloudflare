@@ -1347,6 +1347,39 @@ test('GEN2-42 runtime tick exposes a READY package for cloud fallback when local
 });
 
 
+
+test('GEN2-42 runtime tick never accepts a future-dated Bridge ONLINE heartbeat', async () => {
+  const DB=sqliteD1();
+  try {
+    await DB.prepare('CREATE TABLE dev_bridge_state(bridge_id TEXT PRIMARY KEY,last_seen INTEGER NOT NULL,status TEXT NOT NULL,metadata_json TEXT)').run();
+    await DB.prepare('INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?)')
+      .bind('primary',Date.now()+86400000,'ONLINE','{}').run();
+    const response=await maybeHandleReleaseLaunchBootstrap(
+      new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+        method:'POST',
+        headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+        body:JSON.stringify({phase:'gen2-42-runtime-tick'}),
+      }),
+      {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB},
+      {runAutonomyTick:async()=>({
+        ok:true,status:'ACTIVE',advanced:true,
+        control:{paused:false,max_autonomy:true},
+        job:{id:'future-heartbeat',status:'TEACHER_APPROVED'},
+        bridge_preparation:{status:'READY'},
+        completions:{completed:[],rejected:[]},
+      })},
+    );
+    assert.equal(response.status,200);
+    const body=await response.json();
+    assert.equal(body.bridge_executor.status,'ONLINE');
+    assert.equal(body.bridge_executor.online,false);
+    assert.equal(body.bridge_executor.last_seen_age_ms,null);
+  } finally {
+    DB.close();
+  }
+});
+
+
 test('GEN2-42 runtime tick uses a dedicated bootstrap token without opening other release phases', async () => {
   const dedicated='g'.repeat(64);
   const env={MEL_GEN2_42_BOOTSTRAP_TOKEN:dedicated};
