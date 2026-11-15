@@ -330,7 +330,11 @@ test('GEN2-42 release proof does not let a cancelled activity job block an idle 
     assert.equal(proof.ok,true);
     assert.equal(proof.status,'GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED');
     assert.equal(proof.open_handoff_count,0);
-    assert.equal(proof.released_cancelled_count,1);
+    assert.equal(proof.released_cancelled_count,0); // reconciled CANCELLED jobs are now closed, not released-open
+    const persisted=JSON.parse((await DB.prepare(`SELECT state_json FROM capability_watch_state WHERE id=?`).bind('ecosystem-discoveries-canonical').first()).state_json);
+    assert.equal(persisted.items[0].handoff.status,'CANCELLED');
+    assert.equal(persisted.items[0].handoff.closed,true);
+    assert.equal(persisted.items[0].handoff.completion_verified,false);
     assert.equal(proof.production_activation_allowed,false);
   } finally { DB.close(); }
 });
