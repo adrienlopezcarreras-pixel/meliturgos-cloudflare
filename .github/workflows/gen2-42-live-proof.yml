@@ -6,6 +6,8 @@ on:
     branches:
       - main
     paths:
+      - scripts/mel-dev-bridge.mjs
+      - tests/companion-dev-executor-controls.test.mjs
       - src/evaluation/capability-watch-runtime.js
       - src/evaluation/ecosystem-discovery-planner.js
       - tests/gen2/capability-watch-production-proof.test.mjs
@@ -50,7 +52,7 @@ jobs:
         run: npm ci
 
       - name: Run GEN2-42 targeted contract tests
-        run: node --test tests/gen2/capability-watch-production-proof.test.mjs tests/gen2/capability-watch.test.mjs tests/gen2/ecosystem-watch.test.mjs tests/gen2/preview-watch-http-sanitizer.test.mjs tests/gen2/autonomy-runtime-observation-safety.test.mjs
+        run: node --test tests/companion-dev-executor-controls.test.mjs tests/gen2/capability-watch-production-proof.test.mjs tests/gen2/capability-watch.test.mjs tests/gen2/ecosystem-watch.test.mjs tests/gen2/preview-watch-http-sanitizer.test.mjs tests/gen2/autonomy-runtime-observation-safety.test.mjs
 
       - name: Read bounded Council objection diagnostics
         if: github.event_name != 'pull_request'
