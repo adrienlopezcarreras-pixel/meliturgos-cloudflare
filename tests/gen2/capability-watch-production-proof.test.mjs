@@ -638,6 +638,9 @@ test('GEN2-42 three discovery fingerprints sharing one unprepared D1 job remain 
     assert.equal(lookedUp.filter(id=>id==='shared-job').length,1);
     assert.equal(proof.production_activation_allowed,false);
     assert.equal(proof.auto_approval_allowed,false);
-    assert.ok(proof.open_handoffs.every(row=>row.teacher_request_id===null));
+    // Historical request IDs are retained for diagnosis, but are not current proof.
+    assert.equal(proof.open_handoffs.filter(row=>row.teacher_request_id==='old-stale-request').length,3);
+    assert.equal(proof.teacher_request_id,null);
+    assert.equal(proof.progress_verified,false);
   } finally { DB.close(); }
 });
