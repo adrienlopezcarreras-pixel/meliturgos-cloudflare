@@ -31,10 +31,25 @@ try{
  });
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  browser=spawn(process.env.MEL_TEST_BROWSER_PATH||'chromium',['--headless','--no-sandbox','--disable-dev-shm-usage','--disable-gpu','--no-first-run','--disable-background-networking','--disable-component-update','--remote-debugging-port=0','--user-data-dir='+join(directory,'profile'),'about:blank'],{stdio:['ignore','ignore','pipe']});
+ // Never print raw Chrome stderr: it may contain local URLs or sensitive data.
+ // Fail promptly when the child cannot start, instead of reporting a misleading timeout.
  browser.stderr.resume();
+ let browserFailure=null;
+ browser.on('error',error=>{browserFailure={code:'CHROMIUM_SPAWN_FAILED',cause:typeof error?.code==='string'?error.code:'UNKNOWN'};});
+ browser.on('exit',(code,signal)=>{browserFailure||={code:'CHROMIUM_EARLY_EXIT',
+   exit_code:Number.isInteger(code)?code:null,signal:['SIGTERM','SIGKILL','SIGABRT','SIGSEGV'].includes(signal)?signal:null};});
  let port;const started=Date.now();
- while(!port&&Date.now()-started<30000){try{port=Number((await readFile(join(directory,'profile','DevToolsActivePort'),'utf8')).split('\n')[0]);}catch{}if(!port)await new Promise(r=>setTimeout(r,100));}
- if(!port)throw new Error('CHROMIUM_START_TIMEOUT');
+ while(!port&&Date.now()-started<30000){
+  try{port=Number((await readFile(join(directory,'profile','DevToolsActivePort'),'utf8')).split('\n')[0]);}catch{}
+  if(!port&&browserFailure)break;
+  if(!port)await new Promise(r=>setTimeout(r,100));
+ }
+ if(!port){
+  const evidence=browserFailure||{code:'CHROMIUM_START_TIMEOUT'};
+  await writeFile(join(output,'browser-startup.json'),JSON.stringify({status:'FAILED',...evidence}));
+  throw new Error(evidence.code);
+ }
+ await writeFile(join(output,'browser-startup.json'),JSON.stringify({status:'STARTED',debug_port_available:true}));
  const page=await(await fetch('http://127.0.0.1:'+port+'/json/new?about:blank',{method:'PUT'})).json();
  ws=new WebSocket(page.webSocketDebuggerUrl);await new Promise((resolve,reject)=>{ws.addEventListener('open',resolve,{once:true});ws.addEventListener('error',reject,{once:true});});
  let serial=0;const pending=new Map();
