@@ -599,3 +599,48 @@ test('a handoff that is only waiting on a dependency does not block the release'
     assert.equal(proof.production_activation_allowed,false);
   } finally { DB.close(); }
 });
+
+
+test('GEN2-42 three discovery fingerprints sharing one unprepared D1 job remain blocked without duplicate Teacher attempts', async () => {
+  const DB=sqliteD1();
+  try {
+    await migrate(DB);
+    const ledger={schema:'mel.ecosystem-discovery-ledger.v1',items:[
+      ...['first','second','third'].map(fingerprint=>({
+        fingerprint,
+        handoff:{job_id:'shared-job',status:'QUEUED',teacher_request_id:'old-stale-request',closed:false},
+      })),
+      {fingerprint:'unrelated',handoff:{job_id:'other-job',status:'REPAIR_REQUIRED',teacher_request_id:null,closed:false}},
+    ]};
+    await DB.prepare('INSERT INTO capability_watch_state(id,state_json,updated_at) VALUES(?,?,?)')
+      .bind('ecosystem-discoveries-canonical',JSON.stringify(ledger),Date.now()).run();
+    const lookedUp=[];
+    let attempts=0;
+    const repo={async get(id){
+      lookedUp.push(id);
+      return {id,status:id==='shared-job'?'QUEUED':'REPAIR_REQUIRED',
+        requested_by:'mel-autonomy',optional_context:{source:'ecosystem-watch'},
+        created_at:1,plan_json:{},result_json:{}};
+    }};
+    const proof=await proveEcosystemTeacherHandoff({DB},{
+      developmentRepository:repo,
+      resumeTeacherRequest:async()=>{attempts++;throw new Error('UNPREPARED_COUNCIL_MUST_NOT_RUN');},
+      mirrorTeacherRequest:async()=>{attempts++;throw new Error('NO_TEACHER_REQUEST');},
+    });
+    assert.equal(proof.ok,false);
+    assert.equal(proof.status,'GEN2_42_TEACHER_HANDOFF_NOT_READY');
+    assert.equal(proof.open_handoff_count,4);
+    assert.equal(proof.teacher_proven_handoff_count,0);
+    assert.equal(proof.blocked_queued_handoff_count,3);
+    assert.equal(proof.blocked_other_handoff_count,1);
+    assert.equal(proof.blocked_distinct_job_count,2);
+    assert.equal(attempts,0);
+    assert.equal(lookedUp.filter(id=>id==='shared-job').length,1);
+    assert.equal(proof.production_activation_allowed,false);
+    assert.equal(proof.auto_approval_allowed,false);
+    // Historical request IDs are retained for diagnosis, but are not current proof.
+    assert.equal(proof.open_handoffs.filter(row=>row.teacher_request_id==='old-stale-request').length,3);
+    assert.equal(proof.teacher_request_id,null);
+    assert.equal(proof.progress_verified,false);
+  } finally { DB.close(); }
+});
