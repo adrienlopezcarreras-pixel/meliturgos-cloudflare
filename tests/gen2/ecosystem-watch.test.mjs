@@ -732,3 +732,51 @@ test('GEN2-42 does not invalidate Bridge Teacher history without all SHA and req
     assert.equal(handoff.closed,false);
   }
 });
+
+
+test('GEN2-42 activity reset closes all fingerprints of cancelled D1 jobs without false delivery or replay', () => {
+  const now=1794740000000;
+  const ledger={items:[
+    ...['a','b','c'].map(fingerprint=>({
+      fingerprint,
+      handoff:{job_id:'shared-cancelled',status:'QUEUED',teacher_request_id:'historical-teacher',
+        candidate_sha:'a'.repeat(40),closed:false,retryable:false,completion_verified:false},
+    })),
+    {fingerprint:'other',handoff:{job_id:'other-cancelled',status:'WAITING_DEPENDENCY',closed:false}},
+  ]};
+  const jobs=[
+    {id:'shared-cancelled',status:'CANCELLED',error:'ACTIVITY_LIST_RESET',updated_at:now-5,
+      result_json:{teacher_bridge_history:[{request:{request_id:'historical-teacher'}}]}},
+    {id:'other-cancelled',status:'CANCELLED',error:'ACTIVITY_LIST_RESET',updated_at:now-5,
+      result_json:{}},
+  ];
+  const first=reconcileEcosystemDiscoveryHandoffs(ledger,jobs,now);
+  assert.equal(first.changed,true);
+  assert.equal(first.ledger.items.length,4);
+  for(const item of first.ledger.items){
+    assert.equal(item.handoff.status,'CANCELLED');
+    assert.equal(item.handoff.closed,true);
+    assert.equal(item.handoff.retryable,false);
+    assert.equal(item.handoff.completion_verified,false);
+    assert.equal(item.handoff.terminal_reason,'JOB_CANCELLED');
+  }
+  assert.equal(first.ledger.items[0].handoff.teacher_request_id,'historical-teacher',
+    'historical Teacher identifier is audit evidence, not a live authorization');
+  assert.equal(selectEcosystemDiscoveryCandidate(first.ledger),null,
+    'cancelled activities must not be replayed by discovery selection');
+  const second=reconcileEcosystemDiscoveryHandoffs(first.ledger,jobs,now+1);
+  assert.equal(second.changed,false,'repeated reconciliation must remain idempotent');
+});
+
+test('GEN2-42 cancellation cannot inherit a completion receipt as VERIFIED_LIVE', () => {
+  const ledger={items:[{fingerprint:'cancelled',handoff:{job_id:'aborted',status:'QUEUED',
+    closed:false,completion_verified:true}}]};
+  const job={id:'aborted',status:'CANCELLED',error:'ACTIVITY_LIST_RESET',updated_at:100,
+    result_json:{autonomy_completion:{status:'VERIFIED',candidate_sha:'a'.repeat(40)}}};
+  const rec=reconcileEcosystemDiscoveryHandoffs(ledger,[job],200);
+  const handoff=rec.ledger.items[0].handoff;
+  assert.equal(handoff.status,'CANCELLED');
+  assert.equal(handoff.closed,true);
+  assert.equal(handoff.completion_verified,false);
+  assert.equal(handoff.retryable,false);
+});
