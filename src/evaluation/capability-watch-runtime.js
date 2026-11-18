@@ -165,7 +165,7 @@ export async function reconcileDiscoveryJobs(env, ledger, {
       // A release proof may complete a Teacher handoff for a QUEUED job only
       // when Council evidence is already durably persisted. prepareAutonomyTeacherRequest()
       // will then reuse plan_json.preflight and cannot start a fresh Council cycle.
-      return Boolean(job?.plan_json?.preflight?.council);
+      return String(job?.plan_json?.preflight?.council?.status || '').toUpperCase() === 'COMPLETE';
     })
     .sort((a, b) => Number(a?.created_at || 0) - Number(b?.created_at || 0) || String(a?.id || '').localeCompare(String(b?.id || '')))[0] || null;
 
