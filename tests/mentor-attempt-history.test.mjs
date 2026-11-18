@@ -40,6 +40,22 @@ test('a structural Mentor rejection does not park the job before the large model
   assert.equal(deferral.exhausted, false);
 });
 
+test('a contract rejection that omitted the regression is remembered for the next coder round', async () => {
+  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+  const job = await repository.create({ id: 'audit', goal: 'g', requested_by: 'mel-autonomy' });
+  await repository.update(job.id, { status: 'TEACHER_APPROVED' });
+  await persistBridgePreparationDiagnostic(repository, job.id, {
+    status: 'NOT_READY',
+    code: 'ROADMAP_CODE_AND_REGRESSION_REQUIRED',
+    failures: [{ stage: 'contract', error: 'ROADMAP_CODE_AND_REGRESSION_REQUIRED', detail: 'need one code file and one test' }],
+  });
+  const stored = await repository.get(job.id);
+  assert.deepEqual(stored.result_json.mentor_attempt_history, [
+    { name: 'contract', error: 'ROADMAP_CODE_AND_REGRESSION_REQUIRED', stderr: 'need one code file and one test' },
+  ]);
+  assert.equal(stored.result_json.bridge_preparation_diagnostic.code, 'ROADMAP_CODE_AND_REGRESSION_REQUIRED');
+});
+
 test('a bridge job parked under the old one-round limit is worked again until its rounds are spent', async () => {
   const { selectActionableAutonomyJob, providerRetryContext } = await import('../src/evolution/autonomy-supervisor.js');
   const job = { id: 'mel-autonomy-x-1', requested_by: 'mel-autonomy', status: 'TEACHER_APPROVED', created_at: 1, optional_context: { roadmap_id: 'MEL-X' }, result_json: {} };
