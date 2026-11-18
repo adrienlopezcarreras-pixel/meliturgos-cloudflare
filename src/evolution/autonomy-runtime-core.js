@@ -29,6 +29,7 @@ import { prepareApprovedImplementationProposal } from './autonomy-implementation
 import { prepareApprovedBridgePackage } from './autonomy-bridge-preparer.js';
 import { droppedTeacherApproval } from '../teachers/owner-max-approval.js';
 import { readActivityListEpoch } from './autonomy-activity.js';
+import { providerWaitProgressIdentity } from './autonomy-progress-identity.js';
 
 // Bound active reconciliation/sweeps to the same activity generation as the
 // scheduler. The underlying repository still retains its complete journal.
@@ -1371,11 +1372,8 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       completed_roadmap_items: Array.isArray(state?.completedIds) ? state.completedIds.filter(id => !id.startsWith('ROADMAP-PROOF-')).length : 0,
       next_roadmap_id: state?.next?.id || null,
       evolution_queue: state?.evolution || null,
-      job_id: job?.id || null,
+      ...providerWaitProgressIdentity(job, ensured?.external_progress),
       job_status: finalJobStatus,
-      ...(Number.isFinite(Number(ensured?.external_progress?.retry_after))
-        ? { provider_retry_after: Number(ensured.external_progress.retry_after) }
-        : {}),
     },
     reconciliation,
     candidate_ci: candidateCI,
