@@ -132,7 +132,22 @@ function apiErrorMessage(payload,status){
   if(code==='PIPEDREAM_CONNECT_TOKEN_FAILED'&&Number(payload?.upstream_status)===400)return 'Pipedream Connect Production n’est pas disponible pour ce projet. Utilise Development (gratuit) ou un plan Production.';
   if(code==='PIPEDREAM_AUTH_FAILED')return 'Identifiants Pipedream refusés. Vérifie le Client ID et le Client Secret.';
   if(code==='PIPEDREAM_NOT_CONFIGURED')return 'Pipedream n’est pas encore configuré.';
-  if(code==='AUTONOMY_LAUNCH_GATE_BLOCKED')return 'Activation refusée';
+  if(code==='AUTONOMY_LAUNCH_GATE_BLOCKED'){
+    // The API returns an actionable readiness report. Never hide the reason
+    // behind a generic refusal: a missing backup, SHA mismatch, or failed
+    // launch gate must remain visible to the owner.
+    const readiness=payload?.readiness||{};
+    const blockers=Array.isArray(readiness.blockers)
+      ? readiness.blockers.filter(x=>typeof x==='string'&&x.trim()).slice(0,6)
+      : [];
+    const gateFailures=Object.entries(readiness.gates||{})
+      .filter(([,value])=>value&&typeof value==='object'&&value.ok===false)
+      .map(([name,value])=>name+': '+String(value.status||value.code||'bloqué'))
+      .slice(0,4);
+    const details=blockers.length?blockers:gateFailures;
+    return 'Activation refusée (AUTONOMY_LAUNCH_GATE_BLOCKED)'
+      +(details.length?' : '+details.join(' · ').slice(0,700):' : vérifier la préparation MAX et les sauvegardes.');
+  }
   if(code==='CHAT_DEADLINE_EXCEEDED'||(code==='CHAT_INFERENCE_FAILED'&&String(payload?.detail||'')==='CHAT_DEADLINE_EXCEEDED'))return 'MEL n’a pas pu terminer dans le délai (CHAT_DEADLINE_EXCEEDED). Le serveur s’est arrêté proprement : relance ou découpe la demande.';
   return code||('HTTP '+status);
 }
