@@ -5,10 +5,19 @@ export function providerWaitProgressIdentity(job, externalProgress) {
     ? externalProgress.job_id : null;
   const retryAfter = externalProgress?.retry_after;
   const reason = externalProgress?.reason;
+  const phase = externalProgress?.phase;
+  const attempts = externalProgress?.attempts;
+  const maxAttempts = externalProgress?.max_attempts;
   return {
     job_id: direct || deferred,
     ...(typeof reason === 'string' && reason.trim() ? { provider_wait_reason: reason } : {}),
     ...(typeof retryAfter === 'number' && Number.isFinite(retryAfter) && retryAfter > 0
       ? { provider_retry_after: retryAfter } : {}),
+    ...(['implementation', 'bridge', 'council'].includes(phase)
+      ? { provider_wait_phase: phase } : {}),
+    ...(Number.isSafeInteger(attempts) && attempts >= 0
+      ? { provider_wait_attempts: attempts } : {}),
+    ...(Number.isSafeInteger(maxAttempts) && maxAttempts > 0
+      ? { provider_wait_max_attempts: maxAttempts } : {}),
   };
 }
