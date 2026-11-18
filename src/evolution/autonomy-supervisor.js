@@ -138,6 +138,10 @@ function providerDeferralProgress(job) {
   return {
     reason: exhausted ? 'PROVIDER_EXHAUSTED_CONTEXT_REQUIRED' : 'PROVIDER_RETRY_COOLDOWN',
     retry_after: !exhausted && Number.isFinite(retryAfter) && retryAfter > Date.now() ? retryAfter : null,
+    // Diagnostic-only counters: do not grant another provider attempt.
+    phase: ['implementation', 'bridge', 'council'].includes(delay?.phase) ? delay.phase : null,
+    attempts: Number.isSafeInteger(delay?.attempts) && delay.attempts >= 0 ? delay.attempts : null,
+    max_attempts: Number.isSafeInteger(delay?.max_attempts) && delay.max_attempts > 0 ? delay.max_attempts : null,
   };
 }
 
