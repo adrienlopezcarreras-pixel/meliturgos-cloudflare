@@ -330,7 +330,11 @@ test('GEN2-42 release proof does not let a cancelled activity job block an idle 
     assert.equal(proof.ok,true);
     assert.equal(proof.status,'GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED');
     assert.equal(proof.open_handoff_count,0);
-    assert.equal(proof.released_cancelled_count,1);
+    assert.equal(proof.released_cancelled_count,0); // reconciled CANCELLED jobs are now closed, not released-open
+    const persisted=JSON.parse((await DB.prepare(`SELECT state_json FROM capability_watch_state WHERE id=?`).bind('ecosystem-discoveries-canonical').first()).state_json);
+    assert.equal(persisted.items[0].handoff.status,'CANCELLED');
+    assert.equal(persisted.items[0].handoff.closed,true);
+    assert.equal(persisted.items[0].handoff.completion_verified,false);
     assert.equal(proof.production_activation_allowed,false);
   } finally { DB.close(); }
 });
@@ -600,7 +604,6 @@ test('a handoff that is only waiting on a dependency does not block the release'
   } finally { DB.close(); }
 });
 
-
 test('GEN2-42 three discovery fingerprints sharing one unprepared D1 job remain blocked without duplicate Teacher attempts', async () => {
   const DB=sqliteD1();
   try {
@@ -643,4 +646,32 @@ test('GEN2-42 three discovery fingerprints sharing one unprepared D1 job remain 
     assert.equal(proof.teacher_request_id,null);
     assert.equal(proof.progress_verified,false);
   } finally { DB.close(); }
+});
+
+test('GEN2-42 release does not resume a QUEUED job with an incomplete Council preflight', async () => {
+  const incompleteStatuses=['DEGRADED','PENDING',null];
+  for (const status of incompleteStatuses) {
+    const job={
+      id:'queued-council-incomplete',
+      status:'QUEUED',
+      requested_by:'mel-autonomy',
+      optional_context:{source:'ecosystem-watch'},
+      plan_json:{preflight:{council:status===null ? {} : {status}}},
+      result_json:{},
+    };
+    const ledger={items:[{fingerprint:'incomplete',handoff:{
+      job_id:job.id,status:'QUEUED',teacher_request_id:null,closed:false,
+    }}]};
+    let attempted=0;
+    const result=await reconcileDiscoveryJobs({},ledger,{
+      repository:{async get(){return structuredClone(job);}},
+      resumeQueued:false,
+      resumeCouncilComplete:true,
+      resumePreparedQueued:true,
+      resumeTeacherRequest:async()=>{attempted++;throw Error('INCOMPLETE_COUNCIL_MUST_NOT_RESUME');},
+    });
+    assert.equal(attempted,0);
+    assert.equal(result.resumed,null);
+    assert.equal(result.ledger.items[0].handoff.status,'QUEUED');
+  }
 });

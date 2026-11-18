@@ -454,7 +454,7 @@ export function markEcosystemDiscoveryHandoff(ledger = {}, fingerprint, handoff 
 }
 
 
-const TERMINAL_JOB_STATUSES = new Set(['COMPLETED']);
+const TERMINAL_JOB_STATUSES = new Set(['COMPLETED', 'CANCELLED']);
 const ACTIVE_JOB_STATUSES = new Set([
   'QUEUED',
   'CLAIMED',
@@ -548,10 +548,10 @@ function jobHandoffSnapshot(job, before = {}, now = Date.now()) {
       || ''
     ) || null),
     ci_run_id: Number(completion?.ci?.run_id || before?.ci_run_id || 0) || null,
-    completion_verified: completion?.status === 'VERIFIED',
+    completion_verified: status === 'COMPLETED' && completion?.status === 'VERIFIED',
     accepted_job_id: null,
     closed,
-    retryable: staleRequeue ? true : retryable,
+    retryable: status === 'CANCELLED' ? false : (staleRequeue ? true : retryable),
     code: status === 'FAILED'
       ? String(job?.error || before?.code || '').slice(0, 180) || null
       : (staleRequeue ? 'TEACHER_REQUEST_STALE_SHA' : null),
@@ -559,7 +559,7 @@ function jobHandoffSnapshot(job, before = {}, now = Date.now()) {
       ? 'TEACHER_REJECT'
       : (status === 'COMPLETED'
         ? 'VERIFIED_COMPLETION'
-        : (staleRequeue ? 'STALE_TEACHER_REQUEST_REQUEUED' : null)),
+        : (status === 'CANCELLED' ? 'JOB_CANCELLED' : (staleRequeue ? 'STALE_TEACHER_REQUEST_REQUEUED' : null))),
     job_updated_at: Number(job?.updated_at || 0) || null,
     reconciled_at: now,
   };

@@ -40,7 +40,14 @@ async function fixture(t, { auth=true }={}) {
     return {child,control,receipt:()=>readFile(path.join(control,'status.json'),'utf8').then(JSON.parse),output:()=>output};
   }
   t.after(async()=>{ for(const child of children) { if(child.exitCode===null&&child.signalCode===null){ const ended=once(child,'exit'); child.kill('SIGKILL'); await ended; } } cloud.closeAllConnections(); await new Promise(r=>cloud.close(r)); await rm(root,{recursive:true,force:true}); });
-  return {launch,counts:()=>({heartbeats,claims,maxConcurrent})};
+  async function status() {
+    const response=await fetch(`http://127.0.0.1:${port}/status`,{
+      headers:{authorization:'Bearer private-fixture-token'},
+    });
+    assert.equal(response.status,200);
+    return response.json();
+  }
+  return {launch,status,counts:()=>({heartbeats,claims,maxConcurrent})};
 }
 
 test('real bridge persists only confirmed cloud receipts, rejects a second instance before heartbeat/claim, and stops on local request',async t=>{
@@ -62,6 +69,28 @@ test('an actual cloud auth failure never creates a confirmed heartbeat or expose
   const f=await fixture(t,{auth:false}); const run=await f.launch('auth');
   const receipt=await until(async()=>{const r=await run.receipt();return r.code==='CLOUD_AUTH_REQUIRED'&&r;});
   assert.equal(receipt.heartbeat_at,null); assert.equal(JSON.stringify(receipt).includes('PRIVATE_AUTH_DETAIL'),false);
+});
+
+test('local status distinguishes cloud-confirmed heartbeat from an HTTP listener',async t=>{
+  const f=await fixture(t,{auth:false}); const run=await f.launch('status-auth-failure');
+  await until(async()=>{const r=await run.receipt(); return r.code==='CLOUD_AUTH_REQUIRED'&&r;});
+  const status=await f.status();
+  assert.equal(status.local_listening,true);
+  assert.equal(status.online,false);
+  assert.equal(status.cloud_heartbeat_confirmed,false);
+  assert.equal(status.status,'CLOUD_AUTH_REQUIRED');
+  assert.equal(status.last_confirmed_heartbeat_at,null);
+});
+
+test('local status reports cloud online only after a real heartbeat ACK',async t=>{
+  const f=await fixture(t); const run=await f.launch('status-success');
+  const receipt=await until(async()=>{const r=await run.receipt(); return r.code==='RUNNING'&&r;});
+  const status=await f.status();
+  assert.equal(status.local_listening,true);
+  assert.equal(status.online,true);
+  assert.equal(status.cloud_heartbeat_confirmed,true);
+  assert.equal(status.status,'RUNNING');
+  assert.equal(status.last_confirmed_heartbeat_at,receipt.heartbeat_at);
 });
 
 test('GitHub relay presence uses its own real persisted heartbeat and expires independently of PC state',async t=>{
