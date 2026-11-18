@@ -4,6 +4,9 @@ import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { AutonomySupervisor, providerRetryContext } from '../src/evolution/autonomy-supervisor.js';
 import { isRotatableProviderExhaustion, boundedCouncilDeferral, activeAutonomyMission } from '../src/evolution/provider-exhaustion-rotation.js';
+import { releaseExhaustedRepairFocus } from '../src/evolution/autonomy-runtime.js';
+import { getAutonomyControl, setAutonomyControl, setOwnerMaxAutonomy } from '../src/evolution/autonomy-control.js';
+import { beginAutomaticRepair, repairLane } from '../src/evolution/autonomy-repair.js';
 
 const roadmap = [
   { id: 'MEL-MANIFEST-01', title: 'Provider blocked roadmap', status: 'PLANNED', priority: 'P0' },
@@ -256,4 +259,70 @@ test('one activity slot excludes all demoted waiting missions without deleting t
   assert.equal(activeAutonomyMission([...jobs,next]), null, 'a fresh QUEUED mission remains passive until claimed');
   assert.equal([...jobs,next].filter(job => job.status === 'QUEUED').length, 16);
   assert.equal(jobs.length,15);assert.equal(jobs[0].result_json.autonomy_deferral.attempts,3);
+});
+
+test('focusing the only exhausted mission does not call the empty slot busy and does not admit another job', async t => {
+  const DB = sqliteD1();
+  t.after(() => DB.close());
+  const repository = new D1DevJobRepository(DB);
+  const id = await setup(repository);
+  assert.equal(isRotatableProviderExhaustion(await repository.get(id)), true);
+  const result = await new AutonomySupervisor({ repository, roadmap, onlyJobId: id }).ensureNextJob();
+  assert.equal(result.created, false);
+  assert.equal(result.job, null);
+  assert.equal(result.external_progress.status, 'AUTONOMY_FOCUS_NOT_SLOT_OWNER');
+  assert.equal(result.external_progress.job_id, id);
+  assert.notEqual(result.external_progress.status, 'AUTONOMY_SINGLE_FLIGHT_BUSY');
+  assert.equal((await repository.list()).length, 1);
+});
+
+test('a focused mission that still owns the slot is returned, not refused as an empty slot', async t => {
+  const DB = sqliteD1();
+  t.after(() => DB.close());
+  const repository = new D1DevJobRepository(DB);
+  const id = await setup(repository, { attempts: 1, maxAttempts: 3 });
+  assert.equal(isRotatableProviderExhaustion(await repository.get(id)), false);
+  const result = await new AutonomySupervisor({ repository, roadmap, onlyJobId: id }).ensureNextJob();
+  assert.equal(result.job?.id, id);
+  assert.equal(result.external_progress, undefined);
+});
+
+test('an exhausted repair lane yields the single-flight slot; a live bridge and a pause do not', async t => {
+  const DB = sqliteD1();
+  t.after(() => DB.close());
+  const repository = new D1DevJobRepository(DB);
+  const id = await setup(repository);
+  const exhausted = await repository.get(id);
+  const owner = await setOwnerMaxAutonomy(DB, {
+    enabled: true, paused: false, source: 'owner-ui-launch-gate', reason: 'owner-max-autonomy',
+  });
+  const held = await beginAutomaticRepair(DB, exhausted, owner);
+  assert.equal(repairLane(held).job_id, id);
+  const released = await releaseExhaustedRepairFocus(DB, held, exhausted);
+  assert.equal(released.repair, null);
+  assert.equal(released.paused, false);
+  assert.equal(released.max_autonomy, true);
+  assert.equal(released.source, 'repair-slot-yielded');
+  assert.equal(released.reason, 'exhausted-mission-yields-single-flight');
+  assert.equal(released.owner_control_version, held.owner_control_version);
+  assert.equal((await getAutonomyControl(DB)).repair, null);
+  assert.equal((await repository.get(id)).status, 'TEACHER_APPROVED');
+
+  const running = await repository.create({ id: 'live-bridge', requested_by: 'mel-autonomy', goal: 'bridge still executing' });
+  await repository.update(running.id, { status: 'CLAIMED', result_json: { dev_bridge: { status: 'RUNNING' } } });
+  const live = await repository.get(running.id);
+  assert.equal(isRotatableProviderExhaustion(live), false);
+  const lane = await beginAutomaticRepair(DB, live, await getAutonomyControl(DB));
+  const kept = await releaseExhaustedRepairFocus(DB, lane, live);
+  assert.equal(kept, lane);
+  assert.equal(repairLane(await getAutonomyControl(DB)).job_id, running.id);
+
+  const beforePause = await getAutonomyControl(DB);
+  const pausedView = { ...beforePause, paused: true, max_autonomy: false };
+  const untouched = await releaseExhaustedRepairFocus(DB, pausedView, exhausted);
+  assert.equal(untouched, pausedView);
+  const stillHeld = await getAutonomyControl(DB);
+  assert.equal(stillHeld.updated_at, beforePause.updated_at);
+  assert.equal(stillHeld.repair.job_id, running.id);
+  assert.equal(stillHeld.max_autonomy, true);
 });

@@ -565,9 +565,13 @@ export class AutonomySupervisor {
     if (this.onlyJobId) {
       const wanted = current.active.find(job => job.id === this.onlyJobId) || null;
       const holder = singleFlightAutonomyMission(current.active);
-      if (this.singleFlight && wanted?.requested_by === 'mel-autonomy' && holder?.id !== wanted.id) {
+      if (this.singleFlight && wanted?.requested_by === 'mel-autonomy' && holder && holder.id !== wanted.id) {
         return { created: false, job: null, next: current.next, complete: false,
-          external_progress: { job_id: holder?.id || null, status: 'AUTONOMY_SINGLE_FLIGHT_BUSY' } };
+          external_progress: { job_id: holder.id, status: 'AUTONOMY_SINGLE_FLIGHT_BUSY' } };
+      }
+      if (this.singleFlight && wanted?.requested_by === 'mel-autonomy' && !holder) {
+        return { created: false, job: null, next: current.next, complete: false,
+          external_progress: { job_id: wanted.id, status: 'AUTONOMY_FOCUS_NOT_SLOT_OWNER' } };
       }
       const item = this.roadmap.find(row => row.id === roadmapIdFromJob(wanted));
       if (wanted && !item && unfinishedRoadmap.length) return { created: false, job: null, next: current.next, complete: false, external_progress: { job_id: wanted.id, status: 'ROADMAP_PRIORITY_ABSOLUTE' } };
