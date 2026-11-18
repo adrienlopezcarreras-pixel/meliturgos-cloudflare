@@ -22,7 +22,7 @@ export function isReleaseAutonomyPause(control) {
 // The pause stays; only the owner's intent now survives it.
 export const ROLLBACK_PAUSE_SOURCE = 'release-rollback-restore';
 export const ROLLBACK_PAUSE_REASON = 'restore-predeploy-autonomy-state';
-export const AUTOMATIC_AUTONOMY_CONTROL_SOURCES = Object.freeze(['bridge-repair-lane','verified-release-restore','verified-repair-completed','rollback-auto-resume','autonomous-launch-bind',ROLLBACK_PAUSE_SOURCE]);
+export const AUTOMATIC_AUTONOMY_CONTROL_SOURCES = Object.freeze(['bridge-repair-lane','verified-release-restore','verified-repair-completed','rollback-auto-resume','autonomous-launch-bind','repair-slot-yielded',ROLLBACK_PAUSE_SOURCE]);
 // A failed release rolls MAX back; MAX then resumes by itself. The only stop
 // that is never auto-resumed is one the OWNER sets by hand — their kill switch
 // must always win (MEL-SEC-04). The deploy pipeline (CI + Council review +

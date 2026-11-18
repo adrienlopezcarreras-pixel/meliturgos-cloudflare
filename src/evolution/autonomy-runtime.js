@@ -27,7 +27,7 @@ import { verifyContingencyProbeReports, freshJobContingencyProbeReports } from '
 import { readContingencyProbeInbox, CONTINGENCY_PERSISTED_PROBE_MAX_AGE_MS } from '../continuity/contingency-probe-inbox.js';
 import { activeWorkerContingencyObserved } from '../continuity/contingency-observations.js';
 import { bindCountermeasureActions, maxControlProof } from '../continuity/countermeasure-actions.js';
-import { singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
+import { singleFlightAutonomyMission, isRotatableProviderExhaustion } from './provider-exhaustion-rotation.js';
 
 export * from './autonomy-runtime-core.js';
 
@@ -869,6 +869,21 @@ export function augmentTickProgress(tick = {}) {
   };
 }
 
+export async function releaseExhaustedRepairFocus(db, control, job, memoryState = null) {
+  const lane = repairLane(control);
+  if (!lane || !job || lane.job_id !== job.id || !isRotatableProviderExhaustion(job)) return control;
+  if (control?.paused === true || control?.max_autonomy !== true) return control;
+  return setAutonomyControl(db, {
+    paused: false,
+    max_autonomy: true,
+    source: 'repair-slot-yielded',
+    reason: 'exhausted-mission-yields-single-flight',
+    repair: null,
+    expected_updated_at: control.updated_at,
+    memoryState,
+  });
+}
+
 export async function runAutonomyRuntimeTick(env, options = {}) {
   setRuntimeRoadmapRegressions(await activeRoadmapRegressions(env?.DB).catch(() => []));
   let control = await getAutonomyControl(env?.DB, { memoryState: options.autonomyControlState || null });
@@ -1070,6 +1085,14 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   validateCandidateBranches(env);
 
   let repair = repairLane(control);
+  if (repair && repository) {
+    const yielded = await repository.get(repair.job_id);
+    const released = await releaseExhaustedRepairFocus(env?.DB, control, yielded, options.autonomyControlState || null);
+    if (released !== control) {
+      control = released;
+      repair = repairLane(control);
+    }
+  }
   if (control.repair_invalid || (control.repair && !repair)) return {
     status:'REPAIR_STATE_UNPROVEN',paused:false,advanced:false,control,
     progress:{advanced:false,events:[],work_remaining:true,waiting_external:true,block_reason:'REPAIR_STATE_UNPROVEN'},
