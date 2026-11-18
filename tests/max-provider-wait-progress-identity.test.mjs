@@ -25,6 +25,19 @@ test('active job ID takes precedence over the external wait identity', () => {
   });
 });
 
+test('preserves only valid bounded provider round metadata', () => {
+  const result = providerWaitProgressIdentity(null, {
+    job_id: 'blocked-job', phase: 'bridge', attempts: 3, max_attempts: 3,
+  });
+  assert.deepEqual(result, {
+    job_id: 'blocked-job', provider_wait_phase: 'bridge',
+    provider_wait_attempts: 3, provider_wait_max_attempts: 3,
+  });
+  assert.deepEqual(providerWaitProgressIdentity(null, {
+    phase: 'owner-stop', attempts: -1, max_attempts: '3',
+  }), { job_id: null });
+});
+
 test('empty and malformed waits never fabricate IDs, reasons or zero-millisecond retries', () => {
   assert.deepEqual(providerWaitProgressIdentity(null, { retry_after: null, reason: '' }), { job_id: null });
   assert.deepEqual(providerWaitProgressIdentity(null, { job_id: '  ', retry_after: '0' }), { job_id: null });
