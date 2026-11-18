@@ -1,7 +1,7 @@
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { getAutonomyReadiness } from '../evolution/autonomy-readiness.js';
 import { runAutonomyRuntimeTick } from '../evolution/autonomy-runtime.js';
-import { getAutonomyControl, setAutonomyControl } from '../evolution/autonomy-control.js';
+import { getAutonomyControl, setAutonomyControl, isOwnerAutonomyStop } from '../evolution/autonomy-control.js';
 import { D1EvolutionLedger } from '../evolution/evolution-ledger.js';
 import { buildAutonomyActivity, readActivityListEpoch } from '../evolution/autonomy-activity.js';
 
@@ -281,7 +281,20 @@ export function registerAutonomyCapabilities(bus, env = {}) {
     enabled: true,
   }, async () => {
     if (!env.DB) throw capabilityError('DB_BINDING_MISSING');
-    return setAutonomyControl(env.DB, { paused: false, source: 'mel-capability', reason: 'owner-resume' });
+    const current = await getAutonomyControl(env.DB);
+    // A conversation resume is not an authenticated owner UI launch. Do not
+    // acknowledge success while the owner's stop latch still has precedence.
+    if (current.paused === true && isOwnerAutonomyStop(current)) {
+      return { status: 'PAUSED', resumed: false, blocked_by: 'owner-stop',
+        requires_owner_ui: true, control: current };
+    }
+    const updated = await setAutonomyControl(env.DB, {
+      paused: false, source: 'mel-capability', reason: 'owner-resume',
+      expected_updated_at: current.updated_at,
+    });
+    return { ...updated, resumed: updated.paused !== true,
+      status: updated.paused ? 'PAUSED' : updated.status };
+
   });
 
   bus.discover({

@@ -138,3 +138,26 @@ test('persistent stress executes both bounded autonomy observation endpoints whi
     DB.close();
   }
 });
+
+
+test('autonomy.resume reports owner-stop instead of a false successful resume', async () => {
+  const DB = sqliteD1();
+  try {
+    const runtime = createGen2Runtime({ env: { DB } });
+    const { setAutonomyControl, getAutonomyControl } =
+      await import('../src/evolution/autonomy-control.js');
+    await setAutonomyControl(DB, { paused: true, max_autonomy: false, source: 'owner-ui', reason: 'owner-stop' });
+    const before = await getAutonomyControl(DB);
+    const result = await runtime.bus.execute('autonomy.resume', {}, context);
+    const after = await getAutonomyControl(DB);
+    assert.equal(result.resumed, false);
+    assert.equal(result.status, 'PAUSED');
+    assert.equal(result.blocked_by, 'owner-stop');
+    assert.equal(result.requires_owner_ui, true);
+    assert.equal(after.paused, true);
+    assert.equal(after.owner_control_version, before.owner_control_version);
+    assert.equal(after.updated_at, before.updated_at);
+  } finally {
+    DB.close();
+  }
+});
