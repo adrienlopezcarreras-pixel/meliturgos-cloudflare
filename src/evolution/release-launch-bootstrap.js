@@ -85,7 +85,7 @@ async function devBridgeExecutorState(env = {}, { now = Date.now(), onlineWithin
     ).first();
     if (!row) return { online: false, status: 'OFFLINE', last_seen_age_ms: null };
     const lastSeen = Number(row.last_seen || 0);
-    const age = lastSeen > 0 ? Math.max(0, now - lastSeen) : null;
+    const age = Number.isFinite(lastSeen) && lastSeen > 0 && lastSeen <= now ? now - lastSeen : null;
     return {
       online: age != null && age < onlineWithinMs && String(row.status || '').toUpperCase() === 'ONLINE',
       status: String(row.status || 'OFFLINE').slice(0, 80),
