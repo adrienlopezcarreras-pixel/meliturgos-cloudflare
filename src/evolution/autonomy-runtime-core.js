@@ -455,7 +455,8 @@ export async function persistBridgePreparationDiagnostic(repository, jobId, diag
   // next round and, after three, unlock the large code models. Without this the
   // small model was retried forever with an empty error history.
   let historyChanged = false;
-  if (next.code === 'MENTOR_NO_VALID_CODE_PROPOSAL') {
+  const contractRejection = ['ROADMAP_CODE_AND_REGRESSION_REQUIRED', 'ROADMAP_CODE_SCOPE_VIOLATION', 'ROADMAP_CODE_CONTRACT_STALE'].includes(next.code);
+  if (next.code === 'MENTOR_NO_VALID_CODE_PROPOSAL' || contractRejection) {
     const history = Array.isArray(result.mentor_attempt_history) ? result.mentor_attempt_history : [];
     // Only code the model actually wrote counts toward the large model: a
     // timeout, quota or write conflict is our pipeline's failure, not the
@@ -463,8 +464,9 @@ export async function persistBridgePreparationDiagnostic(repository, jobId, diag
     const round = failures
       .filter(row => !/TIMEOUT|UNAVAILABLE|CONFLICT|QUOTA|RATE_LIMIT|PROVIDER/.test(row.code))
       .map(row => ({ name: row.stage, error: row.code, ...(row.detail ? { stderr: row.detail } : {}) }));
-    result.mentor_attempt_history = [...history, ...round].slice(-9);
-    historyChanged = true;
+    if (!round.length && contractRejection) round.push({ name: 'contract', error: next.code });
+    if (round.length) result.mentor_attempt_history = [...history, ...round].slice(-9);
+    if (round.length || next.code === 'MENTOR_NO_VALID_CODE_PROPOSAL') historyChanged = true;
   } else if (next.status === 'READY' && result.mentor_attempt_history) {
     delete result.mentor_attempt_history;
     historyChanged = true;

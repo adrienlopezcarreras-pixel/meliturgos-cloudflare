@@ -224,14 +224,24 @@ export async function prepareApprovedBridgePackage({
     ? Boolean(checkedPrepared && checkedPrepared.proposal.provenance.package_sha256 === cachedPrepared.package_sha256)
     : !checkedPrepared;
   if (reused && !checkedPrepared?.all_already_applied && preparedRevisionMatches && !(await isCouncilRejectedPackage(current, current.files_json))) {
-    assertRoadmapCodeChanges(current, current.files_json);
-    for (const file of current.files_json) {
-      const inspected = code.files.find(source => source.path === file.path);
-      if (!inspected) throw Object.assign(new Error('MENTOR_UNINSPECTED_PATH'), { code: 'MENTOR_UNINSPECTED_PATH' });
-      assertMentorCodeContract(file.path, inspected.content, file.content);
+    // An approved package that never touched both a contract file and its
+    // regression used to throw on every tick, so the coder was never called
+    // again (UI-AUDIT-06). Fall through and let the next round add the missing file.
+    let contractOk = true;
+    try { assertRoadmapCodeChanges(current, current.files_json); }
+    catch (error) {
+      if (!['ROADMAP_CODE_AND_REGRESSION_REQUIRED', 'ROADMAP_CODE_SCOPE_VIOLATION', 'ROADMAP_CODE_CONTRACT_STALE'].includes(error?.code)) throw error;
+      contractOk = false;
     }
-    // Packages made before mandatory full regression must be rebuilt once.
-    if (current.tests_json.some(test => test.command === 'test')) return reused;
+    if (contractOk) {
+      for (const file of current.files_json) {
+        const inspected = code.files.find(source => source.path === file.path);
+        if (!inspected) throw Object.assign(new Error('MENTOR_UNINSPECTED_PATH'), { code: 'MENTOR_UNINSPECTED_PATH' });
+        assertMentorCodeContract(file.path, inspected.content, file.content);
+      }
+      // Packages made before mandatory full regression must be rebuilt once.
+      if (current.tests_json.some(test => test.command === 'test')) return reused;
+    }
   }
   const engine = mentorEngine || createMentorEngine(env);
   const repairFor = repairMarker(current);

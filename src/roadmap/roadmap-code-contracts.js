@@ -702,5 +702,9 @@ export function assertRoadmapCodeChanges(job, changes = []) {
     throw Object.assign(new Error('ROADMAP_CODE_SCOPE_VIOLATION'), { code: 'ROADMAP_CODE_SCOPE_VIOLATION' });
   if (!changes.some(change => contract.code_paths.includes(change?.path))
       || !changes.some(change => contract.test_paths.includes(change?.path)))
-    throw Object.assign(new Error('ROADMAP_CODE_AND_REGRESSION_REQUIRED'), { code: 'ROADMAP_CODE_AND_REGRESSION_REQUIRED' });
+    throw Object.assign(new Error('ROADMAP_CODE_AND_REGRESSION_REQUIRED'), {
+      code: 'ROADMAP_CODE_AND_REGRESSION_REQUIRED',
+      failures: [{ stage: 'contract', error: 'ROADMAP_CODE_AND_REGRESSION_REQUIRED',
+        detail: 'the change must include one contract code file and one contract test' }],
+    });
 }
