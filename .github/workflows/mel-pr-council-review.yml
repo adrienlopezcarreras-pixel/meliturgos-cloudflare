@@ -125,6 +125,11 @@ jobs:
         github.event.workflow_run.head_branch == 'fix/council-historical-audit-main-advance-20261104' ||
         github.event.workflow_run.head_branch == 'fix/max-audit02-manual-recovery-20261104' ||
         github.event.workflow_run.head_branch == 'fix/max-owner-stop-pauses-runtime-20261104') &&
+       github.event.workflow_run.pull_requests[0].number != null) ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'pull_request' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
        github.event.workflow_run.pull_requests[0].number != null))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -173,7 +178,15 @@ jobs:
             3103) test "$STATE" = "open" ;;
             3112|3113) test "$STATE" = "open" ;;
             *)
-              if [ "$OWNER_MANUAL_REVIEW" != true ]; then echo "::error::COUNCIL_PR_NOT_ALLOWLISTED"; exit 1; fi
+              if [ "$OWNER_MANUAL_REVIEW" != true ]; then
+                if [ "$GITHUB_EVENT_NAME" = "workflow_run" ] && [ "$STATE" = "open" ] && [ "$REPO" = "$GITHUB_REPOSITORY" ]; then
+                  echo "MEL_COUNCIL_INTERNAL_DISCOVERY=true" >> "$GITHUB_ENV"
+                  echo "Internal same-repository PR discovery only. No Council vote and no release authorization."
+                else
+                  echo "::error::COUNCIL_PR_NOT_ALLOWLISTED"
+                  exit 1
+                fi
+              fi
               # Owner may inspect an already merged exact SHA only as a
               # historical audit. It never grants retrospective merge/release approval.
               if [ "$STATE" != open ]; then
@@ -227,7 +240,19 @@ jobs:
           ];
           const prNumber=process.env.MEL_COUNCIL_PR_NUMBER;
           const ownerManual=process.env.MEL_COUNCIL_OWNER_MANUAL_PROFILE==='true';
-          if(!['3094','3103','3112','3113'].includes(prNumber)&&!ownerManual)throw Error('COUNCIL_PR_NOT_ALLOWLISTED');
+          const internalDiscovery=process.env.MEL_COUNCIL_INTERNAL_DISCOVERY==='true';
+          if(!['3094','3103','3112','3113'].includes(prNumber)&&!ownerManual&&!internalDiscovery)throw Error('COUNCIL_PR_NOT_ALLOWLISTED');
+          if(internalDiscovery){
+            const {internalDiscoveryCi}=require('./scripts/council-internal-pr-eligibility.cjs');
+            const report=internalDiscoveryCi(latest);
+            const discoveryOut=process.env.GITHUB_OUTPUT;
+            if(!discoveryOut)throw Error('COUNCIL_CI_OUTPUT_REQUIRED');
+            fs.appendFileSync(discoveryOut,'ready=false\n');
+            fs.appendFileSync(discoveryOut,'internal_discovery='+report.status+'\n');
+            console.log(report.status==='ci_green_no_vote'?'COUNCIL_INTERNAL_DISCOVERY_CI_GREEN_NO_VOTE':'COUNCIL_INTERNAL_DISCOVERY_CI_NOT_GREEN_NO_VOTE');
+            console.log('COUNCIL_INTERNAL_DISCOVERY_NO_VOTE release_authorized=false max_unblocked=false');
+            process.exit(0);
+          }
           const ownerManualMandatory=['full-suite'];
           if(ownerManual){
             const runs=JSON.parse(fs.readFileSync('council-exact-full-ci.json','utf8')).workflow_runs;
