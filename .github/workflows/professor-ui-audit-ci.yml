@@ -80,6 +80,8 @@ jobs:
           tests/autonomy-completion-gates.test.mjs tests/autonomy-completion-mentor-learning.test.mjs
       - name: Verify audited controls and roadmap compatibility
         run: node --test tests/ui-audit-controls.test.mjs tests/chat-roadmap-audit.test.mjs tests/roadmap-consolidation.test.mjs tests/roadmap-truth.test.mjs
+      - name: Verify fail-closed Chromium startup diagnostics
+        run: node --test tests/verify-interface-browser-startup.test.mjs
       - name: Exercise canonical pages in Chromium (local integrations remain BLOCKED)
         env:
           MEL_TEST_BROWSER_PATH: /usr/bin/google-chrome
