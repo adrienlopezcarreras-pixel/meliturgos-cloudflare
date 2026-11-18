@@ -178,7 +178,21 @@ const server = http.createServer(async (req, res) => {
     if (req.headers.authorization !== `Bearer ${token}`) return json(res, 401, { error: 'BRIDGE_AUTH_REQUIRED' });
     const url = new URL(req.url, 'http://localhost');
     const body = await new Promise(resolve => { let s = ''; req.on('data', d => s += d); req.on('end', () => resolve(s ? JSON.parse(s) : {})); });
-    if (req.method === 'GET' && url.pathname === '/status') return json(res, 200, { online: true, branch: await bridge.currentBranch(), worker_url: remote.base });
+    if (req.method === 'GET' && url.pathname === '/status') {
+      const now=Date.now();
+      const at=Number(executorState.heartbeat_at);
+      const confirmed=executorState.code==='RUNNING' && Number.isFinite(at)
+        && at>0 && at<=now && now-at<60000 && !stopped;
+      return json(res, 200, {
+        online: confirmed,
+        local_listening: !stopped,
+        cloud_heartbeat_confirmed: confirmed,
+        status: executorState.code,
+        last_confirmed_heartbeat_at: Number.isFinite(at) && at>0 ? at : null,
+        branch: await bridge.currentBranch(),
+        worker_url: remote.base,
+      });
+    }
     if (req.method === 'GET' && url.pathname === '/jobs') return json(res, 200, { jobs: jobs.list() });
     if (req.method === 'POST' && url.pathname === '/jobs') return json(res, 201, jobs.create(body));
     const match = url.pathname.match(/^\/jobs\/([^/]+)\/(claim|rollback|test)$/);
