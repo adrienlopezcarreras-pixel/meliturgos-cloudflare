@@ -11,6 +11,7 @@ import handleResearch from "./api/research-api.js";
 import handleAugmentio from "./api/augmentio-api.js";
 import { onRequestGet as handleMvp } from "./pages/mvp-interface-v3.js";
 import { onRequestGet as handleFullModeV2 } from "./pages/full-interface-v2.js";
+import { renderWorkshopLanding } from "./pages/workshop-landing.js";
 import { onRequestGet as handleWatchInterface } from "./pages/watch-interface.js";
 import { handleCouncilReviewRequest } from "./evolution/council-review.js";
 import { onRequestGet as handleRevenueInterface } from "./pages/revenue-interface.js";
@@ -444,6 +445,7 @@ async function routeResolvedRequest(request, env, ctx) {
     }
 
     if (request.method === "GET" && url.pathname === "/professor") {
+      if (url.searchParams.get("mode") === "workshop") return renderWorkshopLanding();
       return handleFullModeV2({ env, request, params: {} }).catch(e => html(`Error loading full mode: ${e.message}`, 500));
     }
 

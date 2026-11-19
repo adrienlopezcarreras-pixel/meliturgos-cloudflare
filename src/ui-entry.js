@@ -226,6 +226,37 @@ async function latestConversationResponse(request, env) {
   }
 }
 
+// Native VIA uses a pinned conversation ID rather than silently following
+// /latest. This endpoint exposes only the authenticated owner's archive.
+async function conversationByIdResponse(request, env) {
+  const auth = requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+  const url = new URL(request.url);
+  const id = url.searchParams.get('id');
+  if (!id || !/^[a-zA-Z0-9_.:-]{1,128}$/.test(id) || url.searchParams.size !== 1) {
+    return json({ ok:false, code:'INVALID_CONVERSATION_ID' }, 400);
+  }
+  try {
+    const service = createConversationService(env);
+    const conversation = await service.get({ id });
+    const owner = String(env.MELITURGOS_USER || '');
+    if (!owner || conversation?.owner !== owner) {
+      return json({ ok:false, code:'CONVERSATION_NOT_FOUND' }, 404);
+    }
+    const messages = await service.getMessages(id, { limit:80, latest:true });
+    return json({
+      ok:true,
+      conversation:{
+        id:conversation.id, title:conversation.title, status:conversation.status,
+        created_at:conversation.created_at, updated_at:conversation.updated_at,
+      },
+      messages, source:'owner-archive-by-id',
+    });
+  } catch {
+    return json({ ok:false, code:'CONVERSATION_LOOKUP_UNAVAILABLE' }, 503);
+  }
+}
+
 export async function enhanceOwnerInterface(response) {
   // UI ownership lives in the canonical page and the final release/visual layer.
   // This entry keeps API routes only and must not inject a competing DOM runtime.
@@ -244,6 +275,7 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/mel/client-error') return clientErrorResponse(request, env);
     if (url.pathname === '/api/mel/owner-requests' && (request.method === 'GET' || request.method === 'POST')) return ownerRequestsResponse(request, env);
     if (request.method === 'GET' && url.pathname === '/api/mel/conversations/latest') return latestConversationResponse(request, env);
+    if (request.method === 'GET' && url.pathname === '/api/mel/conversations/by-id') return conversationByIdResponse(request, env);
     const response = await app.fetch(request, env, ctx);
     if (request.method !== 'GET') return response;
     return enhanceOwnerInterface(response, url.pathname);
