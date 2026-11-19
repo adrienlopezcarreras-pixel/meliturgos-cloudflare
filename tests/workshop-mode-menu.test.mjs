@@ -12,7 +12,8 @@ test('clickable full-mode avatar exposes mode normal and mode workshop', async (
   assert.match(html, /<a href="\/professor\?mode=workshop">Mode Workshop<\/a>/);
   assert.match(html, /<nav class="nav" id="nav">/);
   const moreMenu = html.match(/<div id="mobileMoreMenu"[^>]*>(.*?)<\/div>/s)?.[1];
-  assert.match(moreMenu, /<a class="nav-link mobile-workshop-link" href="\/professor\?mode=workshop">Mode Workshop<\/a>/);
+  assert.match(moreMenu, /<a class="nav-link mobile-mode-link" href="\/">Mode normal<\/a>/);
+  assert.match(moreMenu, /<a class="nav-link mobile-mode-link" href="\/professor\?mode=workshop">Mode Workshop<\/a>/);
 });
 
 test('workshop choice reaches a clear, non-operational placeholder, not an external app', async () => {
