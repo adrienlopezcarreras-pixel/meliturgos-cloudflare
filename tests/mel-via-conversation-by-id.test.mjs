@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import worker from '../src/ui-entry.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import { createConversationService } from '../src/conversations/conversation-service.js';
+import { migrate } from '../src/persistence/migrations.js';
 
 const ORIGIN = 'https://mel.example';
 const auth = { authorization:'Basic '+Buffer.from('owner:fixture-password').toString('base64') };
@@ -26,6 +27,7 @@ test('VIA conversation by ID requires operator authentication and a valid single
 
 test('VIA resume reads the selected MEL conversation, never replaces it with latest',async()=>{
   const env=envWithDb();
+  await migrate(env.DB);
   const store=createConversationService(env);
   await store.create({id:'old-via-chat',owner:'owner',title:'Conversation VIA'});
   await store.archiveMessage({conversationId:'old-via-chat',role:'user',content:'Première demande'});
@@ -45,6 +47,7 @@ test('VIA resume reads the selected MEL conversation, never replaces it with lat
 
 test('VIA resume requires an explicit matching conversation owner',async()=>{
   const env=envWithDb();
+  await migrate(env.DB);
   const store=createConversationService(env);
   await store.create({id:'another-user-chat',owner:'another-owner',title:'Private'});
   await store.archiveMessage({conversationId:'another-user-chat',role:'user',content:'Secret'});
