@@ -852,7 +852,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     const result = await bus.execute('code.read', { path, start_line: 2, end_line: 4 }, readContext);
     if (result?.source_ref?.toLowerCase() !== sourceRef || result.path !== path ||
         result.start_line !== 2 || result.end_line !== 4 || result.partial !== true ||
-        result.total_lines <= 4 || result.content.split(/\r?\n/).length !== 3) {
+        !Number.isSafeInteger(result.total_lines) || result.total_lines <= 4 || result.content.split(/\r?\n/).length !== 3) {
       throw Object.assign(new Error('CODE_PROOF_PINNED_RANGE_UNPROVEN'), { code: 'CODE_PROOF_PINNED_RANGE_UNPROVEN' });
     }
     try {
