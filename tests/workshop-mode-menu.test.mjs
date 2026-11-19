@@ -34,3 +34,19 @@ test('unknown mode preserves existing full interface', async () => {
   assert.match(html, /Mode complet/);
   assert.match(html, /id="nav"/);
 });
+
+test('primary full-mode navigation remains the first nav block for legacy audit tools', async () => {
+  const response = await onRequestGet({request: new Request('https://mel.example/professor')});
+  const html = await response.text();
+  const firstNavStart = html.indexOf('<nav ');
+  const firstNavEnd = html.indexOf('</nav>', firstNavStart);
+  assert.ok(firstNavStart >= 0 && firstNavEnd > firstNavStart);
+  const primaryNav = html.slice(firstNavStart, firstNavEnd);
+  for (const view of ['overview', 'chat', 'lora', 'computer', 'terminal']) {
+    assert.ok(primaryNav.includes('data-view="' + view + '"'), view);
+  }
+  const workshopResponse = await onRequestGet({request: new Request('https://mel.example/professor?mode=workshop')});
+  const workshopHtml = await workshopResponse.text();
+  assert.match(workshopHtml, /aria-label="Changer de mode MEL"/);
+  assert.match(workshopHtml, /Mode normal/);
+});
