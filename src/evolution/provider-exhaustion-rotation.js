@@ -16,10 +16,11 @@ export function isRotatableProviderExhaustion(job) {
   if (job?.requested_by !== 'mel-autonomy' || staleCouncilDeferral(job)) return false;
   if (!['QUEUED', 'TEACHER_APPROVED'].includes(String(job?.status || '').toUpperCase())) return false;
   const delay = job?.result_json?.autonomy_deferral;
-  if (delay?.exhausted !== true || !['implementation', 'bridge', 'council'].includes(delay.phase)) return false;
-  if (!Number.isFinite(Number(delay.attempts)) || Number(delay.attempts) < 3
-      || !Number.isFinite(Number(delay.max_attempts)) || Number(delay.max_attempts) < 3
-      || Number(delay.attempts) < Number(delay.max_attempts)) return false;
+  if (!['implementation', 'bridge', 'council'].includes(delay?.phase)) return false;
+  // One recorded provider failure yields the slot. The old three-attempt
+  // budget kept the same mission in front of every other one.
+  if (!Number.isFinite(Number(delay.attempts)) || Number(delay.attempts) < 1
+      || !Number.isFinite(Number(delay.max_attempts)) || Number(delay.max_attempts) < 1) return false;
   // A bridge cut three times is already the bounded failure. Older rows omitted
   // the context, and that omission kept the lane forever (the next mission never started).
   const killedBridge = delay.code === 'BRIDGE_PREPARATION_KILLED';
@@ -36,12 +37,9 @@ export const ROTATABLE_PROVIDER_EXHAUSTION_SQL = `(
   status IN ('QUEUED','TEACHER_APPROVED')
   AND (json_extract(result_json,'$.autonomy_deferral.phase') != 'council'
     OR json_extract(result_json,'$.autonomy_deferral.inference_policy') = '${COUNCIL_INFERENCE_POLICY}')
-  AND json_extract(result_json,'$.autonomy_deferral.exhausted') = 1
   AND json_extract(result_json,'$.autonomy_deferral.phase') IN ('implementation','bridge','council')
-  AND json_extract(result_json,'$.autonomy_deferral.attempts') >= 3
-  AND json_extract(result_json,'$.autonomy_deferral.max_attempts') >= 3
-  AND json_extract(result_json,'$.autonomy_deferral.attempts') >=
-      json_extract(result_json,'$.autonomy_deferral.max_attempts')
+  AND json_extract(result_json,'$.autonomy_deferral.attempts') >= 1
+  AND json_extract(result_json,'$.autonomy_deferral.max_attempts') >= 1
   AND (
     json_extract(result_json,'$.autonomy_deferral.code') = 'BRIDGE_PREPARATION_KILLED'
     OR (

@@ -13,7 +13,7 @@ import { staleCouncilDeferral } from '../teachers/council-inference-policy.js';
 import { jobActivityTimestamp } from './autonomy-job-epoch.js';
 import { createRuntimeEvolutionLoader } from '../roadmap/evolution-storage.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
-import { currentRoadmap, AutonomySupervisor, providerRetryContext, BRIDGE_MENTOR_ROUNDS, listAutonomySchedulerJobs } from './autonomy-supervisor.js';
+import { currentRoadmap, AutonomySupervisor, providerRetryContext, listAutonomySchedulerJobs } from './autonomy-supervisor.js';
 import { boundedCouncilDeferral, activeAutonomyMission, singleFlightAutonomyMission } from './provider-exhaustion-rotation.js';
 import { prepareDevelopmentRequest } from './development-preflight.js';
 import { createGitHubCodeReader } from '../capabilities/github-code-capabilities.js';
@@ -299,9 +299,9 @@ export async function persistImplementationDiagnostic(repository, jobId, diagnos
     const previousDelay = latest.result_json?.autonomy_deferral;
     const attempts = owned && previousDelay?.code === next.code && previousDelay?.context === context
       ? Number(previousDelay.attempts || 0) + 1 : 1;
-    const structural = (next.mentor_failure_codes || []).some(row =>
-      ['MENTOR_INVALID_CHANGE','MENTOR_UNINSPECTED_EDIT','MENTOR_UNINSPECTED_PATH'].includes(row.code));
-    const maxAttempts = structural ? 1 : 3;
+    // One provider failure yields the slot. A second and third identical try
+    // used to sit in front of every other mission.
+    const maxAttempts = 1;
     result.autonomy_deferral = { ...deferred, phase: 'implementation', context, attempts,
       max_attempts: maxAttempts, exhausted: attempts >= maxAttempts };
   }
@@ -486,13 +486,7 @@ export async function persistBridgePreparationDiagnostic(repository, jobId, diag
     const previousDelay = latest.result_json?.autonomy_deferral;
     const attempts = owned && previousDelay?.code === next.code && previousDelay?.context === context
       ? Number(previousDelay.attempts || 0) + 1 : 1;
-    const structural = (next.mentor_failure_codes || []).some(row =>
-      ['MENTOR_INVALID_CHANGE','MENTOR_UNINSPECTED_EDIT','MENTOR_UNINSPECTED_PATH'].includes(row.code));
-    // A structural rejection used to park the job after one round, so the
-    // large code model (after 3 rejected rounds) never got its turn and
-    // FOUNDER-02..07 sat idle on 25/10. Each new round now sees its previous
-    // errors (mentor_attempt_history), so retrying is no longer identical.
-    const maxAttempts = structural ? BRIDGE_MENTOR_ROUNDS : 3;
+    const maxAttempts = 1;
     result.autonomy_deferral = { ...deferred, phase: 'bridge', context, attempts,
       max_attempts: maxAttempts, exhausted: attempts >= maxAttempts };
   }
