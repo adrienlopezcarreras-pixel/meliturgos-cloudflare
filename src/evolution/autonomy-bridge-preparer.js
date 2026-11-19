@@ -405,7 +405,9 @@ async function sha256Hex(text) {
 export async function preparedMissionPackage(env, code, job, inspectedFiles = [], fetchImpl = fetch, { required = false } = {}) {
   const roadmapId = String(job?.optional_context?.roadmap_id || '');
   const contract = roadmapCodeContract(roadmapId);
-  if (!contract || !/^MEL-[A-Z0-9-]+$/.test(roadmapId)) return null;
+  // A proof recipe has its own contract and package. Never substitute the
+  // parent's package, whose code and regression establish different behavior.
+  if (!contract || !/^(?:ROADMAP-PROOF-)?(?:MEL|GEN2)-[A-Z0-9-]+$/.test(roadmapId)) return null;
   let pkg;
   try {
     const mainReader = createGitHubCodeReader({ repository: code.repository, branch: 'main', token: String(env?.MEL_GITHUB_TOKEN || ''), fetchImpl });
