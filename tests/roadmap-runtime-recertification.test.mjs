@@ -58,6 +58,8 @@ test('every allowlisted recipe is a registered no-argument core diagnostic with 
     assert.equal(record.risk,'LOW',capability);assert.deepEqual(record.permissions,[],capability);
     if (['memory.contradiction.provenance.verify','windows.companion-live.verify','cloudflare.canary-rollback.verify'].includes(capability)) {
       await assert.rejects(() => bus.execute(capability,{}, {owner:'test',permissions:[]}), error => /^[A-Z_]*DB_UNAVAILABLE$/.test(error.code));
+    } else if (capability === 'code.pinned-read.verify') {
+      await assert.rejects(() => bus.execute(capability,{}, {owner:'test',permissions:[]}), { code: 'CODE_PROOF_DEPLOYMENT_REQUIRED' });
     } else if (capability === 'policy.owner-stop.verify') {
       await assert.rejects(() => bus.execute(capability,{}, {owner:'test',permissions:[]}), { code: 'OWNER_STOP_PROOF_DB_UNAVAILABLE' });
     } else if (capability === 'policy.zero-euro-governor.verify') {
@@ -182,4 +184,22 @@ test('the normal MAX tick recertifies owner-stop through its real bus without ch
   assert.ok(network.every(call=>call.method==='GET'));
   const truth=await computeRoadmapTruth(f.db,[{items:[historical('MEL-SEC-04')]}]);
   assert.equal(truth.items['MEL-SEC-04'].truth,'VERIFIED_LIVE');
+});
+
+test('MEL-CHAT-04 requires a durable receipt for the real pinned-read recipe', async t => {
+  const f = await fixture(t, { id: 'MEL-CHAT-04' });
+  f.env.MEL_GITHUB_FETCH = async request => {
+    const url = new URL(request);
+    assert.equal(url.searchParams.get('ref'), sha);
+    return Response.json({
+      type: 'file', sha: 'b'.repeat(40), encoding: 'base64',
+      content: Buffer.from('one\ntwo\nthree\nfour\nfive').toString('base64'),
+    });
+  };
+  const result = await executeRuntimeRecertification(f.env, f.repository, f.job);
+  assert.equal(result.status, 'VERIFIED');
+  assert.equal(result.job.result_json.runtime_recertification.capability, 'code.pinned-read.verify');
+  assert.equal(result.job.result_json.runtime_recertification.deployed_sha, sha);
+  const truth = await computeRoadmapTruth(f.db, [{ items: [historical('MEL-CHAT-04')] }]);
+  assert.equal(truth.items['MEL-CHAT-04'].truth, 'VERIFIED_LIVE');
 });
