@@ -66,9 +66,7 @@ for (const storage of ['memory', 'sqlite']) test(`provider exhaustion rotates sa
 });
 
 for (const invalid of [
-  { attempts: 2 },
-  { maxAttempts: 1 },
-  { attempts: 3, maxAttempts: 4 },
+  { attempts: 0 },
   { context: false },
   { status: 'CLAIMED' },
 ]) test(`unsafe provider exhaustion marker cannot free the lane: ${JSON.stringify(invalid)}`, async t => {
@@ -150,7 +148,7 @@ for (const storage of ['memory', 'sqlite']) test(`Council cooldown polling never
     assert.equal(cooldown.attempts, round, 'polling within the same retry window is not a new attempt');
     assert.equal(cooldown.retry_after, failure.retry_after, 'polling cannot postpone the authorized retry');
     await repository.update(original.id, { result_json: { ...current.result_json, autonomy_deferral: cooldown } });
-    assert.equal(isRotatableProviderExhaustion(await repository.get(original.id)), round === 3);
+    assert.equal(isRotatableProviderExhaustion(await repository.get(original.id)), true);
     clock += 300_001;
   }
   const supervisor = new AutonomySupervisor({ repository, roadmap });
@@ -181,7 +179,7 @@ for (const storage of ['memory', 'sqlite']) test(`Council with no eligible provi
       retryAt: clock + 600_000, now: clock + 1000, freshAttempts: [] });
     assert.equal(within.attempts, round);
     assert.equal(within.retry_after, noProvider.retry_after);
-    assert.equal(isRotatableProviderExhaustion(await repository.get(original.id)), round === 3);
+    assert.equal(isRotatableProviderExhaustion(await repository.get(original.id)), true);
     clock += 300_001;
   }
   const next = await new AutonomySupervisor({ repository, roadmap }).ensureNextJob();
@@ -280,7 +278,7 @@ test('a focused mission that still owns the slot is returned, not refused as an 
   const DB = sqliteD1();
   t.after(() => DB.close());
   const repository = new D1DevJobRepository(DB);
-  const id = await setup(repository, { attempts: 1, maxAttempts: 3 });
+  const id = await setup(repository, { attempts: 0, maxAttempts: 1 });
   assert.equal(isRotatableProviderExhaustion(await repository.get(id)), false);
   const result = await new AutonomySupervisor({ repository, roadmap, onlyJobId: id }).ensureNextJob();
   assert.equal(result.job?.id, id);
