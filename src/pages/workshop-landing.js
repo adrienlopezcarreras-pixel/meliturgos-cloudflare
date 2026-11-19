@@ -1,3 +1,5 @@
+import { describeWorkshopSkills, workshopSkillSummary } from '../workshop/workshop-skills.js';
+
 export const WORKSHOP_MODE_SWITCH_CSS = `
 .brand .mel-mode-switch{width:100%;position:relative;z-index:40}
 .brand .mel-mode-switch summary{display:flex;gap:11px;align-items:center;cursor:pointer;list-style:none;border-radius:12px;padding:0 5px 3px}
@@ -11,19 +13,27 @@ export const WORKSHOP_MODE_SWITCH_CSS = `
 `;
 
 const sections = [
-  ['ÉDITEUR', 'Magazines, romans et contenus narratifs.'],
-  ['MÉDIA', 'Vidéo, audio, scènes et rendus.'],
-  ['PROMOTION', 'Réseaux, site et communication.'],
-  ['MEL Companion', 'Connexion Windows et opérations autorisées.'],
+  { title: 'ÉDITEUR', surfaces: ['ÉDITEUR'], description: 'Magazines, romans et contenus narratifs.' },
+  { title: 'MÉDIA', surfaces: ['MÉDIA · vidéo', 'MÉDIA · audio'], description: 'Vidéo, audio, scènes et rendus.' },
+  { title: 'PROMOTION', surfaces: ['PROMOTION'], description: 'Réseaux, site et communication.' },
+  { title: 'MEL Companion', surfaces: ['MEL Companion'], description: 'Connexion Windows et opérations autorisées.' },
 ];
 
 export function renderWorkshopLanding() {
-  const cards = sections.map(([title, description]) => `
+  // This deployment has no authenticated VIA snapshot. Reuse the catalog's
+  // fail-closed projection to keep the displayed status and counts consistent.
+  const catalog = workshopSkillSummary(describeWorkshopSkills());
+  const cards = sections.map(({ title, surfaces, description }) => {
+    const related = catalog.sections.filter(section => surfaces.includes(section.section));
+    const total = related.reduce((count, section) => count + section.total, 0);
+    return `
     <section class="card">
       <h2>${title}</h2>
       <p class="status">Moteur non connecté à cette interface Web</p>
       <p>${description}</p>
-    </section>`).join('');
+      <p>${total} fonctions prévues</p>
+    </section>`;
+  }).join('');
   const html = `<!doctype html>
 <html lang="fr">
 <head>
