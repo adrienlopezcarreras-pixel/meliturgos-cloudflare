@@ -141,29 +141,27 @@ test('retry code matching rejects invented prefix extensions and structural fail
   for(const code of ['MENTOR_PROVIDER_TIMEOUT_UNSAFE','MENTOR_JSON_INVALID_EXTRA','NO_ELIGIBLE_MISSION','MENTOR_UNINSPECTED_PATH','MENTOR_INVALID_CHANGE']) assert.equal(providerDeferral(code),null,code);
 });
 
-test('three identical provider retries rotate the mission without a fourth attempt, then wake on new context', async t => {
+test('one provider failure rotates the mission, then it wakes on new context', async t => {
   const {persistBridgePreparationDiagnostic}=await import('../src/evolution/autonomy-runtime-core.js');
   const {repository,id}=await fixture(t);
   const now=Date.now;
   let clock=now();
   try {
     Date.now=()=>clock;
-    for(let attempt=1;attempt<=3;attempt++) {
-      await persistBridgePreparationDiagnostic(repository,id,{status:'NOT_READY',code:'MENTOR_PROVIDER_TIMEOUT'});
-      const delay=(await repository.get(id)).result_json.autonomy_deferral;
-      assert.equal(delay.attempts,attempt);
-      assert.equal(delay.exhausted,attempt===3);
-      clock=delay.retry_after+1;
-    }
+    await persistBridgePreparationDiagnostic(repository,id,{status:'NOT_READY',code:'MENTOR_PROVIDER_TIMEOUT'});
+    const delay=(await repository.get(id)).result_json.autonomy_deferral;
+    assert.equal(delay.attempts,1);
+    assert.equal(delay.exhausted,true);
+    clock=delay.retry_after+1;
     const roadmap=[{id:'MEL-FOUNDER-01',title:'A',status:'IN_PROGRESS',priority:'P0'},
       {id:'MEL-FOUNDER-02',title:'B',status:'PLANNED',priority:'P0'}];
     const supervisor=new AutonomySupervisor({repository,roadmap});
     const rotated=await supervisor.ensureNextJob();
-    assert.equal(rotated.created,true,'one unrelated roadmap mission should progress after exhaustion');
+    assert.equal(rotated.created,true,'one unrelated roadmap mission should progress after one failure');
     assert.equal(rotated.job.optional_context.roadmap_id,'MEL-FOUNDER-02');
     assert.equal((await repository.list()).length,2);
-    assert.equal((await repository.get(id)).result_json.autonomy_deferral.attempts,3,
-      'the parked objective must retain its exact provider failure budget');
+    assert.equal((await repository.get(id)).result_json.autonomy_deferral.attempts,1,
+      'the parked objective keeps the single failed attempt');
     assert.equal((await supervisor.ensureNextJob()).job.id,rotated.job.id,
       'one runnable internal job still owns the single-flight slot');
     await repository.update(rotated.job.id,{status:'COMPLETED'});
@@ -171,7 +169,7 @@ test('three identical provider retries rotate the mission without a fourth attem
     const parked=await supervisor.ensureNextJob();
     assert.equal(parked.job.id,id,'a demoted mission resumes only after fresh work finishes and its cooldown expires');
     assert.equal(parked.job.result_json.autonomy_deferral.attempts,0);
-    assert.equal(parked.job.result_json.previous_provider_deferral.attempts,3);
+    assert.equal(parked.job.result_json.previous_provider_deferral.attempts,1);
     const current=await repository.get(id);
     await repository.update(id,{result_json:{...current.result_json,implementation_proposal:{...current.result_json.implementation_proposal,candidate_sha:'b'.repeat(40)}}});
     assert.equal((await supervisor.ensureNextJob()).job.id,id,'changed context can be selected, without bypassing runtime SHA gate');

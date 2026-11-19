@@ -285,10 +285,11 @@ test('a real runtime tick retains Mentor A while deferred instead of starting B'
     const a=await f.repository.get(first.job.id);
     assert.equal(a.result_json.autonomy_deferral.code,'MENTOR_NO_VALID_CODE_PROPOSAL');
     const next=await f.tick();
-    assert.equal(next.job, null);
-    assert.equal(next.progress?.waiting_external, true);
-    assert.equal((await f.repository.list()).length, 1);
-    assert.deepEqual(await f.repository.get(a.id),a);
+    const jobs=await f.repository.list();
+    assert.equal(jobs.length, 2);
+    assert.equal(jobs.some(job => job.optional_context?.roadmap_id === 'TEST-EPOCH-02'), true);
+    assert.deepEqual(await f.repository.get(a.id), a);
+    assert.notEqual(next.progress?.job_id, a.id);
     const lease=await tryAcquireAutonomyRuntimeLease({db:f.DB,owner:'after-independent-tick'});
     assert.equal(lease.acquired,true);
     await releaseAutonomyRuntimeLease({db:f.DB,owner:'after-independent-tick'});

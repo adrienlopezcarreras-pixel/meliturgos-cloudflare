@@ -40,7 +40,7 @@ test('an exhausted job reopens only when its failure text was never presented', 
   assert.equal(unansweredExhaustedRepair(job), null);
 });
 
-test('an exhausted mentor rejection is relaunched once and then stays parked', () => {
+test('an exhausted mentor rejection is not relaunched; the next mission takes the slot', () => {
   const job = {
     status: 'TEACHER_APPROVED',
     result_json: {
@@ -48,11 +48,8 @@ test('an exhausted mentor rejection is relaunched once and then stays parked', (
       autonomy_deferral: { exhausted: true, code: 'MENTOR_NO_VALID_CODE_PROPOSAL' },
     },
   };
-  assert.equal(mentorRejectionRelaunch(job)?.action, 'RELAUNCH');
-  job.result_json.mentor_relaunch_count = 1;
   assert.equal(mentorRejectionRelaunch(job), null);
-  job.result_json.mentor_relaunch_count = 0;
-  job.result_json.autonomy_deferral.exhausted = false;
+  job.result_json.mentor_relaunch_count = 1;
   assert.equal(mentorRejectionRelaunch(job), null);
 });
 

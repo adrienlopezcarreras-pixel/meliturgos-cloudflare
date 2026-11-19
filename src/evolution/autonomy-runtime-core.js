@@ -161,17 +161,10 @@ export function unansweredExhaustedRepair(job) {
   return { ...decision, action: 'REPAIR', unseen: true, gate: MENTOR_PROPOSAL_GATE };
 }
 
-// A mentor rejection that has used its retries leaves the mission silent
-// (FOUNDER-03: no model call, no retry). One relaunch clears that wait.
-// A second exhaustion stays parked.
-export function mentorRejectionRelaunch(job) {
-  if (String(job?.status || '').toUpperCase() !== 'TEACHER_APPROVED') return null;
-  const result = job?.result_json && typeof job.result_json === 'object' ? job.result_json : null;
-  if (!result) return null;
-  if (String(result.bridge_preparation_diagnostic?.code || '').split(':')[0] !== 'MENTOR_NO_VALID_CODE_PROPOSAL') return null;
-  if (result.autonomy_deferral?.exhausted !== true) return null;
-  if (Number(result.mentor_relaunch_count || 0) >= 1) return null;
-  return { action: 'RELAUNCH' };
+// One provider failure yields the slot. Do not spend a hidden second call
+// on the same mission before the next one starts.
+export function mentorRejectionRelaunch() {
+  return null;
 }
 
 const STALE_TEACHER_APPROVAL_CODES = new Set([

@@ -28,7 +28,7 @@ test('the bridge preparer hands that history to the Mentor so the third failure 
   assert.match(mentor, /escalate: previousAttempts\.length >= 3/);
 });
 
-test('a structural Mentor rejection does not park the job before the large model had its turn', async () => {
+test('one structural Mentor rejection parks the mission for the next one', async () => {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
   const job = await repository.create({ id: 'k', goal: 'g', requested_by: 'mel-autonomy' });
   await repository.update(job.id, { status: 'TEACHER_APPROVED' });
@@ -36,8 +36,8 @@ test('a structural Mentor rejection does not park the job before the large model
     failures: [{ stage: 'initial', code: 'MENTOR_UNINSPECTED_EDIT' }] };
   await persistBridgePreparationDiagnostic(repository, job.id, rejected);
   const deferral = (await repository.get(job.id)).result_json.autonomy_deferral;
-  assert.equal(deferral.max_attempts, 3);
-  assert.equal(deferral.exhausted, false);
+  assert.equal(deferral.max_attempts, 1);
+  assert.equal(deferral.exhausted, true);
 });
 
 test('a contract rejection that omitted the regression is remembered for the next coder round', async () => {
@@ -56,10 +56,10 @@ test('a contract rejection that omitted the regression is remembered for the nex
   assert.equal(stored.result_json.bridge_preparation_diagnostic.code, 'ROADMAP_CODE_AND_REGRESSION_REQUIRED');
 });
 
-test('a bridge job parked under the old one-round limit is worked again until its rounds are spent', async () => {
+test('a bridge job parked after one provider failure is not selected again', async () => {
   const { selectActionableAutonomyJob, providerRetryContext } = await import('../src/evolution/autonomy-supervisor.js');
   const job = { id: 'mel-autonomy-x-1', requested_by: 'mel-autonomy', status: 'TEACHER_APPROVED', created_at: 1, optional_context: { roadmap_id: 'MEL-X' }, result_json: {} };
-  const parked = (attempts) => ({ ...job, result_json: { autonomy_deferral: { phase: 'bridge', exhausted: true, attempts, max_attempts: 1, retry_after: 0, context: providerRetryContext(job) } } });
-  assert.equal(selectActionableAutonomyJob([parked(1)], { roadmap: [] })?.id, job.id);
+  const parked = (attempts) => ({ ...job, result_json: { autonomy_deferral: { phase: 'bridge', exhausted: true, attempts, max_attempts: 1, retry_after: Date.now() + 60_000, context: providerRetryContext(job) } } });
+  assert.equal(selectActionableAutonomyJob([parked(1)], { roadmap: [] }), null);
   assert.equal(selectActionableAutonomyJob([parked(4)], { roadmap: [] }), null);
 });

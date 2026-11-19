@@ -120,10 +120,8 @@ function providerDeferred(job) {
   if (staleCouncilDeferral(job)) return false;
   const delay = job?.result_json?.autonomy_deferral;
   if (delay?.context && delay.context !== providerRetryContext(job)) return false;
-  // Bridge-phase jobs parked under the old one-round limit (FOUNDER-02..07,
-  // 25/10) get the rounds the current policy grants before the large model.
-  const exhausted = delay?.exhausted === true
-    && !(delay?.phase === 'bridge' && Number(delay?.max_attempts) === 1 && Number(delay?.attempts || 0) < BRIDGE_MENTOR_ROUNDS);
+  // One recorded failure is enough. The slot goes to the next mission.
+  const exhausted = delay?.exhausted === true;
   // Keep exhausted identical retries parked until the approved context changes.
   // A mere elapsed cooldown must never reset the bounded provider budget.
   return exhausted || Number(delay?.retry_after || 0) > Date.now();
@@ -132,8 +130,7 @@ function providerDeferred(job) {
 // Expose the bounded provider wait without changing job admission or retry budgets.
 function providerDeferralProgress(job) {
   const delay = job?.result_json?.autonomy_deferral;
-  const exhausted = delay?.exhausted === true
-    && !(delay?.phase === 'bridge' && Number(delay?.max_attempts) === 1 && Number(delay?.attempts || 0) < BRIDGE_MENTOR_ROUNDS);
+  const exhausted = delay?.exhausted === true;
   const retryAfter = Number(delay?.retry_after || 0);
   return {
     reason: exhausted ? 'PROVIDER_EXHAUSTED_CONTEXT_REQUIRED' : 'PROVIDER_RETRY_COOLDOWN',
