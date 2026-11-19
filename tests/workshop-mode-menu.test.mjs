@@ -7,7 +7,7 @@ test('clickable full-mode avatar exposes mode normal and mode workshop', async (
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /<summary id="melModeSwitcher" aria-label="Changer de mode MEL">/);
-  assert.match(html, /<nav class="mel-mode-menu" aria-label="Modes MEL">/);
+  assert.match(html, /<div class="mel-mode-menu" aria-label="Modes MEL">/);
   assert.match(html, /<a href="\/">Mode normal<\/a>/);
   assert.match(html, /<a href="\/professor\?mode=workshop">Mode Workshop<\/a>/);
   assert.match(html, /<nav class="nav" id="nav">/);
