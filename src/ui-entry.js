@@ -233,17 +233,14 @@ async function conversationByIdResponse(request, env) {
   if (!auth.ok) return auth.response;
   const url = new URL(request.url);
   const id = url.searchParams.get('id');
-  if (!id || !/^[a-zA-Z0-9_.:-]{1,128}$/.test(id) ||
-      [...url.searchParams.keys()].some(key => key !== 'id') ||
-      [...url.searchParams.keys()].length !== 1) {
+  if (!id || !/^[a-zA-Z0-9_.:-]{1,128}$/.test(id) || url.searchParams.size !== 1) {
     return json({ ok:false, code:'INVALID_CONVERSATION_ID' }, 400);
   }
   try {
     const service = createConversationService(env);
     const conversation = await service.get({ id });
     const owner = String(env.MELITURGOS_USER || '');
-    if (!conversation || (String(conversation.owner || '') !== '' &&
-        String(conversation.owner || '') !== owner)) {
+    if (!owner || conversation?.owner !== owner) {
       return json({ ok:false, code:'CONVERSATION_NOT_FOUND' }, 404);
     }
     const messages = await service.getMessages(id, { limit:80, latest:true });

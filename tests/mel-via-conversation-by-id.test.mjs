@@ -27,10 +27,10 @@ test('VIA conversation by ID requires operator authentication and a valid single
 test('VIA resume reads the selected MEL conversation, never replaces it with latest',async()=>{
   const env=envWithDb();
   const store=createConversationService(env);
-  await store.ensureConversation('old-via-chat','owner','Conversation VIA');
+  await store.create({id:'old-via-chat',owner:'owner',title:'Conversation VIA'});
   await store.archiveMessage({conversationId:'old-via-chat',role:'user',content:'Première demande'});
   await store.archiveMessage({conversationId:'old-via-chat',role:'assistant',content:'Première réponse'});
-  await store.ensureConversation('new-mel-chat','owner','Autre conversation');
+  await store.create({id:'new-mel-chat',owner:'owner',title:'Autre conversation'});
   await store.archiveMessage({conversationId:'new-mel-chat',role:'user',content:'Question plus récente'});
 
   const response=await get(env,'/api/mel/conversations/by-id?id=old-via-chat',auth);
@@ -43,13 +43,16 @@ test('VIA resume reads the selected MEL conversation, never replaces it with lat
   assert.equal(body.source,'owner-archive-by-id');
 });
 
-test('VIA resume cannot read a conversation owned by someone else',async()=>{
+test('VIA resume requires an explicit matching conversation owner',async()=>{
   const env=envWithDb();
   const store=createConversationService(env);
-  await store.ensureConversation('another-user-chat','another-owner','Private');
+  await store.create({id:'another-user-chat',owner:'another-owner',title:'Private'});
   await store.archiveMessage({conversationId:'another-user-chat',role:'user',content:'Secret'});
-  const result=await get(env,'/api/mel/conversations/by-id?id=another-user-chat',auth);
-  assert.equal(result.status,404);
-  const payload=await result.json();
-  assert.equal(payload.code,'CONVERSATION_NOT_FOUND');
+  await store.create({id:'unattributed-chat',owner:'',title:'Unattributed'});
+  await store.archiveMessage({conversationId:'unattributed-chat',role:'user',content:'Unattributed message'});
+  for (const id of ['another-user-chat','unattributed-chat','absent-chat']) {
+    const result=await get(env,'/api/mel/conversations/by-id?id='+id,auth);
+    assert.equal(result.status,404);
+    assert.deepEqual(await result.json(), {ok:false,code:'CONVERSATION_NOT_FOUND'});
+  }
 });
