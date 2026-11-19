@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import {execFileSync} from 'node:child_process';
-import { ROADMAP_CODE_CONTRACTS } from '../src/roadmap/roadmap-code-contracts.js';
+import { roadmapCodeContract } from '../src/roadmap/roadmap-code-contracts.js';
 
 const sha = text => createHash('sha256').update(text).digest('hex');
 const packages = fs.existsSync('prepared') ? fs.readdirSync('prepared').filter(f => f.endsWith('.json')) : [];
@@ -30,7 +30,7 @@ test('pending prepared packages never replace a shared file with conflicting sna
 test('prepared mission packages target their contract and a live base', () => {
   for (const file of packages) {
     const pkg = JSON.parse(fs.readFileSync(`prepared/${file}`, 'utf8'));
-    const contract = ROADMAP_CODE_CONTRACTS[pkg.roadmap_id];
+    const contract = roadmapCodeContract(pkg.roadmap_id);
     assert.ok(contract, file);
     assert.equal(file, `${pkg.roadmap_id}.json`);
     assert.ok(pkg.changes.some(c => contract.code_paths.includes(c.path)), `${file} changes no code path`);
@@ -103,4 +103,34 @@ test('a prepared package still applies when one of its files is already in the t
   // A file drifted to something ELSE is still refused: the guard holds.
   const drifted = await preparedMissionPackage({}, code, job, [{ path: testPath, content: 'AUTRE_CHOSE' }], fetchImpl);
   assert.equal(drifted, null);
+});
+
+test('a proof recipe loads its exact package without accepting the parent package', async () => {
+  const { preparedMissionPackage } = await import('../src/evolution/autonomy-bridge-preparer.js');
+  const roadmapId = 'ROADMAP-PROOF-GEN2-21';
+  const contract = roadmapCodeContract(roadmapId);
+  const code = { repository: 'o/r', branch: 'main', candidate_sha: 'c'.repeat(40) };
+  const job = { optional_context: { roadmap_id: roadmapId } };
+  const changes = [contract.code_paths[0], contract.test_paths[0]].map(path => ({
+    path, base_sha256: 'new', content: '// fixture',
+  }));
+  const requested = [];
+  let packageId = roadmapId;
+  const fetchImpl = async url => {
+    const pathname = new URL(url).pathname;
+    requested.push(pathname);
+    if (!pathname.endsWith('/prepared/' + roadmapId + '.json')) {
+      return new Response('', { status: 404 });
+    }
+    const body = JSON.stringify({ roadmap_id: packageId, changes });
+    return Response.json({ type: 'file', sha: 'a'.repeat(40), size: body.length,
+      content: Buffer.from(body).toString('base64') });
+  };
+
+  const loaded = await preparedMissionPackage({}, code, job, [], fetchImpl);
+  assert.equal(loaded?.proposal.provenance.path, 'prepared/' + roadmapId + '.json');
+  assert.equal(loaded.all_already_applied, false);
+  packageId = 'GEN2-21';
+  assert.equal(await preparedMissionPackage({}, code, job, [], fetchImpl), null);
+  assert.ok(requested.every(path => !path.endsWith('/prepared/GEN2-21.json')));
 });

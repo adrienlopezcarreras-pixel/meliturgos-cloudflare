@@ -4,15 +4,18 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { writeFileSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
-import { ROADMAP_CODE_CONTRACTS } from '../src/roadmap/roadmap-code-contracts.js';
+import { roadmapCodeContract } from '../src/roadmap/roadmap-code-contracts.js';
 
 const [id, branch, summary = ''] = process.argv.slice(2);
-const contract = ROADMAP_CODE_CONTRACTS[id];
+const contract = roadmapCodeContract(id);
 if (!contract || !branch) throw new Error('usage: prepare-mission <ROADMAP-ID> <branch> [summary]');
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1 << 26 });
 const changed = git('diff', '--name-only', `origin/main...${branch}`).split('\n').filter(Boolean)
   .filter(path => [...contract.code_paths, ...contract.test_paths].includes(path));
-if (!changed.length) throw new Error('no contract file changed on ' + branch);
+if (!changed.some(path => contract.code_paths.includes(path))
+    || !changed.some(path => contract.test_paths.includes(path))) {
+  throw new Error('the package must include contract code and its regression on ' + branch);
+}
 const changes = changed.map(path => {
   let base = null;
   try { base = git('show', `origin/main:${path}`); } catch {}
