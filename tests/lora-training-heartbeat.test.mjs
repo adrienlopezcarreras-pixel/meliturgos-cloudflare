@@ -459,3 +459,40 @@ test('Unverified external dataset falls back to baseline rather than blocking tr
   assert.equal(result.experimental_source.status,'SOURCE_NOT_ELIGIBLE');
   assert.equal(Object.hasOwn(payload.inputs,'uncensored_sources'),false);
 });
+
+// MEL-LORA-CHAT-01: a code defect or a quota refusal stays a repair; only a
+// validated behavioural gap creates an example then a compatible LoRA request.
+test('code defect and quota stay repairs; only a validated behaviour gap creates an example and a compatible LoRA request', async () => {
+  const { observeLoraObjectives, loraRequestFromObservation } = await import('../src/learning/lora-objective-observer.js');
+  const { CANONICAL_LORA_DATASET_VERSION, CANONICAL_LORA_LESSON_COUNT } = await import('../src/learning/lora-canonical-dataset.js');
+  const corpus = { version: CANONICAL_LORA_DATASET_VERSION, rows: Array.from({ length: CANONICAL_LORA_LESSON_COUNT }, (_, i) => ({ i })) };
+  const example = { input: 'Explique ce diff', expected: 'Analyse structurée avec faits et hypothèses' };
+  const impact = v => ({ kind: 'lora-impact-candidate', metadata: { next_stage: 'AGENTIC_READY', candidate: { agentic_execution: v, over_refusal_rate: 0.1, technical_depth: 0.9 } } });
+
+  // Quota refusals: never a behaviour gap, whatever the share.
+  const quotaJobs = [{ status: 'FAILED', result_json: { bridge_preparation_diagnostic: { mentor_failure_codes: [{ code: 'WORKERS_AI_DAILY_NEURON_BUDGET_EXHAUSTED' }] } } }];
+  const quota = observeLoraObjectives({ impactRows: [impact(0.5), impact(0.5)], jobs: quotaJobs });
+  assert.equal(quota.decision, 'CODE_FIX');
+  assert.equal(quota.reason, 'QUOTA_REFUSALS_ARE_NOT_A_BEHAVIOUR_GAP');
+  const quotaRequest = loraRequestFromObservation(quota, { dataset: corpus, example });
+  assert.equal(quotaRequest.requested, false);
+  assert.equal(quotaRequest.code, 'LORA_REQUEST_REFUSED_QUOTA');
+  assert.equal(quotaRequest.example, null, 'a quota refusal never becomes a training example');
+
+  // A validated, persistent behaviour gap: example then compatible request.
+  const gap = observeLoraObjectives({ impactRows: [impact(0.5), impact(0.5)], jobs: [] });
+  assert.equal(gap.decision, 'TRAIN_AGENTIC');
+  const ok = loraRequestFromObservation(gap, { dataset: corpus, example });
+  assert.equal(ok.requested, true);
+  assert.equal(ok.example.gap, 'AGENTIC_EXECUTION_BELOW_OBJECTIVE');
+  assert.equal(ok.request.base_model, 'mistralai/Mistral-7B-Instruct-v0.2');
+  assert.equal(ok.request.runtime_model, '@cf/mistral/mistral-7b-instruct-v0.2-lora');
+  assert.equal(ok.request.dataset_examples, CANONICAL_LORA_LESSON_COUNT + 1);
+
+  // Incompatible model or corpus is refused rather than trained badly.
+  assert.equal(loraRequestFromObservation(gap, { dataset: corpus, example, baseModel: 'meta/unknown' }).code, 'LORA_REQUEST_MODEL_INCOMPATIBLE');
+  assert.equal(loraRequestFromObservation(gap, { dataset: { version: 'autre', rows: corpus.rows }, example }).code, 'LORA_REQUEST_CORPUS_INCOMPATIBLE');
+  assert.equal(loraRequestFromObservation(gap, { dataset: { version: CANONICAL_LORA_DATASET_VERSION, rows: [] }, example }).code, 'LORA_REQUEST_CORPUS_INCOMPATIBLE');
+  assert.equal(loraRequestFromObservation(gap, { dataset: corpus }).code, 'LORA_REQUEST_EXAMPLE_REQUIRED');
+  assert.equal(loraRequestFromObservation({ decision: 'OBSERVE', reason: 'x' }, { dataset: corpus, example }).code, 'LORA_REQUEST_NO_VALIDATED_GAP');
+});
