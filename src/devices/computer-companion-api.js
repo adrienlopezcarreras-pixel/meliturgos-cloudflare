@@ -75,6 +75,7 @@ export const COMPUTER_ROUTES=Object.freeze({
  deviceFile:"/api/computer/v1/device-file",
  proposals:"/api/computer/v1/proposals",
  proposalsNext:"/api/computer/v1/proposals/next",
+ proposalsControlState:"/api/computer/v1/proposals/control-state",
  proposalsReceipt:"/api/computer/v1/proposals/receipt"
 });
 const DEFAULT_APPS=["notepad","calculator","explorer","msedge","firefox","chrome"];
@@ -162,12 +163,17 @@ async function ownerQueueCompanionProposal(request,env){
  await tables(env);
  const key=companionProposalKey(env);
  if(!key)return json({ok:false,code:"COMPANION_PROPOSAL_SIGNING_SECRET_UNAVAILABLE"},503);
+ const contentLength=Number(request.headers.get("content-length")||0);
+ if(Number.isFinite(contentLength)&&contentLength>4096)
+  return json({ok:false,code:"COMPANION_PROPOSAL_BODY_TOO_LARGE"},413);
  const body=await request.json().catch(()=>null);
  if(!body||typeof body!=="object"||Array.isArray(body)
     ||Object.keys(body).sort().join(",")!=="action,computer_id,payload")
   return json({ok:false,code:"COMPANION_PROPOSAL_BODY_INVALID"},400);
  const computerId=safe(body.computer_id,128),action=body.action,payload=body.payload;
- if(!computerId)return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);
+ if(!computerId||typeof body.computer_id!=="string"||body.computer_id.trim()!==computerId
+    ||body.computer_id.length>128||!/^[A-Za-z0-9_.-]{1,128}$/.test(computerId))
+  return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);
  if(!companionInputPayload(action,payload))
   return json({ok:false,code:"COMPANION_PROPOSAL_ACTION_INVALID"},403);
  const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=? LIMIT 1")
@@ -229,6 +235,32 @@ async function claimCompanionProposal(env,a){
  return json(envelope,200);
 }
 
+
+async function companionProposalControlState(env,a,url){
+ const nonce=safe(url.searchParams.get("request_id"),32).toLowerCase();
+ if(!/^[0-9a-f]{32}$/.test(nonce))
+  return json({ok:false,code:"COMPANION_PROPOSAL_REQUEST_ID_INVALID"},400);
+ const current=await env.DB.prepare(
+  "SELECT halted,metadata FROM computer_devices WHERE id=? LIMIT 1"
+ ).bind(a.device.id).first();
+ const metadata=parse(current?.metadata,{});
+ const proposal=await env.DB.prepare(
+  "SELECT status,expires_at FROM computer_proposals WHERE nonce=? AND device_id=? LIMIT 1"
+ ).bind(nonce,a.device.id).first();
+ const now=Date.now();
+ const permitted=!!current&&Number(current.halted)===0
+  &&metadata?.remote_access_enabled===true
+  &&!!proposal&&proposal.status==="CLAIMED"
+  &&Number(proposal.expires_at)>now
+  &&a.device.last_seen_at<=now&&now-Number(a.device.last_seen_at)<=35_000;
+ return json({ok:true,permitted,
+  code:permitted?"AUTHORIZED":!current||Number(current?.halted)===1
+   ?"OWNER_HALT_ACTIVE":metadata?.remote_access_enabled!==true
+   ?"REMOTE_ACCESS_DISABLED_LOCALLY":!proposal?"COMPANION_PROPOSAL_UNKNOWN"
+   :proposal.status!=="CLAIMED"?"COMPANION_PROPOSAL_REVOKED"
+   :"COMPANION_PROPOSAL_EXPIRED"});
+}
+
 async function receiveCompanionProposalReceipt(request,env,a){
  const key=companionProposalKey(env);
  if(!key)return json({ok:false,code:"COMPANION_PROPOSAL_SIGNING_SECRET_UNAVAILABLE"},503);
@@ -257,7 +289,7 @@ async function receiveCompanionProposalReceipt(request,env,a){
  const signature=await companionHmac(key,body);
  if(signature!==receipt.signature)return json({ok:false,code:"COMPANION_RECEIPT_SIGNATURE_INVALID"},401);
  const proposal=await env.DB.prepare(
-  "SELECT status,receipt_hash FROM computer_proposals WHERE nonce=? AND device_id=? LIMIT 1"
+  "SELECT status,receipt_hash,expires_at FROM computer_proposals WHERE nonce=? AND device_id=? LIMIT 1"
  ).bind(receipt.request_id,a.device.id).first();
  if(!proposal)return json({ok:false,code:"COMPANION_RECEIPT_REQUEST_UNKNOWN"},404);
  const receiptHash=await sha(canonicalProposalJson(receipt));
@@ -266,7 +298,7 @@ async function receiveCompanionProposalReceipt(request,env,a){
    return json({ok:false,code:"COMPANION_RECEIPT_CONFLICT"},409);
   return json({status:"acknowledged",request_id:receipt.request_id,executed:receipt.executed},202);
  }
- if(proposal.status!=="CLAIMED")
+ if(proposal.status!=="CLAIMED"||Number(proposal.expires_at)<=Date.now())
   return json({ok:false,code:"COMPANION_RECEIPT_REQUEST_NOT_CLAIMED"},409);
  const updated=await env.DB.prepare(
   "UPDATE computer_proposals SET status='RECEIVED',receipt_json=?,receipt_hash=? WHERE nonce=? AND device_id=? AND status='CLAIMED'"
@@ -1167,6 +1199,7 @@ export async function maybeHandleComputerApi(request,env){
  if(url.pathname===COMPUTER_ROUTES.companions&&request.method==="GET")return computerCompanions(env);
  if(url.pathname===COMPUTER_ROUTES.controlState&&request.method==="GET")return controlState(request,env,a,url);
  if(url.pathname===COMPUTER_ROUTES.proposalsNext&&request.method==="GET")return claimCompanionProposal(env,a);
+ if(url.pathname===COMPUTER_ROUTES.proposalsControlState&&request.method==="GET")return companionProposalControlState(env,a,url);
  if(url.pathname===COMPUTER_ROUTES.proposalsReceipt&&request.method==="POST")return receiveCompanionProposalReceipt(request,env,a);
  if(url.pathname===COMPUTER_ROUTES.triadActivity&&request.method==="GET"){
   if(a.device.halted)return json({ok:false,code:"TRIAD_COMPANION_HALTED"},409);
