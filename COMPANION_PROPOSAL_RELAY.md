@@ -107,12 +107,17 @@ intended effect.
 2. Review the change and merge only after approvals and green CI.
 3. Configure the Worker secret through Wrangler's interactive prompt.
 4. Deploy the Worker.
-5. Update VIA to fetch the device-specific HMAC key through a future
-   per-device provisioning design before production use.
-6. Connect the VIA native review to `proposals/control-state`; no action may
-   execute when revalidation fails or the network is unavailable.
-7. Test STOP races, duplicate receipts, device revocation, expired proposals,
-   missing secrets and the Windows session-1 native input path.
+5. The VIA client implementation is being completed in MEL-project MR !76:
+   it fetches the device-scoped HMAC key, claims signed proposals, verifies the
+   envelope, asks for native Windows confirmation, revalidates against
+   `proposals/control-state`, and attempts one signed terminal receipt.
+   MR !76 is still a draft and is not production-ready until its Windows
+   handoff tests and the actual session-1 acceptance test pass.
+6. Review and merge both changes only after their required checks are green.
+7. Configure the Worker secret through Wrangler's interactive prompt, then
+   deploy the Worker. Never copy the root secret into VIA or CI output.
+8. Test STOP races, duplicate receipts, device revocation, expired proposals,
+   missing secrets and the Windows session-1 native input path end to end.
 
 This relay is a proposal transport only. It does not remove the local target
 window picker, Windows foreground/PID/session checks, per-action native
