@@ -7,31 +7,36 @@ It is not merged into `main` and is not deployed. Do not configure production
 clients to depend on these routes until CI, review, deployment and end-to-end
 tests have passed.
 
-## Secret configuration
+## Secret configuration and per-device provisioning
 
-The Worker expects `COMPANION_PROPOSAL_HMAC_SECRET` as a Cloudflare Worker
+The Worker expects `COMPANION_PROPOSAL_MASTER_SECRET` as a Cloudflare Worker
 secret containing exactly 64 hexadecimal characters (32 random bytes).
-Generate a new value locally, for example:
+Generate it locally and enter it through Wrangler's interactive prompt:
 
 ```sh
 openssl rand -hex 32
-npx wrangler secret put COMPANION_PROPOSAL_HMAC_SECRET
+npx wrangler secret put COMPANION_PROPOSAL_MASTER_SECRET
 ```
 
-Enter the generated value when Wrangler prompts for the secret. Never put the
-value in Git, source files, logs, CI variables that print values, or screenshots.
-The identical value is currently entered once in the VIA native COMPANION
-"réception locale signée" key field; it is held only in process memory and is
-cleared when VIA closes.
+Never put the root value in Git, source files, logs, screenshots or printed CI
+output. The root remains inside the Cloudflare Worker.
 
-**Security limitation:** this first implementation uses one Worker-wide HMAC
-secret shared by all devices in this deployment. That is acceptable for
-isolated integration testing only. Before general production use, replace it
-with per-device derived keys and a one-time authenticated provisioning flow;
-a compromised device must not reveal the signing key for every other device.
+For each paired Windows device, the Worker derives a distinct 256-bit HMAC key:
 
-Without the Worker secret, the proposal and receipt routes fail closed with
-`503 COMPANION_PROPOSAL_SIGNING_SECRET_UNAVAILABLE`.
+```text
+HMAC-SHA256(master, "vi.companion.device-proposal-key.v1:" + computer_id)
+```
+
+The paired device obtains only its own derived key through the authenticated
+device route `GET /api/computer/v1/proposals/key`, using its bearer token and
+`X-MEL-Computer-ID`. The endpoint is no-store and refuses access when the
+device is halted, is not Windows, or has disabled local remote access. VIA must
+hold the returned key only in process memory and clear it at shutdown. No
+device can derive another device's key from the key it receives.
+
+A missing or invalid Worker root secret fails closed with
+`503 COMPANION_PROPOSAL_SIGNING_SECRET_UNAVAILABLE`. The retired
+`COMPANION_PROPOSAL_HMAC_SECRET` variable is intentionally not accepted.
 
 ## Endpoints
 
