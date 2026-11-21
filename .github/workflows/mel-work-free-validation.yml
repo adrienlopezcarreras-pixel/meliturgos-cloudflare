@@ -12,6 +12,7 @@ on:
       - "tests/taskmarket-*.test.mjs"
       - "tests/evm-sign.test.mjs"
       - "src/devices/computer-companion-api.js"
+      - "tests/computer-companion-api.test.mjs"
       - "src/devices/computer-command-status.js"
       - "src/devices/taskmarket-readonly-companion.js"
       - "src/pages/revenue-interface.js"
