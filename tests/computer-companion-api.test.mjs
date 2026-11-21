@@ -598,3 +598,45 @@ test('VIA signed proposal relay rejects unlisted actions, malformed input and co
     assert.equal(queuedBody.request_id,envelope.nonce);
   }finally{DB.close();}
 });
+
+test('VIA claimed proposal is revoked by the owner STOP before local review',async()=>{
+  const DB=sqliteD1();
+  const secret='12'.repeat(32);
+  try{
+    const env={DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test',
+      COMPANION_PROPOSAL_HMAC_SECRET:secret};
+    const computerId='pc-proposal-stop';
+    const device=await pairedProposalDevice(DB,env,computerId);
+    const queued=await maybeHandleComputerApi(ownerRequest(
+      '/api/computer/v1/proposals','POST',{
+        computer_id:computerId,action:'windows.input.key',payload:{key:'escape'}
+      }),env);
+    assert.equal(queued.status,202);
+    const queuedBody=await queued.json();
+    const claimed=await maybeHandleComputerApi(new Request(
+      'https://mel.test/api/computer/v1/proposals/next',{headers:device.headers}),env);
+    assert.equal(claimed.status,200);
+    const envelope=await claimed.json();
+
+    let control=await maybeHandleComputerApi(new Request(
+      'https://mel.test/api/computer/v1/proposals/control-state?request_id='+envelope.nonce,
+      {headers:device.headers}),env);
+    assert.equal(control.status,200);
+    assert.equal((await control.json()).permitted,true);
+
+    const stopped=await maybeHandleComputerApi(ownerRequest(
+      '/api/computer/v1/halt','POST',{computer_id:computerId}),env);
+    assert.equal(stopped.status,200);
+    control=await maybeHandleComputerApi(new Request(
+      'https://mel.test/api/computer/v1/proposals/control-state?request_id='+envelope.nonce,
+      {headers:device.headers}),env);
+    assert.equal(control.status,200);
+    const state=await control.json();
+    assert.equal(state.permitted,false);
+    assert.equal(state.code,'OWNER_HALT_ACTIVE');
+    const row=await DB.prepare(
+      'SELECT status FROM computer_proposals WHERE nonce=? AND device_id=?'
+    ).bind(queuedBody.request_id,computerId).first();
+    assert.equal(row.status,'CANCELLED');
+  }finally{DB.close();}
+});
