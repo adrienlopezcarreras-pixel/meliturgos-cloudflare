@@ -72,7 +72,12 @@ export const COMPUTER_ROUTES=Object.freeze({
  sovereigntyArchive:"/api/computer/v1/sovereignty-code-archive",
  sovereigntyCommand:"/api/computer/v1/sovereignty-command",
  pcControl:"/api/computer/v1/pc-control",
- deviceFile:"/api/computer/v1/device-file"
+ deviceFile:"/api/computer/v1/device-file",
+ proposals:"/api/computer/v1/proposals",
+ proposalsKey:"/api/computer/v1/proposals/key",
+ proposalsNext:"/api/computer/v1/proposals/next",
+ proposalsControlState:"/api/computer/v1/proposals/control-state",
+ proposalsReceipt:"/api/computer/v1/proposals/receipt"
 });
 const DEFAULT_APPS=["notepad","calculator","explorer","msedge","firefox","chrome"];
 const PAIR_TTL_MS=10*60*1000;
@@ -110,7 +115,234 @@ async function tables(env){
  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS computer_devices(id TEXT PRIMARY KEY,token_hash TEXT NOT NULL,name TEXT NOT NULL,platform TEXT NOT NULL,capabilities TEXT NOT NULL,allowed_apps TEXT NOT NULL,halted INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,last_seen_at INTEGER NOT NULL,metadata TEXT NOT NULL DEFAULT "{}")`).run();
  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS computer_commands(id TEXT PRIMARY KEY,device_id TEXT NOT NULL,session_id TEXT NOT NULL,plan_json TEXT NOT NULL,status TEXT NOT NULL,created_at INTEGER NOT NULL,claimed_at INTEGER,finished_at INTEGER,result_json TEXT,error_code TEXT)`).run();
  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS computer_pair_codes(code_hash TEXT PRIMARY KEY,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,used_at INTEGER)`).run();
+ await env.DB.prepare(`CREATE TABLE IF NOT EXISTS computer_proposals(id TEXT PRIMARY KEY,device_id TEXT NOT NULL,nonce TEXT NOT NULL UNIQUE,action TEXT NOT NULL,payload_json TEXT NOT NULL,envelope_json TEXT NOT NULL,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,status TEXT NOT NULL,claimed_at INTEGER,receipt_json TEXT,receipt_hash TEXT)`).run();
 }
+
+const COMPANION_PROPOSAL_SCHEMA="vi.companion.signed-request.v1";
+const COMPANION_RECEIPT_SCHEMA="vi.companion.receipt.v1";
+const COMPANION_PROPOSAL_TTL_MS=30_000;
+const COMPANION_PROPOSAL_MAX_PENDING=16;
+const COMPANION_INPUT_KEYS=new Set(["escape","tab","up","down","left","right","f5"]);
+
+function companionProposalMasterKey(env){
+ const value=env?.COMPANION_PROPOSAL_MASTER_SECRET;
+ if(typeof value!=="string"||!/^[0-9a-fA-F]{64}$/.test(value))return null;
+ const bytes=new Uint8Array(32);
+ for(let i=0;i<32;i++)bytes[i]=parseInt(value.slice(i*2,i*2+2),16);
+ return bytes;
+}
+async function companionProposalKey(env,computerId){
+ const master=companionProposalMasterKey(env);
+ if(!master||typeof computerId!=="string"||!computerId)return null;
+ // Derive a unique key. The root secret remains in the Worker; only a
+ // device-scoped 256-bit key is sent to its authenticated Windows Companion.
+ const cryptoKey=await crypto.subtle.importKey("raw",master,{name:"HMAC",hash:"SHA-256"},false,["sign"]);
+ const context=new TextEncoder().encode("vi.companion.device-proposal-key.v1:"+computerId);
+ return new Uint8Array(await crypto.subtle.sign("HMAC",cryptoKey,context));
+}
+function companionKeyHex(key){
+ return [...key].map(byte=>byte.toString(16).padStart(2,"0")).join("");
+}
+function canonicalProposalJson(value){
+ if(Array.isArray(value))return "["+value.map(canonicalProposalJson).join(",")+"]";
+ if(value&&typeof value==="object"&&Object.getPrototypeOf(value)===Object.prototype){
+  return "{"+Object.keys(value).sort().map(key=>JSON.stringify(key)+":"+canonicalProposalJson(value[key])).join(",")+"}";
+ }
+ return JSON.stringify(value);
+}
+async function companionHmac(key,value){
+ const cryptoKey=await crypto.subtle.importKey("raw",key,{name:"HMAC",hash:"SHA-256"},false,["sign"]);
+ const signature=new Uint8Array(await crypto.subtle.sign("HMAC",cryptoKey,
+  new TextEncoder().encode(canonicalProposalJson(value))));
+ return [...signature].map(byte=>byte.toString(16).padStart(2,"0")).join("");
+}
+async function companionVerifyHmac(key,value,signatureHex){
+ if(typeof signatureHex!=="string"||!/^[0-9a-f]{64}$/.test(signatureHex))return false;
+ const signature=new Uint8Array(32);
+ for(let i=0;i<32;i++)signature[i]=parseInt(signatureHex.slice(i*2,i*2+2),16);
+ const cryptoKey=await crypto.subtle.importKey("raw",key,{name:"HMAC",hash:"SHA-256"},false,["verify"]);
+ return crypto.subtle.verify("HMAC",cryptoKey,signature,
+  new TextEncoder().encode(canonicalProposalJson(value)));
+}
+function companionInputPayload(action,payload){
+ if(!payload||typeof payload!=="object"||Array.isArray(payload))return false;
+ const keys=Object.keys(payload).sort();
+ if(action==="windows.input.click"){
+  return keys.length===2&&keys[0]==="x"&&keys[1]==="y"
+   &&Number.isInteger(payload.x)&&Number.isInteger(payload.y)
+   &&payload.x>=0&&payload.x<=30000&&payload.y>=0&&payload.y<=30000;
+ }
+ if(action==="windows.input.key"){
+  return keys.length===1&&keys[0]==="key"
+   &&typeof payload.key==="string"&&COMPANION_INPUT_KEYS.has(payload.key);
+ }
+ return false;
+}
+
+
+async function getCompanionProposalKey(env,a){
+ if(a.device.halted)return json({ok:false,code:"OWNER_HALT_ACTIVE"},409);
+ if(String(a.device.platform||"").toLowerCase()!=="windows")
+  return json({ok:false,code:"COMPANION_PROPOSAL_WINDOWS_REQUIRED"},409);
+ if(a.device.metadata?.remote_access_enabled!==true)
+  return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
+ const key=await companionProposalKey(env,a.device.id);
+ if(!key)return json({ok:false,code:"COMPANION_PROPOSAL_SIGNING_SECRET_UNAVAILABLE"},503);
+ return json({ok:true,schema:"vi.companion.device-key.v1",
+  computer_id:a.device.id,key:companionKeyHex(key),key_scope:"single_device"});
+}
+
+async function ownerQueueCompanionProposal(request,env){
+ const owner=requireAuth(request,env);if(!owner.ok)return owner.response;
+ await tables(env);
+ const contentLength=Number(request.headers.get("content-length")||0);
+ if(Number.isFinite(contentLength)&&contentLength>4096)
+  return json({ok:false,code:"COMPANION_PROPOSAL_BODY_TOO_LARGE"},413);
+ const body=await request.json().catch(()=>null);
+ if(!body||typeof body!=="object"||Array.isArray(body)
+    ||Object.keys(body).sort().join(",")!=="action,computer_id,payload")
+  return json({ok:false,code:"COMPANION_PROPOSAL_BODY_INVALID"},400);
+ const computerId=safe(body.computer_id,128),action=body.action,payload=body.payload;
+ if(!computerId||typeof body.computer_id!=="string"||body.computer_id.trim()!==computerId
+    ||body.computer_id.length>128||!/^[A-Za-z0-9_.-]{1,128}$/.test(computerId))
+  return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);
+ const key=await companionProposalKey(env,computerId);
+ if(!key)return json({ok:false,code:"COMPANION_PROPOSAL_SIGNING_SECRET_UNAVAILABLE"},503);
+ if(!companionInputPayload(action,payload))
+  return json({ok:false,code:"COMPANION_PROPOSAL_ACTION_INVALID"},403);
+ const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=? LIMIT 1")
+  .bind(computerId).first();
+ const device=normalizeDevice(row);
+ if(!device)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404);
+ if(device.halted)return json({ok:false,code:"OWNER_HALT_ACTIVE"},409);
+ if(String(device.platform||"").toLowerCase()!=="windows")
+  return json({ok:false,code:"COMPANION_PROPOSAL_WINDOWS_REQUIRED"},409);
+ const now=Date.now();
+ if(!device.online||device.last_seen_at>now||now-device.last_seen_at>35_000)
+  return json({ok:false,code:"COMPUTER_OFFLINE"},409);
+ if(device.metadata?.remote_access_enabled!==true)
+  return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
+ const pending=await env.DB.prepare(
+  "SELECT COUNT(*) AS total FROM computer_proposals WHERE device_id=? AND status IN ('PENDING','CLAIMED') AND expires_at>?"
+ ).bind(computerId,now).first();
+ if(Number(pending?.total||0)>=COMPANION_PROPOSAL_MAX_PENDING)
+  return json({ok:false,code:"COMPANION_PROPOSAL_QUEUE_FULL"},429);
+ const nonce=crypto.randomUUID().replace(/-/g,"").toLowerCase();
+ const issuedAt=Math.floor(now/1000);
+ const signedBody={schema:COMPANION_PROPOSAL_SCHEMA,computer_id:computerId,
+  nonce,issued_at:issuedAt,action,payload};
+ const envelope={...signedBody,signature:await companionHmac(key,signedBody)};
+ const expiresAt=now+COMPANION_PROPOSAL_TTL_MS;
+ await env.DB.prepare(
+  "INSERT INTO computer_proposals(id,device_id,nonce,action,payload_json,envelope_json,created_at,expires_at,status) VALUES(?,?,?,?,?,?,?,?,?)"
+ ).bind(crypto.randomUUID(),computerId,nonce,action,JSON.stringify(payload),
+  JSON.stringify(envelope),now,expiresAt,"PENDING").run();
+ return json({ok:true,request_id:nonce,status:"PENDING",expires_at:expiresAt},202);
+}
+
+async function claimCompanionProposal(env,a){
+ const key=await companionProposalKey(env,a.device.id);
+ if(!key)return json({ok:false,code:"COMPANION_PROPOSAL_SIGNING_SECRET_UNAVAILABLE"},503);
+ if(a.device.halted)return json({ok:false,code:"OWNER_HALT_ACTIVE"},409);
+ if(a.device.metadata?.remote_access_enabled!==true)
+  return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
+ const now=Date.now();
+ if(!a.device.online||a.device.last_seen_at>now||now-a.device.last_seen_at>35_000)
+  return json({ok:false,code:"COMPUTER_OFFLINE"},409);
+ await env.DB.prepare(
+  "UPDATE computer_proposals SET status='EXPIRED' WHERE device_id=? AND status IN ('PENDING','CLAIMED') AND expires_at<=?"
+ ).bind(a.device.id,now).run();
+ const row=await env.DB.prepare(
+  "SELECT * FROM computer_proposals WHERE device_id=? AND status='PENDING' AND expires_at>? ORDER BY created_at ASC LIMIT 1"
+ ).bind(a.device.id,now).first();
+ if(!row)return new Response(null,{status:204,headers:{"cache-control":"no-store"}});
+ const claimed=await env.DB.prepare(
+  "UPDATE computer_proposals SET status='CLAIMED',claimed_at=? WHERE id=? AND device_id=? AND status='PENDING' AND expires_at>? AND EXISTS (SELECT 1 FROM computer_devices WHERE id=? AND halted=0)"
+ ).bind(now,row.id,a.device.id,now,a.device.id).run();
+ if(!claimed||claimed.success===false||Number(claimed.meta?.changes)!==1)
+  return new Response(null,{status:204,headers:{"cache-control":"no-store"}});
+ const envelope=parse(row.envelope_json,null);
+ if(!envelope||envelope.computer_id!==a.device.id||envelope.nonce!==row.nonce){
+  await env.DB.prepare("UPDATE computer_proposals SET status='FAILED' WHERE id=? AND status='CLAIMED'").bind(row.id).run();
+  return json({ok:false,code:"COMPANION_PROPOSAL_ENVELOPE_INVALID"},503);
+ }
+ return json(envelope,200);
+}
+
+
+async function companionProposalControlState(env,a,url){
+ const nonce=safe(url.searchParams.get("request_id"),32).toLowerCase();
+ if(!/^[0-9a-f]{32}$/.test(nonce))
+  return json({ok:false,code:"COMPANION_PROPOSAL_REQUEST_ID_INVALID"},400);
+ const current=await env.DB.prepare(
+  "SELECT halted,metadata FROM computer_devices WHERE id=? LIMIT 1"
+ ).bind(a.device.id).first();
+ const metadata=parse(current?.metadata,{});
+ const proposal=await env.DB.prepare(
+  "SELECT status,expires_at FROM computer_proposals WHERE nonce=? AND device_id=? LIMIT 1"
+ ).bind(nonce,a.device.id).first();
+ const now=Date.now();
+ const permitted=!!current&&Number(current.halted)===0
+  &&metadata?.remote_access_enabled===true
+  &&!!proposal&&proposal.status==="CLAIMED"
+  &&Number(proposal.expires_at)>now
+  &&a.device.last_seen_at<=now&&now-Number(a.device.last_seen_at)<=35_000;
+ return json({ok:true,permitted,
+  code:permitted?"AUTHORIZED":!current||Number(current?.halted)===1
+   ?"OWNER_HALT_ACTIVE":metadata?.remote_access_enabled!==true
+   ?"REMOTE_ACCESS_DISABLED_LOCALLY":!proposal?"COMPANION_PROPOSAL_UNKNOWN"
+   :proposal.status!=="CLAIMED"?"COMPANION_PROPOSAL_REVOKED"
+   :"COMPANION_PROPOSAL_EXPIRED"});
+}
+
+async function receiveCompanionProposalReceipt(request,env,a){
+ const key=await companionProposalKey(env,a.device.id);
+ if(!key)return json({ok:false,code:"COMPANION_PROPOSAL_SIGNING_SECRET_UNAVAILABLE"},503);
+ const receipt=await request.json().catch(()=>null);
+ const required=["schema","computer_id","request_id","status","issued_at","executed","execution_verified","signature"];
+ if(!receipt||typeof receipt!=="object"||Array.isArray(receipt)
+    ||Object.keys(receipt).sort().join(",")!==required.slice().sort().join(","))
+  return json({ok:false,code:"COMPANION_RECEIPT_BODY_INVALID"},400);
+ const allowed=new Set(["queued","owner_declined","blocked","failed","completed","unverified"]);
+ if(receipt.schema!==COMPANION_RECEIPT_SCHEMA||receipt.computer_id!==a.device.id
+    ||typeof receipt.request_id!=="string"||!/^[0-9a-f]{32}$/.test(receipt.request_id)
+    ||typeof receipt.status!=="string"||!allowed.has(receipt.status)
+    ||!Number.isSafeInteger(receipt.issued_at)||typeof receipt.executed!=="boolean"
+    ||typeof receipt.execution_verified!=="boolean"
+    ||typeof receipt.signature!=="string"||!/^[0-9a-f]{64}$/.test(receipt.signature))
+  return json({ok:false,code:"COMPANION_RECEIPT_FIELDS_INVALID"},400);
+ const nowSeconds=Math.floor(Date.now()/1000);
+ if(receipt.issued_at>nowSeconds||nowSeconds-receipt.issued_at>=300)
+  return json({ok:false,code:"COMPANION_RECEIPT_EXPIRED"},409);
+ const completed=receipt.status==="completed";
+ if(receipt.executed!==completed||receipt.execution_verified!==completed)
+  return json({ok:false,code:"COMPANION_RECEIPT_EXECUTION_PROOF_INVALID"},400);
+ const body={schema:receipt.schema,computer_id:receipt.computer_id,
+  request_id:receipt.request_id,status:receipt.status,issued_at:receipt.issued_at,
+  executed:receipt.executed,execution_verified:receipt.execution_verified};
+ const signatureValid=await companionVerifyHmac(key,body,receipt.signature);
+ if(!signatureValid)return json({ok:false,code:"COMPANION_RECEIPT_SIGNATURE_INVALID"},401);
+ const proposal=await env.DB.prepare(
+  "SELECT status,receipt_hash,expires_at FROM computer_proposals WHERE nonce=? AND device_id=? LIMIT 1"
+ ).bind(receipt.request_id,a.device.id).first();
+ if(!proposal)return json({ok:false,code:"COMPANION_RECEIPT_REQUEST_UNKNOWN"},404);
+ const receiptHash=await sha(canonicalProposalJson(receipt));
+ if(proposal.status==="RECEIVED"){
+  if(proposal.receipt_hash!==receiptHash)
+   return json({ok:false,code:"COMPANION_RECEIPT_CONFLICT"},409);
+  return json({status:"acknowledged",request_id:receipt.request_id,executed:receipt.executed},202);
+ }
+ if(proposal.status!=="CLAIMED"||Number(proposal.expires_at)<=Date.now())
+  return json({ok:false,code:"COMPANION_RECEIPT_REQUEST_NOT_CLAIMED"},409);
+ const updated=await env.DB.prepare(
+  "UPDATE computer_proposals SET status='RECEIVED',receipt_json=?,receipt_hash=? WHERE nonce=? AND device_id=? AND status='CLAIMED'"
+ ).bind(JSON.stringify(receipt),receiptHash,receipt.request_id,a.device.id).run();
+ if(!updated||updated.success===false||Number(updated.meta?.changes)!==1)
+  return json({ok:false,code:"COMPANION_RECEIPT_WRITE_UNCONFIRMED"},503);
+ return json({status:"acknowledged",request_id:receipt.request_id,executed:receipt.executed},202);
+}
+
+
 function normalizeDevice(r){if(!r)return null;const metadata=parse(r.metadata,{});return {id:r.id,name:r.name,platform:r.platform,capabilities:parse(r.capabilities,[]),allowed_apps:parse(r.allowed_apps,[]),allowed_paths:Array.isArray(metadata.allowed_paths)?metadata.allowed_paths:[],halted:Number(r.halted)===1,created_at:Number(r.created_at||0),last_seen_at:Number(r.last_seen_at||0),online:Date.now()-Number(r.last_seen_at||0)<35000,metadata}}
 function normalizeCommand(r){if(!r)return null;return {id:r.id,device_id:r.device_id,session_id:r.session_id,status:r.status,created_at:Number(r.created_at||0),claimed_at:r.claimed_at==null?null:Number(r.claimed_at),finished_at:r.finished_at==null?null:Number(r.finished_at),result:parse(r.result_json,null),error_code:r.error_code||null}}
 
@@ -266,6 +498,11 @@ async function ownerHalt(request,env,halted){
   if(!cancelled||cancelled.success===false)
    return json({ok:false,code:"COMPUTER_HALT_QUEUE_CANCELLATION_FAILED"},503);
   cancelledPending=Number(cancelled.meta?.changes||0);
+  const proposalsCancelled=await env.DB.prepare(
+   "UPDATE computer_proposals SET status='CANCELLED' WHERE device_id=? AND status IN ('PENDING','CLAIMED')"
+  ).bind(id).run();
+  if(!proposalsCancelled||proposalsCancelled.success===false)
+   return json({ok:false,code:"COMPANION_PROPOSAL_HALT_CANCELLATION_FAILED"},503);
  }
  let cancelledRunning=0;
  if(halted){
@@ -491,7 +728,7 @@ async function ownerPower(request,env){
  return json({ok:true,command_id:cid,status:"PENDING",action,owner_approved:true},202);
 }
 
-async function ownerRevoke(request,env){const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);const b=await request.json().catch(()=>({}));const id=safe(b.computer_id);if(!id)return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);const row=await env.DB.prepare("SELECT id FROM computer_devices WHERE id=?").bind(id).first();if(!row)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404);await env.DB.prepare("DELETE FROM computer_commands WHERE device_id=?").bind(id).run();await env.DB.prepare("DELETE FROM computer_devices WHERE id=?").bind(id).run();return json({ok:true,computer_id:id,revoked:true})}
+async function ownerRevoke(request,env){const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);const b=await request.json().catch(()=>({}));const id=safe(b.computer_id);if(!id)return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);const row=await env.DB.prepare("SELECT id FROM computer_devices WHERE id=?").bind(id).first();if(!row)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404);await env.DB.prepare("DELETE FROM computer_commands WHERE device_id=?").bind(id).run();await env.DB.prepare("DELETE FROM computer_proposals WHERE device_id=?").bind(id).run();await env.DB.prepare("DELETE FROM computer_devices WHERE id=?").bind(id).run();return json({ok:true,computer_id:id,revoked:true})}
 
 async function asset(request,env,name,{allowDevice=false}={}){const owner=requireAuth(request,env);if(!owner.ok){if(!allowDevice)return owner.response;const device=await authDevice(request,env);if(!device.ok)return device.response}if(!env?.ASSETS?.fetch)return json({ok:false,code:"ASSETS_BINDING_UNAVAILABLE"},503);const u=new URL("/"+name,request.url);const r=await env.ASSETS.fetch(new Request(u.toString(),{method:"GET"}));if(!r.ok)return json({ok:false,code:"ASSET_NOT_FOUND"},404);const h=new Headers(r.headers);h.set("content-type","text/plain; charset=utf-8");h.set("content-disposition",`attachment; filename="${name}"`);h.set("cache-control","no-store");return new Response(r.body,{status:200,headers:h})}
 
@@ -978,6 +1215,7 @@ export async function maybeHandleComputerApi(request,env){
  if(url.pathname===COMPUTER_ROUTES.pair&&request.method==="POST")return pair(request,env);
  if(url.pathname===COMPUTER_ROUTES.revoke&&request.method==="POST")return ownerRevoke(request,env);
  if(url.pathname===COMPUTER_ROUTES.status&&request.method==="GET")return ownerStatus(request,env,url);
+ if(url.pathname===COMPUTER_ROUTES.proposals&&request.method==="POST")return ownerQueueCompanionProposal(request,env);
  if(url.pathname===COMPUTER_ROUTES.commands&&request.method==="POST")return ownerCommand(request,env);
  if(url.pathname===COMPUTER_ROUTES.desktopViewRequest&&request.method==="POST")return ownerDesktopViewRequest(request,env);
  if(url.pathname===COMPUTER_ROUTES.halt&&request.method==="POST")return ownerHalt(request,env,true);
@@ -994,6 +1232,10 @@ export async function maybeHandleComputerApi(request,env){
  if(url.pathname===COMPUTER_API_BASE+"/heartbeat"&&request.method==="POST")return heartbeat(request,env,a);
  if(url.pathname===COMPUTER_ROUTES.companions&&request.method==="GET")return computerCompanions(env);
  if(url.pathname===COMPUTER_ROUTES.controlState&&request.method==="GET")return controlState(request,env,a,url);
+ if(url.pathname===COMPUTER_ROUTES.proposalsKey&&request.method==="GET")return getCompanionProposalKey(env,a);
+ if(url.pathname===COMPUTER_ROUTES.proposalsNext&&request.method==="GET")return claimCompanionProposal(env,a);
+ if(url.pathname===COMPUTER_ROUTES.proposalsControlState&&request.method==="GET")return companionProposalControlState(env,a,url);
+ if(url.pathname===COMPUTER_ROUTES.proposalsReceipt&&request.method==="POST")return receiveCompanionProposalReceipt(request,env,a);
  if(url.pathname===COMPUTER_ROUTES.triadActivity&&request.method==="GET"){
   if(a.device.halted)return json({ok:false,code:"TRIAD_COMPANION_HALTED"},409);
   return json(await readAndroidTriadActivityForCompanion(env));

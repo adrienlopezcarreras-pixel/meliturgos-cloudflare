@@ -12,6 +12,7 @@ on:
       - "tests/taskmarket-*.test.mjs"
       - "tests/evm-sign.test.mjs"
       - "src/devices/computer-companion-api.js"
+      - "tests/computer-companion-api.test.mjs"
       - "src/devices/computer-command-status.js"
       - "src/devices/taskmarket-readonly-companion.js"
       - "src/pages/revenue-interface.js"
@@ -71,4 +72,4 @@ jobs:
           node scripts/runtime-security-gate.mjs
 
       - name: MEL WORK route, API and Companion contracts
-        run: node --test tests/revenue-watch.test.mjs tests/revenue/github-bounty-discovery.test.mjs tests/gen2/workers-ai-zero-cost-proof.test.mjs tests/mel-work-kickoff.test.mjs tests/revenue-interface.test.mjs tests/taskmarket-readonly-companion.test.mjs tests/release-ai-planning-retry.test.mjs tests/gen2/companion-late-ollama-result.test.mjs tests/revenue/taskmarket-scan.test.mjs tests/revenue/taskmarket-task-policy.test.mjs tests/revenue/taskmarket-worker-cycle.test.mjs tests/mel-work-stream.test.mjs tests/work-*.test.mjs tests/taskmarket-autosubmit.test.mjs tests/taskmarket-cloud.test.mjs tests/evm-sign.test.mjs
+        run: node --test tests/revenue-watch.test.mjs tests/revenue/github-bounty-discovery.test.mjs tests/gen2/workers-ai-zero-cost-proof.test.mjs tests/mel-work-kickoff.test.mjs tests/revenue-interface.test.mjs tests/taskmarket-readonly-companion.test.mjs tests/release-ai-planning-retry.test.mjs tests/gen2/companion-late-ollama-result.test.mjs tests/revenue/taskmarket-scan.test.mjs tests/revenue/taskmarket-task-policy.test.mjs tests/revenue/taskmarket-worker-cycle.test.mjs tests/mel-work-stream.test.mjs tests/computer-companion-api.test.mjs tests/work-*.test.mjs tests/taskmarket-autosubmit.test.mjs tests/taskmarket-cloud.test.mjs tests/evm-sign.test.mjs

@@ -4,6 +4,7 @@ import { maybeHandleComputerApi, COMPUTER_API_BASE } from '../src/devices/comput
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import { readFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
+import { createHmac } from 'node:crypto';
 
 test('computer companion API uses the canonical namespace',()=>assert.equal(COMPUTER_API_BASE,'/api/computer/v1'));
 
@@ -413,4 +414,301 @@ test('native Companion implements read-only serial.inspect for PC Control', () =
   assert.ok(companion.includes('"serial.inspect" { return PcControl-SerialInspect $payload }'));
   assert.ok(companion.includes('flash_performed=$false'));
   assert.ok(companion.includes('SERIAL_PORT_INVALID'));
+});
+
+
+function companionCanonical(value){
+  if(Array.isArray(value))return '['+value.map(companionCanonical).join(',')+']';
+  if(value&&typeof value==='object'){
+    return '{'+Object.keys(value).sort().map(key=>JSON.stringify(key)+':'+companionCanonical(value[key])).join(',')+'}';
+  }
+  return JSON.stringify(value);
+}
+function companionSignature(masterHex,body){
+  const context='vi.companion.device-proposal-key.v1:'+body.computer_id;
+  const deviceKey=createHmac('sha256',Buffer.from(masterHex,'hex'))
+    .update(context,'utf8').digest();
+  return createHmac('sha256',deviceKey)
+    .update(companionCanonical(body),'utf8').digest('hex');
+}
+function companionDerivedKey(masterHex,computerId){
+  return createHmac('sha256',Buffer.from(masterHex,'hex'))
+    .update('vi.companion.device-proposal-key.v1:'+computerId,'utf8')
+    .digest('hex');
+}
+async function pairedProposalDevice(DB,env,computerId,{remote=true}={}){
+  const codeResponse=await maybeHandleComputerApi(
+    ownerRequest('/api/computer/v1/pair-code','POST',{}),env);
+  const code=(await codeResponse.json()).code;
+  const pairedResponse=await maybeHandleComputerApi(new Request(
+    'https://mel.test/api/computer/v1/pair',{
+      method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({pair_code:code,computer_id:computerId,platform:'windows'})
+    }),env);
+  const paired=await pairedResponse.json();
+  await DB.prepare('UPDATE computer_devices SET metadata=? WHERE id=?')
+    .bind(JSON.stringify({remote_access_enabled:remote}),computerId).run();
+  return {token:paired.token,headers:{
+    authorization:'Bearer '+paired.token,
+    'x-mel-computer-id':computerId
+  }};
+}
+
+test('VIA signed proposal relay queues, claims and acknowledges one owner-confirmed input request',async()=>{
+  const DB=sqliteD1();
+  const secret='ab'.repeat(32);
+  try{
+    const env={DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test',
+      COMPANION_PROPOSAL_MASTER_SECRET:secret};
+    const computerId='pc-proposal-relay';
+    const device=await pairedProposalDevice(DB,env,computerId);
+    const queued=await maybeHandleComputerApi(ownerRequest(
+      '/api/computer/v1/proposals','POST',{
+        computer_id:computerId,action:'windows.input.click',payload:{x:120,y:240}
+      }),env);
+    assert.equal(queued.status,202);
+    const queuedBody=await queued.json();
+    assert.equal(queuedBody.status,'PENDING');
+    assert.match(queuedBody.request_id,/^[0-9a-f]{32}$/);
+
+    const claimed=await maybeHandleComputerApi(new Request(
+      'https://mel.test/api/computer/v1/proposals/next',{headers:device.headers}),env);
+    assert.equal(claimed.status,200);
+    const envelope=await claimed.json();
+    assert.equal(envelope.schema,'vi.companion.signed-request.v1');
+    assert.equal(envelope.computer_id,computerId);
+    assert.equal(envelope.nonce,queuedBody.request_id);
+    assert.equal(envelope.action,'windows.input.click');
+    assert.deepEqual(envelope.payload,{x:120,y:240});
+    const signedBody={schema:envelope.schema,computer_id:envelope.computer_id,
+      nonce:envelope.nonce,issued_at:envelope.issued_at,
+      action:envelope.action,payload:envelope.payload};
+    assert.equal(envelope.signature,companionSignature(secret,signedBody));
+
+    const empty=await maybeHandleComputerApi(new Request(
+      'https://mel.test/api/computer/v1/proposals/next',{headers:device.headers}),env);
+    assert.equal(empty.status,204);
+
+    const receiptBody={schema:'vi.companion.receipt.v1',computer_id:computerId,
+      request_id:envelope.nonce,status:'owner_declined',
+      issued_at:Math.floor(Date.now()/1000),executed:false,execution_verified:false};
+    const receipt={...receiptBody,
+      signature:companionSignature(secret,receiptBody)};
+    const delivered=await maybeHandleComputerApi(new Request(
+      'https://mel.test/api/computer/v1/proposals/receipt',{
+        method:'POST',headers:{...device.headers,'content-type':'application/json'},
+        body:JSON.stringify(receipt)
+      }),env);
+    assert.equal(delivered.status,202);
+    assert.deepEqual(await delivered.json(),{
+      status:'acknowledged',request_id:envelope.nonce,executed:false
+    });
+    const retry=await maybeHandleComputerApi(new Request(
+      'https://mel.test/api/computer/v1/proposals/receipt',{
+        method:'POST',headers:{...device.headers,'content-type':'application/json'},
+        body:JSON.stringify(receipt)
+      }),env);
+    assert.equal(retry.status,202);
+    assert.deepEqual(await retry.json(),{
+      status:'acknowledged',request_id:envelope.nonce,executed:false
+    });
+    const row=await DB.prepare(
+      'SELECT status,receipt_hash FROM computer_proposals WHERE nonce=? AND device_id=?'
+    ).bind(envelope.nonce,computerId).first();
+    assert.equal(row.status,'RECEIVED');
+    assert.match(row.receipt_hash,/^[0-9a-f]{64}$/);
+  }finally{DB.close();}
+});
+
+test('VIA signed proposal relay requires device auth, local remote opt-in and a shared HMAC secret',async()=>{
+  const DB=sqliteD1();
+  try{
+    const secret='cd'.repeat(32);
+    const env={DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test',
+      COMPANION_PROPOSAL_MASTER_SECRET:secret};
+    const off=await pairedProposalDevice(DB,env,'pc-proposal-disabled',{remote:false});
+    let response=await maybeHandleComputerApi(ownerRequest(
+      '/api/computer/v1/proposals','POST',{
+        computer_id:'pc-proposal-disabled',action:'windows.input.key',payload:{key:'escape'}
+      }),env);
+    assert.equal(response.status,403);
+    assert.equal((await response.json()).code,'REMOTE_ACCESS_DISABLED_LOCALLY');
+
+    const noHeader=await maybeHandleComputerApi(new Request(
+      'https://mel.test/api/computer/v1/proposals/next',{
+        headers:{authorization:'Bearer '+off.token,'x-via-computer-id':'pc-proposal-disabled'}
+      }),env);
+    assert.equal(noHeader.status,401);
+    assert.equal((await noHeader.json()).code,'COMPUTER_AUTH_REQUIRED');
+
+    const noSecretEnv={DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'};
+    const active=await pairedProposalDevice(DB,noSecretEnv,'pc-proposal-no-secret');
+    response=await maybeHandleComputerApi(ownerRequest(
+      '/api/computer/v1/proposals','POST',{
+        computer_id:'pc-proposal-no-secret',action:'windows.input.key',payload:{key:'escape'}
+      }),noSecretEnv);
+    assert.equal(response.status,503);
+    assert.equal((await response.json()).code,'COMPANION_PROPOSAL_SIGNING_SECRET_UNAVAILABLE');
+    response=await maybeHandleComputerApi(new Request(
+      'https://mel.test/api/computer/v1/proposals/next',{headers:active.headers}),noSecretEnv);
+    assert.equal(response.status,503);
+    assert.equal((await response.json()).code,'COMPANION_PROPOSAL_SIGNING_SECRET_UNAVAILABLE');
+  }finally{DB.close();}
+});
+
+test('VIA signed proposal relay rejects unlisted actions, malformed input and conflicting receipt replay',async()=>{
+  const DB=sqliteD1();
+  const secret='ef'.repeat(32);
+  try{
+    const env={DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test',
+      COMPANION_PROPOSAL_MASTER_SECRET:secret};
+    const computerId='pc-proposal-validation';
+    const device=await pairedProposalDevice(DB,env,computerId);
+    for(const [action,payload] of [
+      ['system.exec',{command:'calc.exe'}],
+      ['windows.input.key',{key:'ctrl+alt+delete'}],
+      ['windows.input.click',{x:-1,y:0}],
+      ['windows.input.click',{x:1,y:2,hwnd:123}],
+      ['windows.input.key',{key:'escape',hwnd:123}]
+    ]){
+      const refused=await maybeHandleComputerApi(ownerRequest(
+        '/api/computer/v1/proposals','POST',{computer_id:computerId,action,payload}),env);
+      assert.equal(refused.status,403);
+    }
+    const queued=await maybeHandleComputerApi(ownerRequest(
+      '/api/computer/v1/proposals','POST',{
+        computer_id:computerId,action:'windows.input.key',payload:{key:'escape'}
+      }),env);
+    const queuedBody=await queued.json();
+    const claimed=await maybeHandleComputerApi(new Request(
+      'https://mel.test/api/computer/v1/proposals/next',{headers:device.headers}),env);
+    const envelope=await claimed.json();
+    const receiptBody={schema:'vi.companion.receipt.v1',computer_id:computerId,
+      request_id:envelope.nonce,status:'owner_declined',
+      issued_at:Math.floor(Date.now()/1000),executed:false,execution_verified:false};
+    const receipt={...receiptBody,
+      signature:companionSignature(secret,receiptBody)};
+    const first=await maybeHandleComputerApi(new Request(
+      'https://mel.test/api/computer/v1/proposals/receipt',{
+        method:'POST',headers:{...device.headers,'content-type':'application/json'},
+        body:JSON.stringify(receipt)
+      }),env);
+    assert.equal(first.status,202);
+    const conflictBody={...receiptBody,status:'failed'};
+    const conflict={...conflictBody,signature:companionSignature(secret,conflictBody)};
+    const replay=await maybeHandleComputerApi(new Request(
+      'https://mel.test/api/computer/v1/proposals/receipt',{
+        method:'POST',headers:{...device.headers,'content-type':'application/json'},
+        body:JSON.stringify(conflict)
+      }),env);
+    assert.equal(replay.status,409);
+    assert.equal((await replay.json()).code,'COMPANION_RECEIPT_CONFLICT');
+    assert.equal(queuedBody.request_id,envelope.nonce);
+  }finally{DB.close();}
+});
+
+test('VIA claimed proposal is revoked by the owner STOP before local review',async()=>{
+  const DB=sqliteD1();
+  const secret='12'.repeat(32);
+  try{
+    const env={DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test',
+      COMPANION_PROPOSAL_MASTER_SECRET:secret};
+    const computerId='pc-proposal-stop';
+    const device=await pairedProposalDevice(DB,env,computerId);
+    const queued=await maybeHandleComputerApi(ownerRequest(
+      '/api/computer/v1/proposals','POST',{
+        computer_id:computerId,action:'windows.input.key',payload:{key:'escape'}
+      }),env);
+    assert.equal(queued.status,202);
+    const queuedBody=await queued.json();
+    const claimed=await maybeHandleComputerApi(new Request(
+      'https://mel.test/api/computer/v1/proposals/next',{headers:device.headers}),env);
+    assert.equal(claimed.status,200);
+    const envelope=await claimed.json();
+
+    let control=await maybeHandleComputerApi(new Request(
+      'https://mel.test/api/computer/v1/proposals/control-state?request_id='+envelope.nonce,
+      {headers:device.headers}),env);
+    assert.equal(control.status,200);
+    assert.equal((await control.json()).permitted,true);
+
+    const stopped=await maybeHandleComputerApi(ownerRequest(
+      '/api/computer/v1/halt','POST',{computer_id:computerId}),env);
+    assert.equal(stopped.status,200);
+    control=await maybeHandleComputerApi(new Request(
+      'https://mel.test/api/computer/v1/proposals/control-state?request_id='+envelope.nonce,
+      {headers:device.headers}),env);
+    assert.equal(control.status,200);
+    const state=await control.json();
+    assert.equal(state.permitted,false);
+    assert.equal(state.code,'OWNER_HALT_ACTIVE');
+    const row=await DB.prepare(
+      'SELECT status FROM computer_proposals WHERE nonce=? AND device_id=?'
+    ).bind(queuedBody.request_id,computerId).first();
+    assert.equal(row.status,'CANCELLED');
+  }finally{DB.close();}
+});
+
+test('VIA proposal HMAC keys are derived per device and disclosed only to the authenticated paired Windows device',async()=>{
+  const DB=sqliteD1();
+  const master='91'.repeat(32);
+  try{
+    const env={DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test',
+      COMPANION_PROPOSAL_MASTER_SECRET:master};
+    const first=await pairedProposalDevice(DB,env,'pc-device-key-one');
+    const second=await pairedProposalDevice(DB,env,'pc-device-key-two');
+    const unauth=await maybeHandleComputerApi(new Request(
+      'https://mel.test/api/computer/v1/proposals/key'),env);
+    assert.equal(unauth.status,401);
+
+    const keyOne=await maybeHandleComputerApi(new Request(
+      'https://mel.test/api/computer/v1/proposals/key',{headers:first.headers}),env);
+    assert.equal(keyOne.status,200);
+    const firstBody=await keyOne.json();
+    assert.equal(firstBody.schema,'vi.companion.device-key.v1');
+    assert.equal(firstBody.computer_id,'pc-device-key-one');
+    assert.equal(firstBody.key_scope,'single_device');
+    assert.equal(firstBody.key,companionDerivedKey(master,'pc-device-key-one'));
+
+    const keyTwo=await maybeHandleComputerApi(new Request(
+      'https://mel.test/api/computer/v1/proposals/key',{headers:second.headers}),env);
+    assert.equal(keyTwo.status,200);
+    const secondBody=await keyTwo.json();
+    assert.equal(secondBody.key,companionDerivedKey(master,'pc-device-key-two'));
+    assert.notEqual(firstBody.key,secondBody.key);
+
+    const disabledEnv={...env};
+    await DB.prepare('UPDATE computer_devices SET metadata=? WHERE id=?')
+      .bind(JSON.stringify({remote_access_enabled:false}),'pc-device-key-one').run();
+    const disabled=await maybeHandleComputerApi(new Request(
+      'https://mel.test/api/computer/v1/proposals/key',{headers:first.headers}),disabledEnv);
+    assert.equal(disabled.status,403);
+    assert.equal((await disabled.json()).code,'REMOTE_ACCESS_DISABLED_LOCALLY');
+
+    await DB.prepare('UPDATE computer_devices SET halted=1 WHERE id=?')
+      .bind('pc-device-key-two').run();
+    const halted=await maybeHandleComputerApi(new Request(
+      'https://mel.test/api/computer/v1/proposals/key',{headers:second.headers}),env);
+    assert.equal(halted.status,409);
+    assert.equal((await halted.json()).code,'OWNER_HALT_ACTIVE');
+  }finally{DB.close();}
+});
+
+test('VIA proposal relay fails closed when only the retired shared HMAC secret name is present',async()=>{
+  const DB=sqliteD1();
+  try{
+    const env={DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test',
+      COMPANION_PROPOSAL_HMAC_SECRET:'ab'.repeat(32)};
+    const device=await pairedProposalDevice(DB,env,'pc-proposal-retired-secret');
+    const queued=await maybeHandleComputerApi(ownerRequest(
+      '/api/computer/v1/proposals','POST',{
+        computer_id:'pc-proposal-retired-secret',
+        action:'windows.input.key',payload:{key:'escape'}
+      }),env);
+    assert.equal(queued.status,503);
+    assert.equal((await queued.json()).code,'COMPANION_PROPOSAL_SIGNING_SECRET_UNAVAILABLE');
+    const key=await maybeHandleComputerApi(new Request(
+      'https://mel.test/api/computer/v1/proposals/key',{headers:device.headers}),env);
+    assert.equal(key.status,503);
+  }finally{DB.close();}
 });
