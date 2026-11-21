@@ -195,8 +195,6 @@ async function getCompanionProposalKey(env,a){
 async function ownerQueueCompanionProposal(request,env){
  const owner=requireAuth(request,env);if(!owner.ok)return owner.response;
  await tables(env);
- const key=await companionProposalKey(env,computerId);
- if(!key)return json({ok:false,code:"COMPANION_PROPOSAL_SIGNING_SECRET_UNAVAILABLE"},503);
  const contentLength=Number(request.headers.get("content-length")||0);
  if(Number.isFinite(contentLength)&&contentLength>4096)
   return json({ok:false,code:"COMPANION_PROPOSAL_BODY_TOO_LARGE"},413);
@@ -208,6 +206,8 @@ async function ownerQueueCompanionProposal(request,env){
  if(!computerId||typeof body.computer_id!=="string"||body.computer_id.trim()!==computerId
     ||body.computer_id.length>128||!/^[A-Za-z0-9_.-]{1,128}$/.test(computerId))
   return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);
+ const key=await companionProposalKey(env,computerId);
+ if(!key)return json({ok:false,code:"COMPANION_PROPOSAL_SIGNING_SECRET_UNAVAILABLE"},503);
  if(!companionInputPayload(action,payload))
   return json({ok:false,code:"COMPANION_PROPOSAL_ACTION_INVALID"},403);
  const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=? LIMIT 1")
