@@ -74,6 +74,7 @@ export const COMPUTER_ROUTES=Object.freeze({
  pcControl:"/api/computer/v1/pc-control",
  deviceFile:"/api/computer/v1/device-file",
  proposals:"/api/computer/v1/proposals",
+ proposalsKey:"/api/computer/v1/proposals/key",
  proposalsNext:"/api/computer/v1/proposals/next",
  proposalsControlState:"/api/computer/v1/proposals/control-state",
  proposalsReceipt:"/api/computer/v1/proposals/receipt"
@@ -123,12 +124,24 @@ const COMPANION_PROPOSAL_TTL_MS=30_000;
 const COMPANION_PROPOSAL_MAX_PENDING=16;
 const COMPANION_INPUT_KEYS=new Set(["escape","tab","up","down","left","right","f5"]);
 
-function companionProposalKey(env){
- const value=env?.COMPANION_PROPOSAL_HMAC_SECRET;
+function companionProposalMasterKey(env){
+ const value=env?.COMPANION_PROPOSAL_MASTER_SECRET;
  if(typeof value!=="string"||!/^[0-9a-fA-F]{64}$/.test(value))return null;
  const bytes=new Uint8Array(32);
  for(let i=0;i<32;i++)bytes[i]=parseInt(value.slice(i*2,i*2+2),16);
  return bytes;
+}
+async function companionProposalKey(env,computerId){
+ const master=companionProposalMasterKey(env);
+ if(!master||typeof computerId!=="string"||!computerId)return null;
+ // Derive a unique key. The root secret remains in the Worker; only a
+ // device-scoped 256-bit key is sent to its authenticated Windows Companion.
+ const cryptoKey=await crypto.subtle.importKey("raw",master,{name:"HMAC",hash:"SHA-256"},false,["sign"]);
+ const context=new TextEncoder().encode("vi.companion.device-proposal-key.v1:"+computerId);
+ return new Uint8Array(await crypto.subtle.sign("HMAC",cryptoKey,context));
+}
+function companionKeyHex(key){
+ return [...key].map(byte=>byte.toString(16).padStart(2,"0")).join("");
 }
 function canonicalProposalJson(value){
  if(Array.isArray(value))return "["+value.map(canonicalProposalJson).join(",")+"]";
@@ -166,10 +179,23 @@ function companionInputPayload(action,payload){
  return false;
 }
 
+
+async function getCompanionProposalKey(env,a){
+ if(a.device.halted)return json({ok:false,code:"OWNER_HALT_ACTIVE"},409);
+ if(String(a.device.platform||"").toLowerCase()!=="windows")
+  return json({ok:false,code:"COMPANION_PROPOSAL_WINDOWS_REQUIRED"},409);
+ if(a.device.metadata?.remote_access_enabled!==true)
+  return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
+ const key=await companionProposalKey(env,a.device.id);
+ if(!key)return json({ok:false,code:"COMPANION_PROPOSAL_SIGNING_SECRET_UNAVAILABLE"},503);
+ return json({ok:true,schema:"vi.companion.device-key.v1",
+  computer_id:a.device.id,key:companionKeyHex(key),key_scope:"single_device"});
+}
+
 async function ownerQueueCompanionProposal(request,env){
  const owner=requireAuth(request,env);if(!owner.ok)return owner.response;
  await tables(env);
- const key=companionProposalKey(env);
+ const key=await companionProposalKey(env,computerId);
  if(!key)return json({ok:false,code:"COMPANION_PROPOSAL_SIGNING_SECRET_UNAVAILABLE"},503);
  const contentLength=Number(request.headers.get("content-length")||0);
  if(Number.isFinite(contentLength)&&contentLength>4096)
@@ -215,7 +241,7 @@ async function ownerQueueCompanionProposal(request,env){
 }
 
 async function claimCompanionProposal(env,a){
- const key=companionProposalKey(env);
+ const key=await companionProposalKey(env,a.device.id);
  if(!key)return json({ok:false,code:"COMPANION_PROPOSAL_SIGNING_SECRET_UNAVAILABLE"},503);
  if(a.device.halted)return json({ok:false,code:"OWNER_HALT_ACTIVE"},409);
  if(a.device.metadata?.remote_access_enabled!==true)
@@ -270,7 +296,7 @@ async function companionProposalControlState(env,a,url){
 }
 
 async function receiveCompanionProposalReceipt(request,env,a){
- const key=companionProposalKey(env);
+ const key=await companionProposalKey(env,a.device.id);
  if(!key)return json({ok:false,code:"COMPANION_PROPOSAL_SIGNING_SECRET_UNAVAILABLE"},503);
  const receipt=await request.json().catch(()=>null);
  const required=["schema","computer_id","request_id","status","issued_at","executed","execution_verified","signature"];
@@ -1206,6 +1232,7 @@ export async function maybeHandleComputerApi(request,env){
  if(url.pathname===COMPUTER_API_BASE+"/heartbeat"&&request.method==="POST")return heartbeat(request,env,a);
  if(url.pathname===COMPUTER_ROUTES.companions&&request.method==="GET")return computerCompanions(env);
  if(url.pathname===COMPUTER_ROUTES.controlState&&request.method==="GET")return controlState(request,env,a,url);
+ if(url.pathname===COMPUTER_ROUTES.proposalsKey&&request.method==="GET")return getCompanionProposalKey(env,a);
  if(url.pathname===COMPUTER_ROUTES.proposalsNext&&request.method==="GET")return claimCompanionProposal(env,a);
  if(url.pathname===COMPUTER_ROUTES.proposalsControlState&&request.method==="GET")return companionProposalControlState(env,a,url);
  if(url.pathname===COMPUTER_ROUTES.proposalsReceipt&&request.method==="POST")return receiveCompanionProposalReceipt(request,env,a);
