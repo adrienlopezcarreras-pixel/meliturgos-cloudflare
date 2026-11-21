@@ -143,6 +143,14 @@ async function companionHmac(key,value){
   new TextEncoder().encode(canonicalProposalJson(value))));
  return [...signature].map(byte=>byte.toString(16).padStart(2,"0")).join("");
 }
+async function companionVerifyHmac(key,value,signatureHex){
+ if(typeof signatureHex!=="string"||!/^[0-9a-f]{64}$/.test(signatureHex))return false;
+ const signature=new Uint8Array(32);
+ for(let i=0;i<32;i++)signature[i]=parseInt(signatureHex.slice(i*2,i*2+2),16);
+ const cryptoKey=await crypto.subtle.importKey("raw",key,{name:"HMAC",hash:"SHA-256"},false,["verify"]);
+ return crypto.subtle.verify("HMAC",cryptoKey,signature,
+  new TextEncoder().encode(canonicalProposalJson(value)));
+}
 function companionInputPayload(action,payload){
  if(!payload||typeof payload!=="object"||Array.isArray(payload))return false;
  const keys=Object.keys(payload).sort();
@@ -286,8 +294,8 @@ async function receiveCompanionProposalReceipt(request,env,a){
  const body={schema:receipt.schema,computer_id:receipt.computer_id,
   request_id:receipt.request_id,status:receipt.status,issued_at:receipt.issued_at,
   executed:receipt.executed,execution_verified:receipt.execution_verified};
- const signature=await companionHmac(key,body);
- if(signature!==receipt.signature)return json({ok:false,code:"COMPANION_RECEIPT_SIGNATURE_INVALID"},401);
+ const signatureValid=await companionVerifyHmac(key,body,receipt.signature);
+ if(!signatureValid)return json({ok:false,code:"COMPANION_RECEIPT_SIGNATURE_INVALID"},401);
  const proposal=await env.DB.prepare(
   "SELECT status,receipt_hash,expires_at FROM computer_proposals WHERE nonce=? AND device_id=? LIMIT 1"
  ).bind(receipt.request_id,a.device.id).first();
