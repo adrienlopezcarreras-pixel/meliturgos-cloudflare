@@ -834,6 +834,35 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     token: githubToken,
     fetchImpl: githubFetch,
   });
+  bus.discover({
+    id: 'code.pinned-read.verify', name: 'Lecture de code liée au déploiement',
+    category: 'diagnostic', version: '1.0.0', provider: 'core',
+    description: 'Verifies an actual bounded source read at the deployed SHA and rejection of an invalid line range.',
+    input_schema: { type: 'object', additionalProperties: false },
+    output_schema: { type: 'object', properties: { ok: { type: 'boolean' }, source_ref: { type: 'string' } },
+      required: ['ok', 'source_ref'], additionalProperties: false },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async (_input, context) => {
+    const sourceRef = String(definedIdentity.sha || deployedSha).toLowerCase();
+    if (!/^[a-f0-9]{40}$/.test(sourceRef)) {
+      throw Object.assign(new Error('CODE_PROOF_DEPLOYMENT_REQUIRED'), { code: 'CODE_PROOF_DEPLOYMENT_REQUIRED' });
+    }
+    const path = 'src/capabilities/github-code-capabilities.js';
+    const readContext = { owner: context.owner, permissions: context.permissions, requestId: context.requestId };
+    const result = await bus.execute('code.read', { path, start_line: 2, end_line: 4 }, readContext);
+    if (result?.source_ref?.toLowerCase() !== sourceRef || result.path !== path ||
+        result.start_line !== 2 || result.end_line !== 4 || result.partial !== true ||
+        !Number.isSafeInteger(result.total_lines) || result.total_lines <= 4 || result.content.split(/\r?\n/).length !== 3) {
+      throw Object.assign(new Error('CODE_PROOF_PINNED_RANGE_UNPROVEN'), { code: 'CODE_PROOF_PINNED_RANGE_UNPROVEN' });
+    }
+    try {
+      await bus.execute('code.read', { path, start_line: 4, end_line: 2 }, readContext);
+    } catch (error) {
+      if (error?.code !== 'CODE_READ_RANGE_INVALID') throw error;
+      return { ok: true, source_ref: sourceRef };
+    }
+    throw Object.assign(new Error('CODE_PROOF_INVALID_RANGE_ACCEPTED'), { code: 'CODE_PROOF_INVALID_RANGE_ACCEPTED' });
+  });
   registerPlatformReadCapabilities(bus, {
     env: runtimeEnv,
     repository: githubRepository,

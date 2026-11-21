@@ -41,6 +41,7 @@ export const ROADMAP_PROOF_SOURCES = Object.freeze({
   'GEN2-56': { capabilities: ['chatgpt.history.search', 'chatgpt.archive.preview'] },
   'MEL-MEM-03': { capabilities: ['memory.export.verify'] },
   'GEN2-14': { capabilities: ['echo', 'skill.list'] },
+  'MEL-CHAT-04': { capabilities: ['code.pinned-read.verify'] },
   'MEL-CODE-01': { capabilities: ['code.read'] },
   'MEL-CODE-02': { capabilities: ['code.search'] },
   'MEL-CODE-03': { capabilities: ['code.integrity'] },

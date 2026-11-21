@@ -21,7 +21,9 @@ test('the actual roadmap audit payload exposes professional-chat, Council and Lo
 test('a successful primitive capability cannot falsely verify a complete chat acceptance goal',()=>{
  const evidence={capabilities:new Map(['code.read','code.search','web.images.search','media.video.analyze'].map(id=>[id,{ok:1,ko:0,last_ok:Date.now()}])),computer:new Map()};
  for(const item of flattenRoadmap().filter(row=>row.phase_id==='P19')){
-  const truth=classifyRoadmapItem(item.id,evidence);assert.notEqual(truth.truth,'VERIFIED_LIVE');assert.equal(truth.proofs.length,0);
+  const truth = classifyRoadmapItem(item.id, evidence);
+  assert.notEqual(truth.truth, 'VERIFIED_LIVE', item.id);
+  assert.ok(truth.proofs.every(proof => proof.ok === 0 && proof.ko === 0), item.id);
  }
 });
 
